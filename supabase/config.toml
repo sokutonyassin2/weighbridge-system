@@ -1,0 +1,7 @@
+project_id = "ghxizhoohrnfitngqzwh"
+
+[functions.create-user]
+verify_jwt = true
+
+[functions.capture-vehicle-photo]
+verify_jwt = false

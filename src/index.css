@@ -1,0 +1,265 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 207 56% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 207 56% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 207 56% 15%;
+    --primary: 207 56% 24%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 207 56% 24%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 350 75% 44%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 350 75% 44%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 76% 36%;
+    --success-foreground: 210 40% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 207 56% 24%;
+    --radius: 0.5rem;
+    --sidebar-background: 207 56% 18%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 207 56% 24%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 207 56% 30%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 207 56% 20%;
+    --sidebar-ring: 207 56% 35%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 215 28% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 215 28% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 91% 45%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 215 28% 17%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 215 28% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 38 92% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 210 40% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 215 28% 17%;
+    --input: 215 28% 17%;
+    --ring: 217 91% 45%;
+    
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 45%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 215 28% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 28% 17%;
+    --sidebar-ring: 217 91% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Modern UI utility classes */
+@layer utilities {
+  .hover-lift {
+    @apply transition-all duration-300 ease-out;
+  }
+  .hover-lift:hover {
+    @apply -translate-y-1 shadow-lg;
+  }
+  
+  .hover-glow {
+    @apply transition-all duration-300;
+  }
+  .hover-glow:hover {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3);
+  }
+  
+  .card-hover {
+    @apply transition-all duration-300 ease-out;
+  }
+  .card-hover:hover {
+    @apply -translate-y-1 shadow-xl border-primary/20;
+  }
+  
+  .btn-smooth {
+    @apply transition-all duration-200 ease-out active:scale-95;
+  }
+  
+  .glass-effect {
+    @apply backdrop-blur-md bg-background/80;
+  }
+}
+
+/* Print styles - Optimized for thermal printers */
+@media print {
+  @page {
+    margin: 0.5cm;
+    size: 80mm auto;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #print-receipt,
+  #print-receipt * {
+    visibility: visible;
+    font-weight: 700 !important;
+  }
+
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  
+  body > * {
+    display: none !important;
+  }
+  
+  body > *:has(#print-receipt),
+  #print-receipt {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  #print-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    font-size: 18px;
+    line-height: 1.4;
+  }
+
+  #print-receipt p,
+  #print-receipt span,
+  #print-receipt div {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+  }
+
+  #print-receipt .text-lg,
+  #print-receipt .text-xl {
+    font-size: 20px !important;
+    font-weight: 800 !important;
+  }
+
+  #print-receipt .text-2xl,
+  #print-receipt .text-3xl {
+    font-size: 24px !important;
+    font-weight: 900 !important;
+  }
+
+  #print-receipt table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 3px solid black !important;
+  }
+
+  #print-receipt th {
+    border: 2px solid black !important;
+    padding: 8px !important;
+    font-weight: 900 !important;
+    font-size: 16px !important;
+    background-color: #f0f0f0 !important;
+  }
+
+  #print-receipt td {
+    border: 2px solid black !important;
+    padding: 8px !important;
+    font-weight: 700 !important;
+    font-size: 16px !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .print\:block {
+    display: block !important;
+  }
+
+  .hidden.print\:block,
+  .print\:block.hidden {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  #print-receipt.hidden {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  .print\:text-base {
+    font-size: 14px !important;
+  }
+
+  .print\:text-lg {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+  }
+
+  .print\:text-xl {
+    font-size: 20px !important;
+    font-weight: 800 !important;
+  }
+
+  .print\:text-2xl {
+    font-size: 22px !important;
+    font-weight: 900 !important;
+  }
+
+  .print\:text-3xl {
+    font-size: 26px !important;
+    font-weight: 900 !important;
+  }
+
+  .print\:p-4 {
+    padding: 1rem !important;
+  }
+}

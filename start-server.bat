@@ -5,7 +5,7 @@ echo Starting Weighbridge System Complete Suite...
 cd /d "%~dp0"
 
 :: 1. Start Weighbridge Helper (Port 3000)
-:: This connects to COM5 and Cameras
+:: This connects to COM6 and Cameras
 echo Starting Weighbridge Helper (Hardware Interface)...
 start "Weighbridge Helper" cmd /k "cd Weighbridge-Helper && node Server.js"
 

@@ -18,7 +18,7 @@ const PHOTO_DIR = "C:\\CameraPhotos";
 /* ===============================
    WEIGH SCALE CONFIG (IMPORTANT)
 ================================ */
-const COM_PORT = "COM5";     // PCIe to High Speed Serial Port
+const COM_PORT = "COM6";     // PCIe to High Speed Serial Port
 const BAUD_RATE = 9600;      // Confirmed common rate
 
 let latestWeight = "0";

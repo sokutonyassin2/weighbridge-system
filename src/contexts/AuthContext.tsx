@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import offlineDataManager from '@/lib/offlineDataManager';
 
-type UserRole = 'admin' | 'operator' | null;
+type UserRole = 'admin' | 'operator' | 'super_admin' | 'logistics_admin' | 'logistics_manager' | null;
 
 interface AuthContextType {
   user: User | null;
@@ -79,14 +79,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const initAuth = async () => {
       try {
         console.log('🔄 Initializing auth...');
-        
+
         // Set up auth state listener - MUST be synchronous
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
           (event, session) => {
             if (!mounted) return;
-            
+
             console.log('🔔 Auth state changed:', event, session ? 'Session exists' : 'No session');
-            
+
             // If online, use Supabase session
             if (navigator.onLine) {
               setSession(session);
@@ -127,16 +127,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         // Check for existing session
         console.log('🔍 Checking for existing session...');
-        
+
         if (navigator.onLine) {
           const { data: { session } } = await supabase.auth.getSession();
           console.log('✅ Session check complete:', session ? 'Session found' : 'No session');
-          
+
           if (!mounted) return;
-          
+
           setSession(session);
           setUser(session?.user ?? null);
-          
+
           if (session?.user) {
             // Fetch role and profile in parallel for faster initial load
             await Promise.all([
@@ -183,7 +183,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (navigator.onLine) {
         // Convert username to email format for Supabase Auth
         const email = `${username.toLowerCase()}@weighbridge.local`;
-        
+
         const { data: authData, error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -195,7 +195,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (authData?.user) {
           const profile = await fetchUserProfile(authData.user.id);
           const role = await fetchUserRole(authData.user.id);
-          
+
           const authCacheData = {
             userId: authData.user.id,
             email: authData.user.email,
@@ -205,7 +205,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             role,
             user: authData.user
           };
-          
+
           offlineDataManager.cacheCriticalData('user_auth', authCacheData);
         }
 
@@ -224,12 +224,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(cachedAuth.user || { id: cachedAuth.userId, email: cachedAuth.email });
           setUserRole(cachedAuth.role);
           setUserProfile({ full_name: cachedAuth.fullName, username: cachedAuth.username });
-          
+
           toast({
             title: "Welcome back! (Offline Mode)",
             description: "You have successfully signed in using cached credentials.",
           });
-          
+
           navigate('/');
           return { error: null };
         } else {
@@ -251,7 +251,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Convert username to email format for Supabase Auth
       const email = `${username.toLowerCase()}@weighbridge.local`;
       const redirectUrl = `${window.location.origin}/`;
-      
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -270,7 +270,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.user && role) {
         const { error: roleError } = await supabase
           .from('user_roles')
-          .insert({ user_id: data.user.id, role });
+          .insert({ user_id: data.user.id, role: role as any });
 
         if (roleError) throw roleError;
       }
@@ -291,11 +291,71 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+
+
+  // System Bootstrap: Auto-create Super Admin
+  const bootstrapSuperAdmin = async () => {
+    try {
+      const email = "sokutonsuper@weighbridge.local";
+      const password = "1234567890"; // As provided by user
+
+      console.log("🚀 Bootstrapping Super Admin...");
+
+      // 1. Try to sign up
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: "Sokuton Super Admin",
+            username: "SokutonSuper",
+          },
+        },
+      });
+
+      if (error) {
+        // If user already exists, we just want to ensure they have the role
+        if (error.message.includes("already registered")) {
+          console.log("ℹ️ Super Admin already exists, checking role...");
+          // We can't get ID easily without login, but we assume if they exist, we set role manually via DB if needed
+          // or user logs in. 
+          return;
+        }
+        console.warn("⚠️ Bootstrap Sign Up Error:", error.message);
+        return;
+      }
+
+      // 2. Assign Role if new user created
+      if (data.user) {
+        console.log("✅ Super Admin User Created:", data.user.id);
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({ user_id: data.user.id, role: 'super_admin' as any });
+
+        if (roleError) console.error("❌ Failed to assign Super Admin role:", roleError);
+        else console.log("🎉 Super Admin Role Assigned!");
+      }
+
+    } catch (err) {
+      console.error("Bootstrap failed:", err);
+    }
+  };
+
+  // Run bootstrap once on mount
+  useEffect(() => {
+    const hasBootstrapped = localStorage.getItem('sokuton_bootstrap_v2');
+    if (!hasBootstrapped) {
+      bootstrapSuperAdmin().then(() => {
+        localStorage.setItem('sokuton_bootstrap_v2', 'true');
+      });
+    }
+  }, []);
+
   const signOut = async () => {
     if (user && userProfile && userRole) {
       await logActivity(user.id, userProfile.full_name, userRole, "logout", "User logged out");
     }
-    
+
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

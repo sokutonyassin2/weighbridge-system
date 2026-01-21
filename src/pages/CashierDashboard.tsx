@@ -31,21 +31,21 @@ const ShiftCollectionsCard = ({ isAdmin, user }: { isAdmin: boolean; user: any }
           .eq("payment_status", "Paid")
           .gte("paid_at", `${today}T00:00:00+03:00`)
           .lte("paid_at", `${today}T23:59:59+03:00`);
-        
+
         return data?.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) || 0;
       } else {
         // Operator: Show current shift collections using shift time window
         const shiftDate = getCurrentShiftDate();
         const shiftName = getCurrentShiftName();
         const { startTime, endTime } = getShiftTimeWindow(shiftDate, shiftName);
-        
+
         const { data } = await supabase
           .from("payments")
           .select("amount")
           .eq("payment_status", "Paid")
           .gte("paid_at", startTime)
           .lte("paid_at", endTime);
-        
+
         return data?.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) || 0;
       }
     },
@@ -67,7 +67,7 @@ export default function CashierDashboard() {
   const [selectedShift, setSelectedShift] = useState<"Day" | "Night">(getCurrentShiftName());
   const [showShiftReport, setShowShiftReport] = useState(false);
   const [reportDate, setReportDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  
+
   // Date filters (admin only)
   const [startDate, setStartDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
@@ -85,7 +85,8 @@ export default function CashierDashboard() {
             vehicle_types (type_name)
           )
         `)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(50);
 
       // Apply date filters for admin only
       if (isAdmin && startDate) {
@@ -109,7 +110,8 @@ export default function CashierDashboard() {
       let query = supabase
         .from("penalties")
         .select("*, vehicle_entries(wb_number)")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(50);
 
       // Apply date filters for admin only
       if (isAdmin && startDate) {
@@ -162,7 +164,7 @@ export default function CashierDashboard() {
       // Query payments that were CREATED within the shift time window
       const { data, error } = await supabase
         .from("payments")
-        .select("*, vehicle_entries(wb_number, shift_id, vehicle_types(type_name, category))")
+        .select("id, amount, payment_type, created_at, entry_id, vehicle_no, vehicle_entries(wb_number, shift_id, vehicle_types(type_name, category))")
         .gte("created_at", startTime)
         .lte("created_at", endTime)
         .order("created_at", { ascending: false });
@@ -221,26 +223,20 @@ export default function CashierDashboard() {
           weigh_time,
           weigh_number,
           entry_id,
-          vehicle_entries (
-            id,
-            vehicle_no,
-            wb_number,
-            category,
-            customer_farmer_name,
-            item_name,
-            source_destination,
-            vehicle_types (type_name, category)
-          )
+          vehicle_entries(id, vehicle_no, wb_number, category, customer_farmer_name, item_name, source_destination, vehicle_types(type_name, category))
         `)
         .eq("weigh_number", 2)
         .gte("weigh_time", startTime)
         .lte("weigh_time", endTime)
         .order("weigh_time", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching completed weighs:", error);
+        throw error;
+      }
 
       // Filter to only MV categories (these don't create second weigh payment)
-      return (data || []).filter(record => 
+      return (data || []).filter(record =>
         record.vehicle_entries?.category?.startsWith('MV-')
       );
     },
@@ -289,7 +285,7 @@ export default function CashierDashboard() {
     setProcessingId(paymentId);
     try {
       const receiptNumber = `RCP-${Date.now()}`;
-      
+
       const { error } = await supabase
         .from("payments")
         .update({
@@ -334,7 +330,7 @@ export default function CashierDashboard() {
     const { startTime } = getShiftTimeWindow(reportDate, selectedShift);
     const now = new Date();
     const shiftStart = new Date(startTime);
-    
+
     if (shiftStart > now) {
       return (
         <div className="p-6 space-y-4">
@@ -356,25 +352,40 @@ export default function CashierDashboard() {
         </div>
       );
     }
-    
-    // Check if data is loaded before rendering report
-    if (!shiftPayments || !shiftPenalties) {
+
+    // Unified check for report data loading
+    const isLoadingReport = !shiftPayments || !shiftPenalties || !completedWeighs;
+
+    if (isLoadingReport) {
       return (
-        <div className="p-6 text-center">
-          <p className="text-muted-foreground">Loading report data...</p>
+        <div className="p-6 text-center min-h-[400px] flex flex-col items-center justify-center animate-fade-in">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+          <h3 className="text-lg font-semibold">Generating Report...</h3>
+          <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
+            We are fetching and processing the transaction data for the {selectedShift} shift.
+            This usually takes a few seconds.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowShiftReport(false)}
+            className="mt-8 text-muted-foreground hover:text-foreground"
+          >
+            Cancel & Back to Dashboard
+          </Button>
         </div>
       );
     }
-    
+
     return (
       <CashierShiftReport
         shiftName={selectedShift}
         shiftDate={reportDate}
         operatorName={
-          currentShift?.operator_name || 
-          (userProfile?.full_name && userProfile?.full_name !== "User" 
-            ? userProfile?.full_name 
-            : userProfile?.username) || 
+          currentShift?.operator_name ||
+          (userProfile?.full_name && userProfile?.full_name !== "User"
+            ? userProfile?.full_name
+            : userProfile?.username) ||
           "Operator"
         }
         payments={shiftPayments}
@@ -391,9 +402,9 @@ export default function CashierDashboard() {
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       {/* Header - Responsive */}
       <div className="flex items-center gap-3 animate-fade-in">
-        <img 
-          src="/images/energy-feeds-logo.jpg" 
-          alt="Energy Feeds" 
+        <img
+          src="/images/energy-feeds-logo.jpg"
+          alt="Energy Feeds"
           className="h-8 md:h-10 object-contain"
         />
         <div>
@@ -479,7 +490,11 @@ export default function CashierDashboard() {
             </RadioGroup>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => setShowShiftReport(true)} className="flex-1 text-xs md:text-sm" size="sm">
+            <Button
+              onClick={() => setShowShiftReport(true)}
+              className="flex-1 text-xs md:text-sm"
+              size="sm"
+            >
               <Printer className="h-4 w-4 mr-2" />
               <span className="hidden sm:inline">Generate & Print Report</span>
               <span className="sm:hidden">Print Report</span>

@@ -22,7 +22,7 @@ export const ProtectedRoute = ({ children, requireAdmin = false }: ProtectedRout
     return <Navigate to="/auth" replace />;
   }
 
-  if (requireAdmin && userRole !== 'admin') {
+  if (requireAdmin && userRole !== 'admin' && userRole !== 'super_admin') {
     return <Navigate to="/" replace />;
   }
 

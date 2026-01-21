@@ -576,6 +576,287 @@ export type Database = {
           },
         ]
       }
+      logistics_asset_types: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          is_active: boolean
+          type_category: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          is_active?: boolean
+          type_category?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          is_active?: boolean
+          type_category?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      logistics_fleet: {
+        Row: {
+          id: string
+          vehicle_no: string
+          horse_number: string | null
+          trailer_number: string | null
+          make_model: string | null
+          asset_type: string
+          fleet_category: string
+          asset_status: string | null
+          assignment_status: string | null
+          coupling_status: string | null
+          last_service_date: string | null
+          odometer_reading: number | null
+          fuel_type: string | null
+          is_active: boolean
+          notes: string | null
+          branding_form_url: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          vehicle_no: string
+          horse_number?: string | null
+          trailer_number?: string | null
+          make_model?: string | null
+          asset_type: string
+          fleet_category: string
+          asset_status?: string | null
+          assignment_status?: string | null
+          coupling_status?: string | null
+          last_service_date?: string | null
+          odometer_reading?: number | null
+          fuel_type?: string | null
+          is_active?: boolean
+          notes?: string | null
+          branding_form_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          vehicle_no?: string
+          horse_number?: string | null
+          trailer_number?: string | null
+          make_model?: string | null
+          asset_type?: string
+          fleet_category?: string
+          asset_status?: string | null
+          assignment_status?: string | null
+          coupling_status?: string | null
+          last_service_date?: string | null
+          odometer_reading?: number | null
+          fuel_type?: string | null
+          is_active?: boolean
+          notes?: string | null
+          branding_form_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      logistics_drivers: {
+        Row: {
+          id: string
+          full_name: string
+          id_number: string | null
+          license_no: string | null
+          license_expiry: string | null
+          phone_no: string | null
+          phone_secondary: string | null
+          operation_type: string
+          status: string | null
+          assigned_vehicle_id: string | null
+          is_active: boolean
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          full_name: string
+          id_number?: string | null
+          license_no?: string | null
+          license_expiry?: string | null
+          phone_no?: string | null
+          phone_secondary?: string | null
+          operation_type?: string
+          status?: string | null
+          assigned_vehicle_id?: string | null
+          is_active?: boolean
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          full_name?: string
+          id_number?: string | null
+          license_no?: string | null
+          license_expiry?: string | null
+          phone_no?: string | null
+          phone_secondary?: string | null
+          operation_type?: string
+          status?: string | null
+          assigned_vehicle_id?: string | null
+          is_active?: boolean
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "logistics_drivers_assigned_vehicle_id_fkey"
+            columns: ["assigned_vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "logistics_fleet"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      logistics_couplings: {
+        Row: {
+          id: string
+          horse_id: string
+          trailer_id: string
+          coupled_at: string | null
+          coupled_by: string | null
+          uncoupled_at: string | null
+          uncoupled_by: string | null
+          is_active: boolean
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          horse_id: string
+          trailer_id: string
+          coupled_at?: string | null
+          coupled_by?: string | null
+          uncoupled_at?: string | null
+          uncoupled_by?: string | null
+          is_active?: boolean
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          horse_id?: string
+          trailer_id?: string
+          coupled_at?: string | null
+          coupled_by?: string | null
+          uncoupled_at?: string | null
+          uncoupled_by?: string | null
+          is_active?: boolean
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "logistics_couplings_horse_id_fkey"
+            columns: ["horse_id"]
+            isOneToOne: false
+            referencedRelation: "logistics_fleet"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "logistics_couplings_trailer_id_fkey"
+            columns: ["trailer_id"]
+            isOneToOne: false
+            referencedRelation: "logistics_fleet"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "logistics_couplings_coupled_by_fkey"
+            columns: ["coupled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "logistics_couplings_uncoupled_by_fkey"
+            columns: ["uncoupled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      logistics_audit_logs: {
+        Row: {
+          id: string
+          event_type: string
+          driver_id: string | null
+          vehicle_id: string | null
+          old_values: Json | null
+          new_values: Json | null
+          reason: string
+          performed_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          event_type: string
+          driver_id?: string | null
+          vehicle_id?: string | null
+          old_values?: Json | null
+          new_values?: Json | null
+          reason: string
+          performed_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          event_type?: string
+          driver_id?: string | null
+          vehicle_id?: string | null
+          old_values?: Json | null
+          new_values?: Json | null
+          reason?: string
+          performed_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "logistics_audit_logs_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "logistics_drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "logistics_audit_logs_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "logistics_fleet"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "logistics_audit_logs_performed_by_fkey"
+            columns: ["performed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -595,12 +876,12 @@ export type Database = {
       app_role: "admin" | "operator"
       payment_status: "Pending" | "Paid" | "Overdue" | "Waived"
       vehicle_category:
-        | "JV-Payment"
-        | "JV-Free"
-        | "Transit"
-        | "MV-Company"
-        | "MV-PublicSeller"
-        | "MV-Supplier"
+      | "JV-Payment"
+      | "JV-Free"
+      | "Transit"
+      | "MV-Company"
+      | "MV-PublicSeller"
+      | "MV-Supplier"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -614,116 +895,116 @@ type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+  ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+    DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R
     }
-    ? R
-    : never
+  ? R
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
+    DefaultSchema["Views"])
+  ? (DefaultSchema["Tables"] &
+    DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+      Row: infer R
+    }
+  ? R
+  : never
+  : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Tables"]
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
+    Insert: infer I
+  }
+  ? I
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
+  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+    Insert: infer I
+  }
+  ? I
+  : never
+  : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Tables"]
+  | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+  : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
+    Update: infer U
+  }
+  ? U
+  : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
+  ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+    Update: infer U
+  }
+  ? U
+  : never
+  : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["Enums"]
+  | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+  : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
+  ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+  : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
+  | keyof DefaultSchema["CompositeTypes"]
+  | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+  ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+  : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
+  ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+  : never
 
 export const Constants = {
   public: {

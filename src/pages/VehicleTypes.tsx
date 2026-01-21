@@ -1,11 +1,34 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { CheckCircle, XCircle, Plus, Settings } from "lucide-react";
 
 export default function VehicleTypes() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  const [newType, setNewType] = useState({
+    type_name: "",
+    category: "MV-PublicSeller",
+    first_weigh_fee: "0",
+    second_weigh_fee: "0",
+    return_time_hours: "0",
+    requires_two_weighs: true,
+    is_time_sensitive: false,
+    description: ""
+  });
+
   const { data: vehicleTypes, isLoading } = useQuery({
     queryKey: ["vehicle-types"],
     queryFn: async () => {
@@ -19,13 +42,127 @@ export default function VehicleTypes() {
     },
   });
 
+  const createTypeMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("vehicle_types").insert({
+        type_name: newType.type_name,
+        category: newType.category as any,
+        first_weigh_fee: parseFloat(newType.first_weigh_fee),
+        second_weigh_fee: parseFloat(newType.second_weigh_fee),
+        return_time_hours: parseInt(newType.return_time_hours),
+        requires_two_weighs: newType.requires_two_weighs,
+        is_time_sensitive: newType.is_time_sensitive,
+        description: newType.description
+      });
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vehicle-types"] });
+      setIsDialogOpen(false);
+      toast({ title: "Success", description: "Vehicle type added successfully" });
+      setNewType({
+        type_name: "",
+        category: "MV-PublicSeller",
+        first_weigh_fee: "0",
+        second_weigh_fee: "0",
+        return_time_hours: "0",
+        requires_two_weighs: true,
+        is_time_sensitive: false,
+        description: ""
+      });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    }
+  });
+
+  const handleCreate = () => {
+    if (!newType.type_name) {
+      toast({ variant: "destructive", title: "Error", description: "Type Name is required" });
+      return;
+    }
+    createTypeMutation.mutate();
+  };
+
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Vehicle Types & Categories</h1>
-        <p className="text-muted-foreground">
-          Payment rules and configuration for different vehicle categories
-        </p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Vehicle Types & Categories</h1>
+          <p className="text-muted-foreground">
+            Payment rules and configuration for different vehicle categories
+          </p>
+        </div>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Vehicle Type
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add New Vehicle Type</DialogTitle>
+              <DialogDescription>Configure fees and rules for a new vehicle category.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="name" className="text-right">Name</Label>
+                <Input id="name" value={newType.type_name} onChange={e => setNewType({ ...newType, type_name: e.target.value })} className="col-span-3" placeholder="e.g. Canter, Fuso" />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="category" className="text-right">Category</Label>
+                <Select value={newType.category} onValueChange={v => setNewType({ ...newType, category: v })}>
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MV-PublicSeller">MV-PublicSeller</SelectItem>
+                    <SelectItem value="MV-Supplier">MV-Supplier</SelectItem>
+                    <SelectItem value="MV-Company">MV-Company</SelectItem>
+                    <SelectItem value="JV-Payment">JV-Payment</SelectItem>
+                    <SelectItem value="JV-Free">JV-Free</SelectItem>
+                    <SelectItem value="Transit">Transit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="fee" className="text-right">Fixed Fee</Label>
+                <Input id="fee" type="number" value={newType.first_weigh_fee} onChange={e => setNewType({ ...newType, first_weigh_fee: e.target.value, second_weigh_fee: "0" })} className="col-span-3" />
+              </div>
+
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">Time Sensitive?</Label>
+                <div className="flex items-center space-x-2 col-span-3">
+                  <Switch checked={newType.is_time_sensitive} onCheckedChange={c => setNewType({ ...newType, is_time_sensitive: c })} />
+                  <span className="text-sm text-muted-foreground">Enable return time tracking</span>
+                </div>
+              </div>
+
+              {newType.is_time_sensitive && (
+                <div className="grid grid-cols-4 items-center gap-4 animate-in fade-in slide-in-from-top-2">
+                  <Label htmlFor="hours" className="text-right">Hours</Label>
+                  <Input id="hours" type="number" value={newType.return_time_hours} onChange={e => setNewType({ ...newType, return_time_hours: e.target.value })} className="col-span-3" placeholder="Return window in hours (e.g. 12)" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right border-t pt-4">2 Weighs?</Label>
+                <div className="flex items-center space-x-2 col-span-3 border-t pt-4">
+                  <Switch checked={newType.requires_two_weighs} onCheckedChange={c => setNewType({ ...newType, requires_two_weighs: c })} />
+                  <span className="text-sm text-muted-foreground">Normal In/Out procedure</span>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={handleCreate} disabled={createTypeMutation.isPending}>
+                {createTypeMutation.isPending ? "Adding..." : "Add Vehicle Type"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Card>
@@ -44,44 +181,40 @@ export default function VehicleTypes() {
                 <TableRow>
                   <TableHead>Type Name</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>1st Weigh Fee</TableHead>
-                  <TableHead>2nd Weigh Fee</TableHead>
-                  <TableHead>Return Time</TableHead>
-                  <TableHead>Two Weighs</TableHead>
-                  <TableHead>Time Sensitive</TableHead>
+                  <TableHead>Fee (TShs)</TableHead>
+                  <TableHead>Procedure</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {vehicleTypes?.map((type) => (
                   <TableRow key={type.id}>
-                    <TableCell className="font-medium">{type.type_name}</TableCell>
+                    <TableCell className="font-bold">{type.type_name}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{type.category}</Badge>
+                      <Badge variant="outline" className="bg-slate-50">{type.category}</Badge>
+                    </TableCell>
+                    <TableCell className="font-mono">
+                      {parseFloat(type.first_weigh_fee.toString()).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      {parseFloat(type.first_weigh_fee.toString()).toLocaleString()} TShs
+                      <div className="flex items-center gap-2 text-xs">
+                        {type.requires_two_weighs ? (
+                          <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-50">In/Out</Badge>
+                        ) : (
+                          <Badge variant="outline">Single Weigh</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
-                      {parseFloat(type.second_weigh_fee.toString()).toLocaleString()} TShs
-                    </TableCell>
-                    <TableCell>
-                      {type.return_time_hours > 0
-                        ? `${type.return_time_hours}h`
-                        : "N/A"}
-                    </TableCell>
-                    <TableCell>
-                      {type.requires_two_weighs ? (
-                        <CheckCircle className="h-4 w-4 text-success" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {type.is_time_sensitive ? (
-                        <Badge variant="secondary">Yes</Badge>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">No</span>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {type.is_time_sensitive ? (
+                          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 w-fit">
+                            Time: {type.return_time_hours}h
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-[10px] uppercase font-bold tracking-tight">Static (No Limit)</span>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

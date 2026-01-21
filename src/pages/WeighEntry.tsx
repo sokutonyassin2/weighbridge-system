@@ -259,7 +259,7 @@ export default function WeighEntry() {
         title: "⚠️ Payment Required Before Weighing",
         description: `${pendingWeigh.payment_required_reason}
 
-Amount Due: TShs ${pendingWeigh.payment_amount?.toLocaleString()}
+Amount Due: TShs ${(pendingWeigh.payment_amount || 0).toLocaleString()}
 
 Please process payment in Cashier section first.`,
         duration: 7000,
@@ -389,14 +389,13 @@ Please process payment in Cashier section first.`,
     }
 
     try {
-      // Fix shift attribution: Update shift_id to current active shift using corrected night shift date logic
+      // 1. Shift Handling (Sequential - but required for everything else)
       const shiftDate = getCurrentShiftDate();
       const shiftName = getCurrentShiftName();
 
-      // Get or create current shift
       let { data: currentShift } = await supabase
         .from("shifts")
-        .select("id, shift_name, operator_name")
+        .select("id")
         .eq("shift_date", shiftDate)
         .eq("shift_name", shiftName)
         .maybeSingle();
@@ -410,223 +409,187 @@ Please process payment in Cashier section first.`,
             operator_id: user.id,
             operator_name: userProfile?.full_name || userProfile?.username || "Operator"
           })
-          .select()
+          .select("id")
           .single();
         currentShift = newShift;
       }
 
-      // Update vehicle entry's shift_id to current shift (critical for correct payment attribution)
-      await supabase
-        .from("vehicle_entries")
-        .update({ shift_id: currentShift.id })
-        .eq("id", id);
+      if (!currentShift) throw new Error("Could not determine current shift");
+      const currentShiftId = currentShift.id;
 
+      // 2. Prepare Data for Parallel Execution
+      const promises: Promise<any>[] = [];
       const calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
 
-      // Update weigh attempts if this is a time-sensitive vehicle (JV/Transit only, not MV)
-      if (pendingWeigh && !isFirstWeigh && !isMVCategory) {
-        await supabase
-          .from("pending_weighs")
-          .update({
-            weigh_attempts: (pendingWeigh.weigh_attempts || 0) + 1,
-          })
-          .eq("entry_id", id);
+      // Determine Status
+      let newStatus = entry?.status;
+      const isMVVehicle = ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry?.category || "");
+      const isSecondWeighForMV = isMVVehicle && weighCount === 1;
+
+      if (weighData.complete_vehicle) {
+        newStatus = "Completed";
+      } else if (isSecondWeighForMV) {
+        newStatus = "Completed";
+      } else if (isFirstWeigh) {
+        newStatus = entry?.vehicle_types?.requires_two_weighs ? "AwaitingSecondWeigh" : "Completed";
+      } else {
+        newStatus = "AwaitingSecondWeigh";
       }
 
-      // Insert weigh record with operator tracking (locked by default)
-      const { error: weighError } = await supabase.from("weigh_records").insert([{
-        entry_id: id,
-        gross_weight: parseFloat(weighData.gross_weight),
-        tare_weight: parseFloat(weighData.tare_weight),
-        weigh_number: weighCount + 1,
-        operator_id: user.id,
-        warning_flag: weighData.warning_flag,
-        exceedence_notes: weighData.exceedence_notes || null,
-        is_locked: true,
-        // GVM/GTM/Trailer for JV vehicles (only save if values entered)
-        gvm: weighData.gvm ? parseFloat(weighData.gvm) : null,
-        gtm: weighData.gtm ? parseFloat(weighData.gtm) : null,
-        trailer_weight: weighData.trailer_weight ? parseFloat(weighData.trailer_weight) : null,
-        // Photo URL if captured
-        photo_url: capturedPhotoUrl || null,
-      }]);
-
-      if (weighError) throw weighError;
-
-      // Check if this is the 3rd weigh attempt and vehicle is not being marked complete (JV/Transit only, not MV)
-      const isThirdWeigh = weighCount === 2; // 0-indexed, so 2 = 3rd weigh
+      const isThirdWeigh = weighCount === 2;
       const hasExhaustedAttempts = !isMVCategory && isThirdWeigh && !weighData.complete_vehicle;
 
+      // --- PARALLEL BLOCK START ---
+
+      // A. Update Vehicle Entry (Status & Shift)
+      promises.push(
+        supabase
+          .from("vehicle_entries")
+          .update({
+            status: hasExhaustedAttempts ? status : newStatus, // Keep status if exhausted
+            completed: !hasExhaustedAttempts && newStatus === "Completed",
+            shift_id: currentShiftId
+          })
+          .eq("id", id)
+      );
+
+      // B. Insert Weigh Record
+      promises.push(
+        supabase.from("weigh_records").insert([{
+          entry_id: id,
+          gross_weight: parseFloat(weighData.gross_weight),
+          tare_weight: parseFloat(weighData.tare_weight),
+          weigh_number: weighCount + 1,
+          operator_id: user.id,
+          warning_flag: weighData.warning_flag,
+          exceedence_notes: weighData.exceedence_notes || null,
+          is_locked: true,
+          gvm: weighData.gvm ? parseFloat(weighData.gvm) : null,
+          gtm: weighData.gtm ? parseFloat(weighData.gtm) : null,
+          trailer_weight: weighData.trailer_weight ? parseFloat(weighData.trailer_weight) : null,
+          photo_url: capturedPhotoUrl || null,
+        }])
+      );
+
+      // C. Handle Pending Weighs & Penalties
       if (hasExhaustedAttempts) {
-        // Mark as requiring payment instead of completing
         const penaltyAmount = entry.vehicle_types?.first_weigh_fee || 0;
 
-        // Update pending_weighs to require payment
-        await supabase
-          .from("pending_weighs")
-          .update({
+        promises.push(
+          supabase.from("pending_weighs").update({
             payment_required: true,
             payment_required_reason: 'Exhausted all 3 weigh attempts without acceptable weight',
             payment_amount: penaltyAmount,
             payment_status: 'Overdue',
             weigh_attempts: 3
+          }).eq("entry_id", id)
+        );
+
+        promises.push(
+          supabase.from("penalties").insert({
+            entry_id: id,
+            vehicle_no: entry.vehicle_no,
+            penalty_type: 'Exhausted Attempts',
+            reason: 'Used all 3 weigh attempts without achieving acceptable weight',
+            amount: penaltyAmount,
           })
-          .eq("entry_id", id);
+        );
 
-        // Create penalty record
-        await supabase.from("penalties").insert({
-          entry_id: id,
-          vehicle_no: entry.vehicle_no,
-          penalty_type: 'Exhausted Attempts',
-          reason: 'Used all 3 weigh attempts without achieving acceptable weight',
-          amount: penaltyAmount,
-        });
+        promises.push(
+          supabase.from("activity_logs").insert({
+            user_id: user.id,
+            user_name: userProfile?.full_name || "Unknown",
+            user_role: "operator",
+            action: "Weigh Attempts Exhausted",
+            details: `Vehicle ${entry.vehicle_no} exhausted all 3 attempts. Penalty of TShs ${penaltyAmount.toLocaleString()} applied.`,
+          })
+        );
+      } else if (newStatus === "Completed") {
+        promises.push(supabase.from("pending_weighs").delete().eq("entry_id", id));
+      } else if (isFirstWeigh && entry?.vehicle_types?.is_time_sensitive) {
+        const expectedReturnTime = new Date();
+        expectedReturnTime.setHours(expectedReturnTime.getHours() + (entry.vehicle_types.return_time_hours || 0));
 
-        // Log the activity
-        await supabase.from("activity_logs").insert({
-          user_id: user.id,
-          user_name: userProfile?.full_name || "Unknown",
-          user_role: "operator",
-          action: "Weigh Attempts Exhausted",
-          details: `Vehicle ${entry.vehicle_no} exhausted all 3 attempts. Penalty of TShs ${penaltyAmount.toLocaleString()} applied.`,
-        });
+        promises.push(
+          supabase.from("pending_weighs").insert({
+            entry_id: id,
+            vehicle_no: entry.vehicle_no,
+            category: entry.category,
+            first_weigh_time: new Date().toISOString(),
+            expected_return_time: expectedReturnTime.toISOString(),
+            return_status: "Pending",
+          })
+        );
+      } else if (!isFirstWeigh && !isMVCategory && pendingWeigh) {
+        promises.push(
+          supabase.from("pending_weighs").update({
+            weigh_attempts: (pendingWeigh.weigh_attempts || 0) + 1,
+          }).eq("entry_id", id)
+        );
+      }
 
-        // Show notification and redirect to cashier
+      // D. Handle Payments (Simplified check)
+      let prePaidPromise: Promise<any> | null = null;
+      if (isFirstWeigh || isMVCategory) {
+        prePaidPromise = supabase.from("payments").select("notes").eq("entry_id", id).eq("payment_type", "First Weigh").eq("payment_status", "Paid").maybeSingle();
+        promises.push(prePaidPromise);
+      }
+
+      if (entry?.vehicle_types) {
+        const fee = isFirstWeigh ? entry.vehicle_types.first_weigh_fee : entry.vehicle_types.second_weigh_fee;
+        const skipPayment = entry.penalty_paid_entry === true;
+        const entryCategory = entry?.category || "";
+        const isJVCategoryPayment = ["JV-Payment", "JV-Free"].includes(entryCategory);
+        const isMVPayOnceCategory = ["MV-PublicSeller", "MV-Supplier"].includes(entryCategory);
+        const skipSecondWeighPayment = !isFirstWeigh && (isMVPayOnceCategory || isJVCategoryPayment);
+
+        if (typeof fee === 'number' && !skipPayment && !skipSecondWeighPayment && fee > 0) {
+          promises.push((async () => {
+            const { data: existing } = await supabase.from("payments").select("id").eq("entry_id", id).eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh").maybeSingle();
+            if (!existing) {
+              return supabase.from("payments").insert({
+                entry_id: id,
+                vehicle_no: entry.vehicle_no,
+                amount: fee,
+                payment_type: isFirstWeigh ? "First Weigh" : "Second Weigh",
+                payment_status: isFirstWeigh ? "Paid" : "Pending",
+                paid_at: isFirstWeigh ? new Date().toISOString() : null,
+              });
+            }
+          })());
+        }
+      }
+
+      // EXECUTE ALL IN PARALLEL
+      const results = await Promise.all(promises);
+      const errors = results.filter(r => r?.error);
+      if (errors.length > 0) throw errors[0].error;
+
+      // --- PARALLEL BLOCK END ---
+
+      if (hasExhaustedAttempts) {
         toast({
           variant: "destructive",
           title: "⚠️ Weigh Attempts Exhausted",
-          description: `Vehicle ${entry.vehicle_no} has used all 3 attempts. Payment of TShs ${penaltyAmount.toLocaleString()} required before re-weighing.`,
+          description: `Vehicle ${entry.vehicle_no} has used all 3 attempts. Payment required.`,
           duration: 7000,
         });
-
         navigate("/cashier");
-        return; // Exit early, don't complete the vehicle
+        return;
       }
 
-      // Update status based on vehicle type, weigh count, and complete checkbox
-      let newStatus = entry?.status;
-
-      // MV vehicles: auto-complete after second weigh (they only have 2 weighs total)
-      const isMVVehicle = ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry?.category || "");
-      const isSecondWeighForMV = isMVVehicle && weighCount === 1; // weighCount is before this weigh, so 1 = this is the 2nd weigh
-
-      if (weighData.complete_vehicle) {
-        // Vehicle marked as complete on ANY weigh (no weight exceedance)
-        newStatus = "Completed";
-      } else if (isSecondWeighForMV) {
-        // MV vehicles: auto-complete after second weigh
-        newStatus = "Completed";
-      } else if (isFirstWeigh) {
-        if (entry?.vehicle_types?.requires_two_weighs) {
-          newStatus = "AwaitingSecondWeigh";
-        } else {
-          newStatus = "Completed";
-        }
-      } else {
-        // Keep in AwaitingSecondWeigh unless explicitly marked complete
-        newStatus = "AwaitingSecondWeigh";
-      }
-
-      const { error: updateError } = await supabase
-        .from("vehicle_entries")
-        .update({
-          status: newStatus,
-          completed: newStatus === "Completed",
-        })
-        .eq("id", id);
-
-      if (updateError) throw updateError;
-
-      // Clean up pending_weighs when vehicle is completed
       if (newStatus === "Completed") {
-        await supabase
-          .from("pending_weighs")
-          .delete()
-          .eq("entry_id", id);
-
-        // Invalidate queries to ensure completed vehicles appear in reports
         queryClient.invalidateQueries({ queryKey: ["completed-vehicles"] });
         queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
         queryClient.invalidateQueries({ queryKey: ["shift-stats"] });
       }
 
-      // Handle time-sensitive categories and pending weighs - unless marked complete
-      if (isFirstWeigh && !weighData.complete_vehicle && entry?.vehicle_types?.is_time_sensitive) {
-        const expectedReturnTime = new Date();
-        expectedReturnTime.setHours(
-          expectedReturnTime.getHours() + (entry.vehicle_types.return_time_hours || 0)
-        );
-
-        await supabase.from("pending_weighs").insert({
-          entry_id: id,
-          vehicle_no: entry.vehicle_no,
-          category: entry.category,
-          first_weigh_time: new Date().toISOString(),
-          expected_return_time: expectedReturnTime.toISOString(),
-          return_status: "Pending",
-        });
-      }
-
-      // Handle payment requirements
-      if (entry?.vehicle_types) {
-        const fee = isFirstWeigh
-          ? entry.vehicle_types.first_weigh_fee
-          : entry.vehicle_types.second_weigh_fee;
-
-        // Skip ALL payments if this entry was created after penalty payment
-        const skipPayment = entry.penalty_paid_entry === true;
-
-        // Skip second weigh payment for:
-        // 1. MV-Supplier and MV-PublicSeller (they pay once only - flat fee covers both weighs)
-        // 2. ALL JV-Payment and JV-Free vehicles (they don't have second weigh payments - only first weigh + attempt system)
-        // CRITICAL: Check the category directly from entry object, not from redefined variables
-        const entryCategory = entry?.category || "";
-        const isJVCategoryPayment = ["JV-Payment", "JV-Free"].includes(entryCategory);
-        const isMVPayOnceCategory = ["MV-PublicSeller", "MV-Supplier"].includes(entryCategory);
-
-        // MV-PublicSeller and MV-Supplier pay ONCE ONLY on first weigh - skip ALL second weigh payments for these
-        const skipSecondWeighPayment = !isFirstWeigh && (isMVPayOnceCategory || isJVCategoryPayment);
-
-        console.log(`Payment check: category=${entryCategory}, isFirstWeigh=${isFirstWeigh}, isMVPayOnce=${isMVPayOnceCategory}, skipSecond=${skipSecondWeighPayment}`);
-
-        if (typeof fee === 'number' && !skipPayment && !skipSecondWeighPayment) {
-          // Check if payment already exists (e.g., pre-paid from penalty)
-          const { data: existingPayment } = await supabase
-            .from("payments")
-            .select("id")
-            .eq("entry_id", id)
-            .eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh")
-            .maybeSingle();
-
-          // Only create payment if it doesn't already exist
-          if (!existingPayment) {
-            await supabase.from("payments").insert({
-              entry_id: id,
-              vehicle_no: entry.vehicle_no,
-              amount: fee,
-              payment_type: isFirstWeigh ? "First Weigh" : "Second Weigh",
-              // Auto-mark 0 TShs payments as Paid, first weigh always Paid, second weigh Pending
-              payment_status: isFirstWeigh || fee === 0 ? "Paid" : "Pending",
-              paid_at: isFirstWeigh || fee === 0 ? new Date().toISOString() : null,
-            });
-          }
-        }
-      }
-
-      // Prepare print data - show print for both first and second weigh
+      // Final Step: Print or Redirect
       if (isFirstWeigh || isMVCategory) {
-        // Check if this was a pre-paid entry (from penalty payment)
-        const { data: prePaidPayment } = await supabase
-          .from("payments")
-          .select("id, notes")
-          .eq("entry_id", id)
-          .eq("payment_type", "First Weigh")
-          .eq("payment_status", "Paid")
-          .maybeSingle();
+        const prePaidResult = prePaidPromise ? await prePaidPromise : null;
+        const isPrepaid = prePaidResult?.data?.notes?.includes("Pre-paid");
 
-        const isPrepaid = prePaidPayment?.notes?.includes("Pre-paid");
-
-        const printInfo = {
+        setPrintData({
           ...entry,
           gross_weight: weighData.gross_weight,
           tare_weight: weighData.tare_weight,
@@ -634,34 +597,22 @@ Please process payment in Cashier section first.`,
           vehicle_type_name: entry.vehicle_types?.type_name,
           price: entry.vehicle_types?.first_weigh_fee || 0,
           isPrepaid,
-          weighed_by: userProfile?.full_name && userProfile.full_name !== 'User'
-            ? userProfile.full_name
-            : userProfile?.username || 'Unknown Operator',
+          weighed_by: userProfile?.full_name || userProfile?.username || 'Operator',
           weigh_time: new Date().toISOString(),
           isSecondWeigh: !isFirstWeigh,
-          // GVM/GTM/Trailer/Payload for JV vehicles
           gvm: weighData.gvm || null,
           gtm: weighData.gtm || null,
           trailer_weight: weighData.trailer_weight || null,
-          payload: weighData.gtm && weighData.trailer_weight
-            ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2)
-            : null,
-        };
-        setPrintData(printInfo);
+          payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
+        });
         setShowPrint(true);
       } else {
-        toast({
-          title: "Success",
-          description: `Weight recorded successfully for ${entry?.vehicle_no}`,
-        });
+        toast({ title: "Success", description: `Weight recorded successfully for ${entry?.vehicle_no}` });
         navigate("/");
       }
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message,
-      });
+      console.error("Save error:", error);
+      toast({ variant: "destructive", title: "Error", description: error.message });
     } finally {
       setIsSubmitting(false);
     }
@@ -910,7 +861,7 @@ Please process payment in Cashier section first.`,
                       </span>
                     ) : (
                       <span className="font-bold text-primary">
-                        TShs {printData.price.toLocaleString()}.00
+                        TShs {(printData.price || 0).toLocaleString()}.00
                       </span>
                     )}
                   </div>

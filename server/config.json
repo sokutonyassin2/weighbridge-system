@@ -1,0 +1,4 @@
+{
+    "WEIGHBRIDGE_PC_IP": "192.168.1.105",
+    "comment": "IP address of the computer where the scale and camera are connected"
+}

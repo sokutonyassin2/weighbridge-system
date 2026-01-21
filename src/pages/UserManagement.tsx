@@ -27,7 +27,7 @@ export default function UserManagement() {
   });
 
   // Redirect non-admins
-  if (userRole !== "admin") {
+  if (userRole !== "admin" && userRole !== "super_admin") {
     navigate("/");
     return null;
   }
@@ -70,7 +70,7 @@ export default function UserManagement() {
 
       // Convert username to email format
       const email = `${newUser.username.toLowerCase()}@weighbridge.local`;
-      
+
       // Call edge function to create user (uses service role key)
       const { data, error } = await supabase.functions.invoke('create-user', {
         body: {
@@ -106,7 +106,7 @@ export default function UserManagement() {
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validate full name
     if (!newUser.fullName || newUser.fullName.trim().length < 2) {
       toast({
@@ -116,7 +116,7 @@ export default function UserManagement() {
       });
       return;
     }
-    
+
     // Validate password
     if (!newUser.password || newUser.password.length < 4) {
       toast({
@@ -126,7 +126,7 @@ export default function UserManagement() {
       });
       return;
     }
-    
+
     createUserMutation.mutate();
   };
 

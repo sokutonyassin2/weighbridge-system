@@ -1,4 +1,4 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer } from "lucide-react";
+import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -17,28 +17,41 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useEffect, useState } from "react";
 
-const allNavigationItems = [
+const weighbridgeItems = [
   { title: "Dashboard", url: "/", icon: Scale, roles: ["admin", "operator"] },
-  { title: "New Entry", url: "/entry", icon: Truck, roles: ["operator"] },
+  { title: "New Entry", url: "/entry", icon: Truck, roles: ["admin", "operator"] },
   { title: "Vehicle History", url: "/vehicle-history", icon: History, roles: ["admin", "operator"] },
   { title: "Pending Weighs", url: "/pending", icon: Clock, roles: ["admin", "operator"] },
   { title: "Completed Vehicles", url: "/completed", icon: CheckCircle, roles: ["admin", "operator"] },
+  { title: "Receipt History", url: "/receipt-history", icon: Printer, roles: ["admin", "operator"] },
   { title: "Cashier", url: "/cashier", icon: DollarSign, roles: ["admin", "operator"] },
   { title: "Overdue History", url: "/overdue-history", icon: TimerOff, roles: ["admin", "operator"] },
-  { title: "Receipt History", url: "/receipt-history", icon: Printer, roles: ["admin", "operator"] },
-  { title: "Audit Trail", url: "/audit-trail", icon: FileText, roles: ["admin"] },
-  { title: "Shift Reports", url: "/shift-reports", icon: BarChart3, roles: ["admin"] },
-  { title: "Analytics", url: "/analytics", icon: TrendingUp, roles: ["admin"] },
-  { title: "Penalties History", url: "/admin/penalties", icon: AlertTriangle, roles: ["admin"] },
-  { title: "Company Weights", url: "/admin/company-weights", icon: Truck, roles: ["admin"] },
-  { title: "Receipt Settings", url: "/admin/receipt-settings", icon: Settings, roles: ["admin"] },
-  { title: "Weight Settings", url: "/admin/weight-settings", icon: Scale, roles: ["admin"] },
-  { title: "All Entries", url: "/all-entries", icon: List, roles: ["admin"] },
-  { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["admin"] },
-  { title: "Activity Logs", url: "/activity-logs", icon: Activity, roles: ["admin"] },
-  { title: "User Management", url: "/user-management", icon: Users, roles: ["admin"] },
+  { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["admin", "super_admin"] },
+
+  // Management & Settings items moved from System to Weighbridge
+  { title: "Audit Trail", url: "/audit-trail", icon: FileText, roles: ["admin", "super_admin"] },
+  { title: "Shift Reports", url: "/shift-reports", icon: BarChart3, roles: ["admin", "super_admin"] },
+  { title: "Analytics", url: "/analytics", icon: TrendingUp, roles: ["admin", "super_admin"] },
+  { title: "Penalties History", url: "/admin/penalties", icon: AlertTriangle, roles: ["admin", "super_admin"] },
+  { title: "Company Weights", url: "/admin/company-weights", icon: Truck, roles: ["admin", "super_admin"] },
+  { title: "Receipt Settings", url: "/admin/receipt-settings", icon: Settings, roles: ["admin", "super_admin"] },
+  { title: "Weight Settings", url: "/admin/weight-settings", icon: Scale, roles: ["admin", "super_admin"] },
+  { title: "All Entries", url: "/all-entries", icon: List, roles: ["admin", "super_admin"] },
+];
+
+const logisticsItems = [
+  { title: "Dashboard", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager"] },
+  { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager"] },
+];
+
+const systemItems = [
+  { title: "User Management", url: "/user-management", icon: Users, roles: ["admin", "super_admin"] },
+  { title: "Activity Logs", url: "/activity-logs", icon: Activity, roles: ["admin", "super_admin"] },
 ];
 
 const getCurrentShift = () => {
@@ -60,9 +73,22 @@ export function AppSidebar() {
     return () => clearInterval(interval);
   }, []);
 
-  const navigationItems = allNavigationItems.filter(item =>
-    item.roles.includes(userRole || "operator")
-  );
+  const hasAccess = (itemRoles: string[]) => {
+    if (userRole === "super_admin") return true;
+    if (!userRole) return false;
+
+    // Direct role check
+    return itemRoles.includes(userRole);
+  };
+
+  // Filter sections based on role
+  const showWeighbridge = userRole === "super_admin" || userRole === "admin" || userRole === "operator";
+  const showLogistics = userRole === "super_admin" || userRole === "logistics_admin" || userRole === "logistics_manager";
+  const showSystem = userRole === "super_admin" || userRole === "admin"; // Admin sees some system stuff too
+
+  const filteredWeighbridge = weighbridgeItems.filter(item => hasAccess(item.roles));
+  const filteredLogistics = logisticsItems.filter(item => hasAccess(item.roles));
+  const filteredSystem = systemItems.filter(item => hasAccess(item.roles));
 
   const shiftIcon = currentShift === "Day" ? Sun : Moon;
   const ShiftIcon = shiftIcon;
@@ -97,7 +123,10 @@ export function AppSidebar() {
       {!isCollapsed && (
         <div className="p-4 space-y-3 bg-gradient-to-b from-sidebar-accent/20 to-transparent">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center text-primary-foreground font-bold shadow-lg">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-primary-foreground font-bold shadow-lg ${userRole === 'super_admin' ? 'bg-gradient-to-br from-purple-600 to-indigo-600' :
+              userRole?.includes('logistics') ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
+                'bg-gradient-to-br from-primary to-primary/70'
+              }`}>
               {userProfile?.full_name?.charAt(0)?.toUpperCase() || "U"}
             </div>
             <div className="flex-1 min-w-0">
@@ -107,13 +136,18 @@ export function AppSidebar() {
           </div>
           <div className="flex items-center gap-2">
             <Badge
-              variant={userRole === "admin" ? "default" : "secondary"}
-              className={userRole === "admin"
-                ? "bg-gradient-to-r from-primary to-primary/80 shadow-sm"
-                : "bg-sidebar-accent/50 text-white hover:text-white pointer-events-none"
-              }
+              variant="secondary"
+              className={`pointer-events-none text-white ${userRole === "super_admin" ? "bg-purple-600" :
+                userRole === "admin" ? "bg-primary" :
+                  userRole?.includes("logistics") ? "bg-amber-500" :
+                    "bg-sidebar-accent/50"
+                }`}
             >
-              {userRole === "admin" ? "Administrator" : "Operator"}
+              {userRole === "super_admin" ? "Super Admin" :
+                userRole === "admin" ? "Administrator" :
+                  userRole === "operator" ? "Operator" :
+                    userRole === "logistics_admin" ? "Logistics Admin" :
+                      userRole?.replace("_", " ").toUpperCase()}
             </Badge>
           </div>
           <Separator className="bg-sidebar-border/30" />
@@ -126,34 +160,116 @@ export function AppSidebar() {
         </div>
       )}
 
-      <SidebarContent className="px-2">
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/50 text-xs uppercase tracking-wider px-2">
-            Navigation
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navigationItems.map((item, index) => (
-                <SidebarMenuItem key={item.title} style={{ animationDelay: `${index * 30}ms` }} className="animate-fade-in">
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${isActive
-                          ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-md"
-                          : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
-                        }`
-                      }
-                    >
-                      <item.icon className="h-4 w-4 transition-transform duration-200 group-hover:scale-110" />
-                      <span className="font-medium">{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+      <SidebarContent className="px-2 space-y-2">
+
+        {/* WEIGHBRIDGE SECTION */}
+        {showWeighbridge && (
+          <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-bold text-[11px] uppercase tracking-[0.1em] text-sidebar-foreground/70">
+                  WEIGHBRIDGE SYSTEM
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-primary/70" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  {filteredWeighbridge.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to={item.url}
+                          className={({ isActive }) =>
+                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                              ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-lg scale-[1.02]"
+                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                            }`
+                          }
+                        >
+                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                          <span className="font-semibold text-sm tracking-tight">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {/* LOGISTICS SECTION */}
+        {showLogistics && (
+          <Collapsible defaultOpen={userRole?.includes('logistics')} className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-bold text-[11px] uppercase tracking-[0.1em] text-sidebar-foreground/70">
+                  LOGISTICS
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500/70" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  {filteredLogistics.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to={item.url}
+                          className={({ isActive }) =>
+                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                              ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg scale-[1.02]"
+                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                            }`
+                          }
+                        >
+                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                          <span className="font-semibold text-sm tracking-tight">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {/* SYSTEM SECTION */}
+        {showSystem && (
+          <Collapsible className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-bold text-[11px] uppercase tracking-[0.1em] text-sidebar-foreground/70">
+                  SYSTEM ADMINISTRATION
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-slate-500/70" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  {filteredSystem.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to={item.url}
+                          className={({ isActive }) =>
+                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                              ? "bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-lg scale-[1.02]"
+                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                            }`
+                          }
+                        >
+                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                          <span className="font-semibold text-sm tracking-tight">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border/30 p-2">

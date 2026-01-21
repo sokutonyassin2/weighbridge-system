@@ -95,7 +95,7 @@ export default function VehicleEntry() {
   useEffect(() => {
     const searchPreviousEntry = async () => {
       const vehicleNo = formData.vehicle_no.trim().toUpperCase();
-      
+
       if (vehicleNo.length < 3) {
         setPreviousEntry(null);
         setShowPreviousData(false);
@@ -104,7 +104,7 @@ export default function VehicleEntry() {
 
       try {
         let data = null;
-        
+
         if (navigator.onLine) {
           // Online: fetch from Supabase
           const { data: result, error } = await supabase
@@ -126,7 +126,7 @@ export default function VehicleEntry() {
           const cachedEntries = JSON.parse(localStorage.getItem('cached_entries') || '{}');
           data = cachedEntries[vehicleNo] || null;
         }
-        
+
         if (data) {
           setPreviousEntry(data);
           setShowPreviousData(true);
@@ -184,7 +184,7 @@ export default function VehicleEntry() {
 
     try {
       let existingEntries = [];
-      
+
       if (navigator.onLine) {
         // Online: check with Supabase
         const { data, error: checkError } = await supabase
@@ -192,7 +192,7 @@ export default function VehicleEntry() {
           .select("id, vehicle_no, status, wb_number")
           .eq("vehicle_no", normalizedVehicleNo)
           .eq("completed", false);
-        
+
         if (checkError) {
           toast({
             variant: "destructive",
@@ -214,9 +214,9 @@ export default function VehicleEntry() {
 
       if (existingEntries && existingEntries.length > 0) {
         const existingEntry = existingEntries[0];
-        
+
         let pendingWeigh = null;
-        
+
         if (navigator.onLine) {
           // Check if it's in pending weighs for more details
           const { data } = await supabase
@@ -277,6 +277,8 @@ This vehicle cannot be added again until it's marked as completed.`,
               shift_name: shiftName,
               shift_date: shiftDate,
               operator_id: user?.id,
+              start_time: new Date().toISOString(),
+              end_time: new Date(new Date().getTime() + 12 * 60 * 60 * 1000).toISOString(),
             })
             .select()
             .single();
@@ -288,7 +290,7 @@ This vehicle cannot be added again until it's marked as completed.`,
         // In offline mode, use a temporary shift ID or cached shift
         const cachedShifts = JSON.parse(localStorage.getItem('cached_shifts') || '{}');
         const key = `${shiftDate}_${shiftName}`;
-        
+
         if (cachedShifts[key]) {
           shiftId = cachedShifts[key].id;
         } else {
@@ -310,7 +312,7 @@ This vehicle cannot be added again until it's marked as completed.`,
 
       // Get user profile for entered_by field
       let profile = null;
-      
+
       if (navigator.onLine) {
         const { data } = await supabase
           .from("profiles")
@@ -327,14 +329,14 @@ This vehicle cannot be added again until it's marked as completed.`,
         } : null;
       }
 
-      const enteredByName = (profile?.full_name && profile?.full_name !== "User") 
-        ? profile?.full_name 
+      const enteredByName = (profile?.full_name && profile?.full_name !== "User")
+        ? profile?.full_name
         : profile?.username || "Unknown";
 
       // Insert vehicle entry with operator tracking (use normalized vehicle number)
       let entry;
       let entryError;
-      
+
       if (navigator.onLine) {
         const result = await supabase
           .from("vehicle_entries")
@@ -349,10 +351,10 @@ This vehicle cannot be added again until it's marked as completed.`,
           })
           .select()
           .single();
-          
+
         entry = result.data;
         entryError = result.error;
-        
+
         if (entryError) throw entryError;
       } else {
         // In offline mode, store the entry in localStorage
@@ -369,7 +371,7 @@ This vehicle cannot be added again until it's marked as completed.`,
           created_at: new Date().toISOString(),
           completed: false
         };
-        
+
         // Store in offline queue
         const offlineQueue = JSON.parse(localStorage.getItem('offline_entry_queue') || '[]');
         offlineQueue.push({
@@ -379,7 +381,7 @@ This vehicle cannot be added again until it's marked as completed.`,
           timestamp: Date.now()
         });
         localStorage.setItem('offline_entry_queue', JSON.stringify(offlineQueue));
-        
+
         // Update cached entries
         const cachedEntries = JSON.parse(localStorage.getItem('cached_entries') || '{}');
         cachedEntries[normalizedVehicleNo] = entry;
@@ -434,7 +436,7 @@ This vehicle cannot be added again until it's marked as completed.`,
                 }
                 required
               />
-              
+
               {/* Previous Entry Suggestion */}
               {showPreviousData && previousEntry && (
                 <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
@@ -506,16 +508,16 @@ This vehicle cannot be added again until it's marked as completed.`,
                   )}
                 </SelectContent>
               </Select>
-                          
+
               {/* Display selected vehicle type fee */}
               {formData.vehicle_type_id && (
                 <div className="p-3 bg-muted rounded-md mt-2">
                   <p className="text-sm">
-                    <span className="font-medium">Selected:</span> 
+                    <span className="font-medium">Selected:</span>
                     {vehicleTypes?.find(vt => vt.id === formData.vehicle_type_id)?.type_name}
                   </p>
                   <p className="text-sm">
-                    <span className="font-medium">Fee:</span> TShs 
+                    <span className="font-medium">Fee:</span> TShs
                     {parseFloat(
                       vehicleTypes?.find(vt => vt.id === formData.vehicle_type_id)?.first_weigh_fee?.toString() || "0"
                     ).toLocaleString()}
@@ -554,7 +556,7 @@ This vehicle cannot be added again until it's marked as completed.`,
                   </Label>
                 </div>
                 <p className="text-xs text-muted-foreground ml-6">
-                  {formData.came_loaded 
+                  {formData.came_loaded
                     ? "First weigh will record gross weight (loaded). Second weigh will record tare weight (empty)."
                     : "First weigh will record tare weight (empty). Second weigh will record gross weight (loaded)."}
                 </p>

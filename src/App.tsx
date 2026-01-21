@@ -28,30 +28,21 @@ import NotFound from "./pages/NotFound";
 import ShiftSummaryReport from "./pages/ShiftSummaryReport";
 import OverdueHistory from "./pages/OverdueHistory";
 import ReceiptHistory from "./pages/ReceiptHistory";
+import LogisticsDashboard from "./pages/logistics/LogisticsDashboard";
+import FleetCommand from "./pages/logistics/FleetCommand";
+import DriverRegistry from "./pages/logistics/DriverRegistry";
 
 const queryClient = new QueryClient();
 
 const App = () => {
-  useEffect(() => {
-    // Register service worker
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .then((registration) => {
-            console.log('SW registered: ', registration);
-          })
-          .catch((registrationError) => {
-            console.log('SW registration failed: ', registrationError);
-          });
-      });
-    }
-  }, []);
+  // Service Worker registration removed to fix Auth issues
+  // It is now handled (disabled) in main.tsx
 
   return (
     <QueryClientProvider client={queryClient}>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
           <Routes>
             <Route path="/auth" element={<Auth />} />
@@ -251,6 +242,37 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <ReceiptHistory />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            {/* LOGISTICS ROUTES */}
+            <Route
+              path="/logistics"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <LogisticsDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/fleet"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <FleetCommand />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/drivers"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <DriverRegistry />
                   </Layout>
                 </ProtectedRoute>
               }

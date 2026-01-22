@@ -7,27 +7,50 @@ import { ReadlineParser } from "@serialport/parser-readline";
 const app = express();
 const PORT = 3000;
 
+import path from "path";
+import os from "os";
+
 /* ===============================
-   CAMERA CONFIG (WORKING)
+   OS DETECTION & CONFIG
 ================================ */
-const CAMERA_URL = "http://192.168.1.160/cgi-bin/snapshot.cgi?action=snap";
-const CAMERA_USER = "admin";
-const CAMERA_PASS = "sood12345";
-const PHOTO_DIR = "C:\\CameraPhotos";
+const isMac = process.platform === "darwin";
 
 /* ===============================
    WEIGH SCALE CONFIG (IMPORTANT)
 ================================ */
-const COM_PORT = "COM6";     // PCIe to High Speed Serial Port
-const BAUD_RATE = 9600;      // Confirmed common rate
+// Use specific port for macOS as requested, fallback to COM6 for Windows
+const COM_PORT = isMac ? "/dev/cu.wchusbserial1410" : "COM6";
+const BAUD_RATE = 9600;
 
-let latestWeight = "0";
+/* ===============================
+   CAMERA CONFIG (WORKING)
+================================ */
+const CAMERA_URL = "http://192.168.1.105/cgi-bin/snapshot.cgi?action=snap";
+// Keep existing camera credentials
+const CAMERA_USER = "admin";
+const CAMERA_PASS = "sood12345";
+
+// Determine photo directory based on OS
+// Windows: C:\CameraPhotos
+// Mac: /Users/Shared/WeighbridgePhotos (Accessible by both Admin and Operator users)
+const PHOTO_DIR = isMac
+  ? "/Users/Shared/WeighbridgePhotos"
+  : "C:\\CameraPhotos";
+
+console.log(`🚀 Starting Helper on ${isMac ? "macOS" : "Windows"}`);
+console.log(`🔌 Serial Port: ${COM_PORT}`);
+console.log(`📂 Photo Path: ${PHOTO_DIR}`);
 
 /* ===============================
    ENSURE PHOTO FOLDER EXISTS
 ================================ */
 if (!fs.existsSync(PHOTO_DIR)) {
-  fs.mkdirSync(PHOTO_DIR, { recursive: true });
+  try {
+    fs.mkdirSync(PHOTO_DIR, { recursive: true });
+    console.log("✅ Created photo directory");
+  } catch (e) {
+    console.error("❌ Failed to create directory:", e.message);
+  }
 }
 
 /* ===============================
@@ -70,14 +93,33 @@ app.get("/", (req, res) => {
 /* ===============================
    CAPTURE CAMERA IMAGE
 ================================ */
+/* ===============================
+   CAPTURE CAMERA IMAGE
+================================ */
 app.get("/capture", (req, res) => {
   try {
     const entryID = req.query.entryID || 0;
     const plate = (req.query.plate || "UNKNOWN").replace(/ /g, "_");
-    const ts = new Date().toISOString().replace(/[:.]/g, "_");
+    const now = new Date();
 
-    const photoPath =
-      `${PHOTO_DIR}\\Entry_${entryID}_Plate_${plate}_${ts}.jpg`;
+    // 1. Generate Monthly Folder Name (e.g., "January-2024")
+    const monthName = now.toLocaleString('default', { month: 'long' });
+    const year = now.getFullYear();
+    const monthlyFolder = `${monthName}-${year}`;
+
+    // 2. Construct Full Path
+    const fullDir = path.join(PHOTO_DIR, monthlyFolder);
+
+    // 3. Ensure Monthly Folder Exists
+    if (!fs.existsSync(fullDir)) {
+      fs.mkdirSync(fullDir, { recursive: true });
+    }
+
+    // 4. Generate Filename
+    const ts = now.toISOString().replace(/[:.]/g, "_");
+    const photoPath = path.join(fullDir, `Entry_${entryID}_Plate_${plate}_${ts}.jpg`);
+
+    console.log(`📸 Capturing to: ${monthlyFolder}/...`);
 
     const cmd =
       `curl --digest -u ${CAMERA_USER}:${CAMERA_PASS} ` +
@@ -85,6 +127,7 @@ app.get("/capture", (req, res) => {
 
     execSync(cmd);
 
+    // Return just the relative path if needed, or full path
     res.send(photoPath);
   } catch (err) {
     console.error("Camera error:", err.message);

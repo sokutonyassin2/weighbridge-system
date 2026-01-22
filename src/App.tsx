@@ -31,6 +31,7 @@ import ReceiptHistory from "./pages/ReceiptHistory";
 import LogisticsDashboard from "./pages/logistics/LogisticsDashboard";
 import FleetCommand from "./pages/logistics/FleetCommand";
 import DriverRegistry from "./pages/logistics/DriverRegistry";
+import TripManagement from "./pages/logistics/TripManagement";
 
 const queryClient = new QueryClient();
 
@@ -273,6 +274,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <DriverRegistry />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/trips"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TripManagement />
                   </Layout>
                 </ProtectedRoute>
               }

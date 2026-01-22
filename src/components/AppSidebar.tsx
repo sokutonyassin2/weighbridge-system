@@ -46,7 +46,7 @@ const logisticsItems = [
   { title: "Dashboard", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager"] },
   { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager"] },
+  { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
 ];
 
 const systemItems = [

@@ -1057,39 +1057,41 @@ const FleetCommand = () => {
 
                                         {/* Coupling Status */}
                                         <TableCell>
-                                            {!canBeCoupled(asset) ? (
-                                                <Badge variant="outline" className="text-slate-400 w-fit h-5 text-[10px] font-medium border-slate-200">
-                                                    N/A
-                                                </Badge>
-                                            ) : asset.coupling_status === 'coupled' ? (
-                                                <div className="flex flex-col gap-1">
-                                                    <Badge className="bg-blue-600 hover:bg-blue-700 w-fit h-5 text-[10px] font-bold">
-                                                        <Link className="w-3 h-3 mr-1" />
-                                                        COUPLED UNIT
+                                            <div className="min-w-[130px]">
+                                                {!canBeCoupled(asset) ? (
+                                                    <Badge variant="outline" className="text-slate-400 w-fit h-5 text-[10px] font-medium border-slate-200">
+                                                        N/A
                                                     </Badge>
-                                                    <button
-                                                        className="text-[10px] text-red-600 hover:text-red-800 font-extrabold flex items-center gap-1 transition-colors text-left"
-                                                        onClick={() => handleUncoupleVehicle(asset)}
-                                                    >
-                                                        <Unlink className="h-2.5 w-2.5" />
-                                                        UNCOUPLE PAIR
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col gap-1">
-                                                    <Badge variant="outline" className="text-slate-500 w-fit h-5 text-[10px] font-medium border-slate-300">
-                                                        <Unlink className="w-3 h-3 mr-1" />
-                                                        SINGLE
-                                                    </Badge>
-                                                    <button
-                                                        className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 transition-colors text-left"
-                                                        onClick={() => handleOpenCouplingDialog(asset)}
-                                                    >
-                                                        <Link className="h-2.5 w-2.5" />
-                                                        COUPLE NOW
-                                                    </button>
-                                                </div>
-                                            )}
+                                                ) : asset.coupling_status === 'coupled' ? (
+                                                    <div className="flex flex-col gap-1.5 items-start">
+                                                        <Badge className="bg-blue-600 hover:bg-blue-700 w-full justify-center h-6 text-[10px] font-bold shadow-sm whitespace-nowrap">
+                                                            <Link className="w-3 h-3 mr-1.5" />
+                                                            COUPLED UNIT
+                                                        </Badge>
+                                                        <button
+                                                            className="text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors w-full"
+                                                            onClick={() => handleUncoupleVehicle(asset)}
+                                                        >
+                                                            <Unlink className="h-3 w-3" />
+                                                            UNCOUPLE PAIR
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col gap-1.5 items-start">
+                                                        <Badge variant="outline" className="text-slate-500 w-fit h-5 text-[10px] font-medium border-slate-300">
+                                                            <Unlink className="w-3 h-3 mr-1" />
+                                                            SINGLE
+                                                        </Badge>
+                                                        <button
+                                                            className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors"
+                                                            onClick={() => handleOpenCouplingDialog(asset)}
+                                                        >
+                                                            <Link className="h-3 w-3" />
+                                                            COUPLE NOW
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </TableCell>
 
                                         {/* Paired With / Details */}
@@ -1110,18 +1112,54 @@ const FleetCommand = () => {
 
                                         {/* Branding Form */}
                                         <TableCell>
-                                            {asset.branding_form_url ? (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="h-7 px-2 text-xs"
-                                                    onClick={() => window.open(asset.branding_form_url, '_blank')}
-                                                >
-                                                    <FileText className="w-4 h-4 mr-1" />
-                                                    View PDF
-                                                </Button>
+                                            {asset.is_merged ? (
+                                                <div className="flex flex-col gap-1">
+                                                    {/* Horse Branding */}
+                                                    {asset.branding_form_url ? (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 px-2 text-[10px] w-fit justify-start text-blue-700 hover:text-blue-800 hover:bg-blue-50"
+                                                            onClick={() => window.open(asset.branding_form_url, '_blank')}
+                                                            title="View Horse Branding"
+                                                        >
+                                                            <FileText className="w-3 h-3 mr-1.5" />
+                                                            Horse PDF
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-[10px] text-slate-400 pl-2">No Horse PDF</span>
+                                                    )}
+
+                                                    {/* Trailer Branding */}
+                                                    {asset.partner?.branding_form_url ? (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 px-2 text-[10px] w-fit justify-start text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+                                                            onClick={() => window.open(asset.partner.branding_form_url, '_blank')}
+                                                            title="View Trailer Branding"
+                                                        >
+                                                            <FileText className="w-3 h-3 mr-1.5" />
+                                                            Trailer PDF
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-[10px] text-slate-400 pl-2">No Trailer PDF</span>
+                                                    )}
+                                                </div>
                                             ) : (
-                                                <span className="text-xs text-muted-foreground">—</span>
+                                                asset.branding_form_url ? (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 px-2 text-xs"
+                                                        onClick={() => window.open(asset.branding_form_url, '_blank')}
+                                                    >
+                                                        <FileText className="w-4 h-4 mr-1" />
+                                                        View PDF
+                                                    </Button>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">—</span>
+                                                )
                                             )}
                                         </TableCell>
 

@@ -34,6 +34,7 @@ const FleetCommand = () => {
         name: "",
         description: "",
         type_category: "Vehicle" as "Vehicle" | "Trailer",
+        requires_coupling: false,
         is_active: true
     });
 
@@ -98,7 +99,7 @@ const FleetCommand = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics-asset-types"] });
             setIsTypeDialogOpen(false);
-            setNewType({ name: "", description: "", type_category: "Vehicle", is_active: true });
+            setNewType({ name: "", description: "", type_category: "Vehicle", requires_coupling: false, is_active: true });
             toast({ title: "Type Added", description: "New asset type registered." });
         },
         onError: (error: any) => toast({ variant: "destructive", title: "Error", description: error.message })
@@ -638,6 +639,16 @@ const FleetCommand = () => {
                                     <Label>Description</Label>
                                     <Input placeholder="Brief description" value={newType.description} onChange={e => setNewType({ ...newType, description: e.target.value })} />
                                 </div>
+                                <div className="flex items-center justify-between p-2 bg-slate-50 rounded border">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-sm">Requires Coupling?</Label>
+                                        <p className="text-[10px] text-muted-foreground">Check if this asset MUST be linked to another (e.g. Horse/Trailer)</p>
+                                    </div>
+                                    <Switch
+                                        checked={newType.requires_coupling}
+                                        onCheckedChange={(checked) => setNewType({ ...newType, requires_coupling: checked })}
+                                    />
+                                </div>
                             </div>
                             <DialogFooter>
                                 <Button className="w-full bg-primary" onClick={() => createTypeMutation.mutate(newType)}>Add Type</Button>
@@ -659,7 +670,7 @@ const FleetCommand = () => {
                                         <TableHeader className="bg-slate-50/50">
                                             <TableRow>
                                                 <TableHead className="pl-6">Name</TableHead>
-                                                <TableHead>Description</TableHead>
+                                                <TableHead>Requires Coupling</TableHead>
                                                 <TableHead>Active</TableHead>
                                                 <TableHead className="text-right pr-6">Actions</TableHead>
                                             </TableRow>
@@ -667,8 +678,15 @@ const FleetCommand = () => {
                                         <TableBody>
                                             {assetTypes?.filter((t) => (t.type_category || 'Vehicle') === category).map((type) => (
                                                 <TableRow key={type.id}>
-                                                    <TableCell className="font-medium pl-6">{type.name}</TableCell>
-                                                    <TableCell className="text-xs text-muted-foreground">{type.description || "—"}</TableCell>
+                                                    <TableCell className="font-medium pl-6">
+                                                        <div>{type.name}</div>
+                                                        <div className="text-[10px] text-muted-foreground">{type.description || "No description"}</div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={type.requires_coupling ? "default" : "secondary"} className="text-[10px]">
+                                                            {type.requires_coupling ? "Yes" : "No"}
+                                                        </Badge>
+                                                    </TableCell>
                                                     <TableCell>
                                                         <Switch
                                                             checked={type.is_active}

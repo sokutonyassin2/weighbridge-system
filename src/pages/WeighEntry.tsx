@@ -664,9 +664,9 @@ Please process payment in Cashier section first.`,
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <Card className={templateClass}>
-          <CardContent className={`p-8 ${fontClass}`}>
-            <div id="print-receipt">
-              <div className={`mb-8 text-${settings.header.logoPosition} relative`}>
+          <CardContent className={`p-8 print:p-2 ${fontClass}`}>
+            <div id="print-receipt" className="print:m-0 print:p-0">
+              <div className={`mb-8 print:mb-2 text-${settings.header.logoPosition} relative`}>
                 {settings.header.showLogo && (
                   <img
                     src={settings.header.useCustomLogo && settings.header.customLogo
@@ -683,11 +683,11 @@ Please process payment in Cashier section first.`,
                 <p className="text-sm text-muted-foreground mt-1">{settings.header.subtitle}</p>
                 <p className="text-sm text-muted-foreground">{settings.header.address}</p>
                 {settings.template === 'classic' ? (
-                  <div className="border-b-4 border-primary mt-4 mb-6"></div>
+                  <div className="border-b-4 border-primary mt-4 mb-6 print:mt-1 print:mb-2"></div>
                 ) : settings.template === 'modern' ? (
-                  <div className="border-b-2 border-border mt-4 mb-6"></div>
+                  <div className="border-b-2 border-border mt-4 mb-6 print:mt-1 print:mb-2"></div>
                 ) : (
-                  <div className="border-b border-dotted border-muted-foreground mt-3 mb-4"></div>
+                  <div className="border-b border-dotted border-muted-foreground mt-3 mb-4 print:mt-1 print:mb-2"></div>
                 )}
                 <h2 className={`${settings.template === 'minimal' ? 'text-lg' : 'text-xl'} font-semibold`}>
                   WEIGH RECEIPT
@@ -715,7 +715,7 @@ Please process payment in Cashier section first.`,
                 )}
               </div>
 
-              <div className="space-y-4 mb-6">
+              <div className="space-y-4 mb-6 print:space-y-1 print:mb-2">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-muted-foreground print:text-base">Entry ID</p>
@@ -790,17 +790,17 @@ Please process payment in Cashier section first.`,
               </div>
 
               <div
-                className={`py-4 mt-6 ${settings.template === 'classic'
+                className={`py-4 mt-6 print:py-1 print:mt-2 ${settings.template === 'classic'
                   ? 'border-t-4 border-b-4 border-primary'
                   : settings.template === 'modern'
                     ? 'border-t-2 border-b-2 border-border'
                     : 'border-t-2 border-dotted border-muted-foreground'
                   }`}
               >
-                <div className="space-y-3">
+                <div className="space-y-3 print:space-y-0.5">
                   <div className="flex justify-between items-center">
-                    <span className="font-bold text-lg print:text-xl">Gross Weight:</span>
-                    <span className="text-xl font-bold print:text-2xl">{printData.gross_weight} kg</span>
+                    <span className="font-bold text-lg print:text-base">Gross Weight:</span>
+                    <span className="text-xl font-bold print:text-lg">{printData.gross_weight} kg</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-lg print:text-xl">Tare Weight:</span>
@@ -846,7 +846,7 @@ Please process payment in Cashier section first.`,
 
               {!printData.isSecondWeigh && (
                 <div
-                  className={`pt-4 mt-6 ${settings.template === 'classic'
+                  className={`pt-4 mt-6 print:pt-1 print:mt-2 ${settings.template === 'classic'
                     ? 'border-t-2 border-primary'
                     : settings.template === 'modern'
                       ? 'border-t border-border'
@@ -869,7 +869,7 @@ Please process payment in Cashier section first.`,
               )}
 
               <div
-                className={`text-center text-sm text-muted-foreground pt-4 mt-6 ${settings.template === 'classic'
+                className={`text-center text-sm text-muted-foreground pt-4 mt-6 print:pt-1 print:mt-2 ${settings.template === 'classic'
                   ? 'border-t-2 border-primary'
                   : settings.template === 'modern'
                     ? 'border-t border-border'
@@ -895,7 +895,7 @@ Please process payment in Cashier section first.`,
               {/* QR Code - Bottom Position (after all content) */}
               {settings.qrCode.enabled && settings.qrCode.position !== 'top-right' && (
                 <div
-                  className={`mt-6 pt-4 flex ${settings.qrCode.position === 'bottom-right' ? 'justify-end' : 'justify-start'}`}
+                  className={`mt-6 pt-4 print:mt-2 print:pt-1 flex ${settings.qrCode.position === 'bottom-right' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div className={`p-3 bg-white rounded ${settings.template === 'classic'
                     ? 'border-4 border-primary'

@@ -294,10 +294,10 @@ const LogisticsDashboard = () => {
                                     <div className="space-y-6">
                                         <div className="flex items-end justify-between">
                                             <div>
-                                                <div className="text-4xl font-black text-slate-800 dark:text-white">
+                                                <div className="text-3xl font-bold text-slate-800 dark:text-white">
                                                     {Math.round(((driverStatusData.find((d: any) => d.name === 'Available')?.value || 0) / (driverCount || 1)) * 100)}%
                                                 </div>
-                                                <p className="text-sm font-semibold text-muted-foreground mt-1">Workforce Available</p>
+                                                <p className="text-sm font-medium text-muted-foreground mt-1">Workforce Available</p>
                                             </div>
                                             <div className="text-right">
                                                 <div className="text-sm font-bold text-slate-900 dark:text-white">
@@ -308,18 +308,18 @@ const LogisticsDashboard = () => {
                                         </div>
                                         <Progress
                                             value={((driverStatusData.find((d: any) => d.name === 'Available')?.value || 0) / (driverCount || 1)) * 100}
-                                            className="h-4 w-full bg-slate-100"
+                                            className="h-3 w-full bg-slate-100"
                                         />
                                         <div className="grid grid-cols-2 gap-4 pt-2">
                                             <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                                                 <p className="text-[10px] uppercase text-slate-400 font-bold">Assigned</p>
-                                                <p className="text-lg font-black text-slate-700">
+                                                <p className="text-lg font-bold text-slate-700">
                                                     {driverStatusData.find((d: any) => d.name === 'Assigned')?.value || 0}
                                                 </p>
                                             </div>
                                             <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
                                                 <p className="text-[10px] uppercase text-indigo-400 font-bold">Total</p>
-                                                <p className="text-lg font-black text-indigo-700">{driverCount}</p>
+                                                <p className="text-lg font-bold text-indigo-700">{driverCount}</p>
                                             </div>
                                         </div>
                                     </div>

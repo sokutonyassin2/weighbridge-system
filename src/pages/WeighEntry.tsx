@@ -406,8 +406,7 @@ Please process payment in Cashier section first.`,
           .insert({
             shift_date: shiftDate,
             shift_name: shiftName,
-            operator_id: user.id,
-            operator_name: userProfile?.full_name || userProfile?.username || "Operator"
+            operator_id: user.id
           })
           .select("id")
           .single();
@@ -443,32 +442,36 @@ Please process payment in Cashier section first.`,
 
       // A. Update Vehicle Entry (Status & Shift)
       promises.push(
-        supabase
-          .from("vehicle_entries")
-          .update({
-            status: hasExhaustedAttempts ? status : newStatus, // Keep status if exhausted
-            completed: !hasExhaustedAttempts && newStatus === "Completed",
-            shift_id: currentShiftId
-          })
-          .eq("id", id)
+        Promise.resolve(
+          supabase
+            .from("vehicle_entries")
+            .update({
+              status: hasExhaustedAttempts ? status : newStatus, // Keep status if exhausted
+              completed: !hasExhaustedAttempts && newStatus === "Completed",
+              shift_id: currentShiftId
+            })
+            .eq("id", id)
+        )
       );
 
       // B. Insert Weigh Record
       promises.push(
-        supabase.from("weigh_records").insert([{
-          entry_id: id,
-          gross_weight: parseFloat(weighData.gross_weight),
-          tare_weight: parseFloat(weighData.tare_weight),
-          weigh_number: weighCount + 1,
-          operator_id: user.id,
-          warning_flag: weighData.warning_flag,
-          exceedence_notes: weighData.exceedence_notes || null,
-          is_locked: true,
-          gvm: weighData.gvm ? parseFloat(weighData.gvm) : null,
-          gtm: weighData.gtm ? parseFloat(weighData.gtm) : null,
-          trailer_weight: weighData.trailer_weight ? parseFloat(weighData.trailer_weight) : null,
-          photo_url: capturedPhotoUrl || null,
-        }])
+        Promise.resolve(
+          supabase.from("weigh_records").insert([{
+            entry_id: id,
+            gross_weight: parseFloat(weighData.gross_weight),
+            tare_weight: parseFloat(weighData.tare_weight),
+            weigh_number: weighCount + 1,
+            operator_id: user.id,
+            warning_flag: weighData.warning_flag,
+            exceedence_notes: weighData.exceedence_notes || null,
+            is_locked: true,
+            gvm: weighData.gvm ? parseFloat(weighData.gvm) : null,
+            gtm: weighData.gtm ? parseFloat(weighData.gtm) : null,
+            trailer_weight: weighData.trailer_weight ? parseFloat(weighData.trailer_weight) : null,
+            photo_url: capturedPhotoUrl || null,
+          }])
+        )
       );
 
       // C. Handle Pending Weighs & Penalties
@@ -476,55 +479,65 @@ Please process payment in Cashier section first.`,
         const penaltyAmount = entry.vehicle_types?.first_weigh_fee || 0;
 
         promises.push(
-          supabase.from("pending_weighs").update({
-            payment_required: true,
-            payment_required_reason: 'Exhausted all 3 weigh attempts without acceptable weight',
-            payment_amount: penaltyAmount,
-            payment_status: 'Overdue',
-            weigh_attempts: 3
-          }).eq("entry_id", id)
+          Promise.resolve(
+            supabase.from("pending_weighs").update({
+              payment_required: true,
+              payment_required_reason: 'Exhausted all 3 weigh attempts without acceptable weight',
+              payment_amount: penaltyAmount,
+              payment_status: 'Overdue',
+              weigh_attempts: 3
+            }).eq("entry_id", id)
+          )
         );
 
         promises.push(
-          supabase.from("penalties").insert({
-            entry_id: id,
-            vehicle_no: entry.vehicle_no,
-            penalty_type: 'Exhausted Attempts',
-            reason: 'Used all 3 weigh attempts without achieving acceptable weight',
-            amount: penaltyAmount,
-          })
+          Promise.resolve(
+            supabase.from("penalties").insert({
+              entry_id: id,
+              vehicle_no: entry.vehicle_no,
+              penalty_type: 'Exhausted Attempts',
+              reason: 'Used all 3 weigh attempts without achieving acceptable weight',
+              amount: penaltyAmount,
+            })
+          )
         );
 
         promises.push(
-          supabase.from("activity_logs").insert({
-            user_id: user.id,
-            user_name: userProfile?.full_name || "Unknown",
-            user_role: "operator",
-            action: "Weigh Attempts Exhausted",
-            details: `Vehicle ${entry.vehicle_no} exhausted all 3 attempts. Penalty of TShs ${penaltyAmount.toLocaleString()} applied.`,
-          })
+          Promise.resolve(
+            supabase.from("activity_logs").insert({
+              user_id: user.id,
+              user_name: userProfile?.full_name || "Unknown",
+              user_role: "operator",
+              action: "Weigh Attempts Exhausted",
+              details: `Vehicle ${entry.vehicle_no} exhausted all 3 attempts. Penalty of TShs ${penaltyAmount.toLocaleString()} applied.`,
+            })
+          )
         );
       } else if (newStatus === "Completed") {
-        promises.push(supabase.from("pending_weighs").delete().eq("entry_id", id));
+        promises.push(Promise.resolve(supabase.from("pending_weighs").delete().eq("entry_id", id)));
       } else if (isFirstWeigh && entry?.vehicle_types?.is_time_sensitive) {
         const expectedReturnTime = new Date();
         expectedReturnTime.setHours(expectedReturnTime.getHours() + (entry.vehicle_types.return_time_hours || 0));
 
         promises.push(
-          supabase.from("pending_weighs").insert({
-            entry_id: id,
-            vehicle_no: entry.vehicle_no,
-            category: entry.category,
-            first_weigh_time: new Date().toISOString(),
-            expected_return_time: expectedReturnTime.toISOString(),
-            return_status: "Pending",
-          })
+          Promise.resolve(
+            supabase.from("pending_weighs").insert({
+              entry_id: id,
+              vehicle_no: entry.vehicle_no,
+              category: entry.category,
+              first_weigh_time: new Date().toISOString(),
+              expected_return_time: expectedReturnTime.toISOString(),
+              return_status: "Pending",
+            })
+          )
         );
       } else if (!isFirstWeigh && !isMVCategory && pendingWeigh) {
         promises.push(
-          supabase.from("pending_weighs").update({
-            weigh_attempts: (pendingWeigh.weigh_attempts || 0) + 1,
-          }).eq("entry_id", id)
+          Promise.resolve(
+            supabase.from("pending_weighs").update({
+              weigh_attempts: (pendingWeigh.weigh_attempts || 0) + 1,
+            }).eq("entry_id", id)
+          )
         );
       }
 
@@ -585,31 +598,28 @@ Please process payment in Cashier section first.`,
       }
 
       // Final Step: Print or Redirect
-      if (isFirstWeigh || isMVCategory) {
-        const prePaidResult = prePaidPromise ? await prePaidPromise : null;
-        const isPrepaid = prePaidResult?.data?.notes?.includes("Pre-paid");
+      // Always show print dialog as requested by user
+      const prePaidResult = prePaidPromise ? await prePaidPromise : null;
+      const isPrepaid = prePaidResult?.data?.notes?.includes("Pre-paid");
 
-        setPrintData({
-          ...entry,
-          gross_weight: weighData.gross_weight,
-          tare_weight: weighData.tare_weight,
-          net_weight: calculatedNetWeight,
-          vehicle_type_name: entry.vehicle_types?.type_name,
-          price: entry.vehicle_types?.first_weigh_fee || 0,
-          isPrepaid,
-          weighed_by: userProfile?.full_name || userProfile?.username || 'Operator',
-          weigh_time: new Date().toISOString(),
-          isSecondWeigh: !isFirstWeigh,
-          gvm: weighData.gvm || null,
-          gtm: weighData.gtm || null,
-          trailer_weight: weighData.trailer_weight || null,
-          payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
-        });
-        setShowPrint(true);
-      } else {
-        toast({ title: "Success", description: `Weight recorded successfully for ${entry?.vehicle_no}` });
-        navigate("/");
-      }
+      setPrintData({
+        ...entry,
+        gross_weight: weighData.gross_weight,
+        tare_weight: weighData.tare_weight,
+        net_weight: calculatedNetWeight,
+        vehicle_type_name: entry.vehicle_types?.type_name,
+        price: isFirstWeigh ? (entry.vehicle_types?.first_weigh_fee || 0) : (entry.vehicle_types?.second_weigh_fee || 0),
+        isPrepaid,
+        weighed_by: userProfile?.full_name || userProfile?.username || 'Operator',
+        weigh_time: new Date().toISOString(),
+        isSecondWeigh: !isFirstWeigh,
+        gvm: weighData.gvm || null,
+        gtm: weighData.gtm || null,
+        trailer_weight: weighData.trailer_weight || null,
+        payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
+        isCompleted: newStatus === "Completed"
+      });
+      setShowPrint(true);
     } catch (error: any) {
       console.error("Save error:", error);
       toast({ variant: "destructive", title: "Error", description: error.message });

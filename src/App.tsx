@@ -32,6 +32,8 @@ import LogisticsDashboard from "./pages/logistics/LogisticsDashboard";
 import FleetCommand from "./pages/logistics/FleetCommand";
 import DriverRegistry from "./pages/logistics/DriverRegistry";
 import TripManagement from "./pages/logistics/TripManagement";
+import ComplianceCenter from "./pages/logistics/ComplianceCenter";
+import VehiclePerformance from "./pages/logistics/VehiclePerformance";
 
 const queryClient = new QueryClient();
 
@@ -269,6 +271,16 @@ const App = () => {
               }
             />
             <Route
+              path="/logistics/compliance"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ComplianceCenter />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/logistics/drivers"
               element={
                 <ProtectedRoute>
@@ -284,6 +296,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <TripManagement />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/reports/vehicle"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <VehiclePerformance />
                   </Layout>
                 </ProtectedRoute>
               }

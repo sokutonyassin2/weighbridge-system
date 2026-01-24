@@ -113,23 +113,23 @@ export const CashierShiftReport = ({
           max-width: 100% !important;
         }
         .print\:text-lg {
-          font-size: 0.8rem !important;
+          font-size: 1rem !important;
         }
         .print\:text-base {
-          font-size: 0.7rem !important;
+          font-size: 0.9rem !important;
         }
         .print\:text-sm {
-          font-size: 0.6rem !important;
+          font-size: 0.8rem !important;
         }
         .print\:text-xs {
-          font-size: 0.5rem !important;
+          font-size: 0.7rem !important;
         }
         table {
-          font-size: 0.6rem !important;
+          font-size: 0.8rem !important;
           table-layout: fixed !important;
         }
         .table-cell, th, td {
-          padding: 0.2rem 0.3rem !important;
+          padding: 0.3rem 0.4rem !important;
           word-wrap: break-word !important;
         }
         .break-inside-avoid {
@@ -160,7 +160,7 @@ export const CashierShiftReport = ({
         <div id="print-receipt" className="print:p-8">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold">SUDSUD EAFEEDS {new Date().getFullYear()}</h1>
+            <h1 className="text-3xl font-bold print:text-4xl">SUDSUD EAFEEDS {new Date().getFullYear()}</h1>
             <h2 className="text-xl font-semibold mt-2">
               {reportType === "shift" ? "Shift Collection Report" : "Operator Collection Report"}
             </h2>

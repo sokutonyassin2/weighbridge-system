@@ -13,6 +13,7 @@ import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle,
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const FleetCommand = () => {
     const { toast } = useToast();
@@ -48,7 +49,11 @@ const FleetCommand = () => {
         fleet_category: "Local",
         asset_status: "Active",
         notes: "",
-        branding_form_url: ""
+        branding_form_url: "",
+        current_odometer: 0,
+        last_service_odometer: 0,
+        next_service_odometer: 0,
+        last_service_date: ""
     });
     const [brandingFile, setBrandingFile] = useState<File | null>(null);
 
@@ -89,6 +94,46 @@ const FleetCommand = () => {
         }
     });
 
+    // Fetch Document Types
+    const { data: docTypes } = useQuery({
+        queryKey: ["logistics-document-types"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_document_types" as any)
+                .select("*")
+                .order("name", { ascending: true });
+            if (error) throw error;
+            return data;
+        }
+    });
+
+    const [fleetDocuments, setFleetDocuments] = useState<any[]>([]);
+
+    const handleDocumentUpload = async (file: File) => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `fleet_doc_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const { error } = await supabase.storage.from('fleet-documents').upload(fileName, file);
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from('fleet-documents').getPublicUrl(fileName);
+        return urlData.publicUrl;
+    };
+
+    const handleDeleteDocument = async (idx: number, documents: any[], setDocuments: any) => {
+        const docToDelete = documents[idx];
+        if (docToDelete.document_url && docToDelete.document_url !== "pending") {
+            try {
+                const filePath = docToDelete.document_url.split('/').pop();
+                if (filePath) {
+                    await supabase.storage.from('fleet-documents').remove([filePath]);
+                }
+            } catch (err) {
+                console.error("Error deleting file from storage:", err);
+            }
+        }
+        const updated = documents.filter((_, i) => i !== idx);
+        setDocuments(updated);
+    };
+
     // Asset Type Mutations
     const createTypeMutation = useMutation({
         mutationFn: async (type: typeof newType) => {
@@ -126,19 +171,69 @@ const FleetCommand = () => {
     });
 
     const createAssetMutation = useMutation({
-        mutationFn: async (asset: any) => {
-            const { data, error } = await supabase.from("logistics_fleet").insert([asset]).select();
-            if (error) throw error;
-            return data;
+        mutationFn: async ({ asset, documents }: { asset: any, documents: any[] }) => {
+            // Sanitize asset payload
+            const assetPayload = { ...asset };
+            if (assetPayload.last_service_date === "") assetPayload.last_service_date = null;
+
+            const { data: fleetData, error: fleetError } = await supabase
+                .from("logistics_fleet")
+                .insert([assetPayload])
+                .select()
+                .single();
+            if (fleetError) throw fleetError;
+
+            if (documents.length > 0) {
+                const docsToInsert = await Promise.all(documents.map(async (doc) => {
+                    let docUrl = doc.document_url || "";
+                    if (doc.file) {
+                        docUrl = await handleDocumentUpload(doc.file);
+                    }
+                    const { file, ...rest } = doc;
+
+                    // Sanitize document date
+                    const docPayload = { ...rest, document_url: docUrl, fleet_id: fleetData.id };
+                    if (docPayload.expiry_date === "") docPayload.expiry_date = null;
+
+                    return docPayload;
+                }));
+
+                const { error: docsError } = await (supabase
+                    .from("logistics_fleet_documents" as any)
+                    .insert(docsToInsert) as any);
+                if (docsError) throw docsError;
+            }
+            return fleetData;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics-fleet"] });
             setIsDialogOpen(false);
-            setNewAsset({ vehicle_no: "", horse_number: "", trailer_number: "", make_model: "", asset_type: "", fleet_category: "Local", asset_status: "Active", notes: "", branding_form_url: "" });
+            setNewAsset({
+                vehicle_no: "",
+                horse_number: "",
+                trailer_number: "",
+                make_model: "",
+                asset_type: "",
+                fleet_category: "Local",
+                asset_status: "Active",
+                notes: "",
+                branding_form_url: "",
+                current_odometer: 0,
+                last_service_odometer: 0,
+                next_service_odometer: 0,
+                last_service_date: ""
+            });
+            setFleetDocuments([]);
             setBrandingFile(null);
-            toast({ title: "Vehicle Registered", description: "The vehicle has been added to the registry." });
+            toast({ title: "Vehicle Registered", description: "The vehicle and its credentials have been saved." });
         },
-        onError: (error: any) => toast({ variant: "destructive", title: "Error", description: error.message })
+        onError: (error: any) => {
+            if (error.message?.includes("409") || (error.code === "23505")) {
+                toast({ variant: "destructive", title: "Registration Failed", description: "A vehicle with this Plate Number already exists." });
+            } else {
+                toast({ variant: "destructive", title: "Error", description: error.message });
+            }
+        }
     });
 
     const deleteAssetMutation = useMutation({
@@ -235,17 +330,70 @@ const FleetCommand = () => {
     });
 
     const updateAssetMutation = useMutation({
-        mutationFn: async (asset: any) => {
-            const { id, ...updateData } = asset;
-            const { data, error } = await supabase.from("logistics_fleet").update(updateData).eq("id", id).select();
-            if (error) throw error;
-            return data;
+        mutationFn: async ({ id, updates, documents }: { id: string, updates: any, documents: any[] }) => {
+            // Sanitize updates
+            const updatePayload = { ...updates };
+            if (updatePayload.last_service_date === "") updatePayload.last_service_date = null;
+
+            const { data: fleetData, error: fleetError } = await supabase
+                .from("logistics_fleet")
+                .update(updatePayload)
+                .eq("id", id)
+                .select()
+                .single();
+            if (fleetError) throw fleetError;
+
+            // Update documents: delete old and insert new for consistency
+            if (documents.length > 0) {
+                await (supabase.from("logistics_fleet_documents" as any).delete().eq("fleet_id", id) as any);
+
+                const docsToInsert = await Promise.all(documents.map(async (doc) => {
+                    let docUrl = doc.document_url || "";
+                    if (doc.file) {
+                        docUrl = await handleDocumentUpload(doc.file);
+                    }
+                    const { file, ...rest } = doc;
+                    const docPayload = {
+                        ...rest,
+                        document_url: docUrl,
+                        fleet_id: id
+                    };
+                    // Sanitize document date
+                    if (docPayload.expiry_date === "") docPayload.expiry_date = null;
+                    return docPayload;
+                }));
+
+                const { error: docsError } = await (supabase
+                    .from("logistics_fleet_documents" as any)
+                    .insert(docsToInsert) as any);
+                if (docsError) throw docsError;
+            } else {
+                // If no documents left, clear them from the DB
+                await (supabase.from("logistics_fleet_documents" as any).delete().eq("fleet_id", id) as any);
+            }
+            return fleetData;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics-fleet"] });
             setIsDialogOpen(false);
             setEditingAsset(null);
-            toast({ title: "Vehicle Updated", description: "The vehicle details have been updated." });
+            setNewAsset({
+                vehicle_no: "",
+                horse_number: "",
+                trailer_number: "",
+                make_model: "",
+                asset_type: "",
+                fleet_category: "Local",
+                asset_status: "Active",
+                notes: "",
+                branding_form_url: "",
+                current_odometer: 0,
+                last_service_odometer: 0,
+                next_service_odometer: 0,
+                last_service_date: ""
+            });
+            setFleetDocuments([]);
+            toast({ title: "Vehicle Updated", description: "The vehicle and its credentials have been synchronized." });
         },
         onError: (error: any) => toast({ variant: "destructive", title: "Error", description: error.message })
     });
@@ -295,7 +443,11 @@ const FleetCommand = () => {
             fleet_category: asset.fleet_category || "Local",
             asset_status: asset.asset_status || "Active",
             notes: asset.notes || "",
-            branding_form_url: asset.branding_form_url || ""
+            branding_form_url: asset.branding_form_url || "",
+            current_odometer: asset.current_odometer || 0,
+            last_service_odometer: asset.last_service_odometer || 0,
+            next_service_odometer: asset.next_service_odometer || 0,
+            last_service_date: asset.last_service_date || ""
         });
         setIsDialogOpen(true);
     };
@@ -328,7 +480,16 @@ const FleetCommand = () => {
         }
 
         console.log("✅ VALIDATION PASSED - Proceeding with registration");
-        const finalAsset = { ...newAsset };
+
+        // Auto-capitalize text fields
+        const finalAsset = {
+            ...newAsset,
+            vehicle_no: newAsset.vehicle_no?.toUpperCase() || "",
+            horse_number: newAsset.horse_number?.toUpperCase() || "",
+            trailer_number: newAsset.trailer_number?.toUpperCase() || "",
+            make_model: newAsset.make_model?.toUpperCase() || "",
+            notes: newAsset.notes || ""
+        };
 
         // Upload branding form if provided
         if (brandingFile) {
@@ -371,9 +532,9 @@ const FleetCommand = () => {
         }
 
         if (editingAsset) {
-            updateAssetMutation.mutate({ id: editingAsset.id, ...finalAsset });
+            updateAssetMutation.mutate({ id: editingAsset.id, updates: finalAsset, documents: fleetDocuments });
         } else {
-            createAssetMutation.mutate(finalAsset as any);
+            createAssetMutation.mutate({ asset: finalAsset, documents: fleetDocuments });
         }
     };
 
@@ -683,8 +844,8 @@ const FleetCommand = () => {
                                                         <div className="text-[10px] text-muted-foreground">{type.description || "No description"}</div>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge variant={type.requires_coupling ? "default" : "secondary"} className="text-[10px]">
-                                                            {type.requires_coupling ? "Yes" : "No"}
+                                                        <Badge variant={(type as any).requires_coupling ? "default" : "secondary"} className="text-[10px]">
+                                                            {(type as any).requires_coupling ? "Yes" : "No"}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
@@ -723,7 +884,21 @@ const FleetCommand = () => {
                     if (!open) {
                         setEditingAsset(null);
                         setActiveRegTab("Vehicle"); // Reset to Vehicle category
-                        setNewAsset({ vehicle_no: "", horse_number: "", trailer_number: "", make_model: "", asset_type: "", fleet_category: "Local", asset_status: "Active", notes: "", branding_form_url: "" });
+                        setNewAsset({
+                            vehicle_no: "",
+                            horse_number: "",
+                            trailer_number: "",
+                            make_model: "",
+                            asset_type: "",
+                            fleet_category: "Local",
+                            asset_status: "Active",
+                            notes: "",
+                            branding_form_url: "",
+                            current_odometer: 0,
+                            last_service_odometer: 0,
+                            next_service_odometer: 0,
+                            last_service_date: ""
+                        });
                         setBrandingFile(null);
                     }
                 }}>
@@ -736,141 +911,296 @@ const FleetCommand = () => {
                         <DialogHeader>
                             <DialogTitle>{editingAsset ? "Edit Vehicle Details" : "Register New Vehicle"}</DialogTitle>
                         </DialogHeader>
-                        <div className="grid gap-6 py-4">
-                            {/* Integrated Category & Type Selection */}
-                            <div className="space-y-4">
-                                <Label className="text-sm font-semibold">Select Asset Category & Type *</Label>
-                                <Tabs
-                                    value={activeRegTab}
-                                    onValueChange={(v: any) => {
-                                        setActiveRegTab(v);
-                                        setNewAsset({ ...newAsset, asset_type: "" });
-                                    }}
-                                    className="w-full"
-                                >
-                                    <TabsList className="grid w-full grid-cols-2 mb-4">
-                                        <TabsTrigger value="Vehicle" className="flex items-center gap-2">
-                                            <Truck className="w-4 h-4" /> Vehicle
-                                        </TabsTrigger>
-                                        <TabsTrigger value="Trailer" className="flex items-center gap-2">
-                                            <Truck className="w-4 h-4 rotate-180" /> Trailer
-                                        </TabsTrigger>
-                                    </TabsList>
+                        <ScrollArea className="max-h-[80vh] px-1">
+                            <div className="grid gap-6 py-4">
+                                {/* Integrated Category & Type Selection */}
+                                <div className="space-y-4">
+                                    <Label className="text-sm font-semibold">Select Asset Category & Type *</Label>
+                                    <Tabs
+                                        value={activeRegTab}
+                                        onValueChange={(v: any) => {
+                                            setActiveRegTab(v);
+                                            setNewAsset({ ...newAsset, asset_type: "" });
+                                        }}
+                                        className="w-full"
+                                    >
+                                        <TabsList className="grid w-full grid-cols-2 mb-4">
+                                            <TabsTrigger value="Vehicle" className="flex items-center gap-2">
+                                                <Truck className="w-4 h-4" /> Vehicle
+                                            </TabsTrigger>
+                                            <TabsTrigger value="Trailer" className="flex items-center gap-2">
+                                                <Truck className="w-4 h-4 rotate-180" /> Trailer
+                                            </TabsTrigger>
+                                        </TabsList>
 
-                                    {["Vehicle", "Trailer"].map((cat) => (
-                                        <TabsContent key={cat} value={cat} className="space-y-3 mt-0 border-t pt-4">
-                                            <div className="space-y-2">
-                                                <Label className="text-sm font-semibold">{cat} Type *</Label>
-                                                <Select
-                                                    value={newAsset.asset_type}
-                                                    onValueChange={v => setNewAsset({ ...newAsset, asset_type: v })}
-                                                >
-                                                    <SelectTrigger className="bg-white border-2 h-11 focus:ring-primary">
-                                                        <SelectValue placeholder={`Select ${cat.toLowerCase()} type`} />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {assetTypes?.filter((t) =>
-                                                            ((t.type_category || 'Vehicle') === cat) &&
-                                                            (t.is_active || t.name === newAsset.asset_type)
-                                                        ).map((t) => (
-                                                            <SelectItem key={t.id} value={t.name}>
-                                                                {t.name} {!t.is_active && "(Inactive)"}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </TabsContent>
-                                    ))}
-                                </Tabs>
-                            </div>
+                                        {["Vehicle", "Trailer"].map((cat) => (
+                                            <TabsContent key={cat} value={cat} className="space-y-3 mt-0 border-t pt-4">
+                                                <div className="space-y-2">
+                                                    <Label className="text-sm font-semibold">{cat} Type *</Label>
+                                                    <Select
+                                                        value={newAsset.asset_type}
+                                                        onValueChange={v => setNewAsset({ ...newAsset, asset_type: v })}
+                                                    >
+                                                        <SelectTrigger className="bg-white border-2 h-11 focus:ring-primary">
+                                                            <SelectValue placeholder={`Select ${cat.toLowerCase()} type`} />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {assetTypes?.filter((t) =>
+                                                                ((t.type_category || 'Vehicle') === cat) &&
+                                                                (t.is_active || t.name === newAsset.asset_type)
+                                                            ).map((t) => (
+                                                                <SelectItem key={t.id} value={t.name}>
+                                                                    {t.name} {!t.is_active && "(Inactive)"}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </TabsContent>
+                                        ))}
+                                    </Tabs>
+                                </div>
 
-                            {/* Make/Model Section */}
-                            <div className="space-y-2">
-                                <Label className="text-sm font-semibold">Make / Model</Label>
-                                <Input
-                                    placeholder="e.g., Scania R500"
-                                    className="bg-slate-50/50"
-                                    value={newAsset.make_model}
-                                    onChange={e => setNewAsset({ ...newAsset, make_model: e.target.value })}
-                                />
-                            </div>
-
-                            {/* Simplified Identification */}
-                            <div className="space-y-2 bg-slate-900/5 p-4 rounded-xl border border-slate-900/10">
-                                <Label className="text-sm font-semibold">Plate Number / Identifier *</Label>
-                                <Input
-                                    placeholder="e.g., T 123 ABC"
-                                    className="bg-white border-2 focus-visible:ring-primary h-12 text-lg font-bold tracking-wider"
-                                    value={newAsset.vehicle_no}
-                                    onChange={e => setNewAsset({ ...newAsset, vehicle_no: e.target.value })}
-                                />
-                                <p className="text-[10px] text-muted-foreground italic">Enter the primary identification number for this {activeRegTab.toLowerCase()}</p>
-                            </div>
-
-                            {/* Branding Form Upload Section */}
-                            <div className="space-y-2">
-                                <Label className="text-sm font-semibold flex items-center gap-2">
-                                    <FileText className="w-4 h-4" />
-                                    Branding Form (PDF)
-                                </Label>
-                                <div className="flex gap-2">
+                                {/* Make/Model Section */}
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-semibold">Make / Model</Label>
                                     <Input
-                                        type="file"
-                                        accept=".pdf"
-                                        onChange={(e) => setBrandingFile(e.target.files?.[0] || null)}
+                                        placeholder="e.g., Scania R500"
                                         className="bg-slate-50/50"
+                                        value={newAsset.make_model}
+                                        onChange={e => setNewAsset({ ...newAsset, make_model: e.target.value })}
                                     />
+                                </div>
+
+                                {/* Simplified Identification */}
+                                <div className="space-y-2 bg-slate-900/5 p-4 rounded-xl border border-slate-900/10">
+                                    <Label className="text-sm font-semibold">Plate Number / Identifier *</Label>
+                                    <Input
+                                        placeholder="e.g., T 123 ABC"
+                                        className="bg-white border-2 focus-visible:ring-primary h-12 text-lg font-bold tracking-wider"
+                                        value={newAsset.vehicle_no}
+                                        onChange={e => setNewAsset({ ...newAsset, vehicle_no: e.target.value })}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground italic">Enter the primary identification number for this {activeRegTab.toLowerCase()}</p>
+                                </div>
+
+                                {/* Branding Form Upload Section */}
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-semibold flex items-center gap-2">
+                                        <FileText className="w-4 h-4" />
+                                        Branding Form (PDF)
+                                    </Label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            type="file"
+                                            accept=".pdf"
+                                            onChange={(e) => setBrandingFile(e.target.files?.[0] || null)}
+                                            className="bg-slate-50/50"
+                                        />
+                                        {newAsset.branding_form_url && !brandingFile && (
+                                            <>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => window.open(newAsset.branding_form_url, '_blank')}
+                                                >
+                                                    <FileText className="w-4 h-4" />
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="text-destructive hover:bg-destructive hover:text-white"
+                                                    onClick={() => {
+                                                        if (confirm("Remove this branding form? You can upload a new one.")) {
+                                                            setNewAsset({ ...newAsset, branding_form_url: "" });
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+                                    {brandingFile && (
+                                        <p className="text-xs text-muted-foreground">
+                                            Selected: {brandingFile.name}
+                                        </p>
+                                    )}
                                     {newAsset.branding_form_url && !brandingFile && (
-                                        <>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => window.open(newAsset.branding_form_url, '_blank')}
-                                            >
-                                                <FileText className="w-4 h-4" />
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                className="text-destructive hover:bg-destructive hover:text-white"
-                                                onClick={() => {
-                                                    if (confirm("Remove this branding form? You can upload a new one.")) {
-                                                        setNewAsset({ ...newAsset, branding_form_url: "" });
-                                                    }
-                                                }}
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
-                                        </>
+                                        <p className="text-xs text-green-600">
+                                            ✓ Form already uploaded
+                                        </p>
                                     )}
                                 </div>
-                                {brandingFile && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Selected: {brandingFile.name}
-                                    </p>
-                                )}
-                                {newAsset.branding_form_url && !brandingFile && (
-                                    <p className="text-xs text-green-600">
-                                        ✓ Form already uploaded
-                                    </p>
-                                )}
-                            </div>
 
-                            {/* Operation Type Section */}
-                            <div className="space-y-2">
-                                <Label className="text-sm font-semibold">Operation Type</Label>
-                                <Select value={newAsset.fleet_category} onValueChange={v => setNewAsset({ ...newAsset, fleet_category: v })}>
-                                    <SelectTrigger className="bg-slate-50/50"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="Local">Local</SelectItem>
-                                        <SelectItem value="Transit">Transit</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                {/* Operation Type Section */}
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-semibold">Operation Type</Label>
+                                    <Select value={newAsset.fleet_category} onValueChange={v => setNewAsset({ ...newAsset, fleet_category: v })}>
+                                        <SelectTrigger className="bg-slate-50/50"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Local">Local</SelectItem>
+                                            <SelectItem value="Transit">Transit</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Manual Maintenance Section */}
+                                <div className="space-y-4 border-t pt-4">
+                                    <Label className="text-sm font-bold flex items-center gap-2 text-slate-700">
+                                        <Settings className="w-4 h-4" />
+                                        Maintenance & Odometer Tracking
+                                    </Label>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-sm font-semibold">Current Mileage (KM)</Label>
+                                            <Input
+                                                type="number"
+                                                placeholder="0"
+                                                value={newAsset.current_odometer}
+                                                onChange={e => setNewAsset({ ...newAsset, current_odometer: Number(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-sm font-semibold">Next Service Target (KM) <span className="text-rose-500">*</span></Label>
+                                            <Input
+                                                type="number"
+                                                placeholder="Target KM"
+                                                value={newAsset.next_service_odometer}
+                                                onChange={e => setNewAsset({ ...newAsset, next_service_odometer: Number(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-sm font-semibold">Last Service Odo (KM)</Label>
+                                            <Input
+                                                type="number"
+                                                placeholder="KM at service"
+                                                value={newAsset.last_service_odometer}
+                                                onChange={e => setNewAsset({ ...newAsset, last_service_odometer: Number(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-sm font-semibold">Last Service Date</Label>
+                                            <Input
+                                                type="date"
+                                                value={newAsset.last_service_date}
+                                                onChange={e => setNewAsset({ ...newAsset, last_service_date: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground italic">
+                                        The system will alert when the Current Mileage reaches the Next Service Target.
+                                    </p>
+                                </div>
+
+                                {/* Dynamic Document Management Section */}
+                                <div className="space-y-4 border-t pt-4">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-sm font-bold text-slate-700">Vehicle Documents & Permits</Label>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-[10px] font-bold uppercase gap-1 border-primary/20 bg-primary/5 text-primary"
+                                            onClick={() => setFleetDocuments([...fleetDocuments, {
+                                                document_type: (docTypes as any[])?.find((t: any) => t.category === (activeRegTab === 'Vehicle' ? 'Vehicle' : 'Trailer'))?.name || "Insurance",
+                                                expiry_date: "",
+                                                is_mandatory: true,
+                                                document_url: "pending"
+                                            }])}
+                                        >
+                                            <Plus className="w-3 h-3" /> Add Document
+                                        </Button>
+                                    </div>
+
+                                    {fleetDocuments.map((doc, idx) => (
+                                        <div key={idx} className="p-3 border rounded-lg bg-slate-50 space-y-3 relative">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute top-1 right-1 h-6 w-6 text-slate-400 hover:text-rose-500"
+                                                onClick={() => handleDeleteDocument(idx, fleetDocuments, setFleetDocuments)}
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </Button>
+
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px]">Type</Label>
+                                                    <Select
+                                                        value={doc.document_type}
+                                                        onValueChange={(v) => {
+                                                            const updated = [...fleetDocuments];
+                                                            updated[idx].document_type = v;
+                                                            setFleetDocuments(updated);
+                                                        }}
+                                                    >
+                                                        <SelectTrigger className="h-8 text-xs">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {(docTypes as any[])?.filter((t: any) => t.category === activeRegTab || t.category === 'General').map((type: any) => (
+                                                                <SelectItem key={type.id} value={type.name}>{type.name}</SelectItem>
+                                                            ))}
+                                                            <SelectItem value="Custom">Custom / Other...</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px]">Expiry Date</Label>
+                                                    <Input
+                                                        type="date"
+                                                        className="h-8 text-xs"
+                                                        value={doc.expiry_date}
+                                                        onChange={(e) => {
+                                                            const updated = [...fleetDocuments];
+                                                            updated[idx].expiry_date = e.target.value;
+                                                            setFleetDocuments(updated);
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-white border rounded text-xs text-slate-500 relative overflow-hidden group">
+                                                    <FileText className="w-3.5 h-3.5" />
+                                                    <span className="truncate max-w-[150px] font-medium text-slate-700">
+                                                        {doc.file ? doc.file.name : (doc.document_url !== "pending" && doc.document_url ? "File Attached" : "Upload Document (PDF/Image)")}
+                                                    </span>
+                                                    <Input
+                                                        type="file"
+                                                        accept=".pdf,image/*"
+                                                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) {
+                                                                const updated = [...fleetDocuments];
+                                                                updated[idx].file = file;
+                                                                setFleetDocuments(updated);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <Button size="sm" variant="ghost" className="ml-auto h-6 px-1.5 text-[10px] text-primary bg-primary/5 hover:bg-primary/10 relative z-0">Browse</Button>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <Switch
+                                                        checked={doc.is_mandatory}
+                                                        onCheckedChange={(v) => {
+                                                            const updated = [...fleetDocuments];
+                                                            updated[idx].is_mandatory = v;
+                                                            setFleetDocuments(updated);
+                                                        }}
+                                                        className="scale-75"
+                                                    />
+                                                    <span className="text-[9px] uppercase font-bold text-slate-500">Mandatory</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        </ScrollArea>
                         <DialogFooter>
                             <Button
                                 className="w-full font-bold h-12 bg-primary hover:bg-primary/90 text-white shadow-lg transition-all duration-300"
@@ -997,6 +1327,7 @@ const FleetCommand = () => {
                                 <TableHead>Operation Type</TableHead>
                                 <TableHead>Asset Type</TableHead>
                                 <TableHead>Make/Model</TableHead>
+                                <TableHead>Odometer / Service</TableHead>
                                 <TableHead>Coupling Status</TableHead>
                                 <TableHead>Paired With</TableHead>
                                 <TableHead>Status</TableHead>
@@ -1050,7 +1381,7 @@ const FleetCommand = () => {
                                                 value={asset.fleet_category}
                                                 onValueChange={(val) => handleSwitchOperation(asset, val)}
                                             >
-                                                <SelectTrigger className={`h-8 w-28 text-xs font-semibold ${asset.fleet_category === 'Transit' ? 'text-indigo-600 border-indigo-200 bg-indigo-50/30' : 'text-emerald-600 border-emerald-200 bg-emerald-50/30'}`}>
+                                                <SelectTrigger className={`h-8 w-28 text-xs font-semibold ${asset.fleet_category === 'Transit' ? 'text-indigo-600 border-indigo-200 bg-indigo-50/30' : 'text-slate-700 border-slate-200 bg-slate-50/30'}`}>
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
@@ -1071,6 +1402,26 @@ const FleetCommand = () => {
                                         </TableCell>
                                         <TableCell className="text-xs">
                                             {asset.is_merged ? asset.display_make : (asset.make_model || "—")}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex flex-col gap-1">
+                                                <div className="text-sm font-medium flex items-center gap-2">
+                                                    <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                                    {Number(asset.current_odometer || 0).toLocaleString()} KM
+                                                </div>
+                                                {asset.next_service_odometer > 0 && (
+                                                    <div className="flex items-center gap-1.5">
+                                                        {asset.current_odometer >= asset.next_service_odometer ? (
+                                                            <Badge variant="destructive" className="text-[9px] h-4 py-0 animate-pulse">SERVICE DUE</Badge>
+                                                        ) : (asset.next_service_odometer - asset.current_odometer <= 500) ? (
+                                                            <Badge className="text-[9px] h-4 py-0 bg-orange-500 hover:bg-orange-600">DUE SOON</Badge>
+                                                        ) : (
+                                                            <Badge className="text-[9px] h-4 py-0 bg-emerald-500 hover:bg-emerald-600">OK</Badge>
+                                                        )}
+                                                        <span className="text-[9px] text-muted-foreground">Target: {Number(asset.next_service_odometer).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </TableCell>
 
                                         {/* Coupling Status */}

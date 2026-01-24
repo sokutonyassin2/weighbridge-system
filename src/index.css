@@ -135,11 +135,11 @@ All colors MUST be HSL.
   }
 }
 
-/* Print styles - Optimized for thermal printers */
+/* Print styles - Optimized for thermal printers and A4 documents */
 @media print {
   @page {
     margin: 0.5cm;
-    size: 80mm auto;
+    size: auto;
   }
 
   body {
@@ -152,9 +152,10 @@ All colors MUST be HSL.
   }
 
   #print-receipt,
-  #print-receipt * {
-    visibility: visible;
-    font-weight: 700 !important;
+  #print-receipt *,
+  #print-logistics,
+  #print-logistics * {
+    visibility: visible !important;
   }
 
   html,
@@ -163,29 +164,33 @@ All colors MUST be HSL.
     overflow: visible !important;
   }
 
-  body>* {
-    display: none !important;
-  }
-
-  body>*:has(#print-receipt),
-  #print-receipt {
+  #print-logistics {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
     display: block !important;
-    visibility: visible !important;
+    background: white !important;
+    z-index: 10000 !important;
+    min-height: 297mm;
+    padding: 0 !important;
   }
 
   #print-receipt {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    display: block !important;
     font-size: 12px;
     line-height: 1.2;
+    background: white !important;
   }
 
   #print-receipt p,
   #print-receipt span,
   #print-receipt div {
-    font-size: 11px !important;
+    font-size: 12px !important;
     font-weight: 500 !important;
   }
 
@@ -204,14 +209,14 @@ All colors MUST be HSL.
   #print-receipt table {
     width: 100%;
     border-collapse: collapse;
-    border: 3px solid black !important;
+    border: 1px solid black !important;
   }
 
   #print-receipt th {
     border: 1px solid black !important;
     padding: 4px !important;
     font-weight: 800 !important;
-    font-size: 11px !important;
+    font-size: 12px !important;
     background-color: #f0f0f0 !important;
   }
 
@@ -219,7 +224,7 @@ All colors MUST be HSL.
     border: 1px solid black !important;
     padding: 4px !important;
     font-weight: 500 !important;
-    font-size: 11px !important;
+    font-size: 12px !important;
   }
 
   .print\:hidden {
@@ -242,26 +247,26 @@ All colors MUST be HSL.
   }
 
   .print\:text-base {
-    font-size: 11px !important;
+    font-size: 12px !important;
   }
 
   .print\:text-lg {
-    font-size: 13px !important;
+    font-size: 14px !important;
     font-weight: 600 !important;
   }
 
   .print\:text-xl {
-    font-size: 15px !important;
+    font-size: 16px !important;
     font-weight: 700 !important;
   }
 
   .print\:text-2xl {
-    font-size: 17px !important;
+    font-size: 18px !important;
     font-weight: 800 !important;
   }
 
   .print\:text-3xl {
-    font-size: 20px !important;
+    font-size: 22px !important;
     font-weight: 800 !important;
   }
 

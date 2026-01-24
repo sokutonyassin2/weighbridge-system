@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast"; // Verify hook path
 import {
     MapPin, Calendar, Truck, User, Package, Plus, Search,
     ArrowRight, Clock, CheckCircle2, AlertTriangle, FileText,
-    Navigation, RefreshCw, Filter
+    Navigation, RefreshCw, Filter, Printer
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -26,7 +26,16 @@ const TripManagement = () => {
     const queryClient = useQueryClient();
     const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+    const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [selectedTripForCompletion, setSelectedTripForCompletion] = useState<any>(null);
+    const [selectedTripForPrint, setSelectedTripForPrint] = useState<any>(null);
+    const [completionData, setCompletionData] = useState({
+        closing_km: "",
+        actual_fuel_liters: "",
+        actual_fuel_cost: ""
+    });
+    const [podFile, setPodFile] = useState<File | null>(null);
 
     // Form State
     const [newTrip, setNewTrip] = useState({
@@ -37,7 +46,11 @@ const TripManagement = () => {
         destination: "",
         cargo_outbound: "",
         cargo_inbound: "",
-        notes: ""
+        notes: "",
+        starting_km: "",
+        fuel_liters: "",
+        fuel_cost: "",
+        trip_allowance: ""
     });
 
     // Fetch Trips
@@ -98,8 +111,9 @@ const TripManagement = () => {
         queryFn: async () => {
             const { data } = await supabase
                 .from("logistics_drivers")
-                .select("id, full_name")
-                .eq("is_active", true);
+                .select("id, full_name, compliance_flagged")
+                .eq("is_active", true)
+                .eq("compliance_flagged", false);
             return data || [];
         }
     });
@@ -162,7 +176,11 @@ const TripManagement = () => {
                 destination: "",
                 cargo_outbound: "",
                 cargo_inbound: "",
-                notes: ""
+                notes: "",
+                starting_km: "",
+                fuel_liters: "",
+                fuel_cost: "",
+                trip_allowance: ""
             });
             toast({ title: "Trip Created", description: "The trip has been successfully planned." });
         },
@@ -171,23 +189,65 @@ const TripManagement = () => {
         }
     });
 
-    // Status Update Mutation
     const updateStatusMutation = useMutation({
-        mutationFn: async ({ id, status }: { id: string, status: TripStatus }) => {
+        mutationFn: async ({ id, status, completionData, podFile }: { id: string, status: TripStatus, completionData?: any, podFile?: File | null }) => {
             const updates: any = { status };
             const now = new Date().toISOString();
 
             if (status === 'Dispatched') updates.departure_date = now;
             if (status === 'At Destination') updates.arrival_destination_date = now;
             if (status === 'Returning') updates.return_trip_start_date = now;
-            if (status === 'Completed') updates.completion_date = now;
 
-            const { error } = await supabase.from("logistics_trips").update(updates).eq("id", id);
-            if (error) throw error;
+            if (status === 'Completed') {
+                updates.completion_date = now;
+
+                // POD Upload
+                if (podFile) {
+                    try {
+                        const fileExt = podFile.name.split('.').pop();
+                        const fileName = `pod_${id}_${Date.now()}.${fileExt}`;
+                        const { data: uploadData, error: uploadError } = await supabase.storage
+                            .from('trip-pods')
+                            .upload(fileName, podFile);
+                        if (uploadError) throw uploadError;
+
+                        const { data: { publicUrl } } = supabase.storage
+                            .from('trip-pods')
+                            .getPublicUrl(fileName);
+                        updates.pod_url = publicUrl;
+                    } catch (err) {
+                        console.error("POD upload failed:", err);
+                    }
+                }
+
+                if (completionData) {
+                    updates.closing_km = completionData.closing_km ? parseInt(completionData.closing_km) : null;
+                    updates.actual_fuel_liters = completionData.actual_fuel_liters ? parseFloat(completionData.actual_fuel_liters) : null;
+                    updates.actual_fuel_cost = completionData.actual_fuel_cost ? parseFloat(completionData.actual_fuel_cost) : null;
+                }
+            }
+
+            const { data: tripData, error: tripError } = await supabase
+                .from("logistics_trips")
+                .update(updates)
+                .eq("id", id)
+                .select("vehicle_id")
+                .single();
+            if (tripError) throw tripError;
+
+            // Sync Odometer to Fleet
+            if (status === 'Completed' && updates.closing_km && tripData?.vehicle_id) {
+                await supabase
+                    .from("logistics_fleet")
+                    .update({ current_odometer: updates.closing_km })
+                    .eq("id", tripData.vehicle_id);
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics_trips"] });
             queryClient.invalidateQueries({ queryKey: ["active_trip_resources"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics-fleet"] });
+            setPodFile(null);
             toast({ title: "Status Updated", description: "Trip status has been updated." });
         }
     });
@@ -199,6 +259,13 @@ const TripManagement = () => {
         const days = Math.floor(diff / (1000 * 60 * 60 * 24));
         const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         return `${days}d ${hours}h`;
+    };
+
+    const handlePrintTrip = (trip: any) => {
+        setSelectedTripForPrint(trip);
+        setTimeout(() => {
+            window.print();
+        }, 300);
     };
 
     const getTripsByStatus = (status: TripStatus) => {
@@ -220,8 +287,21 @@ const TripManagement = () => {
                     <Card key={trip.id} className="shadow-sm hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-primary">
                         <CardContent className="p-3 space-y-3">
                             <div className="flex justify-between items-start">
-                                <span className="text-xs font-bold text-slate-500">{trip.trip_number}</span>
-                                <Badge variant="outline" className="text-[10px]">{format(new Date(trip.created_at), 'MMM dd')}</Badge>
+                                <div className="flex flex-col">
+                                    <span className="text-xs font-bold text-slate-500">{trip.trip_number}</span>
+                                    <Badge variant="outline" className="text-[10px] w-fit mt-1">{format(new Date(trip.created_at), 'MMM dd')}</Badge>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-slate-400 hover:text-primary"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handlePrintTrip(trip);
+                                    }}
+                                >
+                                    <Printer className="h-4 w-4" />
+                                </Button>
                             </div>
 
                             <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -249,11 +329,55 @@ const TripManagement = () => {
                                 </div>
                             )}
 
+                            {(trip.fuel_liters || trip.trip_allowance) && (
+                                <div className="flex flex-wrap gap-2 pt-1 border-t border-dotted mt-1">
+                                    {trip.fuel_liters && (
+                                        <div className="text-[10px] flex items-center gap-1 text-orange-600 font-bold bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100">
+                                            <Navigation className="w-2.5 h-2.5 rotate-45" />
+                                            {trip.fuel_liters}L
+                                        </div>
+                                    )}
+                                    {trip.trip_allowance && (
+                                        <div className="text-[10px] flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                                            <Badge variant="outline" className="h-auto p-0 border-none bg-transparent text-[10px] font-bold">
+                                                Allow: {parseFloat(trip.trip_allowance).toLocaleString()}
+                                            </Badge>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             {status === 'Completed' && trip.departure_date && trip.completion_date && (
                                 <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-600">
                                     <Clock className="w-3 h-3" />
                                     TAT: {formatDuration(trip.departure_date, trip.completion_date)}
                                 </div>
+                            )}
+
+                            {status === 'At Destination' && trip.arrival_destination_date && (
+                                <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                                    <MapPin className="w-3 h-3" />
+                                    Time at Destination: {formatDuration(trip.arrival_destination_date, new Date().toISOString())}
+                                </div>
+                            )}
+
+                            {(status === 'In Transit' || status === 'Returning' || status === 'At Destination') && (
+                                (() => {
+                                    const startTime = status === 'At Destination' ? trip.arrival_destination_date : (status === 'In Transit' ? trip.departure_date : trip.return_trip_start_date);
+                                    if (!startTime) return null;
+                                    const hours = (new Date().getTime() - new Date(startTime).getTime()) / (1000 * 60 * 60);
+                                    const threshold = status === 'At Destination' ? 24 : 48;
+
+                                    if (hours > threshold) {
+                                        return (
+                                            <div className="flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded animate-pulse">
+                                                <AlertTriangle className="w-3 h-3" />
+                                                DELAY ALERT: {Math.floor(hours)}h elapsed
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()
                             )}
 
                             <div className="pt-1">
@@ -283,7 +407,15 @@ const TripManagement = () => {
                                 )}
                                 {status === 'Returning' && (
                                     <Button size="sm" className="w-full h-7 text-xs bg-slate-800 hover:bg-slate-900"
-                                        onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'Completed' })}>
+                                        onClick={() => {
+                                            setSelectedTripForCompletion(trip);
+                                            setCompletionData({
+                                                closing_km: trip.closing_km?.toString() || "",
+                                                actual_fuel_liters: trip.fuel_liters?.toString() || "",
+                                                actual_fuel_cost: trip.fuel_cost?.toString() || ""
+                                            });
+                                            setIsCompletionDialogOpen(true);
+                                        }}>
                                         Finish <CheckCircle2 className="w-3 h-3 ml-2" />
                                     </Button>
                                 )}
@@ -311,6 +443,82 @@ const TripManagement = () => {
                     <p className="text-sm text-muted-foreground">Monitor dispatch, transit, and delivery workflows.</p>
                 </div>
                 <div className="flex gap-2">
+                    <Dialog open={isCompletionDialogOpen} onOpenChange={setIsCompletionDialogOpen}>
+                        <DialogContent className="max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Complete Trip: {selectedTripForCompletion?.trip_number}</DialogTitle>
+                            </DialogHeader>
+                            <div className="grid gap-4 py-4">
+                                <div className="space-y-2">
+                                    <Label>Closing KM (Odometer) *</Label>
+                                    <Input
+                                        type="number"
+                                        placeholder="Enter ending mileage"
+                                        value={completionData.closing_km}
+                                        onChange={(e) => setCompletionData({ ...completionData, closing_km: e.target.value })}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground italic">
+                                        Starting KM was: {selectedTripForCompletion?.starting_km || "Not recorded"}
+                                    </p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Total Fuel Used (Liters)</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={completionData.actual_fuel_liters}
+                                            onChange={(e) => setCompletionData({ ...completionData, actual_fuel_liters: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Total Fuel Cost (TShs)</Label>
+                                        <Input
+                                            type="number"
+                                            value={completionData.actual_fuel_cost}
+                                            onChange={(e) => setCompletionData({ ...completionData, actual_fuel_cost: e.target.value })}
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2 border-t pt-4">
+                                        <Label className="text-sm font-bold flex items-center gap-2">
+                                            <FileText className="w-4 h-4" />
+                                            Proof of Delivery (Optional)
+                                        </Label>
+                                        <Input
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={(e) => setPodFile(e.target.files?.[0] || null)}
+                                            className="bg-slate-50/50"
+                                        />
+                                        <p className="text-[10px] text-muted-foreground italic">Upload POD for electronic record keeping.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button
+                                    disabled={updateStatusMutation.isPending}
+                                    onClick={() => {
+                                        if (!completionData.closing_km) {
+                                            toast({ variant: "destructive", title: "Missing Info", description: "Closing KM is required." });
+                                            return;
+                                        }
+                                        updateStatusMutation.mutate({
+                                            id: selectedTripForCompletion.id,
+                                            status: 'Completed',
+                                            completionData,
+                                            podFile
+                                        });
+                                        setIsCompletionDialogOpen(false);
+                                    }}
+                                    className="w-full bg-slate-800"
+                                >
+                                    Confirm Completion
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
                     <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                         <DialogTrigger asChild>
                             <Button className="shadow-lg"><Plus className="w-4 h-4 mr-2" /> Plan New Trip</Button>
@@ -382,6 +590,26 @@ const TripManagement = () => {
                                     <Label>Cargo Outbound</Label>
                                     <Input placeholder="Description..." value={newTrip.cargo_outbound} onChange={(e) => setNewTrip({ ...newTrip, cargo_outbound: e.target.value })} />
                                 </div>
+                                <div className="grid grid-cols-2 gap-4 border-t pt-4 mt-2">
+                                    <div className="space-y-2">
+                                        <Label className="text-indigo-600">Starting KM (Odometer)</Label>
+                                        <Input type="number" placeholder="0" value={newTrip.starting_km} onChange={(e) => setNewTrip({ ...newTrip, starting_km: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-emerald-600">Trip Allowance (TShs)</Label>
+                                        <Input type="number" placeholder="Enter amount" value={newTrip.trip_allowance} onChange={(e) => setNewTrip({ ...newTrip, trip_allowance: e.target.value })} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 bg-orange-50/50 p-3 rounded-lg border border-orange-100">
+                                    <div className="space-y-2">
+                                        <Label className="text-orange-700">Fuel Liters</Label>
+                                        <Input type="number" step="0.01" placeholder="0.00" value={newTrip.fuel_liters} onChange={(e) => setNewTrip({ ...newTrip, fuel_liters: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-orange-700">Fuel Cost (TShs)</Label>
+                                        <Input type="number" placeholder="0" value={newTrip.fuel_cost} onChange={(e) => setNewTrip({ ...newTrip, fuel_cost: e.target.value })} />
+                                    </div>
+                                </div>
                             </div>
                             <DialogFooter>
                                 <Button onClick={() => createTripMutation.mutate(newTrip)} className="w-full">Confirm & Plan Trip</Button>
@@ -401,6 +629,122 @@ const TripManagement = () => {
                     <StatusColumn status="Completed" title="Completed" icon={CheckCircle2} colorClass="bg-slate-800" />
                 </div>
             </div>
+            {/* Printable Trip Sheet */}
+            {
+                selectedTripForPrint && (
+                    <div id="print-logistics" className="hidden print:block fixed inset-0 bg-white z-[9999] p-10 overflow-auto">
+                        <div className="max-w-4xl mx-auto space-y-8">
+                            {/* Header */}
+                            <div className="flex justify-between border-b-2 border-primary pb-6">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-primary">TRIP SHEET</h1>
+                                    <p className="text-gray-500 mt-1">Ref: {selectedTripForPrint.trip_number}</p>
+                                </div>
+                                <div className="text-right">
+                                    <h2 className="text-xl font-bold">SUDSUD EAFEEDS</h2>
+                                    <p className="text-sm text-gray-500 italic">Fueling Industry Growth</p>
+                                    <p className="text-sm font-medium mt-2">Date: {format(new Date(), 'PPP')}</p>
+                                </div>
+                            </div>
+
+                            {/* Status Bar */}
+                            <div className="flex border rounded-lg overflow-hidden bg-slate-50">
+                                <div className="flex-1 p-3 border-r">
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase">Trip Status</p>
+                                    <p className="text-sm font-bold text-indigo-700">{selectedTripForPrint.status}</p>
+                                </div>
+                                <div className="flex-1 p-3 border-r">
+                                    <p className="text-[10px] font-bold text-slate-500 uppercase">Route</p>
+                                    <p className="text-sm font-bold">{selectedTripForPrint.origin} → {selectedTripForPrint.destination}</p>
+                                </div>
+                            </div>
+
+                            {/* Resource Details */}
+                            <div className="grid grid-cols-2 gap-8">
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-bold border-b pb-1 uppercase text-slate-500">Resource Assignment</h3>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <p className="font-medium text-slate-500">Driver Name</p>
+                                            <p className="font-bold">{selectedTripForPrint.driver?.full_name}</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-500">Driver ID</p>
+                                            <p className="font-bold">{selectedTripForPrint.driver_id.split('-')[0].toUpperCase()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-500">Primary Vehicle</p>
+                                            <p className="font-bold">{selectedTripForPrint.vehicle?.vehicle_no} ({selectedTripForPrint.vehicle?.make_model || 'N/A'})</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-500">Trailer No</p>
+                                            <p className="font-bold">{selectedTripForPrint.trailer?.vehicle_no || 'None'}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-bold border-b pb-1 uppercase text-slate-500">Trip Expenses & Fuel</h3>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <p className="font-medium text-slate-500">Fuel Allocation</p>
+                                            <p className="font-bold">{selectedTripForPrint.fuel_liters || 0} Liters</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-500">Est. Fuel Cost</p>
+                                            <p className="font-bold">TShs {parseFloat(selectedTripForPrint.fuel_cost || 0).toLocaleString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-500">Trip Allowance</p>
+                                            <p className="font-bold">TShs {parseFloat(selectedTripForPrint.trip_allowance || 0).toLocaleString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-slate-500">Starting KM</p>
+                                            <p className="font-bold">{selectedTripForPrint.starting_km || 'N/A'}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Cargo Manifest */}
+                            <div className="space-y-4 pt-4 border-t-2 border-dotted">
+                                <h3 className="text-sm font-bold uppercase text-slate-500 text-center">Load Manifest</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="border rounded p-4">
+                                        <h4 className="font-bold text-indigo-700 mb-2 border-b pb-1">Outbound Cargo</h4>
+                                        <p className="text-sm min-h-[60px]">{selectedTripForPrint.cargo_outbound || 'No cargo assigned'}</p>
+                                    </div>
+                                    <div className="border rounded p-4">
+                                        <h4 className="font-bold text-amber-700 mb-2 border-b pb-1">Inbound (Backhaul)</h4>
+                                        <p className="text-sm min-h-[60px]">{selectedTripForPrint.cargo_inbound || 'TBA upon return'}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Signature Section */}
+                            <div className="grid grid-cols-2 gap-12 pt-12">
+                                <div className="space-y-8">
+                                    <div className="border-t border-slate-400 pt-2">
+                                        <label className="text-[10px] font-bold uppercase text-slate-500">Dispatcher Signature</label>
+                                        <div className="h-10 mt-2 italic text-slate-300">Authorized Official</div>
+                                    </div>
+                                </div>
+                                <div className="space-y-8">
+                                    <div className="border-t border-slate-400 pt-2 text-right">
+                                        <label className="text-[10px] font-bold uppercase text-slate-500 text-right block">Driver Signature</label>
+                                        <p className="text-sm font-bold mt-2 truncate">{selectedTripForPrint.driver?.full_name}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Footer Notes */}
+                            <div className="text-[10px] text-slate-400 text-center pt-10 border-t border-slate-100 italic">
+                                Generated by SUDSUD Weighbridge & Logistics System. Contact management for any discrepancies.
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div>
     );
 };

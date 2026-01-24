@@ -1,5 +1,5 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart } from "lucide-react";
+import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,10 +43,12 @@ const weighbridgeItems = [
 ];
 
 const logisticsItems = [
-  { title: "Dashboard", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager"] },
+  { title: "Overview", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager"] },
+  { title: "Compliance Center", url: "/logistics/compliance", icon: Shield, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
 ];
 
 const systemItems = [
@@ -62,8 +64,10 @@ const getCurrentShift = () => {
 export function AppSidebar() {
   const { state } = useSidebar();
   const { userRole, userProfile, signOut } = useAuth();
+  const location = useLocation();
   const isCollapsed = state === "collapsed";
   const [currentShift, setCurrentShift] = useState(getCurrentShift());
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -167,16 +171,17 @@ export function AppSidebar() {
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-bold text-[11px] uppercase tracking-[0.1em] text-sidebar-foreground/70">
-                  WEIGHBRIDGE SYSTEM
-                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-primary/70" />
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <Scale className="mr-2 h-4 w-4" />
+                  <span>Weighbridge System</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarMenu>
                   {filteredWeighbridge.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild tooltip={item.title}>
                         <NavLink
                           to={item.url}
                           className={({ isActive }) =>
@@ -187,7 +192,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-semibold text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -203,16 +208,17 @@ export function AppSidebar() {
           <Collapsible defaultOpen={userRole?.includes('logistics')} className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-bold text-[11px] uppercase tracking-[0.1em] text-sidebar-foreground/70">
-                  LOGISTICS
-                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500/70" />
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <Truck className="mr-2 h-4 w-4" />
+                  <span>Logistics</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarMenu>
                   {filteredLogistics.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild tooltip={item.title}>
                         <NavLink
                           to={item.url}
                           className={({ isActive }) =>
@@ -223,7 +229,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-semibold text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -239,16 +245,17 @@ export function AppSidebar() {
           <Collapsible className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-bold text-[11px] uppercase tracking-[0.1em] text-sidebar-foreground/70">
-                  SYSTEM ADMINISTRATION
-                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-slate-500/70" />
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>System Administration</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarMenu>
                   {filteredSystem.map((item) => (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild>
+                      <SidebarMenuButton asChild tooltip={item.title}>
                         <NavLink
                           to={item.url}
                           className={({ isActive }) =>
@@ -259,7 +266,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-semibold text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

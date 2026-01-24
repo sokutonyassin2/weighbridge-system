@@ -129,8 +129,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.log('🔍 Checking for existing session...');
 
         if (navigator.onLine) {
-          const { data: { session } } = await supabase.auth.getSession();
-          console.log('✅ Session check complete:', session ? 'Session found' : 'No session');
+          // Race getSession with a 5 second timeout
+          const { data, error } = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<{ data: { session: null }; error: { message: string } | null }>(resolve =>
+              setTimeout(() => resolve({ data: { session: null }, error: { message: "Auth timeout" } }), 5000)
+            )
+          ]);
+
+          const session = data?.session;
+          console.log('✅ Session check complete:', session ? 'Session found' : (error?.message || 'No session'));
 
           if (!mounted) return;
 
@@ -139,10 +147,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           if (session?.user) {
             // Fetch role and profile in parallel for faster initial load
-            await Promise.all([
-              fetchUserRole(session.user.id),
-              fetchUserProfile(session.user.id)
-            ]);
+            // Also race these with timeout to prevent blocking
+            try {
+              await Promise.race([
+                Promise.all([
+                  fetchUserRole(session.user.id),
+                  fetchUserProfile(session.user.id)
+                ]),
+                new Promise(resolve => setTimeout(resolve, 5000))
+              ]);
+            } catch (e) {
+              console.error("Profile fetch timeout or error:", e);
+              // Don't block app loading if profile fetch fails
+            }
           }
         } else {
           // If offline, use cached auth data

@@ -206,7 +206,7 @@ const LogisticsDashboard = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
                     <Card className="border-none shadow-xl bg-white dark:bg-gray-900 lg:col-span-2">
                         <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle>Fuel Efficiency Performance (KM/L)</CardTitle>
+                            <CardTitle className="text-base font-semibold text-slate-700">Fuel Efficiency Performance (KM/L)</CardTitle>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-slate-100 p-1.5 rounded">
                                 <Activity className="w-3.5 h-3.5 text-indigo-500" />
                                 Target: 4.5 KM/L
@@ -259,7 +259,7 @@ const LogisticsDashboard = () => {
                         {/* REPLACEMENT SECTION: Fleet Status */}
                         <Card className="border-none shadow-xl bg-white dark:bg-gray-900">
                             <CardHeader>
-                                <CardTitle>Fleet Utilization</CardTitle>
+                                <CardTitle className="text-base font-semibold text-slate-700">Fleet Utilization</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 {fleetStatusData && fleetStatusData.length > 0 ? (
@@ -287,39 +287,39 @@ const LogisticsDashboard = () => {
 
                         <Card className="border-none shadow-xl bg-white dark:bg-gray-900">
                             <CardHeader>
-                                <CardTitle>Driver Availability</CardTitle>
+                                <CardTitle className="text-base font-semibold text-slate-700">Driver Availability</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 {driverStatusData && driverStatusData.length > 0 ? (
                                     <div className="space-y-6">
                                         <div className="flex items-end justify-between">
                                             <div>
-                                                <div className="text-3xl font-bold text-slate-800 dark:text-white">
+                                                <div className="text-xl font-bold text-slate-800 dark:text-white">
                                                     {Math.round(((driverStatusData.find((d: any) => d.name === 'Available')?.value || 0) / (driverCount || 1)) * 100)}%
                                                 </div>
                                                 <p className="text-sm font-medium text-muted-foreground mt-1">Workforce Available</p>
                                             </div>
                                             <div className="text-right">
-                                                <div className="text-sm font-bold text-slate-900 dark:text-white">
+                                                <div className="text-sm font-medium text-slate-900 dark:text-white">
                                                     {driverStatusData.find((d: any) => d.name === 'Available')?.value || 0} / {driverCount}
                                                 </div>
-                                                <p className="text-[10px] uppercase font-bold text-muted-foreground">Drivers Free</p>
+                                                <p className="text-[10px] uppercase font-semibold text-muted-foreground">Drivers Free</p>
                                             </div>
                                         </div>
                                         <Progress
                                             value={((driverStatusData.find((d: any) => d.name === 'Available')?.value || 0) / (driverCount || 1)) * 100}
-                                            className="h-3 w-full bg-slate-100"
+                                            className="h-2.5 w-full bg-slate-100"
                                         />
                                         <div className="grid grid-cols-2 gap-4 pt-2">
                                             <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                                <p className="text-[10px] uppercase text-slate-400 font-bold">Assigned</p>
-                                                <p className="text-lg font-bold text-slate-700">
+                                                <p className="text-[10px] uppercase text-slate-400 font-semibold">Assigned</p>
+                                                <p className="text-sm font-medium text-slate-700">
                                                     {driverStatusData.find((d: any) => d.name === 'Assigned')?.value || 0}
                                                 </p>
                                             </div>
                                             <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                                                <p className="text-[10px] uppercase text-indigo-400 font-bold">Total</p>
-                                                <p className="text-lg font-bold text-indigo-700">{driverCount}</p>
+                                                <p className="text-[10px] uppercase text-indigo-400 font-semibold">Total</p>
+                                                <p className="text-sm font-medium text-indigo-700">{driverCount}</p>
                                             </div>
                                         </div>
                                     </div>

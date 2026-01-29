@@ -51,6 +51,19 @@ const logisticsItems = [
   { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
 ];
 
+const garageItems = [
+  { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin"] },
+  { title: "Parts & Store", url: "/garage/store", icon: Package, roles: ["mechanic", "admin", "super_admin"] },
+  { title: "Requisition Logs", url: "/garage/logs", icon: History, roles: ["mechanic", "admin", "super_admin"] },
+  { title: "Inventory Reports", url: "/garage/inventory-reports", icon: BarChart3, roles: ["admin", "super_admin"] },
+  { title: "Staff Attendance", url: "/garage/attendance", icon: UserCheck, roles: ["mechanic", "admin", "super_admin"] },
+];
+
+const procurementItems = [
+  { title: "Overview", url: "/procurement", icon: BarChart3, roles: ["admin", "super_admin"] },
+  // Future procurement sub-items can go here
+];
+
 const systemItems = [
   { title: "User Management", url: "/user-management", icon: Users, roles: ["admin", "super_admin"] },
   { title: "Activity Logs", url: "/activity-logs", icon: Activity, roles: ["admin", "super_admin"] },
@@ -92,6 +105,8 @@ export function AppSidebar() {
 
   const filteredWeighbridge = weighbridgeItems.filter(item => hasAccess(item.roles));
   const filteredLogistics = logisticsItems.filter(item => hasAccess(item.roles));
+  const filteredGarage = garageItems.filter(item => hasAccess(item.roles));
+  const filteredProcurement = procurementItems.filter(item => hasAccess(item.roles));
   const filteredSystem = systemItems.filter(item => hasAccess(item.roles));
 
   const shiftIcon = currentShift === "Day" ? Sun : Moon;
@@ -204,7 +219,7 @@ export function AppSidebar() {
         )}
 
         {/* LOGISTICS SECTION */}
-        {showLogistics && (
+        {filteredLogistics.length > 0 && (
           <Collapsible defaultOpen={userRole?.includes('logistics')} className="group/collapsible">
             <SidebarGroup>
               <SidebarGroupLabel asChild>
@@ -224,6 +239,80 @@ export function AppSidebar() {
                           className={({ isActive }) =>
                             `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
                               ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg scale-[1.02]"
+                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                            }`
+                          }
+                        >
+                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {/* GARAGE SECTION */}
+        {filteredGarage.length > 0 && (
+          <Collapsible defaultOpen={userRole?.includes('mechanic')} className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <Wrench className="mr-2 h-4 w-4" />
+                  <span>Garage & Maint.</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  {filteredGarage.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild tooltip={item.title}>
+                        <NavLink
+                          to={item.url}
+                          className={({ isActive }) =>
+                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                              ? "bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-lg scale-[1.02]"
+                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                            }`
+                          }
+                        >
+                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {/* PROCUREMENT SECTION */}
+        {filteredProcurement.length > 0 && (
+          <Collapsible className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  <span>Procurement</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  {filteredProcurement.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild tooltip={item.title}>
+                        <NavLink
+                          to={item.url}
+                          className={({ isActive }) =>
+                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                              ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg scale-[1.02]"
                               : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
                             }`
                           }

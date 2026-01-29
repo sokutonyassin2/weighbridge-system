@@ -78,7 +78,7 @@ const TripManagement = () => {
         queryFn: async () => {
             const { data } = await supabase
                 .from("logistics_fleet")
-                .select("id, vehicle_no, asset_type")
+                .select("id, vehicle_no, asset_type, status") // Added status
                 .eq("is_active", true);
             return data || [];
         }
@@ -551,7 +551,14 @@ const TripManagement = () => {
                                             <SelectTrigger><SelectValue placeholder="Select Vehicle" /></SelectTrigger>
                                             <SelectContent>
                                                 {availableVehicles.map((v: any) => (
-                                                    <SelectItem key={v.id} value={v.id}>{v.vehicle_no} ({v.asset_type})</SelectItem>
+                                                    <SelectItem
+                                                        key={v.id}
+                                                        value={v.id}
+                                                        disabled={v.status === 'In Garage'}
+                                                        className={v.status === 'In Garage' ? "text-muted-foreground opacity-50" : ""}
+                                                    >
+                                                        {v.vehicle_no} ({v.asset_type}) {v.status === 'In Garage' && '⛔ (In Garage)'}
+                                                    </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
@@ -580,7 +587,14 @@ const TripManagement = () => {
                                         <SelectContent>
                                             <SelectItem value="none">None</SelectItem>
                                             {fleet?.filter(f => f.asset_type.toLowerCase().includes('trailer')).map((v: any) => (
-                                                <SelectItem key={v.id} value={v.id}>{v.vehicle_no}</SelectItem>
+                                                <SelectItem
+                                                    key={v.id}
+                                                    value={v.id}
+                                                    disabled={v.status === 'In Garage'}
+                                                    className={v.status === 'In Garage' ? "text-muted-foreground opacity-50" : ""}
+                                                >
+                                                    {v.vehicle_no} {v.status === 'In Garage' && '⛔ (In Garage)'}
+                                                </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>

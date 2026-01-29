@@ -9,11 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle, CheckCircle2, Clock, Settings, XCircle, Link, Unlink, FileText, Upload } from "lucide-react";
+import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle, CheckCircle2, Clock, Settings, XCircle, Link, Unlink, FileText, Upload, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const FleetCommand = () => {
     const { toast } = useToast();
@@ -28,6 +29,7 @@ const FleetCommand = () => {
     const [selectedVehicleForCoupling, setSelectedVehicleForCoupling] = useState<any>(null);
     const [selectedPartnerVehicle, setSelectedPartnerVehicle] = useState("");
     const [couplingNotes, setCouplingNotes] = useState("");
+    const [maintenanceSubTab, setMaintenanceSubTab] = useState("all");
     const [isAssetTypesCollapsed, setIsAssetTypesCollapsed] = useState(true); // Collapsed by default
 
     // For Asset Types
@@ -56,6 +58,7 @@ const FleetCommand = () => {
         last_service_date: ""
     });
     const [brandingFile, setBrandingFile] = useState<File | null>(null);
+    const [selectedJob, setSelectedJob] = useState<any>(null);
 
     // Fetch Fleet Data
     const { data: fleet, isLoading } = useQuery({
@@ -104,6 +107,83 @@ const FleetCommand = () => {
                 .order("name", { ascending: true });
             if (error) throw error;
             return data;
+        }
+    });
+
+    // Fetch Active Garage Jobs (For Maintenance View)
+    const { data: activeGarageJobs } = useQuery({
+        queryKey: ["active-garage-jobs"],
+        queryFn: async () => {
+            // We need to fetch jobs that are NOT closed to show active maintenance
+            const { data, error } = await supabase
+                .from("garage_job_cards")
+                .select(`
+                    *,
+                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model, asset_status),
+                    fault_list:garage_job_faults(id, fault_type_id, status, mechanic_notes, fault_type:garage_fault_types(fault_name, category))
+                `)
+                .neq("status", "Closed")
+                .order("opened_at", { ascending: false });
+
+            if (error) throw error;
+
+            // For each job, add coupling partner information
+            return data?.map((job: any) => {
+                const v = job.vehicle;
+                const displayPlate = v?.vehicle_no || v?.horse_number || v?.trailer_number || "NO PLATE";
+
+                // Find if this vehicle is part of a coupling
+                const pair = (couplings || []).find((c: any) => c.horse_id === v?.id || c.trailer_id === v?.id);
+                let partnerInfo = null;
+
+                if (pair) {
+                    // Determine which is the partner
+                    const isHorse = pair.horse_id === v?.id;
+                    const partnerId = isHorse ? pair.trailer_id : pair.horse_id;
+                    const partner = (fleet || []).find(x => x.id === partnerId);
+
+                    if (partner) {
+                        partnerInfo = {
+                            plate: partner.vehicle_no || partner.horse_number || partner.trailer_number || "Unknown",
+                            status: partner.asset_status,
+                            type: partner.asset_type
+                        };
+                    }
+                }
+
+                return {
+                    ...job,
+                    vehicle: { ...v, plate_number: displayPlate },
+                    coupling_partner: partnerInfo
+                };
+            });
+        }
+    });
+
+    // Fetch Pending Issues (Closed jobs with follow-up required)
+    const { data: pendingIssues } = useQuery({
+        queryKey: ["pending-issues"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("garage_job_cards")
+                .select(`
+                    *,
+                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model, asset_status),
+                    fault_list:garage_job_faults!inner(id, mechanic_notes, status, fault_type:garage_fault_types(fault_name))
+                `)
+                .eq("status", "Closed")
+                .in("fault_list.status", ['Partial', 'Not Repaired'])
+                .order("closed_at", { ascending: false });
+
+            if (error) throw error;
+            return data?.map((job: any) => {
+                const v = job.vehicle;
+                const displayPlate = v?.vehicle_no || v?.horse_number || v?.trailer_number || "NO PLATE";
+                return {
+                    ...job,
+                    vehicle: { ...v, plate_number: displayPlate }
+                };
+            });
         }
     });
 
@@ -871,6 +951,7 @@ const FleetCommand = () => {
                                         </TableBody>
                                     </Table>
                                 </TabsContent>
+
                             ))}
                         </Tabs>
                     </CardContent>
@@ -1285,7 +1366,7 @@ const FleetCommand = () => {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-            </div>
+            </div >
 
             <Card className="border-primary">
                 <CardHeader className="p-3 md:p-6 pb-3 border-b">
@@ -1301,6 +1382,13 @@ const FleetCommand = () => {
                                     <TabsTrigger value="all" className="data-[state=active]:bg-white shadow-sm px-4">All</TabsTrigger>
                                     <TabsTrigger value="Local" className="data-[state=active]:bg-white shadow-sm px-4">Local</TabsTrigger>
                                     <TabsTrigger value="Transit" className="data-[state=active]:bg-white shadow-sm px-4">Transit</TabsTrigger>
+                                    <TabsTrigger value="maintenance" className="data-[state=active]:bg-white shadow-sm px-4 gap-2">
+                                        <Wrench className="w-4 h-4" />
+                                        Maintenance
+                                        {activeGarageJobs && activeGarageJobs.length > 0 && (
+                                            <Badge variant="destructive" className="ml-1 px-1 py-0 h-4 text-[10px]">{activeGarageJobs.length}</Badge>
+                                        )}
+                                    </TabsTrigger>
                                 </TabsList>
                             </Tabs>
 
@@ -1320,250 +1408,577 @@ const FleetCommand = () => {
                     </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <Table>
-                        <TableHeader className="bg-slate-50 dark:bg-slate-800/50">
-                            <TableRow>
-                                <TableHead>Identifier Info</TableHead>
-                                <TableHead>Operation Type</TableHead>
-                                <TableHead>Asset Type</TableHead>
-                                <TableHead>Make/Model</TableHead>
-                                <TableHead>Odometer / Service</TableHead>
-                                <TableHead>Coupling Status</TableHead>
-                                <TableHead>Paired With</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Branding</TableHead>
-                                <TableHead>System Access</TableHead>
-                                <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {isLoading ? (
+                    {activeTab === 'maintenance' ? (
+                        <Tabs defaultValue="all" value={maintenanceSubTab} onValueChange={setMaintenanceSubTab} className="w-full">
+                            <div className="px-6 pt-4">
+                                <TabsList className="grid w-full max-w-[400px] grid-cols-2">
+                                    <TabsTrigger value="all">All Maintenance ({activeGarageJobs?.length || 0})</TabsTrigger>
+                                    <TabsTrigger value="pending" className="relative">
+                                        Pending Issues
+                                        {pendingIssues && pendingIssues.length > 0 && (
+                                            <Badge className="ml-2 h-5 w-5 p-0 flex items-center justify-center bg-amber-500 text-white rounded-full text-[10px]">
+                                                {pendingIssues.length}
+                                            </Badge>
+                                        )}
+                                    </TabsTrigger>
+                                </TabsList>
+                            </div>
+
+                            <TabsContent value="all" className="mt-0">
+                                <Table>
+                                    <TableHeader className="bg-amber-50/50">
+                                        <TableRow>
+                                            <TableHead>Job ID</TableHead>
+                                            <TableHead>Vehicle Details</TableHead>
+                                            <TableHead>Coupling Info</TableHead>
+                                            <TableHead>Fault Details</TableHead>
+                                            <TableHead>Status</TableHead>
+                                            <TableHead>Garage Duration</TableHead>
+                                            <TableHead>Priority</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {activeGarageJobs && activeGarageJobs.length > 0 ? (
+                                            activeGarageJobs.map((job: any) => {
+                                                const start = new Date(job.opened_at).getTime();
+                                                const now = new Date().getTime();
+                                                const diffHours = Math.floor((now - start) / (1000 * 60 * 60));
+                                                const days = Math.floor(diffHours / 24);
+                                                const hours = diffHours % 24;
+
+                                                return (
+                                                    <TableRow key={job.id} className="hover:bg-amber-50/20">
+                                                        <TableCell className="font-medium text-xs text-slate-500">#{job.job_number}</TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-slate-800">{job.vehicle?.plate_number}</span>
+                                                                <span className="text-xs text-slate-500">{job.vehicle?.make_model} - {job.vehicle?.asset_type}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {job.coupling_partner ? (
+                                                                <div className="flex items-center gap-2">
+                                                                    <Link className="w-3 h-3 text-blue-500" />
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-xs font-medium text-slate-700">{job.coupling_partner.plate}</span>
+                                                                        <div className="flex items-center gap-1">
+                                                                            {job.coupling_partner.status === 'Active' ? (
+                                                                                <Badge className="h-4 text-[9px] bg-green-100 text-green-700 hover:bg-green-100">✓ Active</Badge>
+                                                                            ) : job.coupling_partner.status === 'Maintenance' ? (
+                                                                                <Badge className="h-4 text-[9px] bg-amber-100 text-amber-700 hover:bg-amber-100">🔧 In Garage</Badge>
+                                                                            ) : (
+                                                                                <Badge variant="outline" className="h-4 text-[9px]">{job.coupling_partner.status}</Badge>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-xs text-slate-400">—</span>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                {job.fault_list && job.fault_list.length > 0 ? (
+                                                                    <>
+                                                                        <span className="font-semibold text-slate-700">
+                                                                            {job.fault_list[0].mechanic_notes || job.fault_list[0].fault_type?.fault_name}
+                                                                            {job.fault_list.length > 1 && (
+                                                                                <span className="text-indigo-600 ml-1 font-bold">+{job.fault_list.length - 1} more</span>
+                                                                            )}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-500 uppercase tracking-tight">{job.fault_list[0].fault_type?.category}</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-xs text-slate-400 italic">No tasks logged</span>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                                                                {job.status}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex items-center gap-2 font-mono text-sm font-bold text-slate-700">
+                                                                <Clock className="w-3 h-3 text-slate-400" />
+                                                                {days}d {hours}h
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge className={
+                                                                job.priority === 'Critical' ? 'bg-red-100 text-red-700 hover:bg-red-200' :
+                                                                    job.priority === 'Urgent' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' :
+                                                                        'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                                            }>
+                                                                {job.priority}
+                                                            </Badge>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
+                                        ) : (
+                                            <TableRow>
+                                                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                                                    <div className="flex flex-col items-center justify-center gap-2">
+                                                        <CheckCircle2 className="w-8 h-8 text-green-500 opacity-20" />
+                                                        <p>All fleet units are operational.</p>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </TabsContent>
+
+                            <TabsContent value="pending" className="mt-0">
+                                <Table>
+                                    <TableHeader className="bg-amber-50/50">
+                                        <TableRow>
+                                            <TableHead>Vehicle</TableHead>
+                                            <TableHead>Issues Breakdown</TableHead>
+                                            <TableHead>Head Mechanic Approval</TableHead>
+                                            <TableHead>Released</TableHead>
+                                            <TableHead>Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {pendingIssues && pendingIssues.length > 0 ? (
+                                            pendingIssues.map((job: any) => {
+                                                const releasedDate = new Date(job.closed_at);
+                                                const daysAgo = Math.floor((new Date().getTime() - releasedDate.getTime()) / (1000 * 60 * 60 * 24));
+
+                                                return (
+                                                    <TableRow key={job.id} className="hover:bg-amber-50/20">
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-slate-800">{job.vehicle?.plate_number}</span>
+                                                                <span className="text-xs text-slate-500">{job.vehicle?.asset_type}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex items-center gap-1">
+                                                                {job.fault_list?.filter((f: any) => f.status === 'Partial').length > 0 && (
+                                                                    <Badge className="h-5 text-[9px] bg-amber-100 text-amber-700 hover:bg-amber-100 border border-amber-200 gap-1">
+                                                                        ⚠️ {job.fault_list.filter((f: any) => f.status === 'Partial').length} Partial
+                                                                    </Badge>
+                                                                )}
+                                                                {job.fault_list?.filter((f: any) => f.status === 'Not Repaired').length > 0 && (
+                                                                    <Badge className="h-5 text-[9px] bg-red-100 text-red-700 hover:bg-red-100 border border-red-200 gap-1">
+                                                                        ❌ {job.fault_list.filter((f: any) => f.status === 'Not Repaired').length} Not Repaired
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="max-w-md">
+                                                                {job.head_mechanic_approval ? (
+                                                                    <>
+                                                                        <p className="text-sm italic text-slate-700 border-l-2 border-amber-300 pl-2 my-1">
+                                                                            "{job.head_mechanic_approval}"
+                                                                        </p>
+                                                                        <p className="text-[10px] text-slate-500 font-medium">
+                                                                            — Approved by Head Mechanic
+                                                                        </p>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-xs text-slate-400 italic">No approval note recorded</span>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col gap-1.5">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Badge className={`h-5 text-[10px] font-bold border ${daysAgo >= 15 ? 'bg-red-50 text-red-700 border-red-200' :
+                                                                        daysAgo >= 8 ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                                            daysAgo >= 4 ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                                                'bg-green-50 text-green-700 border-green-200'
+                                                                        }`}>
+                                                                        {daysAgo}d old
+                                                                    </Badge>
+                                                                    <span className="text-xs font-medium text-slate-700">{releasedDate.toLocaleDateString()}</span>
+                                                                </div>
+                                                                <span className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">Maintenance Debt Aging</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSelectedJob(job)}>View Details</Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
+                                        ) : (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                                                    <div className="flex flex-col items-center justify-center gap-2">
+                                                        <CheckCircle2 className="w-8 h-8 text-green-500 opacity-20" />
+                                                        <p>No vehicles with pending issues.</p>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </TabsContent>
+                        </Tabs>
+                    ) : (
+                        <Table>
+                            <TableHeader className="bg-slate-50 dark:bg-slate-800/50">
                                 <TableRow>
-                                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                                        Loading fleet data...
-                                    </TableCell>
+                                    <TableHead>Identifier Info</TableHead>
+                                    <TableHead>Operation Type</TableHead>
+                                    <TableHead>Asset Type</TableHead>
+                                    <TableHead>Make/Model</TableHead>
+                                    <TableHead>Odometer / Service</TableHead>
+                                    <TableHead>Coupling Status</TableHead>
+                                    <TableHead>Paired With</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Branding</TableHead>
+                                    <TableHead>System Access</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
-                            ) : displayFleet.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
-                                        No fleet assets found.
-                                    </TableCell>
-                                </TableRow>
-                            ) : (
-                                displayFleet.map((asset: any) => (
-                                    <TableRow key={asset.id} className={`transition-colors ${asset.is_merged ? 'bg-blue-50/30 hover:bg-blue-50/50' : 'hover:bg-slate-50/50'}`}>
-                                        <TableCell>
-                                            <div className="flex flex-col gap-1">
-                                                <div className="font-semibold text-slate-900 flex items-center gap-2">
-                                                    {asset.is_merged ? (
-                                                        <>
-                                                            <Truck className="w-4 h-4 text-blue-600" />
-                                                            <span className="text-blue-700">{asset.display_id}</span>
-                                                        </>
-                                                    ) : (
-                                                        asset.vehicle_no || asset.trailer_number || asset.horse_number || "—"
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-tight font-medium">
-                                                    {asset.is_merged ? (
-                                                        <span className="bg-blue-100 text-blue-700 px-1 rounded">HORSE + TRAILER</span>
-                                                    ) : (
-                                                        <>
-                                                            {(asset.horse_number && asset.vehicle_no && asset.horse_number !== asset.vehicle_no) && <span>H: {asset.horse_number}</span>}
-                                                            {(asset.trailer_number && asset.vehicle_no) && <span>T: {asset.trailer_number}</span>}
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <Select
-                                                value={asset.fleet_category}
-                                                onValueChange={(val) => handleSwitchOperation(asset, val)}
-                                            >
-                                                <SelectTrigger className={`h-8 w-28 text-xs font-semibold ${asset.fleet_category === 'Transit' ? 'text-indigo-600 border-indigo-200 bg-indigo-50/30' : 'text-slate-700 border-slate-200 bg-slate-50/30'}`}>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="Local">Local</SelectItem>
-                                                    <SelectItem value="Transit">Transit</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <span className={`text-xs font-bold ${asset.is_merged ? 'text-blue-700' : ''}`}>
-                                                    {asset.is_merged ? asset.display_type : asset.asset_type}
-                                                </span>
-                                                {(!asset.is_merged && ((asset.trailer_number && !asset.horse_number && !asset.vehicle_no) || (assetTypes?.find((t: any) => t.name === asset.asset_type)?.type_category === 'Trailer'))) ? (
-                                                    <Badge variant="secondary" className="bg-slate-100 text-slate-600 text-[9px] h-4 px-1 uppercase tracking-tighter border-none">Trailer</Badge>
-                                                ) : null}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-xs">
-                                            {asset.is_merged ? asset.display_make : (asset.make_model || "—")}
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex flex-col gap-1">
-                                                <div className="text-sm font-medium flex items-center gap-2">
-                                                    <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                                    {Number(asset.current_odometer || 0).toLocaleString()} KM
-                                                </div>
-                                                {asset.next_service_odometer > 0 && (
-                                                    <div className="flex items-center gap-1.5">
-                                                        {asset.current_odometer >= asset.next_service_odometer ? (
-                                                            <Badge variant="destructive" className="text-[9px] h-4 py-0 animate-pulse">SERVICE DUE</Badge>
-                                                        ) : (asset.next_service_odometer - asset.current_odometer <= 500) ? (
-                                                            <Badge className="text-[9px] h-4 py-0 bg-orange-500 hover:bg-orange-600">DUE SOON</Badge>
-                                                        ) : (
-                                                            <Badge className="text-[9px] h-4 py-0 bg-emerald-500 hover:bg-emerald-600">OK</Badge>
-                                                        )}
-                                                        <span className="text-[9px] text-muted-foreground">Target: {Number(asset.next_service_odometer).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </TableCell>
-
-                                        {/* Coupling Status */}
-                                        <TableCell>
-                                            <div className="min-w-[130px]">
-                                                {!canBeCoupled(asset) ? (
-                                                    <Badge variant="outline" className="text-slate-400 w-fit h-5 text-[10px] font-medium border-slate-200">
-                                                        N/A
-                                                    </Badge>
-                                                ) : asset.coupling_status === 'coupled' ? (
-                                                    <div className="flex flex-col gap-1.5 items-start">
-                                                        <Badge className="bg-blue-600 hover:bg-blue-700 w-full justify-center h-6 text-[10px] font-bold shadow-sm whitespace-nowrap">
-                                                            <Link className="w-3 h-3 mr-1.5" />
-                                                            COUPLED UNIT
-                                                        </Badge>
-                                                        <button
-                                                            className="text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors w-full"
-                                                            onClick={() => handleUncoupleVehicle(asset)}
-                                                        >
-                                                            <Unlink className="h-3 w-3" />
-                                                            UNCOUPLE PAIR
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col gap-1.5 items-start">
-                                                        <Badge variant="outline" className="text-slate-500 w-fit h-5 text-[10px] font-medium border-slate-300">
-                                                            <Unlink className="w-3 h-3 mr-1" />
-                                                            SINGLE
-                                                        </Badge>
-                                                        <button
-                                                            className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors"
-                                                            onClick={() => handleOpenCouplingDialog(asset)}
-                                                        >
-                                                            <Link className="h-3 w-3" />
-                                                            COUPLE NOW
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </TableCell>
-
-                                        {/* Paired With / Details */}
-                                        <TableCell>
-                                            {asset.is_merged ? (
-                                                <div className="flex flex-col">
-                                                    <div className="text-[10px] font-bold text-slate-500 uppercase">Unit Details</div>
-                                                    <div className="text-[10px] text-muted-foreground truncate max-w-[120px]">
-                                                        {asset.notes || asset.partner?.notes || "No notes"}
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <span className="text-muted-foreground text-xs">—</span>
-                                            )}
-                                        </TableCell>
-
-                                        <TableCell>{getStatusBadge((asset as any).asset_status)}</TableCell>
-
-                                        {/* Branding Form */}
-                                        <TableCell>
-                                            {asset.is_merged ? (
-                                                <div className="flex flex-col gap-1">
-                                                    {/* Horse Branding */}
-                                                    {asset.branding_form_url ? (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-6 px-2 text-[10px] w-fit justify-start text-blue-700 hover:text-blue-800 hover:bg-blue-50"
-                                                            onClick={() => window.open(asset.branding_form_url, '_blank')}
-                                                            title="View Horse Branding"
-                                                        >
-                                                            <FileText className="w-3 h-3 mr-1.5" />
-                                                            Horse PDF
-                                                        </Button>
-                                                    ) : (
-                                                        <span className="text-[10px] text-slate-400 pl-2">No Horse PDF</span>
-                                                    )}
-
-                                                    {/* Trailer Branding */}
-                                                    {asset.partner?.branding_form_url ? (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-6 px-2 text-[10px] w-fit justify-start text-slate-600 hover:text-slate-800 hover:bg-slate-100"
-                                                            onClick={() => window.open(asset.partner.branding_form_url, '_blank')}
-                                                            title="View Trailer Branding"
-                                                        >
-                                                            <FileText className="w-3 h-3 mr-1.5" />
-                                                            Trailer PDF
-                                                        </Button>
-                                                    ) : (
-                                                        <span className="text-[10px] text-slate-400 pl-2">No Trailer PDF</span>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                asset.branding_form_url ? (
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-7 px-2 text-xs"
-                                                        onClick={() => window.open(asset.branding_form_url, '_blank')}
-                                                    >
-                                                        <FileText className="w-4 h-4 mr-1" />
-                                                        View PDF
-                                                    </Button>
-                                                ) : (
-                                                    <span className="text-xs text-muted-foreground">—</span>
-                                                )
-                                            )}
-                                        </TableCell>
-
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <Switch
-                                                    checked={(asset as any).is_active !== false}
-                                                    onCheckedChange={() => toggleAssetStatusMutation.mutate({ id: asset.id, is_active: (asset as any).is_active !== false })}
-                                                />
-                                                <span className="text-[10px] font-medium uppercase text-slate-500">
-                                                    {(asset as any).is_active !== false ? "Active" : "Inactive"}
-                                                </span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex justify-end gap-1">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => handleEditAsset(asset)}>
-                                                    <Edit className="h-4 w-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => {
-                                                    if (confirm("Are you sure you want to delete this vehicle?")) {
-                                                        deleteAssetMutation.mutate(asset.id);
-                                                    }
-                                                }}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
+                            </TableHeader>
+                            <TableBody>
+                                {isLoading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                            Loading fleet data...
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
+                                ) : displayFleet.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
+                                            No fleet assets found.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    displayFleet.map((asset: any) => (
+                                        <TableRow key={asset.id} className={`transition-colors ${asset.is_merged ? 'bg-blue-50/30 hover:bg-blue-50/50' : 'hover:bg-slate-50/50'}`}>
+                                            <TableCell>
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="font-semibold text-slate-900 flex items-center gap-2">
+                                                        {asset.is_merged ? (
+                                                            <>
+                                                                <Truck className="w-4 h-4 text-blue-600" />
+                                                                <span className="text-blue-700">{asset.display_id}</span>
+                                                            </>
+                                                        ) : (
+                                                            asset.vehicle_no || asset.trailer_number || asset.horse_number || "—"
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-tight font-medium">
+                                                        {asset.is_merged ? (
+                                                            <span className="bg-blue-100 text-blue-700 px-1 rounded">HORSE + TRAILER</span>
+                                                        ) : (
+                                                            <>
+                                                                {(asset.horse_number && asset.vehicle_no && asset.horse_number !== asset.vehicle_no) && <span>H: {asset.horse_number}</span>}
+                                                                {(asset.trailer_number && asset.vehicle_no) && <span>T: {asset.trailer_number}</span>}
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Select
+                                                    value={asset.fleet_category}
+                                                    onValueChange={(val) => handleSwitchOperation(asset, val)}
+                                                >
+                                                    <SelectTrigger className={`h-8 w-28 text-xs font-semibold ${asset.fleet_category === 'Transit' ? 'text-indigo-600 border-indigo-200 bg-indigo-50/30' : 'text-slate-700 border-slate-200 bg-slate-50/30'}`}>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Local">Local</SelectItem>
+                                                        <SelectItem value="Transit">Transit</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-xs font-bold ${asset.is_merged ? 'text-blue-700' : ''}`}>
+                                                        {asset.is_merged ? asset.display_type : asset.asset_type}
+                                                    </span>
+                                                    {(!asset.is_merged && ((asset.trailer_number && !asset.horse_number && !asset.vehicle_no) || (assetTypes?.find((t: any) => t.name === asset.asset_type)?.type_category === 'Trailer'))) ? (
+                                                        <Badge variant="secondary" className="bg-slate-100 text-slate-600 text-[9px] h-4 px-1 uppercase tracking-tighter border-none">Trailer</Badge>
+                                                    ) : null}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {asset.is_merged ? asset.display_make : (asset.make_model || "—")}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="text-sm font-medium flex items-center gap-2">
+                                                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                                        {Number(asset.current_odometer || 0).toLocaleString()} KM
+                                                    </div>
+                                                    {asset.next_service_odometer > 0 && (
+                                                        <div className="flex items-center gap-1.5">
+                                                            {asset.current_odometer >= asset.next_service_odometer ? (
+                                                                <Badge variant="destructive" className="text-[9px] h-4 py-0 animate-pulse">SERVICE DUE</Badge>
+                                                            ) : (asset.next_service_odometer - asset.current_odometer <= 500) ? (
+                                                                <Badge className="text-[9px] h-4 py-0 bg-orange-500 hover:bg-orange-600">DUE SOON</Badge>
+                                                            ) : (
+                                                                <Badge className="text-[9px] h-4 py-0 bg-emerald-500 hover:bg-emerald-600">OK</Badge>
+                                                            )}
+                                                            <span className="text-[9px] text-muted-foreground">Target: {Number(asset.next_service_odometer).toLocaleString()}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Coupling Status */}
+                                            <TableCell>
+                                                <div className="min-w-[130px]">
+                                                    {!canBeCoupled(asset) ? (
+                                                        <Badge variant="outline" className="text-slate-400 w-fit h-5 text-[10px] font-medium border-slate-200">
+                                                            N/A
+                                                        </Badge>
+                                                    ) : asset.coupling_status === 'coupled' ? (
+                                                        <div className="flex flex-col gap-1.5 items-start">
+                                                            <Badge className="bg-blue-600 hover:bg-blue-700 w-full justify-center h-6 text-[10px] font-bold shadow-sm whitespace-nowrap">
+                                                                <Link className="w-3 h-3 mr-1.5" />
+                                                                COUPLED UNIT
+                                                            </Badge>
+                                                            <button
+                                                                className="text-[10px] text-red-600 hover:text-red-700 hover:bg-red-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors w-full"
+                                                                onClick={() => handleUncoupleVehicle(asset)}
+                                                            >
+                                                                <Unlink className="h-3 w-3" />
+                                                                UNCOUPLE PAIR
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-col gap-1.5 items-start">
+                                                            <Badge variant="outline" className="text-slate-500 w-fit h-5 text-[10px] font-medium border-slate-300">
+                                                                <Unlink className="w-3 h-3 mr-1" />
+                                                                SINGLE
+                                                            </Badge>
+                                                            <button
+                                                                className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors"
+                                                                onClick={() => handleOpenCouplingDialog(asset)}
+                                                            >
+                                                                <Link className="h-3 w-3" />
+                                                                COUPLE NOW
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Paired With / Details */}
+                                            <TableCell>
+                                                {asset.is_merged ? (
+                                                    <div className="flex flex-col">
+                                                        <div className="text-[10px] font-bold text-slate-500 uppercase">Unit Details</div>
+                                                        <div className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                                                            {asset.notes || asset.partner?.notes || "No notes"}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground text-xs">—</span>
+                                                )}
+                                            </TableCell>
+
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <Badge
+                                                        className={`h-5 cursor-default ${asset.asset_status === 'Active' ? 'bg-green-100 text-green-700 hover:bg-green-100' :
+                                                            asset.asset_status === 'Maintenance' ? 'bg-amber-100 text-amber-700 hover:bg-amber-100' :
+                                                                'bg-slate-100 text-slate-700 hover:bg-slate-100'
+                                                            }`}
+                                                    >
+                                                        {asset.asset_status === 'Active' ? <CheckCircle2 className="w-3 h-3 mr-1" /> :
+                                                            asset.asset_status === 'Maintenance' ? <Wrench className="w-3 h-3 mr-1" /> :
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5" />}
+                                                        {asset.asset_status}
+                                                    </Badge>
+
+                                                    {/* Pending Issues Indicator (Tooltip) */}
+                                                    {(asset as any).has_pending_issues && asset.asset_status === 'Active' && (
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger>
+                                                                    <Badge className="h-5 px-1.5 bg-amber-50 text-amber-600 border border-amber-200 cursor-help hover:bg-amber-100">
+                                                                        <AlertTriangle className="w-3 h-3" />
+                                                                        {(asset as any).pending_issues_count > 0 && <span className="ml-1 text-[10px]">{(asset as any).pending_issues_count}</span>}
+                                                                    </Badge>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent className="bg-white border-amber-200 text-slate-700 max-w-xs shadow-md p-3">
+                                                                    <div className="space-y-1">
+                                                                        <p className="font-bold text-xs text-amber-700 flex items-center gap-1.5">
+                                                                            <AlertTriangle className="w-3 h-3" /> Pending Follow-up
+                                                                        </p>
+                                                                        <p className="text-xs">
+                                                                            Vehicle has {(asset as any).pending_issues_count || 1} incomplete repair{(asset as any).pending_issues_count !== 1 ? 's' : ''}.
+                                                                        </p>
+                                                                        <p className="text-[10px] text-slate-500 italic mt-1 font-medium">
+                                                                            Check Maintenance tab for Head Mechanic's approval note.
+                                                                        </p>
+                                                                    </div>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+
+                                            {/* Branding Form */}
+                                            <TableCell>
+                                                {asset.is_merged ? (
+                                                    <div className="flex flex-col gap-1">
+                                                        {/* Horse Branding */}
+                                                        {asset.branding_form_url ? (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-6 px-2 text-[10px] w-fit justify-start text-blue-700 hover:text-blue-800 hover:bg-blue-50"
+                                                                onClick={() => window.open(asset.branding_form_url, '_blank')}
+                                                                title="View Horse Branding"
+                                                            >
+                                                                <FileText className="w-3 h-3 mr-1.5" />
+                                                                Horse PDF
+                                                            </Button>
+                                                        ) : (
+                                                            <span className="text-[10px] text-slate-400 pl-2">No Horse PDF</span>
+                                                        )}
+
+                                                        {/* Trailer Branding */}
+                                                        {asset.partner?.branding_form_url ? (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-6 px-2 text-[10px] w-fit justify-start text-slate-600 hover:text-slate-800 hover:bg-slate-100"
+                                                                onClick={() => window.open(asset.partner.branding_form_url, '_blank')}
+                                                                title="View Trailer Branding"
+                                                            >
+                                                                <FileText className="w-3 h-3 mr-1.5" />
+                                                                Trailer PDF
+                                                            </Button>
+                                                        ) : (
+                                                            <span className="text-[10px] text-slate-400 pl-2">No Trailer PDF</span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    asset.branding_form_url ? (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 px-2 text-xs"
+                                                            onClick={() => window.open(asset.branding_form_url, '_blank')}
+                                                        >
+                                                            <FileText className="w-4 h-4 mr-1" />
+                                                            View PDF
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">—</span>
+                                                    )
+                                                )}
+                                            </TableCell>
+
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <Switch
+                                                        checked={(asset as any).is_active !== false}
+                                                        onCheckedChange={() => toggleAssetStatusMutation.mutate({ id: asset.id, is_active: (asset as any).is_active !== false })}
+                                                    />
+                                                    <span className="text-[10px] font-medium uppercase text-slate-500">
+                                                        {(asset as any).is_active !== false ? "Active" : "Inactive"}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <div className="flex justify-end gap-1">
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => handleEditAsset(asset)}>
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => {
+                                                        if (confirm("Are you sure you want to delete this vehicle?")) {
+                                                            deleteAssetMutation.mutate(asset.id);
+                                                        }
+                                                    }}>
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    )}
                 </CardContent>
             </Card>
+            {/* Job Details Dialog */}
+            <Dialog open={!!selectedJob} onOpenChange={(open) => !open && setSelectedJob(null)}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Wrench className="w-5 h-5 text-amber-500" />
+                            Maintenance Job Details
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    {selectedJob && (
+                        <div className="space-y-6">
+                            {/* Header Info */}
+                            <div className="flex items-center justify-between bg-slate-50 p-4 rounded-lg border">
+                                <div>
+                                    <p className="text-sm font-medium text-slate-500">Vehicle</p>
+                                    <p className="text-lg font-bold">{selectedJob.vehicle?.plate_number}</p>
+                                    <p className="text-xs text-muted-foreground">{selectedJob.vehicle?.make_model}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm font-medium text-slate-500">Released On</p>
+                                    <p className="font-bold">{new Date(selectedJob.closed_at).toLocaleDateString()}</p>
+                                    <Badge variant="outline" className="mt-1 border-amber-200 bg-amber-50 text-amber-700">
+                                        Pending Follow-up
+                                    </Badge>
+                                </div>
+                            </div>
+
+                            {/* Approval Note */}
+                            {selectedJob.head_mechanic_approval && (
+                                <div className="bg-amber-50/50 border border-amber-100 p-4 rounded-lg">
+                                    <p className="text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-2">
+                                        <AlertTriangle className="w-3 h-3" />
+                                        Approved for Release with Issues
+                                    </p>
+                                    <p className="text-sm italic text-slate-700 border-l-2 border-amber-300 pl-3">
+                                        "{selectedJob.head_mechanic_approval}"
+                                    </p>
+                                    <p className="text-xs text-slate-400 mt-2 font-medium">— Head Mechanic</p>
+                                </div>
+                            )}
+
+                            {/* Fault List */}
+                            <div>
+                                <h4 className="text-sm font-bold mb-3 flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-slate-400" />
+                                    Issues Report
+                                </h4>
+                                <div className="space-y-2">
+                                    {selectedJob.fault_list?.map((fault: any) => (
+                                        <div key={fault.id} className="flex items-start justify-between p-3 border rounded-md hover:bg-slate-50">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-sm">{fault.fault_type?.fault_name}</span>
+                                                    {fault.status === 'Partial' && <Badge className="h-4 text-[9px] bg-amber-100 text-amber-700 hover:bg-amber-100">Partial Fix</Badge>}
+                                                    {fault.status === 'Not Repaired' && <Badge className="h-4 text-[9px] bg-red-100 text-red-700 hover:bg-red-100">Not Repaired</Badge>}
+                                                    {fault.status === 'Fixed' && <Badge className="h-4 text-[9px] bg-green-100 text-green-700 hover:bg-green-100">Fixed</Badge>}
+                                                </div>
+                                                <p className="text-xs text-slate-600">{fault.mechanic_notes || "No mechanic notes provided."}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button onClick={() => setSelectedJob(null)}>Close</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

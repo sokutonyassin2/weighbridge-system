@@ -34,6 +34,10 @@ import DriverRegistry from "./pages/logistics/DriverRegistry";
 import TripManagement from "./pages/logistics/TripManagement";
 import ComplianceCenter from "./pages/logistics/ComplianceCenter";
 import VehiclePerformance from "./pages/logistics/VehiclePerformance";
+import GarageDashboard from "./pages/garage/GarageDashboard";
+import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
+import InventoryReports from "./pages/garage/InventoryReports";
+import GarageAttendance from "./pages/garage/Attendance";
 
 const queryClient = new QueryClient();
 
@@ -311,6 +315,66 @@ const App = () => {
               }
             />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route
+              path="/garage"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/garage/store"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/garage/inventory-reports"
+              element={
+                <ProtectedRoute requireAdmin>
+                  <Layout>
+                    <InventoryReports />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/garage/logs"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/garage/attendance"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageAttendance />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/procurement"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ProcurementDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

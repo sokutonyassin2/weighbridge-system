@@ -660,8 +660,8 @@ Please process payment in Cashier section first.`,
       },
     };
 
-    const qrSizeMap = { small: 80, medium: 100, large: 120 };
-    const qrSize = qrSizeMap[settings.qrCode.size as keyof typeof qrSizeMap] || 100;
+    const qrSizeMap = { small: 60, medium: 75, large: 90 };
+    const qrSize = qrSizeMap[settings.qrCode.size as keyof typeof qrSizeMap] || 75;
 
     const templateClass = settings.template === 'classic'
       ? 'border-4 border-primary rounded-lg'
@@ -676,7 +676,7 @@ Please process payment in Cashier section first.`,
         <Card className={templateClass}>
           <CardContent className={`p-8 print:p-2 ${fontClass}`}>
             <div id="print-receipt" className="print:m-0 print:p-0">
-              <div className={`mb-8 print:mb-2 text-${settings.header.logoPosition} relative`}>
+              <div className={`mb-8 print:mb-1 text-${settings.header.logoPosition} relative`}>
                 {settings.header.showLogo && (
                   <img
                     src={settings.header.useCustomLogo && settings.header.customLogo
@@ -684,7 +684,7 @@ Please process payment in Cashier section first.`,
                       : "/images/energy-feeds-logo.jpg"
                     }
                     alt="Energy Feeds"
-                    className={`h-24 mb-4 print:h-16 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
+                    className={`h-24 mb-4 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
                   />
                 )}
                 <h1 className={`${settings.template === 'minimal' ? 'text-2xl' : 'text-3xl'} font-bold text-primary`}>
@@ -693,11 +693,11 @@ Please process payment in Cashier section first.`,
                 <p className="text-sm text-muted-foreground mt-1">{settings.header.subtitle}</p>
                 <p className="text-sm text-muted-foreground">{settings.header.address}</p>
                 {settings.template === 'classic' ? (
-                  <div className="border-b-4 border-primary mt-4 mb-6 print:mt-1 print:mb-2"></div>
+                  <div className="border-b-4 border-primary mt-4 mb-6 print:mt-0.5 print:mb-1"></div>
                 ) : settings.template === 'modern' ? (
-                  <div className="border-b-2 border-border mt-4 mb-6 print:mt-1 print:mb-2"></div>
+                  <div className="border-b-2 border-border mt-4 mb-6 print:mt-0.5 print:mb-1"></div>
                 ) : (
-                  <div className="border-b border-dotted border-muted-foreground mt-3 mb-4 print:mt-1 print:mb-2"></div>
+                  <div className="border-b border-dotted border-muted-foreground mt-3 mb-4 print:mt-0.5 print:mb-1"></div>
                 )}
                 <h2 className={`${settings.template === 'minimal' ? 'text-lg' : 'text-xl'} font-semibold`}>
                   WEIGH RECEIPT
@@ -725,7 +725,7 @@ Please process payment in Cashier section first.`,
                 )}
               </div>
 
-              <div className="space-y-4 mb-6 print:space-y-1 print:mb-2">
+              <div className="space-y-4 mb-6 print:space-y-0 print:mb-1">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-muted-foreground print:text-base">Entry ID</p>
@@ -800,7 +800,7 @@ Please process payment in Cashier section first.`,
               </div>
 
               <div
-                className={`py-4 mt-6 print:py-1 print:mt-2 ${settings.template === 'classic'
+                className={`py-4 mt-6 print:py-0.5 print:mt-1 ${settings.template === 'classic'
                   ? 'border-t-4 border-b-4 border-primary'
                   : settings.template === 'modern'
                     ? 'border-t-2 border-b-2 border-border'
@@ -827,7 +827,7 @@ Please process payment in Cashier section first.`,
                   <div className="mt-4 pt-4 border-t border-dashed border-muted-foreground space-y-2">
                     <p className="text-sm font-semibold text-muted-foreground">Vehicle Mass Details:</p>
                     {printData.gvm && (
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-center print:text-xs">
                         <span className="font-medium">GVM (Gross Vehicle Mass):</span>
                         <span className="font-bold">{printData.gvm} kg</span>
                       </div>
@@ -856,7 +856,7 @@ Please process payment in Cashier section first.`,
 
               {!printData.isSecondWeigh && (
                 <div
-                  className={`pt-4 mt-6 print:pt-1 print:mt-2 ${settings.template === 'classic'
+                  className={`pt-4 mt-6 print:pt-0.5 print:mt-1 ${settings.template === 'classic'
                     ? 'border-t-2 border-primary'
                     : settings.template === 'modern'
                       ? 'border-t border-border'
@@ -879,7 +879,7 @@ Please process payment in Cashier section first.`,
               )}
 
               <div
-                className={`text-center text-sm text-muted-foreground pt-4 mt-6 print:pt-1 print:mt-2 ${settings.template === 'classic'
+                className={`text-center text-sm text-muted-foreground pt-4 mt-6 print:pt-0.5 print:mt-1 ${settings.template === 'classic'
                   ? 'border-t-2 border-primary'
                   : settings.template === 'modern'
                     ? 'border-t border-border'
@@ -905,9 +905,9 @@ Please process payment in Cashier section first.`,
               {/* QR Code - Bottom Position (after all content) */}
               {settings.qrCode.enabled && settings.qrCode.position !== 'top-right' && (
                 <div
-                  className={`mt-6 pt-4 print:mt-2 print:pt-1 flex ${settings.qrCode.position === 'bottom-right' ? 'justify-end' : 'justify-start'}`}
+                  className={`mt-6 pt-4 print:mt-1 print:pt-0.5 flex ${settings.qrCode.position === 'bottom-right' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className={`p-3 bg-white rounded ${settings.template === 'classic'
+                  <div className={`p-3 print:p-1.5 bg-white rounded ${settings.template === 'classic'
                     ? 'border-4 border-primary'
                     : settings.template === 'modern'
                       ? 'border-2 border-border'

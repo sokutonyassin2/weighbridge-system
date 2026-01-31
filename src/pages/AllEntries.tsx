@@ -46,7 +46,7 @@ const AllEntries = () => {
         .select("*")
         .order("shift_date", { ascending: false })
         .limit(30);
-      
+
       if (error) throw error;
       return data;
     },
@@ -115,6 +115,7 @@ const AllEntries = () => {
 
       return filteredData;
     },
+    staleTime: 60000, // Cache for 1 minute to improve performance
   });
 
   const { data: penalties } = useQuery({
@@ -138,11 +139,13 @@ const AllEntries = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (entryId: string) => {
-      // Delete related records first
-      await supabase.from("payments").delete().eq("entry_id", entryId);
-      await supabase.from("weigh_records").delete().eq("entry_id", entryId);
-      await supabase.from("pending_weighs").delete().eq("entry_id", entryId);
-      
+      // Delete related records in parallel for better performance
+      await Promise.all([
+        supabase.from("payments").delete().eq("entry_id", entryId),
+        supabase.from("weigh_records").delete().eq("entry_id", entryId),
+        supabase.from("pending_weighs").delete().eq("entry_id", entryId),
+      ]);
+
       // Then delete the entry
       const { error } = await supabase
         .from("vehicle_entries")
@@ -152,7 +155,7 @@ const AllEntries = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["all-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["all-entries"], refetchType: 'all' });
       toast({
         title: "Entry deleted",
         description: "The entry and all related records have been deleted.",
@@ -172,23 +175,29 @@ const AllEntries = () => {
   const bulkDeleteMutation = useMutation({
     mutationFn: async (entryIds: string[]) => {
       setIsBulkDeleting(true);
-      for (const entryId of entryIds) {
-        // Delete related records first
-        await supabase.from("payments").delete().eq("entry_id", entryId);
-        await supabase.from("weigh_records").delete().eq("entry_id", entryId);
-        await supabase.from("pending_weighs").delete().eq("entry_id", entryId);
-        
-        // Then delete the entry
-        const { error } = await supabase
-          .from("vehicle_entries")
-          .delete()
-          .eq("id", entryId);
 
-        if (error) throw error;
-      }
+      // Process all deletions in parallel for much better performance
+      await Promise.all(
+        entryIds.map(async (entryId) => {
+          // Delete related records in parallel
+          await Promise.all([
+            supabase.from("payments").delete().eq("entry_id", entryId),
+            supabase.from("weigh_records").delete().eq("entry_id", entryId),
+            supabase.from("pending_weighs").delete().eq("entry_id", entryId),
+          ]);
+
+          // Then delete the entry
+          const { error } = await supabase
+            .from("vehicle_entries")
+            .delete()
+            .eq("id", entryId);
+
+          if (error) throw error;
+        })
+      );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["all-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["all-entries"], refetchType: 'all' });
       queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
       queryClient.invalidateQueries({ queryKey: ["overdue-pending"] });
       toast({
@@ -316,7 +325,7 @@ const AllEntries = () => {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Vehicle Entries ({entries?.length || 0})</CardTitle>
-          {userRole === "admin" && entries && entries.length > 0 && (
+          {(userRole === "admin" || userRole === "super_admin") && entries && entries.length > 0 && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
@@ -410,42 +419,42 @@ const AllEntries = () => {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                      {userRole === "admin" && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              disabled={deleteMutation.isPending}
-                            >
-                              {deleteMutation.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently delete this entry and all related records (weigh records, payments, etc.). This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteMutation.mutate(entry.id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        {(userRole === "admin" || userRole === "super_admin") && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                disabled={deleteMutation.isPending}
                               >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </TableCell>
-                </TableRow>
+                                {deleteMutation.isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will permanently delete this entry and all related records (weigh records, payments, etc.). This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteMutation.mutate(entry.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </TableCell>
+                    </TableRow>
                   );
                 })
               )}

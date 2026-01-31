@@ -3,12 +3,19 @@ import { execSync } from "child_process";
 import fs from "fs";
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
+import cors from "cors";
 
 const app = express();
-const PORT = 3000;
+const PORT = 5000;
+
+app.use(cors());
+app.use(express.json());
 
 import path from "path";
 import os from "os";
+
+// Global variables
+let latestWeight = "0";
 
 /* ===============================
    OS DETECTION & CONFIG
@@ -25,7 +32,7 @@ const BAUD_RATE = 9600;
 /* ===============================
    CAMERA CONFIG (WORKING)
 ================================ */
-const CAMERA_URL = "http://192.168.1.105/cgi-bin/snapshot.cgi?action=snap";
+const CAMERA_URL = "http://192.168.1.160/cgi-bin/snapshot.cgi?action=snap";
 // Keep existing camera credentials
 const CAMERA_USER = "admin";
 const CAMERA_PASS = "sood12345";
@@ -91,31 +98,47 @@ app.get("/", (req, res) => {
 });
 
 /* ===============================
+   SYSTEM ARCHITECTURE ENDPOINTS
+================================ */
+app.get("/api/hardware/status", (req, res) => {
+  res.json({ status: "online", platform: os.platform() });
+});
+
+app.get("/api/hardware/weight", (req, res) => {
+  res.json({ weight: latestWeight || 0 });
+});
+
+app.post("/api/hardware/capture", (req, res) => {
+  // Logic shared with legacy /capture
+  processCapture(req, res);
+});
+
+app.post("/capture-photo", (req, res) => {
+  // Support for settings page test button
+  processCapture(req, res);
+});
+
+/* ===============================
    CAPTURE CAMERA IMAGE
 ================================ */
 /* ===============================
    CAPTURE CAMERA IMAGE
 ================================ */
-app.get("/capture", (req, res) => {
+function processCapture(req, res) {
   try {
-    const entryID = req.query.entryID || 0;
-    const plate = (req.query.plate || "UNKNOWN").replace(/ /g, "_");
+    const entryID = req.body?.entryId || req.query?.entryID || 0;
+    const plate = (req.body?.vehicleNo || req.query?.plate || "UNKNOWN").replace(/ /g, "_");
     const now = new Date();
 
-    // 1. Generate Monthly Folder Name (e.g., "January-2024")
     const monthName = now.toLocaleString('default', { month: 'long' });
     const year = now.getFullYear();
     const monthlyFolder = `${monthName}-${year}`;
-
-    // 2. Construct Full Path
     const fullDir = path.join(PHOTO_DIR, monthlyFolder);
 
-    // 3. Ensure Monthly Folder Exists
     if (!fs.existsSync(fullDir)) {
       fs.mkdirSync(fullDir, { recursive: true });
     }
 
-    // 4. Generate Filename
     const ts = now.toISOString().replace(/[:.]/g, "_");
     const photoPath = path.join(fullDir, `Entry_${entryID}_Plate_${plate}_${ts}.jpg`);
 
@@ -127,12 +150,20 @@ app.get("/capture", (req, res) => {
 
     execSync(cmd);
 
-    // Return just the relative path if needed, or full path
-    res.send(photoPath);
+    // Return JSON instead of raw string for better app compatibility
+    res.json({
+      photoPath: photoPath,
+      photoUrl: `file://${photoPath}`, // Local file protocol for display
+      success: true
+    });
   } catch (err) {
     console.error("Camera error:", err.message);
-    res.status(500).send("Camera capture failed");
+    res.status(500).json({ error: "Camera capture failed", message: err.message });
   }
+}
+
+app.get("/capture", (req, res) => {
+  processCapture(req, res);
 });
 
 /* ===============================

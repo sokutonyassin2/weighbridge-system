@@ -1,7 +1,7 @@
-project_id = "ghxizhoohrnfitngqzwh"
+project_id = "vsgtvcvzijuehawpodhz"
 
 [functions.create-user]
-verify_jwt = true
+verify_jwt = false
 
 [functions.capture-vehicle-photo]
 verify_jwt = false

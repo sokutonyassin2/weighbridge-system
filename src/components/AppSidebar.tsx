@@ -178,8 +178,35 @@ export function AppSidebar() {
           </div>
         </div>
       )}
-
       <SidebarContent className="px-2 space-y-2">
+
+        {/* COMMAND CENTER SECTION - SUPER ADMIN ONLY */}
+        {userRole === "super_admin" && (
+          <SidebarGroup className="py-2">
+            <SidebarGroupLabel className="px-2 mb-1 font-bold text-[10px] uppercase tracking-[0.2em] text-purple-600/80">
+              Command Center
+            </SidebarGroupLabel>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Global Dashboard">
+                  <NavLink
+                    to="/admin/dashboard"
+                    className={({ isActive }) =>
+                      `flex items-center gap-4 px-3 py-4 rounded-xl transition-all duration-300 group ${isActive
+                        ? "bg-gradient-to-br from-purple-600 to-indigo-700 text-white shadow-[0_8px_16px_-6px_rgba(79,70,229,0.5)] scale-[1.02]"
+                        : "hover:bg-purple-50 text-sidebar-foreground/80 hover:text-purple-700 border border-transparent hover:border-purple-100"
+                      }`
+                    }
+                  >
+                    <LayoutGrid className={`h-5 w-5 stroke-[2.5] transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110`} />
+                    <span className="font-bold text-sm tracking-tight text-inherit">Superadmin Dashboard</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <Separator className="mt-4 opacity-50" />
+          </SidebarGroup>
+        )}
 
         {/* WEIGHBRIDGE SECTION */}
         {showWeighbridge && (
@@ -381,6 +408,6 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
-    </Sidebar>
+    </Sidebar >
   );
 }

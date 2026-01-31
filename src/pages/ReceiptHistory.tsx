@@ -287,8 +287,8 @@ const ReceiptPreview = ({ data }: { data: any }) => {
         footer: { text: 'Thank you for your business!', showGeneratedTime: true },
     };
 
-    const qrSizeMap: any = { small: 80, medium: 100, large: 120 };
-    const qrSize = qrSizeMap[settings.qrCode.size] || 100;
+    const qrSizeMap: any = { small: 60, medium: 75, large: 90 };
+    const qrSize = qrSizeMap[settings.qrCode.size] || 75;
 
     const templateClass = settings.template === 'classic'
         ? 'border-4 border-primary rounded-lg'
@@ -299,9 +299,9 @@ const ReceiptPreview = ({ data }: { data: any }) => {
     return (
         <div className="p-6 max-w-4xl mx-auto">
             <Card className={templateClass}>
-                <CardContent className={`p-8`}>
-                    <div id="print-receipt">
-                        <div className={`mb-8 text-${settings.header.logoPosition} relative text-black`}>
+                <CardContent className="p-8 print:p-2">
+                    <div id="print-receipt" className="print:m-0 print:p-0">
+                        <div className={`mb-8 print:mb-1 text-${settings.header.logoPosition} relative text-black`}>
                             {settings.header.showLogo && (
                                 <img
                                     src={settings.header.useCustomLogo && settings.header.customLogo
@@ -316,11 +316,11 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                 {settings.header.companyName}
                             </h1>
                             <p className="text-sm text-gray-600 mt-1">{settings.header.subtitle}</p>
-                            <p className="text-sm text-gray-600">{settings.header.address}</p>
+                            <p className="text-sm text-gray-600 font-bold">{settings.header.address}</p>
 
-                            <div className="border-b-4 border-black mt-4 mb-6"></div>
+                            <div className="border-b-4 border-black mt-4 mb-6 print:mt-1 print:mb-2"></div>
 
-                            <h2 className="text-xl font-semibold text-center mb-6 uppercase tracking-wide">
+                            <h2 className="text-xl font-semibold text-center mb-6 print:mb-2 uppercase tracking-wide">
                                 OFFICIAL WEIGH RECEIPT
                             </h2>
 
@@ -339,7 +339,7 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                             )}
                         </div>
 
-                        <div className="space-y-4 mb-8 text-black">
+                        <div className="space-y-4 mb-8 print:space-y-0.5 print:mb-2 text-black">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <p className="text-sm text-gray-500 uppercase tracking-wider">Entry ID</p>
@@ -365,7 +365,7 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                 </div>
                             </div>
 
-                            <div className="mt-8 border-t border-b border-gray-200 py-6">
+                            <div className="mt-8 border-t border-b border-gray-200 py-6 print:mt-2 print:py-1">
                                 <div className="grid grid-cols-3 gap-4 text-center">
                                     <div>
                                         <p className="text-xs text-gray-500 uppercase">Gross Weight</p>
@@ -383,7 +383,7 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                             </div>
                         </div>
 
-                        <div className="text-center text-sm text-gray-500 mt-12">
+                        <div className="text-center text-sm text-gray-500 mt-12 print:mt-2">
                             <p>{settings.footer.text}</p>
                             <p className="text-xs mt-2">Reprinted on: {new Date().toLocaleString()}</p>
                         </div>

@@ -38,8 +38,18 @@ import GarageDashboard from "./pages/garage/GarageDashboard";
 import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
 import InventoryReports from "./pages/garage/InventoryReports";
 import GarageAttendance from "./pages/garage/Attendance";
+import SuperadminDashboard from "./pages/SuperadminDashboard";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // Cache data for 5 minutes
+      gcTime: 5 * 60 * 1000, // Keep unused data in cache for 5 minutes
+      retry: 1, // Only retry failed requests once
+      refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    },
+  },
+});
 
 const App = () => {
   // Service Worker registration removed to fix Auth issues
@@ -371,6 +381,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <ProcurementDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/dashboard"
+              element={
+                <ProtectedRoute requireAdmin>
+                  <Layout>
+                    <SuperadminDashboard />
                   </Layout>
                 </ProtectedRoute>
               }

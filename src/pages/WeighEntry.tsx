@@ -252,6 +252,18 @@ export default function WeighEntry() {
       return;
     }
 
+    // Check if vehicle has exhausted weigh attempts (non-MV vehicles only)
+    const MAX_WEIGH_ATTEMPTS = 3;
+    if (!isMVCategory && weighCount >= MAX_WEIGH_ATTEMPTS) {
+      toast({
+        variant: "destructive",
+        title: "⚠️ Maximum Weigh Attempts Reached",
+        description: `This vehicle has exhausted all ${MAX_WEIGH_ATTEMPTS} weigh attempts. Payment is required before any further weighing. Please process payment in the Cashier section.`,
+        duration: 7000,
+      });
+      return;
+    }
+
     // Check if payment is required before weighing
     if (pendingWeigh?.payment_required) {
       toast({
@@ -401,19 +413,27 @@ Please process payment in Cashier section first.`,
         .maybeSingle();
 
       if (!currentShift) {
-        const { data: newShift } = await supabase
+        const { data: newShift, error: shiftError } = await supabase
           .from("shifts")
           .insert({
             shift_date: shiftDate,
             shift_name: shiftName,
-            operator_id: user.id
+            operator_id: user.id,
+            start_time: new Date().toISOString(),
           })
           .select("id")
           .single();
+
+        if (shiftError) {
+          console.error("Shift creation error:", shiftError);
+          throw new Error(`Failed to create shift: ${shiftError.message}`);
+        }
         currentShift = newShift;
       }
 
-      if (!currentShift) throw new Error("Could not determine current shift");
+      if (!currentShift) {
+        throw new Error("Could not determine current shift. Please start a shift from the dashboard.");
+      }
       const currentShiftId = currentShift.id;
 
       // 2. Prepare Data for Parallel Execution
@@ -1372,39 +1392,39 @@ Please process payment in Cashier section first.`,
 
       {/* JV/Transit Completion Confirmation Modal */}
       <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
               Confirm Vehicle Completion Status
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="pt-2">
               Please select the completion status for vehicle <strong>{entry?.vehicle_no}</strong> before saving:
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-4">
+          <div className="space-y-3 py-6">
             <Button
               type="button"
               variant="outline"
-              className="w-full justify-start gap-3 h-auto py-4 border-amber-200 hover:border-amber-400 hover:bg-amber-50"
+              className="w-full justify-start gap-3 h-auto py-4 px-4 border-amber-200 hover:border-amber-400 hover:bg-amber-50"
               onClick={() => handleCompletionChoice("warning")}
             >
               <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0" />
-              <div className="text-left">
+              <div className="text-left flex-1">
                 <p className="font-semibold">Weight Exceeds Limits</p>
-                <p className="text-sm text-muted-foreground">Vehicle has weight exceedance - will require re-weighing</p>
+                <p className="text-sm text-muted-foreground mt-1">Vehicle has weight exceedance - will require re-weighing</p>
               </div>
             </Button>
             <Button
               type="button"
               variant="outline"
-              className="w-full justify-start gap-3 h-auto py-4 border-green-200 hover:border-green-400 hover:bg-green-50"
+              className="w-full justify-start gap-3 h-auto py-4 px-4 border-green-200 hover:border-green-400 hover:bg-green-50"
               onClick={() => handleCompletionChoice("complete")}
             >
               <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-              <div className="text-left">
+              <div className="text-left flex-1">
                 <p className="font-semibold">Complete Vehicle</p>
-                <p className="text-sm text-muted-foreground">Weight is acceptable - mark vehicle as completed</p>
+                <p className="text-sm text-muted-foreground mt-1">Weight is acceptable - mark vehicle as completed</p>
               </div>
             </Button>
           </div>

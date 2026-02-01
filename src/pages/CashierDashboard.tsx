@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { DollarSign, CheckCircle, AlertCircle, Printer, Calendar } from "lucide-react";
+import { Banknote, CheckCircle, AlertCircle, Printer, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { ExhaustedVehiclePaymentDialog } from "@/components/ExhaustedVehiclePaymentDialog";
 import { getShortEntryId } from "@/lib/utils";
@@ -18,36 +18,38 @@ import { CashierShiftReport } from "@/components/CashierShiftReport";
 import { getShiftTimeWindow, getCurrentShiftDate, getCurrentShiftName, getShiftTimeDescription } from "@/lib/shiftUtils";
 
 // Shift Collections Component (extracted for clarity)
-const ShiftCollectionsCard = ({ isAdmin, user }: { isAdmin: boolean; user: any }) => {
+// Shift Collections Component (updated to respect filters)
+const ShiftCollectionsCard = ({ isAdmin, user, startDate, endDate, shiftName }: {
+  isAdmin: boolean;
+  user: any;
+  startDate: string;
+  endDate: string;
+  shiftName: "Day" | "Night";
+}) => {
   const { data: collections } = useQuery({
-    queryKey: ["shift-collections", user?.id, isAdmin],
+    queryKey: ["shift-collections", user?.id, isAdmin, startDate, endDate, shiftName],
     queryFn: async () => {
-      if (isAdmin) {
-        // Admin: Show today's total collections
-        const today = format(new Date(), "yyyy-MM-dd");
-        const { data } = await supabase
-          .from("payments")
-          .select("amount")
-          .eq("payment_status", "Paid")
-          .gte("paid_at", `${today}T00:00:00+03:00`)
-          .lte("paid_at", `${today}T23:59:59+03:00`);
+      // Use consistent shift window logic
+      const { startTime, endTime } = getShiftTimeWindow(startDate, shiftName);
 
-        return data?.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) || 0;
-      } else {
-        // Operator: Show current shift collections using shift time window
-        const shiftDate = getCurrentShiftDate();
-        const shiftName = getCurrentShiftName();
-        const { startTime, endTime } = getShiftTimeWindow(shiftDate, shiftName);
+      // Fetch both regular payments and penalty records
+      const { data: payments } = await supabase
+        .from("payments")
+        .select("amount")
+        .eq("payment_status", "Paid")
+        .gte("paid_at", startTime)
+        .lte("paid_at", endTime);
 
-        const { data } = await supabase
-          .from("payments")
-          .select("amount")
-          .eq("payment_status", "Paid")
-          .gte("paid_at", startTime)
-          .lte("paid_at", endTime);
+      const { data: penalties } = await supabase
+        .from("penalties")
+        .select("amount")
+        .gte("created_at", startTime)
+        .lte("created_at", endTime);
 
-        return data?.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) || 0;
-      }
+      const paymentsTotal = payments?.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) || 0;
+      const penaltiesTotal = penalties?.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) || 0;
+
+      return paymentsTotal + penaltiesTotal;
     },
   });
 
@@ -74,8 +76,10 @@ export default function CashierDashboard() {
   const isAdmin = userRole === "admin";
 
   const { data: payments, refetch: refetchPayments } = useQuery({
-    queryKey: ["payments", startDate, endDate, isAdmin],
+    queryKey: ["payments", startDate, endDate, isAdmin, selectedShift],
     queryFn: async () => {
+      const { startTime, endTime } = getShiftTimeWindow(startDate, selectedShift);
+
       let query = supabase
         .from("payments")
         .select(`
@@ -85,22 +89,17 @@ export default function CashierDashboard() {
             vehicle_types (type_name)
           )
         `)
+        .gte("created_at", startTime)
+        .lte("created_at", endTime)
         .order("created_at", { ascending: false })
-        .limit(50);
-
-      // Apply date filters for admin only
-      if (isAdmin && startDate) {
-        query = query.gte("created_at", `${startDate}T00:00:00+03:00`);
-      }
-      if (isAdmin && endDate) {
-        query = query.lte("created_at", `${endDate}T23:59:59+03:00`);
-      }
+        .limit(100);
 
       const { data, error } = await query;
       if (error) throw error;
       return data;
     },
-    staleTime: 15000,
+    staleTime: 5000,
+    refetchInterval: 10000,
   });
 
   // Fetch penalties with date filtering for admin
@@ -125,7 +124,8 @@ export default function CashierDashboard() {
       if (error) throw error;
       return data;
     },
-    staleTime: 15000,
+    staleTime: 10000,
+    refetchInterval: 15000, // Auto-refresh every 15 seconds
   });
 
   // Fetch current active shift
@@ -511,18 +511,23 @@ export default function CashierDashboard() {
         </CardContent>
       </Card>
 
-      {/* Current Shift Collections */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="card-hover animate-fade-up" style={{ animationDelay: '0.1s' }}>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              {isAdmin ? "Today's Collections" : "Current Shift Collections"}
+              {isAdmin ? "Shift Collections" : "Current Shift Collections"}
             </CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <Banknote className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <ShiftCollectionsCard isAdmin={isAdmin} user={user} />
-            <p className="text-xs text-muted-foreground">Total paid</p>
+            <ShiftCollectionsCard
+              isAdmin={isAdmin}
+              user={user}
+              startDate={startDate}
+              endDate={endDate}
+              shiftName={selectedShift}
+            />
+            <p className="text-xs text-muted-foreground">Total paid in window</p>
           </CardContent>
         </Card>
 
@@ -605,7 +610,7 @@ export default function CashierDashboard() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <DollarSign className="h-5 w-5" />
+            <Banknote className="h-5 w-5" />
             Payment Transactions
           </CardTitle>
           <CardDescription>All payment records</CardDescription>

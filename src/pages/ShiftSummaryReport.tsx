@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Printer } from "lucide-react";
 import { format } from "date-fns";
 import { getShortEntryId } from "@/lib/utils";
+import { getShiftTimeWindow, getCurrentShiftName, getShiftTimeDescription } from "@/lib/shiftUtils";
 
 export default function ShiftSummaryReport() {
   const [startDate, setStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -33,90 +34,110 @@ export default function ShiftSummaryReport() {
   const { data: reportData, isLoading } = useQuery({
     queryKey: ["shift-summary-report", startDate, endDate, selectedShift],
     queryFn: async () => {
-      let entriesQuery = supabase
-        .from("vehicle_entries")
-        .select(`
-          *,
-          vehicle_types (type_name, category)
-        `)
-        .eq("completed", true);
-
-      if (startDate) {
-        entriesQuery = entriesQuery.gte("entry_time", new Date(startDate).toISOString());
-      }
-      if (endDate) {
-        const endDateTime = new Date(endDate);
-        endDateTime.setHours(23, 59, 59, 999);
-        entriesQuery = entriesQuery.lte("entry_time", endDateTime.toISOString());
-      }
-      if (selectedShift !== "all") {
-        entriesQuery = entriesQuery.eq("shift_id", selectedShift);
-      }
-
-      entriesQuery = entriesQuery.order("entry_time", { ascending: false });
-
-      const { data: entries, error: entriesError } = await entriesQuery;
-      if (entriesError) throw entriesError;
-
-      // Fetch all payments for these entries
-      const entryIds = entries?.map((e) => e.id) || [];
-      const { data: payments, error: paymentsError } = await supabase
-        .from("payments")
-        .select("*")
-        .in("entry_id", entryIds);
-
-      if (paymentsError) throw paymentsError;
-
-      // Also fetch penalties from penalties table
-      const { data: penaltyRecords, error: penaltyError } = await supabase
-        .from("penalties")
-        .select("*")
-        .in("entry_id", entryIds);
-
-      if (penaltyError) throw penaltyError;
-
-      // Fetch shift details including signature if a specific shift is selected
+      // 1. Determine strict timestamp range using centralized utility
+      let startTime, endTime;
+      let timeRange = "00:00 - 23:59";
       let shiftDetails = null;
+
       if (selectedShift !== "all") {
         const { data: shift } = await supabase
           .from("shifts")
           .select("*")
           .eq("id", selectedShift)
           .maybeSingle();
-        shiftDetails = shift;
+
+        if (shift) {
+          shiftDetails = shift;
+          const window = getShiftTimeWindow(shift.shift_date, shift.shift_name as "Day" | "Night");
+          startTime = window.startTime;
+          endTime = window.endTime;
+          timeRange = shift.shift_name === "Day" ? "07:00 - 18:00" : "18:00 - 07:00 (+1)";
+        } else {
+          // Fallback if shift not found
+          startTime = `${startDate}T00:00:00+03:00`;
+          endTime = `${endDate}T23:59:59+03:00`;
+        }
+      } else {
+        // All shifts for the date range
+        startTime = `${startDate}T00:00:00+03:00`;
+        endTime = `${endDate}T23:59:59+03:00`;
       }
 
-      // Categorize payments
-      const firstWeighPayments = payments?.filter((p) => p.payment_type === "First Weigh") || [];
-      const secondWeighPayments = payments?.filter((p) => p.payment_type === "Second Weigh") || [];
-      const penaltyPayments = payments?.filter((p) => p.payment_type === "Penalty Payment") || [];
+      // 2. Fetch DATA in PARALLEL for speed
+      const [paymentsResult, penaltiesResult, rangeShiftsResult] = await Promise.all([
+        supabase
+          .from("payments")
+          .select("id, amount, payment_type, entry_id, created_at")
+          .gte("created_at", startTime)
+          .lte("created_at", endTime),
+        supabase
+          .from("penalties")
+          .select("id, amount, created_at, entry_id")
+          .gte("created_at", startTime)
+          .lte("created_at", endTime),
+        supabase
+          .from("shifts")
+          .select("operator_name")
+          .gte("shift_date", startDate)
+          .lte("shift_date", endDate)
+      ]);
 
-      // Calculate totals
+      const payments = paymentsResult.data || [];
+      const penaltyRecords = penaltiesResult.data || [];
+      const rangeShifts = rangeShiftsResult.data || [];
+
+      // 3. Get Entry IDs associated with these transactions
+      const pEntryIds = payments.map(p => p.entry_id).filter(Boolean);
+      const penEntryIds = penaltyRecords.map(p => p.entry_id).filter(Boolean);
+      const allEntryIds = Array.from(new Set([...pEntryIds, ...penEntryIds]));
+
+      // 4. Fetch details for these entries (for the table context)
+      let entries = [];
+      if (allEntryIds.length > 0) {
+        const { data } = await supabase
+          .from("vehicle_entries")
+          .select(`
+            id, wb_number, vehicle_no, driver_name, entry_time,
+            vehicle_types (type_name, category)
+          `)
+          .in("id", allEntryIds)
+          .order("entry_time", { ascending: false });
+        entries = data || [];
+      }
+
+      // 5. Categorize payments (Calculations)
+      const firstWeighPayments = payments.filter((p) => p.payment_type === "First Weigh");
+      const penaltyPayments = payments.filter((p) =>
+        p.payment_type?.toLowerCase().includes("penalty")
+      );
+
       const firstWeighTotal = firstWeighPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const secondWeighTotal = secondWeighPayments.reduce((sum, p) => sum + Number(p.amount), 0);
       const penaltyPaymentTotal = penaltyPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const penaltyRecordsTotal = penaltyRecords?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-      
-      // Use the higher of penalty payments or penalty records to ensure all penalties are included
-      const penaltyTotal = Math.max(penaltyPaymentTotal, penaltyRecordsTotal);
-      const grandTotal = firstWeighTotal + secondWeighTotal + penaltyTotal;
+      const penaltyRecordsFromTableTotal = penaltyRecords.reduce((sum, p) => sum + Number(p.amount), 0);
+
+      const penaltyTotal = penaltyPaymentTotal + penaltyRecordsFromTableTotal;
+      const grandTotal = firstWeighTotal + penaltyTotal;
+
+      const uniqueOperators = Array.from(new Set(rangeShifts.map(s => s.operator_name).filter(Boolean)));
 
       return {
         entries: entries || [],
         payments: payments || [],
         shiftDetails,
+        involvedOperators: uniqueOperators,
+        timeRange,
         summary: {
           totalVehicles: entries?.length || 0,
           firstWeighCount: firstWeighPayments.length,
           firstWeighTotal,
-          secondWeighCount: secondWeighPayments.length,
-          secondWeighTotal,
-          penaltyCount: penaltyPayments.length,
+          penaltyCount: Math.max(penaltyPayments.length, penaltyRecords?.length || 0),
           penaltyTotal,
           grandTotal,
         },
       };
     },
+    staleTime: 30000, // Cache for 30 seconds
+    gcTime: 60000,    // Keep in garbage collection for 1 minute
   });
 
   const handlePrint = () => {
@@ -131,6 +152,133 @@ export default function ShiftSummaryReport() {
 
   return (
     <div className="min-h-screen bg-background">
+      <style>
+        {`
+          @media print {
+            /* Hide everything in the body by default */
+            body * {
+              visibility: hidden;
+            }
+            
+            /* Show ONLY the report container and its contents */
+            .print-container, 
+            .print-container * {
+              visibility: visible;
+            }
+
+            /* Position the printable content at the top-left of the page */
+            .print-container {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              visibility: visible !important;
+            }
+
+            /* Fix layout properties that cause blank pages in some browsers */
+            body, html {
+              height: auto !important;
+              overflow: visible !important;
+              display: block !important;
+            }
+
+            #root, [data-sidebar-provider], main {
+              height: auto !important;
+              overflow: visible !important;
+              display: block !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+
+            /* Hide the print button itself even if inside the container */
+            button, .print\\:hidden {
+              display: none !important;
+            }
+            
+            /* Force Summary Cards to be small and horizontal */
+            .print-container .grid {
+              display: flex !important;
+              flex-direction: row !important;
+              gap: 8px !important;
+              margin-bottom: 5px !important;
+              margin-top: 5px !important;
+            }
+            
+            .print-container .grid > div {
+              flex: 1 !important;
+              padding: 5px 8px !important;
+              border: 1px solid #eee !important;
+            }
+
+            .print-container .grid h3 {
+              font-size: 11px !important;
+              color: #666 !important;
+              margin: 0 !important;
+            }
+
+            .print-container .grid .text-2xl {
+              font-size: 14px !important;
+              font-weight: bold !important;
+              margin: 0 !important;
+            }
+
+            /* Shrink Grand Total */
+            .print-container .bg-primary\\/10 {
+              padding: 6px 12px !important;
+              margin-bottom: 8px !important;
+              margin-top: 5px !important;
+              border: 1px solid #ddd !important;
+            }
+
+            .print-container .bg-primary\\/10 h2 {
+              font-size: 14px !important;
+            }
+
+            .print-container .bg-primary\\/10 p {
+              font-size: 18px !important;
+            }
+
+            /* Compress tables */
+            .print-container table {
+              font-size: 11px !important;
+              margin-top: 0 !important;
+            }
+
+            .print-container th, 
+            .print-container td {
+              padding: 3px 6px !important;
+            }
+
+            /* Header compression */
+            .print-container .text-center {
+              margin-bottom: 5px !important;
+              padding-bottom: 5px !important;
+            }
+            
+            .print-container .text-3xl {
+              font-size: 18px !important;
+              margin-bottom: 2px !important;
+            }
+            
+            .print-container .text-lg,
+            .print-container .text-sm,
+            .print-container p {
+              font-size: 11px !important;
+              margin: 0 !important;
+              line-height: 1.2 !important;
+            }
+
+            /* Extra card margin removal */
+            .print-container .mt-8,
+            .print-container .mb-8 {
+              margin-top: 5px !important;
+              margin-bottom: 5px !important;
+            }
+          }
+        `}
+      </style>
       {/* Print Controls - Hidden when printing */}
       <div className="print:hidden p-6 space-y-6">
         <div className="flex justify-between items-center">
@@ -190,18 +338,29 @@ export default function ShiftSummaryReport() {
 
       {/* Printable Content */}
       {reportData && (
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-8 max-w-7xl mx-auto print-container">
+          {/* Header */}
           {/* Header */}
           <div className="text-center mb-8 border-b pb-4">
             <h1 className="text-3xl font-bold mb-2">Shift Summary Report</h1>
             <p className="text-lg text-muted-foreground">{getCurrentShiftName()}</p>
-            <p className="text-sm text-muted-foreground">
-              Period: {format(new Date(startDate), "MMM dd, yyyy")} - {format(new Date(endDate), "MMM dd, yyyy")}
-            </p>
+            <div className="flex flex-col gap-1 mt-2 text-sm text-muted-foreground">
+              <p>
+                Period: {format(new Date(startDate), "MMM dd, yyyy")} - {format(new Date(endDate), "MMM dd, yyyy")}
+              </p>
+              <p>
+                Time: {reportData.timeRange}
+              </p>
+              <p>
+                Operator(s): {reportData.involvedOperators?.length > 0
+                  ? reportData.involvedOperators.join(", ")
+                  : "All Operators"}
+              </p>
+            </div>
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">Total Vehicles</CardTitle>
@@ -212,7 +371,7 @@ export default function ShiftSummaryReport() {
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-green-600">First Weigh</CardTitle>
+                <CardTitle className="text-sm font-medium text-green-600">First Weigh Collections</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">
@@ -223,18 +382,7 @@ export default function ShiftSummaryReport() {
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-blue-600">Second Weigh</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600">
-                  TShs {reportData.summary.secondWeighTotal.toLocaleString()}
-                </div>
-                <p className="text-xs text-muted-foreground">{reportData.summary.secondWeighCount} payments</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-destructive">Penalties</CardTitle>
+                <CardTitle className="text-sm font-medium text-destructive">Penalty Collections</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-destructive">
@@ -287,18 +435,6 @@ export default function ShiftSummaryReport() {
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="font-medium text-blue-600">Second Weigh Payments</TableCell>
-                    <TableCell className="text-right">{reportData.summary.secondWeighCount}</TableCell>
-                    <TableCell className="text-right font-bold text-blue-600">
-                      TShs {reportData.summary.secondWeighTotal.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      TShs {reportData.summary.secondWeighCount > 0
-                        ? Math.round(reportData.summary.secondWeighTotal / reportData.summary.secondWeighCount).toLocaleString()
-                        : 0}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
                     <TableCell className="font-medium text-destructive">Penalty Payments</TableCell>
                     <TableCell className="text-right">{reportData.summary.penaltyCount}</TableCell>
                     <TableCell className="text-right font-bold text-destructive">
@@ -313,7 +449,7 @@ export default function ShiftSummaryReport() {
                   <TableRow className="bg-muted font-bold">
                     <TableCell>GRAND TOTAL</TableCell>
                     <TableCell className="text-right">
-                      {reportData.summary.firstWeighCount + reportData.summary.secondWeighCount + reportData.summary.penaltyCount}
+                      {reportData.summary.firstWeighCount + reportData.summary.penaltyCount}
                     </TableCell>
                     <TableCell className="text-right text-primary">
                       TShs {reportData.summary.grandTotal.toLocaleString()}
@@ -369,32 +505,35 @@ export default function ShiftSummaryReport() {
           </Card>
 
           {/* Operator Signature Section */}
-          {reportData.shiftDetails?.signature_url && (
-            <Card className="mt-8">
-              <CardHeader>
-                <CardTitle>Shift Verified By</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center">
-                <img 
-                  src={reportData.shiftDetails.signature_url} 
-                  alt="Operator Signature" 
-                  className="max-h-24 border rounded p-2 bg-white"
-                />
-                <p className="mt-2 font-medium">{reportData.shiftDetails.operator_name || "Operator"}</p>
-                <p className="text-sm text-muted-foreground">
-                  {reportData.shiftDetails.shift_name} Shift - {format(new Date(reportData.shiftDetails.shift_date), "MMMM dd, yyyy")}
-                </p>
-              </CardContent>
-            </Card>
-          )}
+          {
+            reportData.shiftDetails?.signature_url && (
+              <Card className="mt-8">
+                <CardHeader>
+                  <CardTitle>Shift Verified By</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col items-center">
+                  <img
+                    src={reportData.shiftDetails.signature_url}
+                    alt="Operator Signature"
+                    className="max-h-24 border rounded p-2 bg-white"
+                  />
+                  <p className="mt-2 font-medium">{reportData.shiftDetails.operator_name || "Operator"}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {reportData.shiftDetails.shift_name} Shift - {format(new Date(reportData.shiftDetails.shift_date), "MMMM dd, yyyy")}
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          }
 
           {/* Footer */}
           <div className="mt-8 pt-4 border-t text-center text-sm text-muted-foreground">
             <p>Report generated on {format(new Date(), "MMMM dd, yyyy 'at' HH:mm")}</p>
             <p>This is an official shift summary report for accounting purposes</p>
           </div>
-        </div>
-      )}
-    </div>
+        </div >
+      )
+      }
+    </div >
   );
 }

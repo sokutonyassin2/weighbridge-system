@@ -520,7 +520,7 @@ export default function OperatorDashboard() {
 
                     // Only exhausted attempts (3/3) require payment
                     // Time-based overdue vehicles just need to be moved to history (no payment)
-                    const requiresPayment = isExhausted && pendingWeigh?.payment_required;
+                    const requiresPayment = isExhausted; // All exhausted vehicles require payment
                     const requiresMoveToHistory = isTimeOverdue && !isExhausted;
 
                     const paymentReason = isExhausted
@@ -528,7 +528,7 @@ export default function OperatorDashboard() {
                       : "";
 
                     const penaltyAmount = pendingWeigh?.payment_amount ||
-                      entry.vehicle_types?.first_weigh_fee || 0;
+                      (entry.vehicle_types?.first_weigh_fee || 0);
 
                     const shiftInfo = formatShiftBadge(entry.shifts as any);
 

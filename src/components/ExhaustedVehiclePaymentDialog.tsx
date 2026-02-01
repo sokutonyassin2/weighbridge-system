@@ -46,12 +46,12 @@ export function ExhaustedVehiclePaymentDialog({
     setIsProcessing(true);
     try {
       const receiptNumber = `RCP-${Date.now()}`;
-      const operatorName = userProfile?.full_name && userProfile.full_name !== 'User' 
-        ? userProfile.full_name 
+      const operatorName = userProfile?.full_name && userProfile.full_name !== 'User'
+        ? userProfile.full_name
         : userProfile?.username || 'Unknown Operator';
-      
+
       // Determine payment type based on reason
-      const isOverdueReason = paymentReason.toLowerCase().includes("12-hour") || 
+      const isOverdueReason = paymentReason.toLowerCase().includes("12-hour") ||
         paymentReason.toLowerCase().includes("overdue");
       const paymentType = isOverdueReason ? "Overdue Return Penalty" : "Exhausted Attempts Penalty";
 
@@ -90,7 +90,7 @@ export function ExhaustedVehiclePaymentDialog({
         console.error("Failed to delete pending_weighs:", deleteError);
         throw new Error(`Failed to remove from pending queue: ${deleteError.message}`);
       }
-      
+
       console.log(`Deleted ${count} pending_weighs records for entry ${entryId}`);
 
       // 4. Get or create current active shift (don't use old entry's shift)
@@ -98,25 +98,40 @@ export function ExhaustedVehiclePaymentDialog({
       const currentHour = new Date().getHours();
       const shiftName = currentHour >= 7 && currentHour < 18 ? "Day" : "Night";
 
-      let { data: currentShift } = await supabase
+      let { data: currentShift, error: selectShiftError } = await supabase
         .from("shifts")
         .select("id")
         .eq("shift_date", today)
         .eq("shift_name", shiftName)
         .maybeSingle();
 
+      if (selectShiftError) {
+        console.error("Error selecting shift:", selectShiftError);
+        throw new Error(`Error identifying current shift: ${selectShiftError.message}`);
+      }
+
       if (!currentShift) {
-        const { data: newShift } = await supabase
+        const { data: newShift, error: createShiftError } = await supabase
           .from("shifts")
-          .insert({ 
-            shift_date: today, 
-            shift_name: shiftName, 
+          .insert({
+            shift_date: today,
+            shift_name: shiftName,
             operator_id: user?.id,
-            operator_name: operatorName
+            operator_name: operatorName,
+            start_time: new Date().toISOString()
           })
           .select()
           .single();
+
+        if (createShiftError) {
+          console.error("Error creating shift:", createShiftError);
+          throw new Error(`Failed to create a new shift: ${createShiftError.message}`);
+        }
         currentShift = newShift;
+      }
+
+      if (!currentShift) {
+        throw new Error("Could not determine current shift. Please start a shift manually.");
       }
 
       // 4b. Update OLD entry's shift_id to current shift so penalty payment shows in correct shift report
@@ -124,6 +139,45 @@ export function ExhaustedVehiclePaymentDialog({
         .from("vehicle_entries")
         .update({ shift_id: currentShift.id })
         .eq("id", entryId);
+
+      // PRE-CHECK: Ensure no active entry already exists to avoid duplicates
+      const { data: existingActive } = await supabase
+        .from("vehicle_entries")
+        .select("id")
+        .eq("vehicle_no", vehicleNo)
+        .eq("completed", false)
+        .maybeSingle();
+
+      if (existingActive) {
+        // If entry already exists, use it instead of creating new
+        console.log("Active entry already exists found, skipping creation:", existingActive.id);
+
+        // Log activity
+        await supabase.from("activity_logs").insert({
+          user_id: user?.id,
+          user_name: operatorName,
+          user_role: "operator",
+          action: "Penalty Payment Processed",
+          details: `Penalty paid for ${vehicleNo}. Reused existing active entry ${existingActive.id} instead of creating duplicate.`,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
+        queryClient.invalidateQueries({ queryKey: ["overdue-pending"] });
+        queryClient.invalidateQueries({ queryKey: ["payments"] });
+        queryClient.invalidateQueries({ queryKey: ["shift-stats"] });
+        queryClient.invalidateQueries({ queryKey: ["penalties"] });
+
+        toast({
+          title: "✅ Payment Recorded",
+          description: `Penalty payment recorded. Active entry already exists for ${vehicleNo}.`,
+          duration: 5000,
+        });
+
+        onPaymentComplete();
+        onClose();
+        setIsProcessing(false);
+        return;
+      }
 
       // 5. Create fresh new vehicle entry with penalty_paid_entry flag and CURRENT shift
       const { data: newEntry, error: newEntryError } = await supabase

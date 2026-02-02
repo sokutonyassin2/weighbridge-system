@@ -187,37 +187,52 @@ app.get('/api/hardware/status', async (req, res) => {
 });
 
 // Socket.io setup for real-time updates
-let io;
-if (process.env.NODE_ENV !== 'production') {
-  io = require('socket.io')(server, {
-    cors: {
-      origin: '*', // In production, specify your frontend domain
-      methods: ['GET', 'POST']
+const io = require('socket.io')(server, {
+  cors: {
+    origin: '*', // In production, specify your frontend domain
+    methods: ['GET', 'POST']
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log('A client connected:', socket.id);
+
+  // Store the connection
+  activeConnections.set(socket.id, {
+    connectedAt: new Date().toISOString(),
+    lastActivity: new Date().toISOString()
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+    activeConnections.delete(socket.id);
+  });
+
+  // Update last activity
+  socket.onAny(() => {
+    if (activeConnections.has(socket.id)) {
+      activeConnections.get(socket.id).lastActivity = new Date().toISOString();
     }
   });
+});
 
-  io.on('connection', (socket) => {
-    console.log('A client connected:', socket.id);
+// START BACKGROUND POLLING FOR LIVE WEIGHT
+// This tells the main server to "look" at the scale every 500ms and push to UI
+setInterval(async () => {
+  try {
+    const response = await axios.get(`${HELPER_PROGRAM_URL}/weight`, { timeout: 400 });
+    const weight = response.data;
 
-    // Store the connection
-    activeConnections.set(socket.id, {
-      connectedAt: new Date().toISOString(),
-      lastActivity: new Date().toISOString()
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
-      activeConnections.delete(socket.id);
-    });
-
-    // Update last activity
-    socket.onAny(() => {
-      if (activeConnections.has(socket.id)) {
-        activeConnections.get(socket.id).lastActivity = new Date().toISOString();
-      }
-    });
-  });
-}
+    if (weight !== undefined && !isNaN(parseFloat(weight))) {
+      io.emit('liveWeightUpdate', {
+        weight: parseFloat(weight),
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (err) {
+    // Fail silently to avoid log spam in background
+  }
+}, 500);
 
 // Start the server
 const PORT = process.env.PORT || 5000;

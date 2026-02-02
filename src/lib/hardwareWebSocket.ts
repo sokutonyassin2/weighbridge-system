@@ -41,7 +41,7 @@ class HardwareWebSocket {
         this.socket.on('disconnect', (reason) => {
           console.log('Disconnected from hardware server:', reason);
           this.isConnected = false;
-          
+
           // Attempt to reconnect if not manually disconnected
           if (reason !== 'io client disconnect') {
             this.attemptReconnect();
@@ -52,6 +52,11 @@ class HardwareWebSocket {
           console.log('Received weight update:', data);
           // Emit custom event for the application to handle
           window.dispatchEvent(new CustomEvent('weightUpdate', { detail: data }));
+        });
+
+        this.socket.on('liveWeightUpdate', (data) => {
+          // Special event for the live digital display
+          window.dispatchEvent(new CustomEvent('liveWeightUpdate', { detail: data }));
         });
       } catch (error) {
         console.error('Error initializing WebSocket:', error);
@@ -64,7 +69,7 @@ class HardwareWebSocket {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       console.log(`Attempting to reconnect... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-      
+
       setTimeout(() => {
         this.connect().catch(() => {
           this.attemptReconnect();

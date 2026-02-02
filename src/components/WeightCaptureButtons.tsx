@@ -38,6 +38,7 @@ export function WeightCaptureButtons({
   const { userRole } = useAuth();
   const [isCapturing, setIsCapturing] = useState<string | null>(null);
   const [hardwareStatus, setHardwareStatus] = useState<'disconnected' | 'connected' | 'connecting' | 'error'>('disconnected');
+  const [liveWeight, setLiveWeight] = useState<string>("0");
   const [settings, setSettings] = useState<WeightSettings>({
     automaticMode: false,
     hardwareIntegrationEnabled: false,
@@ -70,7 +71,7 @@ export function WeightCaptureButtons({
         await hardwareWebSocket.connect();
         setHardwareStatus('connected');
 
-        // Listen for weight updates
+        // Listen for internal weight results (Capture)
         const handleWeightUpdate = (event: any) => {
           const { detail } = event;
           if (detail.entryId === entryId && detail.vehicleNo === vehicleNo) {
@@ -94,11 +95,21 @@ export function WeightCaptureButtons({
           }
         };
 
+        // Listen for LIVE streaming updates
+        const handleLiveUpdate = (event: any) => {
+          const { detail } = event;
+          if (detail && detail.weight !== undefined) {
+            setLiveWeight(detail.weight.toString());
+          }
+        };
+
         window.addEventListener('weightUpdate', handleWeightUpdate);
+        window.addEventListener('liveWeightUpdate', handleLiveUpdate);
 
         // Cleanup function
         return () => {
           window.removeEventListener('weightUpdate', handleWeightUpdate);
+          window.removeEventListener('liveWeightUpdate', handleLiveUpdate);
           hardwareWebSocket.disconnect();
         };
       } catch (error) {
@@ -204,6 +215,27 @@ export function WeightCaptureButtons({
           </>
         )}
       </div>
+
+      {/* DIGITAL WEIGHT MONITOR */}
+      {!isLocked && settings.hardwareIntegrationEnabled && (
+        <div className="bg-slate-900 border-2 border-slate-700 rounded-lg p-3 my-2 text-center shadow-inner">
+          <div className="text-[10px] text-emerald-500/50 font-mono uppercase tracking-[0.2em] mb-1">
+            Live Scale Indicator
+          </div>
+          <div className="flex items-baseline justify-center gap-2">
+            <div className="text-4xl font-mono text-emerald-400 font-bold tracking-tighter tabular-nums drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">
+              {liveWeight.padStart(6, '0')}
+            </div>
+            <div className="text-xl font-mono text-emerald-500/70 font-bold italic">
+              kg
+            </div>
+          </div>
+          <div className="mt-1 flex justify-center gap-1">
+            <div className={`h-1.5 w-1.5 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <div className="text-[9px] text-slate-500 uppercase font-bold">Stable Connection</div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <Button

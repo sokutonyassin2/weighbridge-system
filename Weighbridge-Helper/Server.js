@@ -69,32 +69,29 @@ const serialPort = new SerialPort({
   autoOpen: true,
 });
 
-const parser = serialPort.pipe(
-  new ReadlineParser({ delimiter: "\r\n" })
-);
-
-parser.on("data", (data) => {
-  // Log raw data for debugging
-  console.log("Raw Serial Data:", data);
+// Direct listener to see raw data coming from the scale (bypasses any delimiter issues)
+serialPort.on("data", (data) => {
+  const rawData = data.toString();
+  console.log("RAW DATA FROM SCALE:", JSON.stringify(rawData));
 
   // Improved regex to handle various scale formats (e.g., "1200kg", "+ 1200", "ST,GS, 1200")
-  const match = data.match(/(-?\d+)/);
+  const match = rawData.match(/(-?\d+)/);
   if (match) {
     const value = match[1];
-    // Avoid setting 0 if it looks like a heartbeat/stability indicator unless it's a real weight
     if (value.length > 0) {
       latestWeight = value;
-      console.log("✅ Parsed Weight:", latestWeight);
+      // We log this so we can see if it's actually catching the number
+      console.log("⚖️ Detected Weight:", latestWeight);
     }
   }
 });
 
 serialPort.on("open", () => {
-  console.log(`COM Port ${COM_PORT} opened`);
+  console.log(`✅ COM Port ${COM_PORT} opened`);
 });
 
 serialPort.on("error", (err) => {
-  console.error("COM Port error:", err.message);
+  console.error("❌ COM Port error:", err.message);
 });
 
 /* ===============================

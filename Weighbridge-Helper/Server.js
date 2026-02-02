@@ -26,7 +26,7 @@ const isMac = process.platform === "darwin";
    WEIGH SCALE CONFIG (IMPORTANT)
 ================================ */
 // Use specific port for macOS as requested, fallback to COM6 for Windows
-const COM_PORT = isMac ? "/dev/cu.wchusbserial1410" : "COM6";
+const COM_PORT = isMac ? "/dev/cu.usbserial-14140" : "COM6";
 const BAUD_RATE = 9600;
 
 /* ===============================
@@ -74,11 +74,18 @@ const parser = serialPort.pipe(
 );
 
 parser.on("data", (data) => {
-  // Example: "Weight: 65230"
-  const match = data.match(/(\d+)/);
+  // Log raw data for debugging
+  console.log("Raw Serial Data:", data);
+
+  // Improved regex to handle various scale formats (e.g., "1200kg", "+ 1200", "ST,GS, 1200")
+  const match = data.match(/(-?\d+)/);
   if (match) {
-    latestWeight = match[1];
-    console.log("Weight:", latestWeight);
+    const value = match[1];
+    // Avoid setting 0 if it looks like a heartbeat/stability indicator unless it's a real weight
+    if (value.length > 0) {
+      latestWeight = value;
+      console.log("✅ Parsed Weight:", latestWeight);
+    }
   }
 });
 
@@ -132,8 +139,21 @@ function processCapture(req, res) {
 
     const monthName = now.toLocaleString('default', { month: 'long' });
     const year = now.getFullYear();
+    const day = now.getDate().toString().padStart(2, '0');
+
+    // Calculate Week of the Month (1-5)
+    const weekNo = Math.ceil(now.getDate() / 7);
+
+    // Determine Shift (07:00 - 18:00 is Day)
+    const hour = now.getHours();
+    const shift = (hour >= 7 && hour < 18) ? "Day_Shift" : "Night_Shift";
+
+    // Build the nested path: Month-Year / Week X / Day XX / Shift
     const monthlyFolder = `${monthName}-${year}`;
-    const fullDir = path.join(PHOTO_DIR, monthlyFolder);
+    const weekFolder = `Week_${weekNo}`;
+    const dayFolder = `Day_${day}`;
+
+    const fullDir = path.join(PHOTO_DIR, monthlyFolder, weekFolder, dayFolder, shift);
 
     if (!fs.existsSync(fullDir)) {
       fs.mkdirSync(fullDir, { recursive: true });
@@ -142,7 +162,7 @@ function processCapture(req, res) {
     const ts = now.toISOString().replace(/[:.]/g, "_");
     const photoPath = path.join(fullDir, `Entry_${entryID}_Plate_${plate}_${ts}.jpg`);
 
-    console.log(`📸 Capturing to: ${monthlyFolder}/...`);
+    console.log(`📸 Capturing to: ${monthlyFolder}/${weekFolder}/${dayFolder}/${shift}/...`);
 
     const cmd =
       `curl --digest -u ${CAMERA_USER}:${CAMERA_PASS} ` +

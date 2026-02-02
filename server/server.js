@@ -32,7 +32,7 @@ try {
   console.warn('Could not read config.json, using default localhost');
 }
 
-const HELPER_PROGRAM_URL = process.env.HELPER_PROGRAM_URL || `http://${helperHost}:3000`;
+const HELPER_PROGRAM_URL = process.env.HELPER_PROGRAM_URL || `http://${helperHost}:5000`;
 
 // In-memory storage for active connections and weight data
 const activeConnections = new Map();

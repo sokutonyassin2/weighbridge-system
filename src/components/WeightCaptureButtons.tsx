@@ -217,13 +217,13 @@ export function WeightCaptureButtons({
       </div>
 
       {/* DIGITAL WEIGHT MONITOR */}
-      {!isLocked && settings.hardwareIntegrationEnabled && (
+      {!isLocked && (
         <div className="bg-slate-900 border-2 border-slate-700 rounded-lg p-3 my-2 text-center shadow-inner">
           <div className="text-[10px] text-emerald-500/50 font-mono uppercase tracking-[0.2em] mb-1">
             Live Scale Indicator
           </div>
           <div className="flex items-baseline justify-center gap-2">
-            <div className="text-4xl font-mono text-emerald-400 font-bold tracking-tighter tabular-nums drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">
+            <div className={`text-4xl font-mono ${liveWeight === "0" ? 'text-emerald-900' : 'text-emerald-400'} font-bold tracking-tighter tabular-nums drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]`}>
               {liveWeight.padStart(6, '0')}
             </div>
             <div className="text-xl font-mono text-emerald-500/70 font-bold italic">
@@ -231,8 +231,10 @@ export function WeightCaptureButtons({
             </div>
           </div>
           <div className="mt-1 flex justify-center gap-1">
-            <div className={`h-1.5 w-1.5 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
-            <div className="text-[9px] text-slate-500 uppercase font-bold">Stable Connection</div>
+            <div className={`h-1.5 w-1.5 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`} />
+            <div className="text-[9px] text-slate-500 uppercase font-bold">
+              {hardwareStatus === 'connected' ? 'Stable Stream' : 'Connecting to Scale...'}
+            </div>
           </div>
         </div>
       )}

@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Wrench, Plus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History, TrendingUp, ClipboardCheck } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Search, Wrench, Plus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,9 +24,12 @@ const GarageDashboard = () => {
     const queryClient = useQueryClient();
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [isLogFaultOpen, setIsLogFaultOpen] = useState(false);
     const [selectedJobForTasks, setSelectedJobForTasks] = useState<any>(null);
     const [isManageTasksOpen, setIsManageTasksOpen] = useState(false);
+    const [activeStoreTab, setActiveStoreTab] = useState("requisitions");
     const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false);
     const [approvalNotes, setApprovalNotes] = useState("");
     const [releaseNotes, setReleaseNotes] = useState("");
@@ -54,7 +58,7 @@ const GarageDashboard = () => {
     const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
-    const [requisitionItems, setRequisitionItems] = useState([{ item_name: "", quantity: 1 }]);
+    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string }[]>([{ item_name: "", quantity: 1 }]);
     const [usageForm, setUsageForm] = useState({
         item_id: "",
         item_name: "",
@@ -66,6 +70,11 @@ const GarageDashboard = () => {
     const [reqType, setReqType] = useState<"Job" | "General" | "Emergency">("General");
     const [reqTargetVehicleId, setReqTargetVehicleId] = useState<string | null>(null);
     const [reqTargetJobId, setReqTargetJobId] = useState<string | null>(null);
+    const [isUpdateQtyOpen, setIsUpdateQtyOpen] = useState(false);
+    const [selectedInventoryItem, setSelectedInventoryItem] = useState<any>(null);
+    const [updateQtyDetails, setUpdateQtyDetails] = useState({
+        quantity: 0
+    });
 
     // New Product State
     const [newProduct, setNewProduct] = useState({
@@ -203,7 +212,8 @@ const GarageDashboard = () => {
             const { data, error } = await sb.from("garage_inventory").select("*").order("item_name");
             if (error) throw error;
             return data;
-        }
+        },
+        refetchInterval: 5000
     });
 
     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({
@@ -234,6 +244,21 @@ const GarageDashboard = () => {
             });
         },
         onError: (err: any) => toast({ variant: "destructive", title: "Add Failed", description: err.message })
+    });
+
+    const updateQuantityMutation = useMutation({
+        mutationFn: async ({ id, qty }: { id: string, qty: number }) => {
+            const { error } = await sb.from("garage_inventory").update({
+                quantity: qty
+            }).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
+            queryClient.invalidateQueries({ queryKey: ["procurement-inventory"] });
+            toast({ title: "Quantity Updated", description: "Storage records saved." });
+            setIsUpdateQtyOpen(false);
+        }
     });
 
     // Record Usage Mutation
@@ -270,21 +295,24 @@ const GarageDashboard = () => {
     });
 
     const createRequisitionMutation = useMutation({
-        mutationFn: async (req: any) => {
-            const { data, error } = await sb.from("garage_requisitions").insert([{
-                ...req,
-                target_company: 'SudEnergy Logistics'
-            }]).select();
+        mutationFn: async (payloads: any[]) => {
+            const { data, error } = await sb.from("garage_requisitions").insert(
+                payloads.map(p => ({
+                    ...p,
+                    target_company: 'SudEnergy Logistics'
+                }))
+            ).select();
             if (error) throw error;
             return data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
-            toast({ title: "Requisition Sent", description: "Procurement has been notified." });
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            toast({ title: "Requisition Sent", description: "Your part request has been logged successfully." });
             setIsRequisitionDialogOpen(false);
             setRequisitionItems([{ item_name: "", quantity: 1 }]);
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Submission Error", description: err.message })
     });
 
     const logFaultMutation = useMutation({
@@ -835,7 +863,7 @@ const GarageDashboard = () => {
                         <Card className="border-none shadow-sm bg-white md:row-span-2 lg:row-span-1">
                             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
                                 <CardTitle className="text-[11px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-2">
-                                    <History className="h-3.5 w-3.5 text-indigo-500" />
+                                    <HistoryIcon className="h-3.5 w-3.5 text-indigo-500" />
                                     Accountability Feed
                                 </CardTitle>
                                 <Badge variant="outline" className="text-[9px] bg-white">Live</Badge>
@@ -1080,14 +1108,14 @@ const GarageDashboard = () => {
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
                                 <Package className="w-6 h-6 text-indigo-500" />
                                 Garage Inventory Store
                             </h1>
-                            <p className="text-sm text-slate-500 font-medium">Manage stock levels and request part restocks</p>
+                            <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Manage stock levels and request part restocks</p>
                         </div>
                         <Button
-                            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-bold"
+                            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-medium"
                             onClick={() => setIsAddProductDialogOpen(true)}
                         >
                             <Plus className="w-4 h-4 mr-2" />
@@ -1108,26 +1136,28 @@ const GarageDashboard = () => {
                     <div className="grid gap-6 md:grid-cols-2">
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Catalog Items</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Catalog Items</CardTitle>
                                 <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
                                     <Package className="h-4 w-4" />
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-bold text-slate-900">{inventory?.length || 0}</div>
-                                <p className="text-[11px] text-slate-400 mt-1 font-medium italic">Unique products registered</p>
+                                <div className="text-3xl font-semibold text-slate-900">{inventory?.length || 0}</div>
+                                <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Unique products registered</p>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow border-l-4 border-l-red-400">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-red-500 uppercase tracking-widest">Low Stock Alerts</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-red-500 uppercase tracking-widest">Low Stock Alerts</CardTitle>
                                 <div className="p-2 bg-red-50 rounded-lg text-red-600">
                                     <AlertTriangle className="h-4 w-4" />
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-bold text-red-600">{inventory?.filter(i => (i.quantity || 0) <= (i.min_threshold || 0)).length || 0}</div>
-                                <p className="text-xs text-red-400 mt-1 font-medium italic">Items below safe threshold</p>
+                                <div className="text-3xl font-semibold text-slate-900">
+                                    {(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}
+                                </div>
+                                <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Items below threshold</p>
                             </CardContent>
                         </Card>
                     </div>
@@ -1141,24 +1171,24 @@ const GarageDashboard = () => {
                             .map((item: any) => {
                                 const isLow = (item.quantity || 0) <= (item.min_threshold || 0);
                                 return (
-                                    <div key={item.id} className={`p-5 rounded-2xl bg-white shadow-sm border-2 transition-all ${isLow ? 'border-red-100 bg-red-50/10' : 'border-slate-50 hover:border-indigo-100'} flex flex-col justify-between h-[180px]`}>
+                                    <div key={item.id} className={`p-5 rounded-2xl bg-white shadow-sm border-2 transition-all ${isLow ? 'border-red-100 bg-red-50/10' : 'border-slate-50 hover:border-indigo-100'} flex flex-col justify-between h-[210px]`}>
                                         <div className="flex justify-between items-start">
                                             <div className="space-y-1">
                                                 <h4 className="font-medium text-slate-700 text-lg leading-tight tracking-tight">{item.item_name}</h4>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] text-slate-400 font-medium uppercase tracking-widest bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded">{item.category}</span>
+                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-widest bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded">{item.category}</span>
                                                 </div>
                                             </div>
-                                            <Badge className={`px-2.5 py-1 text-[11px] font-semibold ${isLow ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-500 hover:bg-green-600'}`}>
+                                            <Badge className={`px-2.5 py-1 text-xs font-semibold ${isLow ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-500 hover:bg-green-600'}`}>
                                                 {item.quantity} {item.unit_measure}
                                             </Badge>
                                         </div>
 
-                                        <div className="flex items-center gap-2">
+                                        <div className="grid grid-cols-2 gap-2 mt-4">
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="h-8 text-[11px] font-semibold border-amber-200 text-amber-600 hover:bg-amber-50 hover:border-amber-300 rounded-lg group"
+                                                className="h-8 text-xs font-semibold border-amber-200 text-amber-600 hover:bg-amber-50 hover:border-amber-300 rounded-lg group"
                                                 onClick={() => {
                                                     setUsageForm({
                                                         item_id: item.id,
@@ -1171,25 +1201,38 @@ const GarageDashboard = () => {
                                                     setIsUsageDialogOpen(true);
                                                 }}
                                             >
-                                                <ShoppingCart className="w-3 h-3 mr-1.5 transition-transform group-hover:scale-110" />
-                                                Issue Item
+                                                <ShoppingCart className="w-3 h-3 mr-1" />
+                                                Issue
                                             </Button>
 
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="h-8 text-[11px] font-semibold border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 rounded-lg group"
+                                                className="h-8 text-xs font-semibold border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 rounded-lg group"
                                                 onClick={() => {
                                                     setReqType("General");
                                                     setReqTargetVehicleId(null);
                                                     setReqTargetJobId(null);
-                                                    setIsSingleRestock(true); // Control dialog behavior
-                                                    setRequisitionItems([{ item_name: item.item_name, quantity: 5 }]);
+                                                    setIsSingleRestock(true);
+                                                    setRequisitionItems([{ item_name: item.item_name, quantity: 5, item_id: item.id }]);
                                                     setIsRequisitionDialogOpen(true);
                                                 }}
                                             >
-                                                <TrendingUp className="w-3 h-3 mr-1.5 transition-transform group-hover:-translate-y-0.5" />
-                                                Request Restock
+                                                <TrendingUp className="w-3 h-3 mr-1" />
+                                                Restock
+                                            </Button>
+
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="col-span-2 h-8 text-xs font-medium uppercase tracking-wider border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 rounded-lg"
+                                                onClick={() => {
+                                                    setSelectedInventoryItem(item);
+                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
+                                                    setIsUpdateQtyOpen(true);
+                                                }}
+                                            >
+                                                Update Physical count
                                             </Button>
                                         </div>
                                     </div>
@@ -1199,130 +1242,210 @@ const GarageDashboard = () => {
                 </div>
             ) : activeTab === 'logs' ? (
                 <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
                             <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2 font-medium">
-                                <History className="w-6 h-6 text-indigo-500" />
-                                Requisition Logs
+                                <HistoryIcon className="w-6 h-6 text-indigo-500" />
+                                Store Hub Activity
                             </h1>
-                            <p className="text-sm text-slate-500 font-medium tracking-tight">Track how long your parts take to arrive</p>
+                            <p className="text-sm text-slate-500 font-medium tracking-tight">Accountability & Stock Consumption Monitoring</p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <Select value={selectedMonth.toString()} onValueChange={(val) => setSelectedMonth(parseInt(val))}>
+                                <SelectTrigger className="w-[140px] h-10 bg-white border-slate-200">
+                                    <SelectValue placeholder="Month" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, i) => (
+                                        <SelectItem key={i} value={i.toString()}>{m}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={selectedYear.toString()} onValueChange={(val) => setSelectedYear(parseInt(val))}>
+                                <SelectTrigger className="w-[100px] h-10 bg-white border-slate-200">
+                                    <SelectValue placeholder="Year" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {[2024, 2025, 2026].map(y => (
+                                        <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
 
-                    <Card className="border-none shadow-lg bg-white overflow-hidden">
-                        <CardHeader className="bg-slate-50/50 border-b">
-                            <CardTitle className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                                <History className="w-4 h-4 text-slate-400" />
-                                Store Activity History
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="bg-slate-50/30">
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Sent Date & Time</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Type</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Item Requested</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Quantity</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Lead Time</TableHead>
-                                        <TableHead className="text-right text-[11px] font-bold uppercase tracking-widest text-slate-400">Status</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {(requisitions || []).map((req: any) => {
-                                        const created = new Date(req.created_at);
-                                        const now = new Date();
-                                        const hours = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60));
-                                        const minutes = Math.floor((now.getTime() - created.getTime()) / (1000 * 60)) % 60;
+                    {/* Monthly Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <Card className="border-none shadow-sm bg-indigo-600 text-white">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-xs font-medium uppercase tracking-widest opacity-80">Monthly Items Issued</CardTitle>
+                                <ShoppingCart className="h-4 w-4 opacity-80" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-semibold">
+                                    {(usageLogs || []).filter((l: any) => {
+                                        const d = new Date(l.created_at);
+                                        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+                                    }).reduce((sum: number, l: any) => sum + (l.quantity_used || 0), 0)}
+                                </div>
+                                <p className="text-xs opacity-70 mt-1">Total physical units moved this month</p>
+                            </CardContent>
+                        </Card>
 
-                                        return (
-                                            <TableRow key={req.id} className="hover:bg-slate-50/50 border-b border-slate-100 last:border-0 border-transparent transition-colors">
-                                                <TableCell className="text-[11px] text-slate-500 font-medium">
-                                                    <div className="flex flex-col">
-                                                        <span>{created.toLocaleDateString()}</span>
-                                                        <span className="font-mono text-[9px] text-indigo-400">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell><Badge variant="outline" className="text-[9px] uppercase font-bold py-0 h-5 border-slate-200 text-slate-400 tracking-tighter">{req.request_type}</Badge></TableCell>
-                                                <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{req.item_name}</TableCell>
-                                                <TableCell className="text-sm font-mono font-semibold text-slate-600">{req.quantity_requested}</TableCell>
-                                                <TableCell className="text-sm font-medium text-slate-400 italic">
-                                                    {['Stocked', 'Approved', 'Rejected'].includes(req.status) ? (
-                                                        <span className="text-slate-500 font-semibold not-italic">Closed</span>
-                                                    ) : `${hours}h ${minutes}m`}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Badge className={`text-sm font-bold px-2 py-0.5 rounded-full ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                                                        req.status === 'Approved' || req.status === 'Stocked' ? 'bg-green-50 text-green-600 border border-green-100' :
-                                                            req.status === 'Rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                                'bg-indigo-50 text-indigo-600 border border-indigo-100'
-                                                        }`}>{req.status}</Badge>
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
-                    </Card>
+                        <Card className="border-none shadow-sm bg-white">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-widest">Active Requests</CardTitle>
+                                <ClipboardCheck className="h-4 w-4 text-indigo-400" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-semibold text-slate-900">
+                                    {(requisitions || []).filter((r: any) => r.status === 'Pending').length}
+                                </div>
+                                <p className="text-xs text-slate-400 mt-1 italic">Pending Store Room restocks</p>
+                            </CardContent>
+                        </Card>
+                    </div>
 
-                    <Card className="border-none shadow-lg bg-white overflow-hidden mt-8">
-                        <CardHeader className="bg-slate-50/50 border-b line-clamp-1">
-                            <CardTitle className="text-[11px] font-semibold text-amber-600 uppercase tracking-widest flex items-center gap-2">
-                                <ShoppingCart className="w-4 h-4 text-amber-400" />
-                                Daily Stock Consumption Activity (Taken)
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="bg-slate-50/20">
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Date & Time</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Issued To</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Item Taken</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Quantity</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Used On Vehicle</TableHead>
-                                        <TableHead className="text-right text-[11px] font-bold uppercase tracking-widest text-slate-400">Notes</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {(usageLogs || []).map((log: any) => {
-                                        const created = new Date(log.created_at);
-                                        return (
-                                            <TableRow key={log.id} className="hover:bg-amber-50/30 border-b border-slate-50 transition-colors">
-                                                <TableCell className="text-[11px] text-slate-500 font-medium">
-                                                    <div className="flex flex-col">
-                                                        <span>{created.toLocaleDateString()}</span>
-                                                        <span className="font-mono text-[9px] text-amber-500">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="font-semibold text-slate-700 text-xs">{log.issued_to}</TableCell>
-                                                <TableCell className="font-medium text-slate-700 text-xs">{log.item_name}</TableCell>
-                                                <TableCell className="text-xs font-mono font-bold text-red-500">-{log.quantity_used}</TableCell>
-                                                <TableCell>
-                                                    {log.vehicle ? (
-                                                        <Badge variant="outline" className="text-[9px] font-mono font-bold bg-slate-50 text-slate-600">
-                                                            {log.vehicle.vehicle_no || log.vehicle.horse_number}
-                                                        </Badge>
-                                                    ) : <span className="text-[9px] text-slate-400 italic">General Use</span>}
-                                                </TableCell>
-                                                <TableCell className="text-right text-sm color-slate-500 italic max-w-[150px] truncate">
-                                                    {log.notes || '---'}
-                                                </TableCell>
+                    <Tabs value={activeStoreTab} onValueChange={setActiveStoreTab} className="w-full">
+                        <TabsList className="bg-slate-100/50 p-1 mb-6">
+                            <TabsTrigger value="requisitions" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
+                                <HistoryIcon className="w-4 h-4 mr-2" /> Requisitions History
+                            </TabsTrigger>
+                            <TabsTrigger value="issued" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
+                                <ShoppingCart className="w-4 h-4 mr-2" /> Issued Items Report
+                            </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="requisitions" className="space-y-6">
+                            <Card className="border-none shadow-lg bg-white overflow-hidden">
+                                <CardHeader className="bg-slate-50/50 border-b">
+                                    <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                        <HistoryIcon className="w-4 h-4 text-slate-400" />
+                                        Part Requisitions History
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-slate-50/30">
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Sent Date</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Type</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item Requested</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Qty</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Lead Time</TableHead>
+                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Status</TableHead>
                                             </TableRow>
-                                        );
-                                    })}
-                                    {(!usageLogs || usageLogs.length === 0) && (
-                                        <TableRow>
-                                            <TableCell colSpan={6} className="h-24 text-center text-sm text-slate-400 italic">No usage recorded today.</TableCell>
-                                        </TableRow>
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
-                    </Card>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {(requisitions || []).map((req: any) => {
+                                                const created = new Date(req.created_at);
+                                                const now = new Date();
+                                                const hours = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60));
+                                                const minutes = Math.floor((now.getTime() - created.getTime()) / (1000 * 60)) % 60;
+
+                                                return (
+                                                    <TableRow key={req.id} className="hover:bg-slate-50/50 border-b border-slate-100 last:border-0 border-transparent transition-colors">
+                                                        <TableCell className="text-xs text-slate-500 font-medium">
+                                                            <div className="flex flex-col">
+                                                                <span>{created.toLocaleDateString()}</span>
+                                                                <span className="font-mono text-[11px] text-indigo-400">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell><Badge variant="outline" className="text-[10px] uppercase font-medium py-0 h-5 border-slate-200 text-slate-400 tracking-tighter">{req.request_type}</Badge></TableCell>
+                                                        <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{req.item_name}</TableCell>
+                                                        <TableCell className="text-sm font-mono font-semibold text-slate-600">{req.quantity_requested}</TableCell>
+                                                        <TableCell className="text-sm font-medium text-slate-400 italic">
+                                                            {['Stocked', 'Approved', 'Rejected'].includes(req.status) ? (
+                                                                <span className="text-slate-500 font-semibold not-italic">Closed</span>
+                                                            ) : `${hours}h ${minutes}m`}
+                                                        </TableCell>
+                                                        <TableCell className="text-right">
+                                                            <Badge className={`text-sm font-semibold px-2 py-0.5 rounded-full ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                                                                req.status === 'Approved' || req.status === 'Stocked' ? 'bg-green-50 text-green-600 border border-green-100' :
+                                                                    req.status === 'Rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
+                                                                        'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                                                                }`}>{req.status}</Badge>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+
+                        <TabsContent value="issued" className="space-y-6">
+                            <Card className="border-none shadow-lg bg-white overflow-hidden">
+                                <CardHeader className="bg-slate-50/50 border-b">
+                                    <CardTitle className="text-xs font-semibold text-amber-600 uppercase tracking-widest flex items-center gap-2">
+                                        <ShoppingCart className="w-4 h-4 text-amber-400" />
+                                        {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][selectedMonth]} {selectedYear} Issued Items Report
+                                    </CardTitle>
+                                    <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Accountability & Stock Consumption Monitoring</p>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-slate-50/20">
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Date & Time</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Issued To</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item Taken</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">Qty</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Used On Vehicle</TableHead>
+                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Notes</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {(usageLogs || [])
+                                                .filter((log: any) => {
+                                                    const d = new Date(log.created_at);
+                                                    return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+                                                })
+                                                .map((log: any) => {
+                                                    const created = new Date(log.created_at);
+                                                    return (
+                                                        <TableRow key={log.id} className="hover:bg-amber-50/30 border-b border-slate-50 transition-colors">
+                                                            <TableCell className="text-xs text-slate-500 font-medium">
+                                                                <div className="flex flex-col">
+                                                                    <span>{created.toLocaleDateString()}</span>
+                                                                    <span className="font-mono text-[11px] text-amber-500">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="font-medium text-slate-700 text-sm">{log.issued_to}</TableCell>
+                                                            <TableCell className="font-medium text-slate-700 text-sm">{log.item_name}</TableCell>
+                                                            <TableCell className="text-sm font-mono font-semibold text-red-500 text-center">-{log.quantity_used}</TableCell>
+                                                            <TableCell>
+                                                                {log.vehicle ? (
+                                                                    <Badge variant="outline" className="text-xs font-mono font-medium bg-slate-50 text-slate-600">
+                                                                        {log.vehicle.vehicle_no || log.vehicle.horse_number}
+                                                                    </Badge>
+                                                                ) : <span className="text-xs text-slate-400 italic">General Use</span>}
+                                                            </TableCell>
+                                                            <TableCell className="text-right text-xs text-slate-500 italic max-w-[150px] truncate">
+                                                                {log.notes || '---'}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            {(usageLogs || []).filter((log: any) => {
+                                                const d = new Date(log.created_at);
+                                                return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+                                            }).length === 0 && (
+                                                    <TableRow>
+                                                        <TableCell colSpan={6} className="h-24 text-center text-sm text-slate-400 italic">No usage recorded for this period.</TableCell>
+                                                    </TableRow>
+                                                )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+                    </Tabs>
                 </div>
-            ) : null}
+            ) : null
+            }
 
             {/* Requisition Dialog */}
             <Dialog open={isRequisitionDialogOpen} onOpenChange={setIsRequisitionDialogOpen}>
@@ -1337,7 +1460,7 @@ const GarageDashboard = () => {
                         {requisitionItems.map((item, idx) => (
                             <div key={idx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
                                 <div className="space-y-2">
-                                    <Label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Item ${idx + 1}</Label>
+                                    <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Item ${idx + 1}</Label>
                                     <Input
                                         placeholder="What is needed? (e.g. Brake Pads)"
                                         value={item.item_name}
@@ -1350,7 +1473,7 @@ const GarageDashboard = () => {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Quantity</Label>
+                                    <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quantity</Label>
                                     <Input
                                         type="number"
                                         min={1}
@@ -1388,7 +1511,7 @@ const GarageDashboard = () => {
                         )}
 
                         {reqType === 'Job' && (
-                            <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-[11px] flex items-center gap-2">
+                            <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-xs flex items-center gap-2">
                                 <Truck className="w-4 h-4 text-indigo-500" />
                                 <span className="text-slate-600">Requisition linked to: <strong className="text-indigo-900">{reqTargetVehicleId ? (vehicles as any[])?.find(v => v.id === reqTargetVehicleId)?.plate_number : "Loading..."}</strong></span>
                             </div>
@@ -1409,6 +1532,7 @@ const GarageDashboard = () => {
                                     request_type: reqType,
                                     vehicle_id: reqTargetVehicleId,
                                     job_id: reqTargetJobId,
+                                    item_id: item.item_id,
                                     item_name: item.item_name,
                                     quantity_requested: item.quantity,
                                     status: 'Pending'
@@ -1442,7 +1566,7 @@ const GarageDashboard = () => {
                                 onChange={(e) => setUsageForm({ ...usageForm, quantity: parseInt(e.target.value) || 1 })}
                                 className="h-10 text-lg font-mono font-bold text-red-500"
                             />
-                            <p className="text-[10px] text-slate-400 italic font-medium">This quantity will be subtracted from current stock immediately.</p>
+                            <p className="text-xs text-slate-400 italic font-medium">This quantity will be subtracted from current stock immediately.</p>
                         </div>
 
                         <div className="space-y-2">
@@ -1577,6 +1701,47 @@ const GarageDashboard = () => {
                 </DialogContent>
             </Dialog>
 
+            {/* Update Quantity Dialog */}
+            <Dialog open={isUpdateQtyOpen} onOpenChange={setIsUpdateQtyOpen}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Package className="w-5 h-5 text-indigo-500" />
+                            Update Physical Stock
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="p-3 bg-slate-50 rounded border text-center">
+                            <Label className="text-xs uppercase font-bold text-slate-500">Selected Item</Label>
+                            <p className="font-bold text-slate-900">{selectedInventoryItem?.item_name}</p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-sm font-bold text-slate-500 uppercase">New Physical Quantity</Label>
+                            <Input
+                                type="number"
+                                value={updateQtyDetails.quantity}
+                                onChange={(e) => setUpdateQtyDetails({ quantity: parseInt(e.target.value) || 0 })}
+                                className="h-12 text-2xl font-mono font-bold text-indigo-600"
+                            />
+                            <p className="text-[10px] text-slate-400 italic">Enter the actual count from the physical store.</p>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsUpdateQtyOpen(false)} className="h-10">Cancel</Button>
+                        <Button
+                            className="bg-indigo-600 hover:bg-indigo-700 h-10 font-bold"
+                            disabled={updateQuantityMutation.isPending}
+                            onClick={() => updateQuantityMutation.mutate({
+                                id: selectedInventoryItem?.id,
+                                qty: updateQtyDetails.quantity
+                            })}
+                        >
+                            {updateQuantityMutation.isPending ? "Saving..." : "Save Count"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={isLogFaultOpen} onOpenChange={setIsLogFaultOpen}>
                 <DialogContent className={affectedUnit === 'Both' && isCoupled ? "sm:max-w-[900px] duration-300" : "sm:max-w-[500px] duration-300"}>
                     <DialogHeader><DialogTitle>Log New Fault</DialogTitle></DialogHeader>
@@ -1620,7 +1785,7 @@ const GarageDashboard = () => {
                             {/* NEW: Service Package Selector (PPM) */}
                             <div className="space-y-2">
                                 <Label className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                                    <History className="w-3 h-3 text-indigo-500" />
+                                    <HistoryIcon className="w-3 h-3 text-indigo-500" />
                                     Service Package (Preventative Maintenance)
                                 </Label>
                                 <Select

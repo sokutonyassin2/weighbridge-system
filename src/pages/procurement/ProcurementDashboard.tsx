@@ -11,9 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const ProcurementDashboard = () => {
     const sb = supabase as any;
@@ -51,10 +52,9 @@ const ProcurementDashboard = () => {
         location: ""
     });
 
-    const [isUpdateStockOpen, setIsUpdateStockOpen] = useState(false);
+    const [isUpdatePriceOpen, setIsUpdatePriceOpen] = useState(false);
     const [selectedInventoryItem, setSelectedInventoryItem] = useState<any>(null);
-    const [updateStockDetails, setUpdateStockDetails] = useState({
-        quantity: 0,
+    const [updatePriceDetails, setUpdatePriceDetails] = useState({
         unit_price: 0
     });
 
@@ -72,7 +72,8 @@ const ProcurementDashboard = () => {
             const { data, error } = await sb.from("garage_inventory").select("*").order("item_name");
             if (error) throw error;
             return data;
-        }
+        },
+        refetchInterval: 3000
     });
 
     // Fetch Requisitions with Supplier info
@@ -84,7 +85,8 @@ const ProcurementDashboard = () => {
                 .order("created_at", { ascending: false });
             if (error) throw error;
             return data;
-        }
+        },
+        refetchInterval: 3000
     });
 
     // Fetch Suppliers
@@ -176,19 +178,18 @@ const ProcurementDashboard = () => {
         }
     });
 
-    const updateInventoryMutation = useMutation({
-        mutationFn: async ({ id, price, qty }: { id: string, price: number, qty: number }) => {
+    const updatePricingMutation = useMutation({
+        mutationFn: async ({ id, price }: { id: string, price: number }) => {
             const { error } = await sb.from("garage_inventory").update({
-                unit_price: price,
-                quantity: qty
+                unit_price: price
             }).eq("id", id);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-inventory"] });
             queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
-            toast({ title: "Price/Qty Updated", description: "Storage records saved." });
-            setIsUpdateStockOpen(false);
+            toast({ title: "Unit Price Updated", description: "Pricing records saved." });
+            setIsUpdatePriceOpen(false);
         }
     });
 
@@ -317,22 +318,31 @@ const ProcurementDashboard = () => {
         <div className="space-y-6 p-6 animate-fade-in bg-slate-50/30 min-h-screen">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                    <h1 className="text-2xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
                         <Building2 className="w-6 h-6 text-indigo-600" />
                         Procurement Command
+                        <Badge className="ml-2 bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-bold animate-pulse">Live Syncing</Badge>
                     </h1>
-                    <p className="text-[11px] text-slate-500 mt-1 uppercase font-bold tracking-wider">Multi-Company Requisition & Store Management</p>
+                    <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Purchase Order (PO) Management & Strategic Sourcing</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button onClick={() => setIsCreateReqOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-[11px] font-bold h-9 uppercase tracking-wider">
-                        <Plus className="w-4 h-4 mr-1" /> New Requisition
-                    </Button>
+                <div className="flex items-center gap-3">
+                    {(isLoadingRequisitions || isLoadingInventory) && (
+                        <div className="flex items-center gap-2 text-indigo-500 text-xs font-bold animate-pulse">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Fetching Data...
+                        </div>
+                    )}
+                    <div className="flex gap-2">
+                        <Button onClick={() => setIsCreateReqOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-xs font-medium h-9 uppercase tracking-wider">
+                            <Plus className="w-4 h-4 mr-1" /> New Requisition
+                        </Button>
+                    </div>
                 </div>
             </div>
 
             <Tabs defaultValue="requisitions" className="w-full" onValueChange={setActiveTab}>
                 <TabsList className="bg-white border-b border-slate-200 w-full justify-start rounded-none h-12 p-0 gap-8">
-                    <TabsTrigger value="requisitions" className="data-[state=active]:border-indigo-600 data-[state=active]:text-indigo-600 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-bold uppercase tracking-widest">
+                    <TabsTrigger value="requisitions" className="data-[state=active]:border-indigo-600 data-[state=active]:text-indigo-600 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium uppercase tracking-widest">
                         <FileText className="w-4 h-4 mr-2" /> Requisitions
                     </TabsTrigger>
                     <TabsTrigger value="inventory" className="data-[state=active]:border-indigo-600 data-[state=active]:text-indigo-600 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-bold uppercase tracking-widest">
@@ -348,38 +358,38 @@ const ProcurementDashboard = () => {
                     <div className="grid gap-6 md:grid-cols-4">
                         <Card className="border-none shadow-sm bg-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Pending Actions</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Pending Actions</CardTitle>
                                 <AlertCircle className="h-4 w-4 text-amber-500" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">{(requisitions || []).filter((r: any) => r.status === 'Pending').length}</div>
+                                <div className="text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.status === 'Pending').length}</div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">PO's Issued</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">PO's Issued</CardTitle>
                                 <FileCheck className="h-4 w-4 text-indigo-500" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">{(requisitions || []).filter((r: any) => r.po_number).length}</div>
+                                <div className="text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.po_number).length}</div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Low Stock Alert</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Low Stock Alert</CardTitle>
                                 <Package className="h-4 w-4 text-red-500" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
+                                <div className="text-2xl font-semibold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-indigo-600 text-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
                                 <TrendingUp className="h-4 w-4 text-indigo-200" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">
+                                <div className="text-2xl font-semibold">
                                     {(inventory || []).reduce((acc: number, item: any) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0).toLocaleString()}
                                 </div>
                             </CardContent>
@@ -388,7 +398,12 @@ const ProcurementDashboard = () => {
 
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
                         <CardHeader className="flex flex-row items-center justify-between border-b pb-4 bg-slate-50/50">
-                            <CardTitle className="text-[11px] font-bold uppercase tracking-widest text-slate-700">Audit Trail: Requisitions & POs</CardTitle>
+                            <div className="flex items-center gap-3">
+                                <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Audit Trail: Requisitions & POs</CardTitle>
+                                <Badge variant="outline" className="bg-slate-100/50 text-slate-500 border-slate-200 text-[10px] font-mono">
+                                    Total: {requisitions?.length || 0} Records
+                                </Badge>
+                            </div>
                             <div className="relative w-64">
                                 <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
                                 <Input
@@ -403,43 +418,77 @@ const ProcurementDashboard = () => {
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/40 border-b">
-                                        <TableHead className="text-[11px] font-bold uppercase">Req Date</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Company</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">PO Number</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Item Details</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Vendor</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Status</TableHead>
-                                        <TableHead className="text-right text-[11px] font-bold uppercase px-6">Action</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Req Date</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Company</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">PO Number</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Item Details</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Vendor</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Status</TableHead>
+                                        <TableHead className="text-right text-xs font-semibold uppercase px-6">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {(requisitions || []).filter((r: any) =>
-                                        r.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                        (r.target_company || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                        (r.po_number || "").toLowerCase().includes(searchTerm.toLowerCase())
-                                    ).map((req: any) => (
+                                    {isLoadingRequisitions ? (
+                                        Array.from({ length: 5 }).map((_, i) => (
+                                            <TableRow key={i}>
+                                                <TableCell colSpan={7} className="p-4">
+                                                    <Skeleton className="h-12 w-full bg-slate-100/50" />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (requisitions || []).filter((r: any) => {
+                                        const searchLower = searchTerm.toLowerCase();
+                                        // Robust filter: check item, company, PO, and status
+                                        return (
+                                            (r.item_name || "").toLowerCase().includes(searchLower) ||
+                                            (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
+                                            (r.po_number || "").toLowerCase().includes(searchLower) ||
+                                            (r.status || "").toLowerCase().includes(searchLower)
+                                        );
+                                    }).length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={7} className="py-20 text-center">
+                                                <div className="flex flex-col items-center gap-2 opacity-50">
+                                                    <FileText className="w-10 h-10 text-slate-300" />
+                                                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest">No Requisitions Found</h3>
+                                                    <p className="text-xs text-slate-400 font-medium tracking-tight">Try clearing your search or check if the garage has sent any requests.</p>
+                                                    {searchTerm && (
+                                                        <Button variant="link" onClick={() => setSearchTerm("")} className="text-indigo-600 font-bold h-auto p-0 text-xs">Clear Search</Button>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (requisitions || []).filter((r: any) => {
+                                        const searchLower = searchTerm.toLowerCase();
+                                        return (
+                                            (r.item_name || "").toLowerCase().includes(searchLower) ||
+                                            (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
+                                            (r.po_number || "").toLowerCase().includes(searchLower) ||
+                                            (r.status || "").toLowerCase().includes(searchLower)
+                                        );
+                                    }).map((req: any) => (
                                         <TableRow key={req.id} className="hover:bg-slate-50/50 transition-colors">
                                             <TableCell className="py-4">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[11px] text-slate-500">{new Date(req.created_at).toLocaleDateString()}</span>
-                                                    <span className="text-[10px] text-indigo-500 font-bold">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                    <span className="text-xs text-slate-500 font-medium">{new Date(req.created_at).toLocaleDateString()}</span>
+                                                    <span className="text-[13px] text-indigo-500 font-bold">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                 </div>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant="outline" className="text-[10px] font-bold bg-slate-50 text-slate-600 border-slate-200 uppercase">
+                                                <Badge variant="outline" className="text-xs font-bold bg-slate-50 text-slate-600 border-slate-200 uppercase">
                                                     {req.target_company}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="font-mono text-[11px] text-slate-500">
+                                            <TableCell className="font-mono text-xs text-slate-500">
                                                 {req.po_number || <span className="text-slate-300">-- No PO --</span>}
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex flex-col">
-                                                    <span className="font-bold text-[12px] text-slate-800">{req.item_name}</span>
-                                                    <span className="text-[10px] text-slate-400">Qty: {req.quantity_requested} units</span>
+                                                    <span className="font-semibold text-sm text-slate-800">{req.item_name}</span>
+                                                    <span className="text-xs text-slate-400">Qty: {req.quantity_requested} units</span>
                                                 </div>
                                             </TableCell>
-                                            <TableCell className="text-[11px] font-medium text-slate-600">
+                                            <TableCell className="text-sm font-medium text-slate-600">
                                                 {req.supplier?.name || <span className="text-slate-300">Not Assigned</span>}
                                             </TableCell>
                                             <TableCell>
@@ -523,7 +572,7 @@ const ProcurementDashboard = () => {
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
                         <CardHeader className="bg-slate-900 border-b pb-4 flex flex-row items-center justify-between">
                             <div>
-                                <CardTitle className="text-[11px] font-bold text-white uppercase tracking-widest flex items-center gap-2">
+                                <CardTitle className="text-xs font-semibold text-white uppercase tracking-widest flex items-center gap-2">
                                     <Package className="w-4 h-4 text-indigo-400" /> Professional Stock Control
                                 </CardTitle>
                             </div>
@@ -541,12 +590,12 @@ const ProcurementDashboard = () => {
                             <Table>
                                 <TableHeader>
                                     <TableRow className="border-b bg-slate-50/50">
-                                        <TableHead className="text-[10px] font-bold uppercase py-4">Item Description</TableHead>
-                                        <TableHead className="text-[10px] font-bold uppercase">Category</TableHead>
-                                        <TableHead className="text-[10px] font-bold uppercase">Current Stock</TableHead>
-                                        <TableHead className="text-[10px] font-bold uppercase">Unit Price (Snapshot)</TableHead>
-                                        <TableHead className="text-[10px] font-bold uppercase">Threshold</TableHead>
-                                        <TableHead className="text-right text-[10px] font-bold uppercase px-6">Actions</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase py-4">Item Description</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Category</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Current Stock</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Unit Price (TZS)</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase">Threshold</TableHead>
+                                        <TableHead className="text-right text-xs font-semibold uppercase px-6">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -571,16 +620,15 @@ const ProcurementDashboard = () => {
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
-                                                    className="h-8 text-[10px] font-bold uppercase text-indigo-600"
+                                                    className="h-8 text-xs font-bold uppercase text-indigo-600"
                                                     onClick={() => {
                                                         setSelectedInventoryItem(item);
-                                                        setUpdateStockDetails({
-                                                            quantity: item.quantity || 0,
+                                                        setUpdatePriceDetails({
                                                             unit_price: item.unit_price || 0
                                                         });
-                                                        setIsUpdateStockOpen(true);
+                                                        setIsUpdatePriceOpen(true);
                                                     }}
-                                                >Update Stock</Button>
+                                                >Update Price</Button>
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -593,7 +641,7 @@ const ProcurementDashboard = () => {
                 <TabsContent value="suppliers" className="mt-6">
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
                         <CardHeader className="flex flex-row items-center justify-between border-b pb-4 bg-slate-50/50">
-                            <CardTitle className="text-[11px] font-bold uppercase tracking-widest text-slate-700">Vendor & Supplier Directory</CardTitle>
+                            <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Vendor & Supplier Directory</CardTitle>
                             <Button onClick={() => setIsAddSupplierOpen(true)} className="h-8 bg-indigo-600 text-[10px] font-bold uppercase"><Plus className="w-3 h-3 mr-2" /> Add Supplier</Button>
                         </CardHeader>
                         <CardContent className="p-0">
@@ -817,51 +865,42 @@ const ProcurementDashboard = () => {
                 </DialogContent>
             </Dialog>
 
-            {/* Update Stock Dialog */}
-            <Dialog open={isUpdateStockOpen} onOpenChange={setIsUpdateStockOpen}>
+            {/* Update Pricing Dialog */}
+            <Dialog open={isUpdatePriceOpen} onOpenChange={setIsUpdatePriceOpen}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
                             <TrendingUp className="w-5 h-5 text-indigo-600" />
-                            Update Stock & Pricing
+                            Update Unit Pricing
                         </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="p-3 bg-slate-50 rounded border text-center">
-                            <Label className="text-[10px] uppercase font-bold text-slate-500">Selected Item</Label>
+                            <Label className="text-xs uppercase font-bold text-slate-500">Selected Item</Label>
                             <p className="font-bold text-slate-900">{selectedInventoryItem?.item_name}</p>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Current Market Price (TZS)</Label>
+                            <Label className="text-xs font-bold text-slate-500 uppercase">Current Market Price (TZS)</Label>
                             <Input
                                 type="number"
                                 className="h-10 text-sm border-slate-200 font-bold text-indigo-600"
-                                value={updateStockDetails.unit_price}
-                                onChange={(e) => setUpdateStockDetails({ ...updateStockDetails, unit_price: parseFloat(e.target.value) })}
+                                value={updatePriceDetails.unit_price}
+                                onChange={(e) => setUpdatePriceDetails({ ...updatePriceDetails, unit_price: parseFloat(e.target.value) })}
                             />
-                        </div>
-                        <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Stock Quantity available</Label>
-                            <Input
-                                type="number"
-                                className="h-10 text-sm border-slate-200 font-bold"
-                                value={updateStockDetails.quantity}
-                                onChange={(e) => setUpdateStockDetails({ ...updateStockDetails, quantity: parseInt(e.target.value) })}
-                            />
+                            <p className="text-[11px] text-slate-400 italic">This price will be used for all future requisitions of this item.</p>
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsUpdateStockOpen(false)} className="h-10 text-[11px] font-bold uppercase">Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsUpdatePriceOpen(false)} className="h-10 text-xs font-bold uppercase">Cancel</Button>
                         <Button
-                            className="h-10 bg-indigo-600 hover:bg-indigo-700 text-[11px] font-bold uppercase px-8"
-                            onClick={() => updateInventoryMutation.mutate({
+                            className="h-10 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold uppercase px-8"
+                            onClick={() => updatePricingMutation.mutate({
                                 id: selectedInventoryItem?.id,
-                                price: updateStockDetails.unit_price,
-                                qty: updateStockDetails.quantity
+                                price: updatePriceDetails.unit_price
                             })}
-                            disabled={updateInventoryMutation.isPending}
+                            disabled={updatePricingMutation.isPending}
                         >
-                            {updateInventoryMutation.isPending ? "Saving..." : "Save Changes"}
+                            {updatePricingMutation.isPending ? "Saving..." : "Save Pricing"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

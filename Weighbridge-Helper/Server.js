@@ -74,15 +74,15 @@ serialPort.on("data", (data) => {
   const rawData = data.toString();
   console.log("RAW DATA FROM SCALE:", JSON.stringify(rawData));
 
-  // Improved regex to handle various scale formats (e.g., "1200kg", "+ 1200", "ST,GS, 1200")
-  const match = rawData.match(/(-?\d+)/);
+  // Professional Parsing: Captured raw format is usually [STX][SIGN][6 DIGITS][DECIMAL][STATUS][ETX]
+  // From logs: "\u0002+00006001D\u0003" -> We need the "000060" part
+  const match = rawData.match(/[+-](\d{6})/);
   if (match) {
-    const value = match[1];
-    if (value.length > 0) {
-      latestWeight = value;
-      // We log this so we can see if it's actually catching the number
-      console.log("⚖️ Detected Weight:", latestWeight);
-    }
+    const cleanNumber = parseInt(match[1], 10); // Converts "000060" to 60
+    latestWeight = cleanNumber.toString();
+
+    // We log this so we can see the cleaned version
+    console.log("⚖️ Clean Weight:", latestWeight);
   }
 });
 

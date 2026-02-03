@@ -133,6 +133,8 @@ export default function VehicleTypes() {
                 <Input id="fee" type="number" value={newType.first_weigh_fee} onChange={e => setNewType({ ...newType, first_weigh_fee: e.target.value, second_weigh_fee: "0" })} className="col-span-3" />
               </div>
 
+
+
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label className="text-right">Time Sensitive?</Label>
                 <div className="flex items-center space-x-2 col-span-3">

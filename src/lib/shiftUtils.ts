@@ -27,11 +27,11 @@ export function getShiftTimeWindow(shiftDate: string, shiftName: "Day" | "Night"
       endTime: `${shiftDate}T18:00:00+03:00`,
     };
   } else {
-    // Night shift: 18:00 on previous day to 07:00 on selected day
-    const previousDay = format(subDays(new Date(shiftDate), 1), "yyyy-MM-dd");
+    // Night shift: 18:00 on selected day to 07:00 on NEXT day
+    const nextDay = format(addDays(new Date(shiftDate), 1), "yyyy-MM-dd");
     return {
-      startTime: `${previousDay}T18:00:00+03:00`,
-      endTime: `${shiftDate}T07:00:00+03:00`,
+      startTime: `${shiftDate}T18:00:00+03:00`,
+      endTime: `${nextDay}T07:00:00+03:00`,
     };
   }
 }
@@ -46,24 +46,21 @@ export function getCurrentShiftName(): "Day" | "Night" {
 
 /**
  * Get the shift date for the current shift
- * Night shift spanning two calendar days is assigned to the date it ENDS (morning date)
+ * Night shift spanning two calendar days is assigned to the date it STARTS
  * - For day shift (07:00-17:59): today's date
- * - For night shift evening (18:00-23:59): tomorrow's date (shift ends tomorrow morning)
- * - For night shift morning (00:00-06:59): today's date (shift ends today morning)
+ * - For night shift evening (18:00-23:59): today's date (shift started today)
+ * - For night shift morning (00:00-06:59): yesterday's date (shift started yesterday)
  */
 export function getCurrentShiftDate(): string {
   const now = new Date();
   const currentHour = now.getHours();
-  
-  if (currentHour >= 7 && currentHour < 18) {
-    // Day shift - use today
+
+  if (currentHour >= 7 && currentHour < 24) {
+    // Day shift or Start of Night shift - use today
     return format(now, "yyyy-MM-dd");
-  } else if (currentHour >= 18) {
-    // Night shift evening portion (18:00-23:59) - shift ends TOMORROW morning
-    return format(addDays(now, 1), "yyyy-MM-dd");
   } else {
-    // Night shift morning portion (00:00-06:59) - shift ends TODAY morning
-    return format(now, "yyyy-MM-dd");
+    // Morning portion of night shift (00:00-06:59) - shift started YESTERDAY
+    return format(subDays(now, 1), "yyyy-MM-dd");
   }
 }
 
@@ -73,12 +70,12 @@ export function getCurrentShiftDate(): string {
 export function formatShiftDisplay(shiftDate: string, shiftName: string): string {
   const date = new Date(shiftDate);
   const formattedDate = format(date, "MMM dd");
-  
+
   if (shiftName === "Night") {
-    const previousDay = format(subDays(date, 1), "MMM dd");
-    return `${previousDay} 18:00 - ${formattedDate} 07:00`;
+    const nextDay = format(addDays(date, 1), "MMM dd");
+    return `${formattedDate} 18:00 - ${nextDay} 07:00`;
   }
-  
+
   return `${formattedDate} 07:00 - 18:00`;
 }
 
@@ -88,11 +85,11 @@ export function formatShiftDisplay(shiftDate: string, shiftName: string): string
 export function getShiftTimeDescription(shiftDate: string, shiftName: "Day" | "Night"): string {
   const date = new Date(shiftDate);
   const formattedDate = format(date, "MMM dd, yyyy");
-  
+
   if (shiftName === "Night") {
-    const previousDay = format(subDays(date, 1), "MMM dd");
-    return `Night shift covers ${previousDay} at 18:00 through ${format(date, "MMM dd")} at 07:00`;
+    const nextDay = format(addDays(date, 1), "MMM dd");
+    return `Night shift covers ${formattedDate} at 18:00 through ${nextDay} at 07:00`;
   }
-  
+
   return `Day shift covers ${formattedDate} from 07:00 to 18:00`;
 }

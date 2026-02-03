@@ -218,22 +218,33 @@ export function WeightCaptureButtons({
 
       {/* DIGITAL WEIGHT MONITOR */}
       {!isLocked && (
-        <div className="bg-slate-900 border-2 border-slate-700 rounded-lg p-3 my-2 text-center shadow-inner">
-          <div className="text-[10px] text-emerald-500/50 font-mono uppercase tracking-[0.2em] mb-1">
-            Live Scale Indicator
+        <div className="bg-slate-950 border-2 border-slate-800 rounded-lg p-4 my-2 text-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+          <div className="text-[10px] text-emerald-500/40 font-mono uppercase tracking-[0.3em] mb-3">
+            Digital Scale Monitor
           </div>
-          <div className="flex items-baseline justify-center gap-2">
-            <div className={`text-4xl font-mono ${liveWeight === "0" ? 'text-emerald-900' : 'text-emerald-400'} font-bold tracking-tighter tabular-nums drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]`}>
-              {liveWeight.padStart(6, '0')}
-            </div>
-            <div className="text-xl font-mono text-emerald-500/70 font-bold italic">
+          <div className="flex items-center justify-center gap-1.5">
+            {liveWeight.padStart(6, '0').split('').map((digit, idx) => (
+              <div
+                key={idx}
+                className={`
+                  w-10 h-14 rounded-sm flex items-center justify-center
+                  border border-slate-800 bg-slate-900/50
+                  text-3xl font-mono font-bold
+                  ${digit === '0' && liveWeight === '0' ? 'text-emerald-950/40' : 'text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]'}
+                  transition-all duration-100
+                `}
+              >
+                {digit}
+              </div>
+            ))}
+            <div className="ml-2 text-xl font-mono text-emerald-500/60 font-bold italic self-end mb-1">
               kg
             </div>
           </div>
-          <div className="mt-1 flex justify-center gap-1">
-            <div className={`h-1.5 w-1.5 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`} />
-            <div className="text-[9px] text-slate-500 uppercase font-bold">
-              {hardwareStatus === 'connected' ? 'Stable Stream' : 'Connecting to Scale...'}
+          <div className="mt-3 flex justify-center items-center gap-2">
+            <div className={`h-2 w-2 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-slate-800'}`} />
+            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+              {hardwareStatus === 'connected' ? 'Hardware Signal Stable' : 'Connecting to Scale...'}
             </div>
           </div>
         </div>

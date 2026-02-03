@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -63,6 +64,15 @@ const ProcurementDashboard = () => {
     const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
     const [revokeDialogReqId, setRevokeDialogReqId] = useState<string | null>(null);
     const [revokeReason, setRevokeReason] = useState("");
+
+    // Selection State for Grouped POs
+    const [selectedRequisitionIds, setSelectedRequisitionIds] = useState<string[]>([]);
+    const [isGroupedPODialogOpen, setIsGroupedPODialogOpen] = useState(false);
+    const [groupedPODetails, setGroupedPODetails] = useState({
+        supplier_id: "",
+        po_number: "",
+        company: ""
+    });
 
     // Generate PO Number (PO-YYYYMMDD-XXXX)
     const generatePONumber = () => {
@@ -185,6 +195,25 @@ const ProcurementDashboard = () => {
         }
     });
 
+    const bulkUpdateRequisitionsMutation = useMutation({
+        mutationFn: async ({ ids, po_number, supplier_id }: { ids: string[], po_number: string, supplier_id: string }) => {
+            const { error } = await sb.from("garage_requisitions").update({
+                status: 'Purchased',
+                po_number: po_number,
+                supplier_id: supplier_id,
+                status_updated_at: new Date().toISOString()
+            }).in("id", ids);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+            setIsGroupedPODialogOpen(false);
+            setSelectedRequisitionIds([]);
+            toast({ title: "Grouped PO Generated", description: `PO created for ${selectedRequisitionIds.length} items.` });
+        }
+    });
+
     const createReqMutation = useMutation({
         mutationFn: async (req: typeof newReq) => {
             const { data, error } = await sb.from("garage_requisitions").insert([{
@@ -219,12 +248,53 @@ const ProcurementDashboard = () => {
         }
     });
 
-    const printRequisition = (req: any) => {
-        const item = inventory?.find((i: any) => i.id === req.item_id);
-        const price = req.unit_price || item?.unit_price || 0;
-        const total = req.total_price || (price * (req.quantity_approved || req.quantity_requested));
-        const vat = req.vat_amount || 0;
-        const subtotal = total - (req.includes_vat ? vat : 0);
+    const printPurchaseOrder = (params: { poNumber?: string, reqId?: string }) => {
+        let relatedReqs: any[] = [];
+
+        if (params.poNumber) {
+            relatedReqs = (requisitions || []).filter((r: any) => r.po_number === params.poNumber);
+        } else if (params.reqId) {
+            const single = (requisitions || []).find((r: any) => r.id === params.reqId);
+            if (single) relatedReqs = [single];
+        }
+
+        if (relatedReqs.length === 0) {
+            toast({ variant: "destructive", title: "Error", description: "No items found to print." });
+            return;
+        }
+
+        const firstReq = relatedReqs[0];
+        const displayPONumber = params.poNumber || "REQ-" + firstReq.id.slice(0, 8).toUpperCase();
+        let subtotal = 0;
+        let totalVat = 0;
+
+        const itemsHtml = relatedReqs.map((req: any) => {
+            const item = inventory?.find((i: any) => i.id === req.item_id);
+            const price = req.unit_price || item?.unit_price || 0;
+            const qty = req.quantity_approved || req.quantity_requested;
+            const lineTotal = price * qty;
+            const lineVat = req.includes_vat ? (lineTotal * 0.18) : 0;
+
+            subtotal += lineTotal;
+            totalVat += lineVat;
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 700;">${req.item_name}</div>
+                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
+                            Vehicle: ${req.vehicle?.vehicle_no || 'N/A'} 
+                            ${req.vehicle?.horse_number ? `(Horse: ${req.horse_number})` : ''}
+                        </div>
+                    </td>
+                    <td style="text-align: center;">${qty}</td>
+                    <td style="text-align: right;">${price.toLocaleString()}</td>
+                    <td style="text-align: right;">${lineTotal.toLocaleString()}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const finalTotal = subtotal + totalVat;
 
         const printWindow = window.open('', '_blank');
         if (!printWindow) return;
@@ -232,7 +302,7 @@ const ProcurementDashboard = () => {
         printWindow.document.write(`
             <html>
                 <head>
-                    <title>Purchase Order - ${req.po_number || 'REQ'}</title>
+                    <title>Purchase Order - ${displayPONumber}</title>
                     <style>
                         body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; }
                         .header { display: flex; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
@@ -255,44 +325,41 @@ const ProcurementDashboard = () => {
                 <body>
                     <div class="header">
                         <div>
-                            <div class="company">${req.target_company}</div>
+                            <div class="company">${firstReq.target_company}</div>
                             <div style="font-size: 12px; color: #64748b; font-weight: 600;">Logistics & Engineering Procurement</div>
                         </div>
                         <div style="text-align: right">
                             <div class="po-label">PURCHASE ORDER</div>
-                            <div style="font-size: 16px; font-weight: 800; color: #1e293b; margin-top: 8px;"># ${req.po_number || 'PENDING'}</div>
+                            <div style="font-size: 16px; font-weight: 800; color: #1e293b; margin-top: 8px;"># ${displayPONumber}</div>
                         </div>
                     </div>
 
                     <div class="meta-grid">
                         <div class="meta-box">
                             <h3>Vendor / Supplier</h3>
-                            <p>${req.supplier?.name || 'N/A'}</p>
+                            <p>${firstReq.supplier?.name || 'N/A'}</p>
                             <p style="font-size: 11px; font-weight: 400; color: #64748b;">Official Registered Vendor</p>
                         </div>
-                        <div class="meta-box" style="text-align: right;">
-                            <h3>Order Details</h3>
-                            <p>Date: ${new Date(req.created_at).toLocaleDateString()}</p>
-                            <p>Ref: REQ-${req.id.slice(0, 8).toUpperCase()}</p>
+                        <div style="text-align: right;">
+                            <div class="meta-box">
+                                <h3>Order Details</h3>
+                                <p>Date: ${new Date(firstReq.created_at).toLocaleDateString()}</p>
+                                <p>Items: ${relatedReqs.length}</p>
+                            </div>
                         </div>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th>Description</th>
+                                <th>Description / Vehicle</th>
                                 <th style="text-align: center;">Qty</th>
                                 <th style="text-align: right;">Unit Price (TZS)</th>
                                 <th style="text-align: right;">Amount (TZS)</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td style="font-weight: 700;">${req.item_name}</td>
-                                <td style="text-align: center;">${req.quantity_approved || req.quantity_requested}</td>
-                                <td style="text-align: right;">${price.toLocaleString()}</td>
-                                <td style="text-align: right;">${subtotal.toLocaleString()}</td>
-                            </tr>
+                            ${itemsHtml}
                         </tbody>
                     </table>
 
@@ -301,20 +368,20 @@ const ProcurementDashboard = () => {
                             <td>Subtotal</td>
                             <td style="text-align: right;">${subtotal.toLocaleString()}</td>
                         </tr>
-                        ${req.includes_vat ? `
+                        ${totalVat > 0 ? `
                         <tr style="color: #4f46e5; font-weight: 600;">
                             <td>VAT (18%)</td>
-                            <td style="text-align: right;">+ ${vat.toLocaleString()}</td>
+                            <td style="text-align: right;">+ ${totalVat.toLocaleString()}</td>
                         </tr>
                         ` : ''}
                         <tr class="total-row">
                             <td>TOTAL TZS</td>
-                            <td style="text-align: right;">${total.toLocaleString()}</td>
+                            <td style="text-align: right;">${finalTotal.toLocaleString()}</td>
                         </tr>
                     </table>
 
                     <div class="sig-grid">
-                        <div class="sig-line">Requested By (Mechanic/Garage)</div>
+                        <div class="sig-line">Requested By (Garage)</div>
                         <div class="sig-line">Authorized By (Procurement)</div>
                     </div>
 
@@ -444,6 +511,18 @@ const ProcurementDashboard = () => {
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/40 border-b">
+                                        <TableHead className="w-[40px] px-4">
+                                            <Checkbox
+                                                checked={selectedRequisitionIds.length === (requisitions || []).length && requisitions?.length > 0}
+                                                onCheckedChange={(checked) => {
+                                                    if (checked) {
+                                                        setSelectedRequisitionIds((requisitions || []).map((r: any) => r.id));
+                                                    } else {
+                                                        setSelectedRequisitionIds([]);
+                                                    }
+                                                }}
+                                            />
+                                        </TableHead>
                                         <TableHead className="text-xs font-semibold uppercase">Req Date</TableHead>
                                         <TableHead className="text-xs font-semibold uppercase">Company</TableHead>
                                         <TableHead className="text-xs font-semibold uppercase">PO Number</TableHead>
@@ -473,7 +552,7 @@ const ProcurementDashboard = () => {
                                         );
                                     }).length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={7} className="py-20 text-center">
+                                            <TableCell colSpan={8} className="py-20 text-center">
                                                 <div className="flex flex-col items-center gap-2 opacity-50">
                                                     <FileText className="w-10 h-10 text-slate-300" />
                                                     <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest">No Requisitions Found</h3>
@@ -493,7 +572,19 @@ const ProcurementDashboard = () => {
                                             (r.status || "").toLowerCase().includes(searchLower)
                                         );
                                     }).map((req: any) => (
-                                        <TableRow key={req.id} className="hover:bg-slate-50/50 transition-colors">
+                                        <TableRow key={req.id} className={`hover:bg-slate-50/50 transition-colors ${selectedRequisitionIds.includes(req.id) ? 'bg-indigo-50/30' : ''}`}>
+                                            <TableCell className="px-4">
+                                                <Checkbox
+                                                    checked={selectedRequisitionIds.includes(req.id)}
+                                                    onCheckedChange={(checked) => {
+                                                        if (checked) {
+                                                            setSelectedRequisitionIds(prev => [...prev, req.id]);
+                                                        } else {
+                                                            setSelectedRequisitionIds(prev => prev.filter(id => id !== req.id));
+                                                        }
+                                                    }}
+                                                />
+                                            </TableCell>
                                             <TableCell className="py-4">
                                                 <div className="flex flex-col">
                                                     <span className="text-xs text-slate-500 font-medium">{new Date(req.created_at).toLocaleDateString()}</span>
@@ -549,7 +640,7 @@ const ProcurementDashboard = () => {
                                                                 variant="outline"
                                                                 size="sm"
                                                                 className="h-8 text-[10px] px-3 font-bold uppercase tracking-wider text-slate-600 hover:text-indigo-600 border-slate-200"
-                                                                onClick={() => printRequisition(req)}
+                                                                onClick={() => printPurchaseOrder({ reqId: req.id })}
                                                             >
                                                                 <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
                                                             </Button>
@@ -575,7 +666,7 @@ const ProcurementDashboard = () => {
                                                                 variant="outline"
                                                                 size="sm"
                                                                 className="h-8 text-[10px] px-3 font-bold uppercase tracking-wider text-slate-600 hover:text-indigo-600 border-slate-200"
-                                                                onClick={() => printRequisition(req)}
+                                                                onClick={() => printPurchaseOrder({ poNumber: req.po_number })}
                                                             >
                                                                 <Printer className="w-3.5 h-3.5 mr-1.5" /> Print PO
                                                             </Button>
@@ -596,6 +687,59 @@ const ProcurementDashboard = () => {
                             </Table>
                         </CardContent>
                     </Card>
+
+                    {/* Floating Grouped Actions Bar */}
+                    {selectedRequisitionIds.length > 0 && (
+                        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                            <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-full px-6 py-3 flex items-center gap-6 backdrop-blur-md bg-opacity-95">
+                                <div className="flex items-center gap-3 border-r border-slate-700 pr-6">
+                                    <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                                        {selectedRequisitionIds.length}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Items Selected</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-slate-400 hover:text-white hover:bg-slate-800 text-[10px] font-bold uppercase"
+                                        onClick={() => setSelectedRequisitionIds([])}
+                                    >
+                                        Deselect All
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase px-6 h-9 rounded-full shadow-lg shadow-indigo-500/20"
+                                        onClick={() => {
+                                            // Validate same company
+                                            const selectedReqs = (requisitions || []).filter((r: any) => selectedRequisitionIds.includes(r.id));
+                                            const companies = new Set(selectedReqs.map((r: any) => r.target_company));
+
+                                            if (companies.size > 1) {
+                                                toast({
+                                                    variant: "destructive",
+                                                    title: "Invalid Selection",
+                                                    description: "Please select requisitions from the same company to group them into a single PO."
+                                                });
+                                                return;
+                                            }
+
+                                            // Open Review Dialog
+                                            setGroupedPODetails({
+                                                supplier_id: "",
+                                                po_number: generatePONumber(),
+                                                company: [...companies][0] as string
+                                            });
+                                            setIsGroupedPODialogOpen(true);
+                                        }}
+                                    >
+                                        <FileCheck className="w-4 h-4 mr-2" />
+                                        Generate Grouped PO
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </TabsContent>
 
                 <TabsContent value="inventory" className="mt-6">
@@ -1058,6 +1202,102 @@ const ProcurementDashboard = () => {
                             disabled={updateStatusMutation.isPending || !revokeReason.trim()}
                         >
                             {updateStatusMutation.isPending ? "Revoking..." : "Confirm Revoke"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Grouped PO Review Dialog */}
+            <Dialog open={isGroupedPODialogOpen} onOpenChange={setIsGroupedPODialogOpen}>
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-slate-900 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <FileCheck className="w-6 h-6 text-indigo-600" />
+                                Grouped PO Review
+                            </div>
+                            <Badge variant="outline" className="text-[10px] font-bold uppercase py-1 bg-indigo-50 text-indigo-600 border-indigo-200">
+                                {groupedPODetails.company}
+                            </Badge>
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-hidden py-4 flex flex-col gap-6">
+                        {/* Selected Items List */}
+                        <div className="space-y-3">
+                            <Label className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                                <Package className="w-4 h-4" /> Selected Items ({selectedRequisitionIds.length})
+                            </Label>
+                            <ScrollArea className="h-[200px] rounded-xl border border-slate-100 bg-slate-50/50 p-1">
+                                <div className="p-3 space-y-2">
+                                    {requisitions?.filter((r: any) => selectedRequisitionIds.includes(r.id)).map((req: any) => (
+                                        <div key={req.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex items-center justify-between group">
+                                            <div>
+                                                <p className="font-bold text-slate-800 text-sm">{req.item_name}</p>
+                                                <p className="text-[10px] text-slate-400 font-medium">Requested on {new Date(req.created_at).toLocaleDateString()}</p>
+                                            </div>
+                                            <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-200 border-none font-bold">
+                                                Qty: {req.quantity_requested}
+                                            </Badge>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </div>
+
+                        {/* PO Finalization Details */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Vendor / Supplier</Label>
+                                <Select
+                                    value={groupedPODetails.supplier_id}
+                                    onValueChange={(val) => setGroupedPODetails({ ...groupedPODetails, supplier_id: val })}
+                                >
+                                    <SelectTrigger className="h-11 border-slate-200 shadow-sm">
+                                        <SelectValue placeholder="Select Vendor" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(suppliers || []).map((s: any) => (
+                                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Generated PO Number</Label>
+                                <Input
+                                    value={groupedPODetails.po_number}
+                                    onChange={(e) => setGroupedPODetails({ ...groupedPODetails, po_number: e.target.value })}
+                                    className="h-11 font-mono font-bold text-indigo-600 border-slate-200 shadow-sm"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="border-t pt-6">
+                        <Button
+                            variant="ghost"
+                            onClick={() => setIsGroupedPODialogOpen(false)}
+                            className="h-11 font-bold uppercase text-[11px] px-6 text-slate-500 hover:text-slate-700"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            className="h-11 bg-indigo-600 hover:bg-indigo-700 font-bold uppercase text-[11px] px-10 shadow-lg shadow-indigo-100"
+                            disabled={!groupedPODetails.supplier_id || !groupedPODetails.po_number || bulkUpdateRequisitionsMutation.isPending}
+                            onClick={() => bulkUpdateRequisitionsMutation.mutate({
+                                ids: selectedRequisitionIds,
+                                po_number: groupedPODetails.po_number,
+                                supplier_id: groupedPODetails.supplier_id
+                            })}
+                        >
+                            {bulkUpdateRequisitionsMutation.isPending ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Generating...
+                                </>
+                            ) : (
+                                "Finalize Grouped PO"
+                            )}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -58,6 +59,11 @@ const ProcurementDashboard = () => {
         unit_price: 0
     });
 
+    // Revoke Dialog States
+    const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
+    const [revokeDialogReqId, setRevokeDialogReqId] = useState<string | null>(null);
+    const [revokeReason, setRevokeReason] = useState("");
+
     // Generate PO Number (PO-YYYYMMDD-XXXX)
     const generatePONumber = () => {
         const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -81,9 +87,19 @@ const ProcurementDashboard = () => {
         queryKey: ["procurement-requisitions"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number), supplier:garage_suppliers(name)")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)")
                 .order("created_at", { ascending: false });
-            if (error) throw error;
+
+            console.log("📦 PROCUREMENT: Fetched requisitions:", data);
+            console.log("📦 PROCUREMENT: Total count:", data?.length || 0);
+            if (data && data.length > 0) {
+                console.log("📦 PROCUREMENT: Sample requisition:", data[0]);
+            }
+
+            if (error) {
+                console.error("📦 PROCUREMENT ERROR:", error);
+                throw error;
+            }
             return data;
         },
         refetchInterval: 3000
@@ -149,13 +165,23 @@ const ProcurementDashboard = () => {
     });
 
     const updateStatusMutation = useMutation({
-        mutationFn: async ({ reqId, status }: { reqId: string, status: string }) => {
-            const { error } = await sb.from("garage_requisitions").update({ status }).eq("id", reqId);
+        mutationFn: async ({ reqId, status, revokeReason }: { reqId: string, status: string, revokeReason?: string | null }) => {
+            const updateData: any = {
+                status,
+                status_updated_at: new Date().toISOString()
+            };
+
+            if (status === 'Revoked' && revokeReason) {
+                updateData.revoke_reason = revokeReason;
+            }
+
+            const { error } = await sb.from("garage_requisitions").update(updateData).eq("id", reqId);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
-            toast({ title: "Status Updated", description: "Requisition workflow moved forward." });
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] }); // Also refresh garage side
+            toast({ title: "Status Updated", description: "Requisition status has been updated successfully." });
         }
     });
 
@@ -492,24 +518,28 @@ const ProcurementDashboard = () => {
                                                 {req.supplier?.name || <span className="text-slate-300">Not Assigned</span>}
                                             </TableCell>
                                             <TableCell>
-                                                {req.status === 'Pending' ? (
-                                                    getStatusBadge(req.status)
-                                                ) : (
-                                                    <Select
-                                                        value={req.status}
-                                                        onValueChange={(status) => updateStatusMutation.mutate({ reqId: req.id, status })}
-                                                    >
-                                                        <SelectTrigger className="w-32 h-7 text-[10px] font-bold uppercase bg-white border-slate-200">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="Approved" className="text-[10px]">Approved</SelectItem>
-                                                            <SelectItem value="Purchased" className="text-[10px]">Purchased</SelectItem>
-                                                            <SelectItem value="Delivered" className="text-[10px]">Delivered</SelectItem>
-                                                            <SelectItem value="Rejected" className="text-[10px]">Rejected</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                )}
+                                                <Select
+                                                    value={req.status || 'Pending'}
+                                                    onValueChange={(status) => {
+                                                        if (status === 'Revoked') {
+                                                            // Show dialog for revoke reason
+                                                            setRevokeDialogReqId(req.id);
+                                                            setRevokeDialogOpen(true);
+                                                        } else {
+                                                            updateStatusMutation.mutate({ reqId: req.id, status, revokeReason: null });
+                                                        }
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="w-40 h-8 text-[10px] font-bold uppercase bg-white border-slate-200">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Pending" className="text-[10px]">🟡 Pending Review</SelectItem>
+                                                        <SelectItem value="Processing" className="text-[10px]">🔵 Processing</SelectItem>
+                                                        <SelectItem value="Purchased" className="text-[10px]">🟢 Purchased</SelectItem>
+                                                        <SelectItem value="Revoked" className="text-[10px]">🔴 Revoked</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
                                             </TableCell>
                                             <TableCell className="text-right px-6">
                                                 <div className="flex items-center justify-end gap-2">
@@ -960,6 +990,74 @@ const ProcurementDashboard = () => {
                             disabled={!newReq.item_name || createReqMutation.isPending}
                         >
                             {createReqMutation.isPending ? "Submitting..." : "Send Request"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Revoke Reason Dialog */}
+            <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
+                <DialogContent className="sm:max-w-[450px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-slate-700">
+                            <XCircle className="w-5 h-5 text-red-500" />
+                            Revoke Requisition
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="p-3 bg-red-50 border border-red-100 rounded-lg">
+                            <p className="text-xs text-red-700 font-medium">
+                                This requisition will be marked as <strong>Revoked</strong>. The garage team will see this status and the reason you provide below.
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-sm font-bold text-slate-700">Management's Reason for Rejection</Label>
+                            <Textarea
+                                placeholder="Enter the reason from management (e.g., 'Not in budget', 'Item not needed', etc.)"
+                                className="min-h-[100px] text-sm"
+                                value={revokeReason}
+                                onChange={(e) => setRevokeReason(e.target.value)}
+                            />
+                            <p className="text-xs text-slate-400 italic">This reason will be visible to the requester</p>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setRevokeDialogOpen(false);
+                                setRevokeReason("");
+                                setRevokeDialogReqId(null);
+                            }}
+                            className="h-10"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            className="h-10 bg-red-600 hover:bg-red-700"
+                            onClick={() => {
+                                if (!revokeReason.trim()) {
+                                    toast({
+                                        variant: "destructive",
+                                        title: "Reason Required",
+                                        description: "Please enter a reason for revoking this requisition."
+                                    });
+                                    return;
+                                }
+                                if (revokeDialogReqId) {
+                                    updateStatusMutation.mutate({
+                                        reqId: revokeDialogReqId,
+                                        status: 'Revoked',
+                                        revokeReason: revokeReason
+                                    });
+                                    setRevokeDialogOpen(false);
+                                    setRevokeReason("");
+                                    setRevokeDialogReqId(null);
+                                }
+                            }}
+                            disabled={updateStatusMutation.isPending || !revokeReason.trim()}
+                        >
+                            {updateStatusMutation.isPending ? "Revoking..." : "Confirm Revoke"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

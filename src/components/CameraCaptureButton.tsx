@@ -33,7 +33,7 @@ export function CameraCaptureButton({
   const isAdmin = userRole === "admin";
   const [settings, setSettings] = useState<CameraSettings>({
     cameraEnabled: false,
-    cameraUrl: `http://${window.location.hostname}:5000`,
+    cameraUrl: "http://localhost:5000",
   });
 
   useEffect(() => {
@@ -42,7 +42,7 @@ export function CameraCaptureButton({
       const parsed = JSON.parse(saved);
       setSettings({
         cameraEnabled: parsed.cameraEnabled ?? false,
-        cameraUrl: parsed.cameraUrl ?? `http://${window.location.hostname}:5000`,
+        cameraUrl: parsed.cameraUrl ?? "http://localhost:5000",
       });
     }
   }, []);

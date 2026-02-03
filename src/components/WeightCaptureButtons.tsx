@@ -42,7 +42,7 @@ export function WeightCaptureButtons({
   const [settings, setSettings] = useState<WeightSettings>({
     automaticMode: false,
     hardwareIntegrationEnabled: false,
-    hardwareBridgeUrl: `http://${window.location.hostname}:5000`,
+    hardwareBridgeUrl: "http://localhost:5000",
   });
 
   const hardwareWebSocket = new HardwareWebSocket(settings.hardwareBridgeUrl);
@@ -56,7 +56,7 @@ export function WeightCaptureButtons({
       setSettings({
         automaticMode: parsed.automaticMode ?? false,
         hardwareIntegrationEnabled: parsed.hardwareIntegrationEnabled ?? false,
-        hardwareBridgeUrl: parsed.hardwareBridgeUrl ?? `http://${window.location.hostname}:5000`,
+        hardwareBridgeUrl: parsed.hardwareBridgeUrl ?? "http://localhost:5000",
       });
     }
   }, []);

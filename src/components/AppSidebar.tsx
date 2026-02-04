@@ -28,6 +28,7 @@ const weighbridgeItems = [
   { title: "Completed Vehicles", url: "/completed", icon: CheckCircle, roles: ["admin", "operator"] },
   { title: "Receipt History", url: "/receipt-history", icon: Printer, roles: ["admin", "operator"] },
   { title: "Cashier", url: "/cashier", icon: DollarSign, roles: ["admin", "operator"] },
+  { title: "Procurement Request", url: "/weighbridge-requisitions", icon: Package, roles: ["admin", "operator"] },
   { title: "Overdue History", url: "/overdue-history", icon: TimerOff, roles: ["admin", "operator"] },
   { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["admin", "super_admin"] },
 

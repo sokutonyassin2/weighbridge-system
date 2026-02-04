@@ -100,6 +100,9 @@ export function WeightCaptureButtons({
           const { detail } = event;
           if (detail && detail.weight !== undefined) {
             setLiveWeight(detail.weight.toString());
+            // If we're getting weight, we are definitely connected!
+            // This bypasses any delay in the initial connection handshake
+            setHardwareStatus('connected');
           }
         };
 
@@ -158,6 +161,7 @@ export function WeightCaptureButtons({
       const weight = String(data.weight);
 
       if (weight && !isNaN(parseFloat(weight))) {
+        setHardwareStatus('connected'); // Also update status on successful pull
         switch (type) {
           case 'gross':
             onCaptureGross(weight);
@@ -234,7 +238,7 @@ export function WeightCaptureButtons({
                     w-10 h-14 rounded-sm flex items-center justify-center
                     border-2 border-slate-800 bg-slate-900/80
                     text-4xl font-mono font-bold
-                    ${isPadding ? 'text-emerald-500/5' : 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.7)]'}
+                    ${isPadding ? 'text-emerald-500/10' : 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.7)]'}
                     transition-all duration-75
                   `}
                 >

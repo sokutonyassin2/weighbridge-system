@@ -39,6 +39,7 @@ import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
 import InventoryReports from "./pages/garage/InventoryReports";
 import GarageAttendance from "./pages/garage/Attendance";
 import SuperadminDashboard from "./pages/SuperadminDashboard";
+import WeighbridgeRequisitions from "./pages/WeighbridgeRequisitions";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -69,6 +70,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <OperatorDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/weighbridge-requisitions"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <WeighbridgeRequisitions />
                   </Layout>
                 </ProtectedRoute>
               }

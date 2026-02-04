@@ -100,11 +100,32 @@ export default function VehicleTypes() {
   const deleteTypeMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("vehicle_types").delete().eq("id", id);
-      if (error) throw error;
+      if (error) {
+        // Check if it's a foreign key constraint error (Postgrest code 23503)
+        if (error.code === '23503') {
+          // If we can't delete, we offer to "Archive" (rename)
+          const target = vehicleTypes?.find(t => t.id === id);
+          if (target) {
+            const { error: updateError } = await supabase
+              .from("vehicle_types")
+              .update({ type_name: `[ARCHIVED] ${target.type_name}` })
+              .eq("id", id);
+            if (updateError) throw updateError;
+            return { archived: true };
+          }
+        }
+        throw error;
+      }
+      return { archived: false };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["vehicle-types"] });
-      toast({ title: "Success", description: "Vehicle type deleted successfully" });
+      toast({
+        title: "Success",
+        description: result?.archived
+          ? "This vehicle has historical records and cannot be deleted, so it has been ARCHIVED and hidden from new entries."
+          : "Vehicle type deleted successfully"
+      });
       setDeleteId(null);
     },
     onError: (error: any) => {
@@ -258,7 +279,7 @@ export default function VehicleTypes() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vehicleTypes?.map((type) => (
+                {vehicleTypes?.filter(t => !t.type_name.startsWith("[ARCHIVED]")).map((type) => (
                   <TableRow key={type.id}>
                     <TableCell className="font-bold">{type.type_name}</TableCell>
                     <TableCell>
@@ -376,7 +397,7 @@ export default function VehicleTypes() {
               className="bg-red-600 hover:bg-red-700"
               onClick={() => deleteId && deleteTypeMutation.mutate(deleteId)}
             >
-              Delete
+              Confirm
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

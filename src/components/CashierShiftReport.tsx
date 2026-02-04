@@ -196,23 +196,23 @@ export const CashierShiftReport = ({
                 <Table>
                   <TableHeader className="hidden print:table-header-group">
                     <TableRow>
-                      <TableHead className="font-bold print:text-lg">Entry ID</TableHead>
-                      <TableHead className="font-bold print:text-lg">Vehicle No</TableHead>
-                      <TableHead className="font-bold print:text-lg">Type</TableHead>
-                      <TableHead className="font-bold print:text-lg text-right">Total (TShs)</TableHead>
+                      <TableHead className="font-bold print:text-sm">Entry ID</TableHead>
+                      <TableHead className="font-bold print:text-sm">Vehicle No</TableHead>
+                      <TableHead className="font-bold print:text-sm">Type</TableHead>
+                      <TableHead className="font-bold print:text-sm text-right">Total (TShs)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {consolidatedPayments.map((item) => (
                       <TableRow key={item.id} className="print:break-inside-avoid">
-                        <TableCell className="font-bold print:text-lg text-xs">
+                        <TableCell className="font-bold print:text-sm text-xs">
                           {item.entry_id ? getShortEntryId(item.entry_id, item.vehicle_entries?.wb_number) : "N/A"}
                         </TableCell>
-                        <TableCell className="font-bold print:text-lg text-xs">{item.vehicle_no}</TableCell>
-                        <TableCell className="font-bold print:text-lg text-xs">
+                        <TableCell className="font-bold print:text-sm text-xs">{item.vehicle_no}</TableCell>
+                        <TableCell className="font-bold print:text-sm text-xs">
                           {item.vehicle_entries?.vehicle_types?.type_name || '-'}
                         </TableCell>
-                        <TableCell className="font-bold print:text-lg text-xs text-right">
+                        <TableCell className="font-bold print:text-sm text-xs text-right">
                           {item.totalAmount.toLocaleString()}
                         </TableCell>
                       </TableRow>
@@ -238,36 +238,36 @@ export const CashierShiftReport = ({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="font-bold print:text-lg">Entry ID</TableHead>
-                      <TableHead className="font-bold print:text-lg">Vehicle No</TableHead>
-                      <TableHead className="font-bold print:text-lg">Vehicle Type</TableHead>
-                      <TableHead className="font-bold print:text-lg">Customer/Farmer</TableHead>
-                      <TableHead className="font-bold print:text-lg">Completion Time</TableHead>
-                      <TableHead className="font-bold print:text-lg">Status</TableHead>
+                      <TableHead className="font-bold print:text-sm">Entry ID</TableHead>
+                      <TableHead className="font-bold print:text-sm">Vehicle No</TableHead>
+                      <TableHead className="font-bold print:text-sm">Vehicle Type</TableHead>
+                      <TableHead className="font-bold print:text-sm">Customer/Farmer</TableHead>
+                      <TableHead className="font-bold print:text-sm">Completion Time</TableHead>
+                      <TableHead className="font-bold print:text-sm">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {completedWeighs.map((record) => (
                       <TableRow key={record.id}>
-                        <TableCell className="font-bold print:text-lg">
+                        <TableCell className="font-bold print:text-sm">
                           {record.vehicle_entries?.wb_number
                             ? getShortEntryId(record.entry_id, record.vehicle_entries.wb_number)
                             : "N/A"}
                         </TableCell>
-                        <TableCell className="font-bold print:text-lg">
+                        <TableCell className="font-bold print:text-sm">
                           {record.vehicle_entries?.vehicle_no}
                         </TableCell>
-                        <TableCell className="font-bold print:text-lg">
+                        <TableCell className="font-bold print:text-sm">
                           {record.vehicle_entries?.vehicle_types?.type_name || '-'}
                         </TableCell>
-                        <TableCell className="print:text-lg">
+                        <TableCell className="print:text-sm">
                           {record.vehicle_entries?.customer_farmer_name || '-'}
                         </TableCell>
-                        <TableCell className="print:text-lg">
+                        <TableCell className="print:text-sm">
                           {format(new Date(record.weigh_time), "HH:mm")}
                         </TableCell>
-                        <TableCell className="print:text-lg">
-                          <span className="text-success font-medium">Second Weigh Complete</span>
+                        <TableCell className="print:text-sm">
+                          <span className="text-success font-medium">Complete</span>
                         </TableCell>
                       </TableRow>
                     ))}

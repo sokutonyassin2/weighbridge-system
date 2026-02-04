@@ -578,16 +578,30 @@ Please process payment in Cashier section first.`,
 
         if (typeof fee === 'number' && !skipPayment && !skipSecondWeighPayment && fee > 0) {
           promises.push((async () => {
-            const { data: existing } = await supabase.from("payments").select("id").eq("entry_id", id).eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh").maybeSingle();
+            const { data: existing } = await supabase.from("payments").select("id, payment_status").eq("entry_id", id).eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh").maybeSingle();
+
+            // Auto-mark as PAID if it's the second weigh (User requirement: "when they save automatically let the money reflect")
+            const shouldBePaid = isFirstWeigh ? true : true; // Both First and Second weigh now auto-mark as paid on save/print if applicable
+
             if (!existing) {
               return supabase.from("payments").insert({
                 entry_id: id,
                 vehicle_no: entry.vehicle_no,
                 amount: fee,
                 payment_type: isFirstWeigh ? "First Weigh" : "Second Weigh",
-                payment_status: isFirstWeigh ? "Paid" : "Pending",
-                paid_at: isFirstWeigh ? new Date().toISOString() : null,
+                payment_status: "Paid", // Always Paid on save
+                paid_at: new Date().toISOString(),
+                cashier_name: userProfile?.full_name || "Operator",
+                cashier_id: user?.id
               });
+            } else if (!isFirstWeigh && existing.payment_status === 'Pending') {
+              // If Second Weigh exists but is Pending, update it to Paid
+              return supabase.from("payments").update({
+                payment_status: "Paid",
+                paid_at: new Date().toISOString(),
+                cashier_name: userProfile?.full_name || "Operator",
+                cashier_id: user?.id
+              }).eq("id", existing.id);
             }
           })());
         }
@@ -616,6 +630,11 @@ Please process payment in Cashier section first.`,
         queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
         queryClient.invalidateQueries({ queryKey: ["shift-stats"] });
       }
+
+      // Force immediate refetch of current entry to update UI state instantly
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ["vehicle-entry", id] });
+      queryClient.invalidateQueries({ queryKey: ["pending-weigh", id] });
 
       // Final Step: Print or Redirect
       // Always show print dialog as requested by user
@@ -1267,84 +1286,86 @@ Please process payment in Cashier section first.`,
               </div>
             )}
 
-            {/* Modern Status Selection Cards */}
-            <div className="grid md:grid-cols-2 gap-4 pt-2">
-              <div
-                onClick={() => {
-                  const newState = !weighData.warning_flag;
-                  setWeighData({
-                    ...weighData,
-                    warning_flag: newState,
-                    complete_vehicle: newState ? false : weighData.complete_vehicle
-                  });
-                }}
-                className={`
-                  relative p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer hover:shadow-md flex items-start gap-4 select-none
-                  ${weighData.warning_flag
-                    ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
-                    : 'border-muted hover:border-red-200 dark:hover:border-red-800 bg-card'}
-                `}
-              >
-                <div className={`
-                  p-3 rounded-full shrink-0 transition-colors
-                  ${weighData.warning_flag ? 'bg-red-500 text-white' : 'bg-muted text-muted-foreground'}
-                `}>
-                  <AlertTriangle className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className={`font-bold text-lg mb-1 ${weighData.warning_flag ? 'text-red-600 dark:text-red-400' : ''}`}>
-                    Weight Warning
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Flag this vehicle for weight limits exceedance.
-                  </p>
-                </div>
-                {weighData.warning_flag && (
-                  <div className="absolute top-4 right-4 text-red-500">
-                    <CheckCircle className="h-6 w-6 fill-current" />
+            {/* Modern Status Selection Cards - Hidden for MV categories since they follow a fixed cycle */}
+            {!isMVCategory && (
+              <div className="grid md:grid-cols-2 gap-4 pt-2">
+                <div
+                  onClick={() => {
+                    const newState = !weighData.warning_flag;
+                    setWeighData({
+                      ...weighData,
+                      warning_flag: newState,
+                      complete_vehicle: newState ? false : weighData.complete_vehicle
+                    });
+                  }}
+                  className={`
+                    relative p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer hover:shadow-md flex items-start gap-4 select-none
+                    ${weighData.warning_flag
+                      ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
+                      : 'border-muted hover:border-red-200 dark:hover:border-red-800 bg-card'}
+                  `}
+                >
+                  <div className={`
+                    p-3 rounded-full shrink-0 transition-colors
+                    ${weighData.warning_flag ? 'bg-red-500 text-white' : 'bg-muted text-muted-foreground'}
+                  `}>
+                    <AlertTriangle className="h-6 w-6" />
                   </div>
-                )}
-              </div>
+                  <div>
+                    <h3 className={`font-bold text-lg mb-1 ${weighData.warning_flag ? 'text-red-600 dark:text-red-400' : ''}`}>
+                      Weight Warning
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Flag this vehicle for weight limits exceedance.
+                    </p>
+                  </div>
+                  {weighData.warning_flag && (
+                    <div className="absolute top-4 right-4 text-red-500">
+                      <CheckCircle className="h-6 w-6 fill-current" />
+                    </div>
+                  )}
+                </div>
 
-              <div
-                onClick={() => {
-                  if (weighData.warning_flag) return;
-                  const newState = !weighData.complete_vehicle;
-                  setWeighData({
-                    ...weighData,
-                    complete_vehicle: newState,
-                    warning_flag: newState ? false : weighData.warning_flag
-                  });
-                }}
-                className={`
-                  relative p-4 rounded-xl border-2 transition-all duration-200 flex items-start gap-4 select-none
-                  ${weighData.warning_flag ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
-                  ${weighData.complete_vehicle
-                    ? 'border-green-500 bg-green-50 dark:bg-green-950/30'
-                    : 'border-muted hover:border-green-200 dark:hover:border-green-800 bg-card'}
-                `}
-              >
-                <div className={`
-                  p-3 rounded-full shrink-0 transition-colors
-                  ${weighData.complete_vehicle ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}
-                `}>
-                  <CheckCircle className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className={`font-bold text-lg mb-1 ${weighData.complete_vehicle ? 'text-green-600 dark:text-green-400' : ''}`}>
-                    Mark Complete
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Vehicle weight is within limits.
-                  </p>
-                </div>
-                {weighData.complete_vehicle && (
-                  <div className="absolute top-4 right-4 text-green-500">
-                    <CheckCircle className="h-6 w-6 fill-current" />
+                <div
+                  onClick={() => {
+                    if (weighData.warning_flag) return;
+                    const newState = !weighData.complete_vehicle;
+                    setWeighData({
+                      ...weighData,
+                      complete_vehicle: newState,
+                      warning_flag: newState ? false : weighData.warning_flag
+                    });
+                  }}
+                  className={`
+                    relative p-4 rounded-xl border-2 transition-all duration-200 flex items-start gap-4 select-none
+                    ${weighData.warning_flag ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
+                    ${weighData.complete_vehicle
+                      ? 'border-green-500 bg-green-50 dark:bg-green-950/30'
+                      : 'border-muted hover:border-green-200 dark:hover:border-green-800 bg-card'}
+                  `}
+                >
+                  <div className={`
+                    p-3 rounded-full shrink-0 transition-colors
+                    ${weighData.complete_vehicle ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}
+                  `}>
+                    <CheckCircle className="h-6 w-6" />
                   </div>
-                )}
+                  <div>
+                    <h3 className={`font-bold text-lg mb-1 ${weighData.complete_vehicle ? 'text-green-600 dark:text-green-400' : ''}`}>
+                      Mark Complete
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Vehicle weight is within limits.
+                    </p>
+                  </div>
+                  {weighData.complete_vehicle && (
+                    <div className="absolute top-4 right-4 text-green-500">
+                      <CheckCircle className="h-6 w-6 fill-current" />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {weighData.warning_flag && (
               <div className="space-y-2">

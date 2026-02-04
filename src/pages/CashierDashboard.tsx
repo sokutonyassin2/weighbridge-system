@@ -51,6 +51,7 @@ const ShiftCollectionsCard = ({ isAdmin, user, startDate, endDate, shiftName }: 
 
       return paymentsTotal + penaltiesTotal;
     },
+    refetchInterval: 5000, // Syncs with dashboard updates (5s for faster feedback)
   });
 
   return (
@@ -316,6 +317,9 @@ export default function CashierDashboard() {
         description: `Payment of ${amount.toLocaleString()} TShs marked as paid`,
       });
 
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["shift-collections"] });
+      queryClient.invalidateQueries({ queryKey: ["shift-payments"] });
       refetchPayments();
     } catch (error: any) {
       toast({

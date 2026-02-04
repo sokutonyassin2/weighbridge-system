@@ -71,7 +71,8 @@ export default function VehicleEntry() {
           if (error) throw error;
           return data;
         });
-        setVehicleTypes(data || []);
+        const activeTypes = (data || []).filter((t: any) => !t.type_name.startsWith("[ARCHIVED]"));
+        setVehicleTypes(activeTypes);
       } catch (error) {
         console.error('Error fetching vehicle types:', error);
         // Fallback to cached data if available
@@ -97,6 +98,15 @@ export default function VehicleEntry() {
       window.removeEventListener('online', handleOnline);
     };
   }, []);
+
+  // Automate Arrived Loaded Checkbox for MV categories
+  useEffect(() => {
+    if (selectedCategory === "MV-Supplier" || selectedCategory === "MV-PublicSeller") {
+      setFormData(prev => ({ ...prev, came_loaded: true }));
+    } else if (selectedCategory === "MV-Company") {
+      setFormData(prev => ({ ...prev, came_loaded: false }));
+    }
+  }, [selectedCategory]);
 
   // Check for prefill parameter from global search
   useEffect(() => {
@@ -571,8 +581,9 @@ Cannot add again until completed.`,
 
 
             {/* MV-Category: Arrived Loaded Checkbox */}
+            {/* MV-Category: Arrived Loaded Checkbox - HIDDEN as per user request (Auto-set in logic) 
             {isMVCategory && (
-              <div className="space-y-2 p-4 border rounded-md bg-muted/50">
+              <div className="space-y-2 p-4 border rounded-md bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900">
                 <div className="flex items-center gap-2">
                   <Checkbox
                     id="came_loaded"
@@ -581,17 +592,19 @@ Cannot add again until completed.`,
                       setFormData({ ...formData, came_loaded: checked as boolean })
                     }
                   />
-                  <Label htmlFor="came_loaded" className="font-medium cursor-pointer">
+                  <Label htmlFor="came_loaded" className="font-semibold cursor-pointer text-blue-900 dark:text-blue-100 flex items-center gap-2">
                     Vehicle arrived loaded (with cargo)
+                    <Badge variant="outline" className="text-[10px] font-normal border-blue-200 text-blue-600 bg-white">Auto-set by category</Badge>
                   </Label>
                 </div>
-                <p className="text-xs text-muted-foreground ml-6">
+                <p className="text-xs text-blue-700 dark:text-blue-300 ml-6 font-medium">
                   {formData.came_loaded
                     ? "First weigh will record gross weight (loaded). Second weigh will record tare weight (empty)."
                     : "First weigh will record tare weight (empty). Second weigh will record gross weight (loaded)."}
                 </p>
               </div>
             )}
+            */ }
 
             {/* Conditional fields for MV categories */}
             {selectedCategory && !["JV-Payment", "JV-Free", "Transit"].includes(selectedCategory) && (
@@ -632,18 +645,20 @@ Cannot add again until completed.`,
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="cargo_description">Cargo Description</Label>
-                  <Textarea
-                    id="cargo_description"
-                    placeholder="Describe the cargo..."
-                    value={formData.cargo_description}
-                    onChange={(e) =>
-                      setFormData({ ...formData, cargo_description: e.target.value })
-                    }
-                    rows={3}
-                  />
-                </div>
+                {!isMVCategory && (
+                  <div className="space-y-2">
+                    <Label htmlFor="cargo_description">Cargo Description</Label>
+                    <Textarea
+                      id="cargo_description"
+                      placeholder="Describe the cargo..."
+                      value={formData.cargo_description}
+                      onChange={(e) =>
+                        setFormData({ ...formData, cargo_description: e.target.value })
+                      }
+                      rows={3}
+                    />
+                  </div>
+                )}
               </>
             )}
 

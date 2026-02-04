@@ -573,7 +573,7 @@ Please process payment in Cashier section first.`,
         const skipPayment = entry.penalty_paid_entry === true;
         const entryCategory = entry?.category || "";
         const isJVCategoryPayment = ["JV-Payment", "JV-Free"].includes(entryCategory);
-        const isMVPayOnceCategory = ["MV-PublicSeller", "MV-Supplier"].includes(entryCategory);
+        const isMVPayOnceCategory = ["MV-Supplier"].includes(entryCategory);
         const skipSecondWeighPayment = !isFirstWeigh && (isMVPayOnceCategory || isJVCategoryPayment);
 
         if (typeof fee === 'number' && !skipPayment && !skipSecondWeighPayment && fee > 0) {

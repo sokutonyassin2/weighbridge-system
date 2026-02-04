@@ -223,21 +223,26 @@ export function WeightCaptureButtons({
             Digital Scale Monitor
           </div>
           <div className="flex items-center justify-center gap-1.5">
-            {liveWeight.padStart(6, '0').split('').map((digit, idx) => (
-              <div
-                key={idx}
-                className={`
-                  w-10 h-14 rounded-sm flex items-center justify-center
-                  border border-slate-800 bg-slate-900/50
-                  text-3xl font-mono font-bold
-                  ${digit === '0' && liveWeight === '0' ? 'text-emerald-950/40' : 'text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.5)]'}
-                  transition-all duration-100
-                `}
-              >
-                {digit}
-              </div>
-            ))}
-            <div className="ml-2 text-xl font-mono text-emerald-500/60 font-bold italic self-end mb-1">
+            {liveWeight.padStart(6, '0').split('').map((digit, idx) => {
+              const totalDigits = liveWeight.length;
+              const paddingZerosCount = 6 - totalDigits;
+              const isPadding = idx < paddingZerosCount;
+              return (
+                <div
+                  key={idx}
+                  className={`
+                    w-10 h-14 rounded-sm flex items-center justify-center
+                    border-2 border-slate-800 bg-slate-900/80
+                    text-4xl font-mono font-bold
+                    ${isPadding ? 'text-emerald-500/5' : 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.7)]'}
+                    transition-all duration-75
+                  `}
+                >
+                  {digit}
+                </div>
+              );
+            })}
+            <div className="ml-2 text-2xl font-mono text-emerald-500/80 font-bold italic self-end mb-1">
               kg
             </div>
           </div>

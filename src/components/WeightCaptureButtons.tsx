@@ -242,9 +242,9 @@ export function WeightCaptureButtons({
             </div>
           </div>
           <div className="mt-3 flex justify-center items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-slate-800'}`} />
-            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
-              {hardwareStatus === 'connected' ? 'Hardware Signal Stable' : 'Connecting to Scale...'}
+            <div className={`h-2 w-2 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]' : hardwareStatus === 'error' ? 'bg-red-500' : 'bg-slate-800'}`} />
+            <div className={`text-[10px] uppercase font-bold tracking-wider ${hardwareStatus === 'connected' ? 'text-emerald-500' : hardwareStatus === 'error' ? 'text-red-500' : 'text-slate-500'}`}>
+              {hardwareStatus === 'connected' ? 'SCALE CONNECTED' : hardwareStatus === 'error' ? 'CONNECTION ERROR' : 'CONNECTING TO SCALE...'}
             </div>
           </div>
         </div>

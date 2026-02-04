@@ -69,16 +69,21 @@ export default function CashierDashboard() {
   const [selectedShift, setSelectedShift] = useState<"Day" | "Night">(getCurrentShiftName());
   const [showShiftReport, setShowShiftReport] = useState(false);
   const [reportDate, setReportDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-
-  // Date filters (admin only)
   const [startDate, setStartDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+
+  // Sync admin filters when report date changes for a better UX
+  const handleReportDateChange = (date: string) => {
+    setReportDate(date);
+    setStartDate(date);
+    setEndDate(date);
+  };
   const isAdmin = userRole === "admin";
 
   const { data: payments, refetch: refetchPayments } = useQuery({
-    queryKey: ["payments", startDate, endDate, isAdmin, selectedShift],
+    queryKey: ["payments", reportDate, isAdmin, selectedShift],
     queryFn: async () => {
-      const { startTime, endTime } = getShiftTimeWindow(startDate, selectedShift);
+      const { startTime, endTime } = getShiftTimeWindow(reportDate, selectedShift);
 
       let query = supabase
         .from("payments")
@@ -113,12 +118,10 @@ export default function CashierDashboard() {
         .limit(50);
 
       // Apply date filters for admin only
-      if (isAdmin && startDate) {
-        query = query.gte("created_at", `${startDate}T00:00:00+03:00`);
-      }
-      if (isAdmin && endDate) {
-        query = query.lte("created_at", `${endDate}T23:59:59+03:00`);
-      }
+      const { startTime, endTime } = getShiftTimeWindow(reportDate, selectedShift);
+
+      // Apply date filters
+      query = query.gte("created_at", startTime).lte("created_at", endTime);
 
       const { data, error } = await query;
       if (error) throw error;
@@ -469,7 +472,7 @@ export default function CashierDashboard() {
               id="report-date"
               type="date"
               value={reportDate}
-              onChange={(e) => setReportDate(e.target.value)}
+              onChange={(e) => handleReportDateChange(e.target.value)}
               max={format(new Date(), "yyyy-MM-dd")}
               className="text-sm"
             />
@@ -523,8 +526,8 @@ export default function CashierDashboard() {
             <ShiftCollectionsCard
               isAdmin={isAdmin}
               user={user}
-              startDate={startDate}
-              endDate={endDate}
+              startDate={reportDate}
+              endDate={reportDate}
               shiftName={selectedShift}
             />
             <p className="text-xs text-muted-foreground">Total paid in window</p>

@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { Plus, Scale as ScaleIcon, Sun, Moon, AlertTriangle, Power, Trash2, Clock, RefreshCw } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { getShortEntryId } from "@/lib/utils";
+import { getCurrentShiftDate } from "@/lib/shiftUtils";
 import { ExhaustedVehiclePaymentDialog } from "@/components/ExhaustedVehiclePaymentDialog";
 import { SignatureCapture } from "@/components/SignatureCapture";
 import {
@@ -156,7 +157,7 @@ export default function OperatorDashboard() {
   const { data: shiftStats } = useQuery({
     queryKey: ["shift-stats", currentShift],
     queryFn: async () => {
-      const today = format(new Date(), "yyyy-MM-dd");
+      const today = getCurrentShiftDate();
 
       // Query 1: ALL pending vehicles system-wide (cross-shift)
       const { data: allPending, error: pendingError } = await supabase
@@ -202,7 +203,7 @@ export default function OperatorDashboard() {
     setIsEndingShift(true);
 
     try {
-      const today = format(new Date(), "yyyy-MM-dd");
+      const today = getCurrentShiftDate();
 
       // Upload signature to storage
       let signatureUrl = null;
@@ -246,9 +247,9 @@ export default function OperatorDashboard() {
       await supabase.from("activity_logs").insert({
         user_id: user.id,
         user_name: userProfile.full_name || userProfile.username || "Unknown",
-        user_role: userRole,
+        user_role: userRole as any,
         action: "Shift Ended",
-        details: `${currentShift} Shift ended - ${shiftStats?.completed || 0} vehicles completed. Signature captured.`,
+        details: `Shift ended for ${currentShift} on ${today} - ${shiftStats?.completed || 0} vehicles completed. Signature captured.`,
       });
 
       setShiftEnded(true);
@@ -283,9 +284,9 @@ export default function OperatorDashboard() {
       await supabase.from("activity_logs").insert({
         user_id: user?.id || "",
         user_name: userProfile?.full_name || userProfile?.username || "Unknown",
-        user_role: userRole,
+        user_role: userRole as any,
         action: "Vehicle Deletion Attempt - BLOCKED",
-        details: `Attempted to delete vehicle ${vehicleNo} (${getShortEntryId(entryId, 0)}) with ${weighCount}/3 weighs. Deletion blocked.`,
+        details: `Attempted to delete entry for vehicle ${vehicleNo} (${getShortEntryId(entryId, 0)}) with ${weighCount}/3 weighs. Deletion blocked.`,
       });
 
       return;
@@ -310,7 +311,7 @@ export default function OperatorDashboard() {
       await supabase.from("activity_logs").insert({
         user_id: user?.id || "",
         user_name: userProfile?.full_name || userProfile?.username || "Unknown",
-        user_role: userRole,
+        user_role: userRole as any,
         action: "Vehicle Deleted",
         details: `Vehicle ${vehicleNo} (${getShortEntryId(entryId, 0)}) deleted before weighing (0/3 weighs)`,
       });

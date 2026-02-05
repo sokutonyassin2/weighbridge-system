@@ -13,6 +13,7 @@ interface OfflineDataItem {
 
 class OfflineDataManager {
   private storageKey = 'offline_data_queue';
+  private draftKeyPrefix = 'weigh_draft_';
   private syncInterval: number | null = null;
 
   constructor() {
@@ -24,7 +25,7 @@ class OfflineDataManager {
     if (!localStorage.getItem(this.storageKey)) {
       localStorage.setItem(this.storageKey, JSON.stringify([]));
     }
-    
+
     // Start periodic sync when online
     this.startPeriodicSync();
   }
@@ -69,10 +70,41 @@ class OfflineDataManager {
     this.saveOfflineData(updatedData);
   }
 
+  // --- DRAFT MANAGEMENT (Anti-Data Loss) ---
+  saveDraft(entryId: string, data: any): void {
+    try {
+      localStorage.setItem(`${this.draftKeyPrefix}${entryId}`, JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }));
+    } catch (e) {
+      console.warn('Failed to save draft:', e);
+    }
+  }
+
+  getDraft(entryId: string): any | null {
+    try {
+      const item = localStorage.getItem(`${this.draftKeyPrefix}${entryId}`);
+      if (!item) return null;
+      return JSON.parse(item).data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  clearDraft(entryId: string): void {
+    try {
+      localStorage.removeItem(`${this.draftKeyPrefix}${entryId}`);
+    } catch (e) {
+      console.warn('Failed to clear draft:', e);
+    }
+  }
+  // -----------------------------------------
+
   updateSyncStatus(id: string, status: 'pending' | 'syncing' | 'synced' | 'failed') {
     const currentData = this.getOfflineData();
     const itemIndex = currentData.findIndex(item => item.id === id);
-    
+
     if (itemIndex !== -1) {
       currentData[itemIndex].syncStatus = status;
       this.saveOfflineData(currentData);
@@ -99,7 +131,7 @@ class OfflineDataManager {
     for (const item of pendingItems) {
       try {
         this.updateSyncStatus(item.id, 'syncing');
-        
+
         // Determine the appropriate API endpoint based on item type
         let response;
         let url;
@@ -118,7 +150,7 @@ class OfflineDataManager {
               body: JSON.stringify(item.data)
             };
             break;
-            
+
           case 'weigh_record':
             url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/weigh_records`;
             options = {
@@ -131,7 +163,7 @@ class OfflineDataManager {
               body: JSON.stringify(item.data)
             };
             break;
-            
+
           case 'payment':
             url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/payments`;
             options = {
@@ -144,7 +176,7 @@ class OfflineDataManager {
               body: JSON.stringify(item.data)
             };
             break;
-            
+
           case 'penalty':
             url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/penalties`;
             options = {
@@ -157,7 +189,7 @@ class OfflineDataManager {
               body: JSON.stringify(item.data)
             };
             break;
-            
+
           default:
             url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/${item.tableName}`;
             options = {
@@ -210,7 +242,7 @@ class OfflineDataManager {
   getOfflineStatus(): { isOffline: boolean; pendingItems: number } {
     const isOffline = !navigator.onLine;
     const pendingItems = this.getPendingItems().length;
-    
+
     return { isOffline, pendingItems };
   }
 
@@ -259,17 +291,17 @@ class OfflineDataManager {
     try {
       const cacheKey = `offline_cache_${type}`;
       const cachedData = localStorage.getItem(cacheKey);
-      
+
       if (!cachedData) return null;
-      
+
       const parsedData = JSON.parse(cachedData);
-      
+
       // Check if cache has expired
       if (parsedData.expiresAt && Date.now() > parsedData.expiresAt) {
         localStorage.removeItem(cacheKey);
         return null;
       }
-      
+
       return parsedData.data;
     } catch (error) {
       console.error('Error getting cached critical data:', error);
@@ -297,13 +329,13 @@ class OfflineDataManager {
 
   private async syncServiceWorkerQueue(): Promise<boolean> {
     const swOfflineQueue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
-    
+
     if (swOfflineQueue.length === 0) {
       return true;
     }
-    
+
     let allSynced = true;
-    
+
     for (const request of swOfflineQueue) {
       try {
         // Reconstruct headers from array
@@ -311,13 +343,13 @@ class OfflineDataManager {
         request.headers.forEach(([key, value]) => {
           headers.append(key, value);
         });
-        
+
         const response = await fetch(request.url, {
           method: request.method,
           headers: headers,
           body: request.body
         });
-        
+
         if (response.ok) {
           // Remove from queue
           const updatedQueue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
@@ -335,7 +367,7 @@ class OfflineDataManager {
         allSynced = false;
       }
     }
-    
+
     return allSynced;
   }
 }

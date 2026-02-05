@@ -218,9 +218,16 @@ io.on('connection', (socket) => {
 
 // START BACKGROUND POLLING FOR LIVE WEIGHT
 // This tells the main server to "look" at the scale every 500ms and push to UI
+
+// Optimization: "Force Close" Strategy to prevent Port Exhaustion on macOS
+// Instead of keeping connection open (which some scales dislike) or letting it hang (which sleeps the Mac),
+// we explicitly force it to close immediately after every reading.
 setInterval(async () => {
   try {
-    const response = await axios.get(`${HELPER_PROGRAM_URL}/weight`, { timeout: 400 });
+    const response = await axios.get(`${HELPER_PROGRAM_URL}/weight`, {
+      timeout: 400,
+      headers: { 'Connection': 'close' } // Force "Hang Up" immediately
+    });
     const weight = response.data;
 
     if (weight !== undefined && !isNaN(parseFloat(weight))) {

@@ -164,7 +164,17 @@ export default function WeighEntry() {
   const isFirstWeigh = weighCount === 0;
   const isMVCategory = entry?.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
   const isJVCategory = entry?.category && ["JV-Payment", "JV-Free"].includes(entry.category);
-  const cameLoaded = entry?.came_loaded !== false; // Default true if not set
+
+  // Determine "Came Loaded" state based on Category Rules:
+  // 1. MV-Company -> ALWAYS Arrive Empty (First Weigh = Tare)
+  // 2. MV-Supplier / MV-PublicSeller -> ALWAYS Arrive Loaded (First Weigh = Gross)
+  // 3. Others -> Default to true (Loaded) unless explicitly false in DB
+  let cameLoaded = entry?.came_loaded !== false; // Default
+  if (entry?.category === "MV-Company") {
+    cameLoaded = false; // Force Empty
+  } else if (["MV-Supplier", "MV-PublicSeller"].includes(entry?.category || "")) {
+    cameLoaded = true; // Force Loaded
+  }
 
   // MV vehicles: no attempt limits, only two weighs
   // JV/Transit vehicles: 3-attempt limit applies
@@ -206,9 +216,37 @@ export default function WeighEntry() {
     }
   }, [isMVCategory, isFirstWeigh, firstWeighRecord, cameLoaded]);
 
+  // --- AUTO-SAVE DRAFTS (Anti-Data Loss) ---
+  useEffect(() => {
+    if (id) {
+      const draft = offlineDataManager.getDraft(id);
+      if (draft) {
+        setWeighData(draft);
+        toast({
+          title: "Draft Restored",
+          description: "Your previous unsaved data has been restored.",
+          duration: 3000
+        });
+      }
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (id && weighData) {
+      const timer = setTimeout(() => {
+        offlineDataManager.saveDraft(id, weighData);
+      }, 1000); // Debounce save every 1s
+      return () => clearTimeout(timer);
+    }
+  }, [id, weighData]);
+  // -----------------------------------------
+
   // Pre-submit check - shows modal for JV/Transit vehicles if no completion option selected
   const handlePreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Clear draft explicitly when user attempts to submit
+    if (id) offlineDataManager.clearDraft(id);
 
     // For JV-Payment, JV-Free, Transit - show confirmation modal if no option selected
     const requiresCompletionChoice = ["JV-Payment", "JV-Free", "Transit"].includes(entry?.category || "");

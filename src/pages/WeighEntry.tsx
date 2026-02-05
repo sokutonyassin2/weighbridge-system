@@ -556,6 +556,7 @@ Please process payment in Cashier section first.`,
               penalty_type: 'Exhausted Attempts',
               reason: 'Used all 3 weigh attempts without achieving acceptable weight',
               amount: penaltyAmount,
+              operator_id: user.id
             })
           )
         );

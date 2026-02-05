@@ -16,6 +16,7 @@ import { format, subDays, startOfDay } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useNavigate } from "react-router-dom";
 
 const COLORS = {
     primary: "#4F46E5", // Indigo 600
@@ -26,21 +27,25 @@ const COLORS = {
 };
 
 export default function SuperadminDashboard() {
+    const navigate = useNavigate();
     const [timeRange] = useState(7); // Default to last 7 days
 
-    // 1. Fetch Weighbridge Data (Revenue & Tonnage)
-    const { data: weighbridgeData } = useQuery({
-        queryKey: ["superadmin-weighbridge", timeRange],
+    // 1. Fetch Revenue Data (Paid Only)
+    const { data: revenueData } = useQuery({
+        queryKey: ["superadmin-revenue", timeRange],
         queryFn: async () => {
-            const startDate = subDays(startOfDay(new Date()), timeRange);
+            // The original startDate calculation for timeRange
+            const queryStartDate = subDays(startOfDay(new Date()), timeRange);
             const { data, error } = await supabase
-                .from("weigh_records")
-                .select("*, vehicle_entries(category, entry_time)")
-                .gte("created_at", startDate.toISOString());
+                .from("payments")
+                .select("amount, paid_at")
+                .eq("payment_status", "Paid")
+                .gte("paid_at", queryStartDate.toISOString()); // Using the original queryStartDate
 
             if (error) throw error;
             return data as any[];
         },
+        refetchInterval: 5000, // Live Refresh
     });
 
     // 2. Fetch Fleet Status
@@ -63,19 +68,26 @@ export default function SuperadminDashboard() {
         }
     });
 
-    // 3. Fetch Recent Global Activity
-    const { data: globalActivity } = useQuery({
-        queryKey: ["superadmin-activity"],
+    // 3. Fetch Live Payment Feed (Replacing Weigh Feed)
+    const { data: liveFeed } = useQuery({
+        queryKey: ["superadmin-live-payment-feed"],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from("activity_logs")
-                .select("*")
+                .from("payments")
+                .select(`
+                    id, 
+                    vehicle_no, 
+                    amount, 
+                    created_at,
+                    payment_type
+                `)
                 .order("created_at", { ascending: false })
-                .limit(6);
+                .limit(7);
 
             if (error) throw error;
             return data;
-        }
+        },
+        refetchInterval: 3000, // Fast refresh
     });
 
     // 4. Fetch Pending Quality Checks
@@ -92,43 +104,61 @@ export default function SuperadminDashboard() {
         }
     });
 
+    // 5. Fetch Pending Weighs (Vehicles Awaiting Weighing)
+    const { data: pendingEntries, isLoading: isLoadingPending } = useQuery({
+        queryKey: ["superadmin-pending-weighs"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("vehicle_entries")
+                .select(`
+                    *,
+                    vehicle_types (type_name, first_weigh_fee),
+                    weigh_records (*),
+                    shifts (*)
+                `)
+                .eq("completed", false)
+                .order("created_at", { ascending: false });
+
+            if (error) throw error;
+            return data;
+        },
+        refetchInterval: 5000,
+    });
+
     // Process Chart Data
     const chartData = useMemo(() => {
-        if (!weighbridgeData) return [];
-
         const dayMap = new Map();
         // Initialize last 7 days
         for (let i = timeRange; i >= 0; i--) {
             const d = format(subDays(new Date(), i), "MMM dd");
-            dayMap.set(d, { date: d, revenue: 0, tonnage: 0, count: 0 });
+            dayMap.set(d, { date: d, revenue: 0, count: 0 });
         }
 
-        weighbridgeData.forEach(record => {
-            const d = format(new Date(record.created_at), "MMM dd");
-            if (dayMap.has(d)) {
-                const entry = dayMap.get(d);
-                // Tonnage estimate (net weight)
-                const netWeight = Math.abs((record.gross_weight || 0) - (record.tare_weight || 0));
-                entry.tonnage += netWeight / 1000; // Convert to Tons
-                // Revenue estimate - set to 0 as first_weigh_fee is missing
-                entry.revenue += 0;
-                entry.count++;
-            }
-        });
+        // Process Chart Data (Paid Only)
+        if (revenueData) {
+            revenueData.forEach(record => {
+                const d = format(new Date(record.paid_at), "MMM dd");
+                if (dayMap.has(d)) {
+                    const entry = dayMap.get(d);
+                    entry.revenue += (record.amount || 0);
+                    entry.count++;
+                }
+            });
+        }
 
         return Array.from(dayMap.values());
-    }, [weighbridgeData, timeRange]);
+    }, [revenueData, timeRange]);
 
     const totalRevenue = useMemo(() =>
-        weighbridgeData?.reduce((sum, r) => sum + 0, 0) || 0,
-        [weighbridgeData]);
+        revenueData?.reduce((sum, r) => sum + (r.amount || 0), 0) || 0,
+        [revenueData]);
 
     return (
         <div className="p-6 space-y-8 bg-[#F8FAFC] min-h-screen font-inter">
             {/* Header section with glassmorphism feel */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">
                         Global Hub <span className="text-purple-600">Command Center</span>
                     </h1>
                     <p className="text-slate-500 font-medium mt-1">Real-time operational overview across all Energy Feeds modules.</p>
@@ -157,10 +187,10 @@ export default function SuperadminDashboard() {
                     color="bg-primary"
                 />
                 <StatCard
-                    title="Avg. Tonnage / Day"
-                    value={`${Math.round(chartData.reduce((s, d) => s + d.tonnage, 0) / (timeRange || 1))} Tons`}
-                    subValue="Across all weigh stations"
-                    icon={Scale}
+                    title="Total Transactions"
+                    value={`${chartData.reduce((s, d) => s + d.count, 0)} Posts`}
+                    subValue="Total successful payments"
+                    icon={ShieldCheck}
                     trend="up"
                     color="bg-purple"
                 />
@@ -184,15 +214,15 @@ export default function SuperadminDashboard() {
 
             {/* Charts Section */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Main Tonnage Trend */}
+                {/* Main Revenue Trend */}
                 <Card className="lg:col-span-2 border-none shadow-sm rounded-3xl overflow-hidden bg-white">
                     <CardHeader className="pb-0 pt-6 px-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <CardTitle className="text-lg font-bold text-slate-800">Operational Throughput</CardTitle>
-                                <CardDescription className="font-medium">Tonnage trends across the last 7 days</CardDescription>
+                                <CardTitle className="text-lg font-bold text-slate-800">Financial Throughput</CardTitle>
+                                <CardDescription className="font-medium text-slate-500">Revenue collection trends across the last 7 days</CardDescription>
                             </div>
-                            <Badge variant="outline" className="font-bold border-slate-200 text-slate-500">Live Feedback</Badge>
+                            <Badge variant="outline" className="font-semibold border-slate-200 text-slate-500">Real-time Feed</Badge>
                         </div>
                     </CardHeader>
                     <CardContent className="p-6">
@@ -200,9 +230,9 @@ export default function SuperadminDashboard() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={chartData}>
                                     <defs>
-                                        <linearGradient id="colorTonnage" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor={COLORS.primary} stopOpacity={0.1} />
-                                            <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
+                                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor={COLORS.secondary} stopOpacity={0.1} />
+                                            <stop offset="95%" stopColor={COLORS.secondary} stopOpacity={0} />
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
@@ -210,26 +240,28 @@ export default function SuperadminDashboard() {
                                         dataKey="date"
                                         axisLine={false}
                                         tickLine={false}
-                                        tick={{ fill: '#64748B', fontSize: 12, fontWeight: 600 }}
+                                        tick={{ fill: '#64748B', fontSize: 12, fontWeight: 500 }}
                                         dy={10}
                                     />
                                     <YAxis
                                         axisLine={false}
                                         tickLine={false}
                                         tick={{ fill: '#64748B', fontSize: 12 }}
+                                        tickFormatter={(val) => `TZS ${val >= 1000 ? (val / 1000) + 'k' : val}`}
                                     />
                                     <Tooltip
                                         contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
-                                        itemStyle={{ fontWeight: 700 }}
+                                        itemStyle={{ fontWeight: 600 }}
+                                        formatter={(val: number) => [`TZS ${val.toLocaleString()}`, "Revenue"]}
                                     />
                                     <Area
                                         type="monotone"
-                                        dataKey="tonnage"
-                                        stroke={COLORS.primary}
-                                        strokeWidth={4}
+                                        dataKey="revenue"
+                                        stroke={COLORS.secondary}
+                                        strokeWidth={2}
                                         fillOpacity={1}
-                                        fill="url(#colorTonnage)"
-                                        name="Tons"
+                                        fill="url(#colorRevenue)"
+                                        name="Revenue"
                                     />
                                 </AreaChart>
                             </ResponsiveContainer>
@@ -237,83 +269,120 @@ export default function SuperadminDashboard() {
                     </CardContent>
                 </Card>
 
-                {/* Global Activity Feed */}
-                <Card className="border-none shadow-sm rounded-3xl bg-white">
-                    <CardHeader className="pt-6 px-6 border-b border-slate-50 flex flex-row items-center justify-between">
-                        <div>
-                            <CardTitle className="text-lg font-bold text-slate-800">System Pulse</CardTitle>
-                            <CardDescription className="font-medium text-[10px] uppercase tracking-widest text-slate-400">Real-time Traffic</CardDescription>
+                {/* Vehicles Awaiting Weighing */}
+                <Card className="lg:col-span-2 border-none shadow-sm rounded-3xl overflow-hidden bg-white">
+                    <CardHeader className="pb-4 pt-6 px-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle className="text-lg font-bold text-slate-800">Vehicles Awaiting Weighing</CardTitle>
+                                <CardDescription className="font-medium text-slate-500">Live monitor of fleet currently at the bridge</CardDescription>
+                            </div>
+                            <Badge variant="outline" className="font-semibold bg-amber-50 text-amber-600 border-amber-200">
+                                {pendingEntries?.length || 0} Awaiting
+                            </Badge>
                         </div>
-                        <Activity className="h-5 w-5 text-purple-500" />
                     </CardHeader>
                     <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader className="bg-slate-50/50">
+                                    <TableRow className="border-none">
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-widest px-6">Vehicle No</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-widest">Type</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-widest">Entry Time</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-widest">Stage</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-widest text-right px-6">Live Link</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {pendingEntries?.map((entry: any) => (
+                                        <TableRow key={entry.id} className="hover:bg-slate-50 transition-colors border-slate-50">
+                                            <TableCell className="px-6 py-4">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-slate-900 text-sm">{entry.vehicle_no}</span>
+                                                    <span className="text-[10px] text-slate-400 font-mono">{entry.wb_number}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <span className="text-xs font-semibold text-slate-600">{entry.vehicle_types?.type_name}</span>
+                                            </TableCell>
+                                            <TableCell>
+                                                <span className="text-xs text-slate-500">{format(new Date(entry.entry_time), "HH:mm")}</span>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline" className="text-[9px] uppercase tracking-tighter">
+                                                    {entry.weigh_records?.length === 0 ? "1st Weigh" : "2nd Weigh"}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right px-6">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="font-bold text-[10px] text-blue-600 hover:text-blue-700 h-8 px-4"
+                                                    onClick={() => navigate("/")}
+                                                >
+                                                    Scale Monitor
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                    {(!pendingEntries || pendingEntries.length === 0) && !isLoadingPending && (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="text-center py-12 text-slate-400 italic text-xs">
+                                                No vehicles currently awaiting weighing.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Live Revenue Feed */}
+                <Card className="border-none shadow-sm rounded-3xl bg-white flex flex-col h-[450px]">
+                    <CardHeader className="pt-6 px-6 border-b border-slate-50 flex flex-row items-center justify-between shrink-0">
+                        <div>
+                            <CardTitle className="text-lg font-bold text-slate-800">Live Revenue Feed</CardTitle>
+                            <CardDescription className="font-medium text-[10px] uppercase tracking-widest text-slate-400">Transaction Pulse</CardDescription>
+                        </div>
+                        <Badge variant="outline" className="animate-pulse bg-emerald-50 text-emerald-600 border-emerald-200">Active</Badge>
+                    </CardHeader>
+                    <CardContent className="p-0 overflow-y-auto custom-scrollbar flex-1">
                         <div className="divide-y divide-slate-50">
-                            {globalActivity?.map((activity) => (
-                                <div key={activity.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group">
-                                    <div className="flex items-start gap-4">
-                                        <div className="p-2 bg-slate-100 rounded-xl group-hover:bg-white transition-colors">
-                                            <Clock className="w-4 h-4 text-slate-500" />
+                            {liveFeed?.map((record: any) => (
+                                <div key={record.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-2 bg-emerald-50 rounded-xl group-hover:bg-white transition-colors">
+                                            <DollarSign className="w-5 h-5 text-emerald-600" />
                                         </div>
-                                        <div className="flex-1 space-y-1">
+                                        <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between">
-                                                <p className="text-xs font-bold text-slate-800">{activity.user_name}</p>
-                                                <span className="text-[10px] font-bold text-slate-400">{format(new Date(activity.created_at), "HH:mm")}</span>
+                                                <p className="text-sm font-bold text-slate-800 truncate">{record.vehicle_no}</p>
+                                                <span className="text-[10px] font-medium text-slate-400">{format(new Date(record.created_at), "HH:mm:ss")}</span>
                                             </div>
-                                            <p className="text-xs font-medium text-slate-500 leading-relaxed">{activity.details}</p>
-                                            <div className="flex items-center gap-2 mt-2">
-                                                <Badge className="bg-slate-100 text-slate-600 border-none text-[9px] font-bold px-2 py-0">
-                                                    {activity.action}
+                                            <div className="flex items-center justify-between mt-1">
+                                                <p className="text-xs font-semibold text-emerald-600">TZS {(record.amount || 0).toLocaleString()}</p>
+                                                <Badge className="text-[9px] px-2 py-0 border-none bg-slate-100 text-slate-600">
+                                                    {record.payment_type || 'General'}
                                                 </Badge>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             ))}
-                        </div>
-                        <div className="p-4 bg-slate-50/50 text-center">
-                            <button
-                                onClick={() => window.location.href = '/activity-logs'}
-                                className="text-xs font-bold text-primary hover:underline"
-                            >
-                                View Full Logs Archive
-                            </button>
+                            {(!liveFeed || liveFeed.length === 0) && (
+                                <div className="p-8 text-center text-slate-400 text-xs italic">
+                                    Waiting for transactions...
+                                </div>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
             </div>
 
             {/* Bottom Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Revenue Line Chart */}
-                <Card className="border-none shadow-sm rounded-3xl bg-white">
-                    <CardHeader>
-                        <CardTitle className="text-lg font-bold text-slate-800">Revenue Stream</CardTitle>
-                        <CardDescription className="font-medium text-xs">Monetary collection peaks</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="h-[250px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="date" hide />
-                                    <YAxis hide />
-                                    <Tooltip
-                                        contentStyle={{ borderRadius: '12px', border: 'none', background: '#1e293b', color: '#fff' }}
-                                    />
-                                    <Line
-                                        type="stepAfter"
-                                        dataKey="revenue"
-                                        stroke={COLORS.secondary}
-                                        strokeWidth={3}
-                                        dot={false}
-                                        name="Revenue"
-                                    />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </CardContent>
-                </Card>
-
+            <div className="grid grid-cols-1 gap-6">
                 {/* Maintenance Overview */}
                 <Card className="border-none shadow-sm rounded-3xl bg-white overflow-hidden">
                     <CardHeader className="bg-slate-900 border-none rounded-t-3xl text-white">
@@ -382,8 +451,8 @@ function StatCard({ title, value, subValue, icon: Icon, trend, color }: any) {
                     )}
                 </div>
                 <div className="mt-5 space-y-1">
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">{title}</p>
-                    <p className="text-2xl font-extrabold text-slate-900 tracking-tight">{value}</p>
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">{title}</p>
+                    <p className="text-2xl font-bold text-slate-900 tracking-tight">{value}</p>
                     <p className="text-[10px] font-medium text-slate-500 opacity-80">{subValue}</p>
                 </div>
             </CardContent>

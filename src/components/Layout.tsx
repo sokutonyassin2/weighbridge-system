@@ -12,7 +12,7 @@ interface LayoutProps {
 
 function MobileNav() {
   const [open, setOpen] = useState(false);
-  
+
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -62,23 +62,23 @@ export const Layout = ({ children }: LayoutProps) => {
         <div className="hidden md:block">
           <AppSidebar />
         </div>
-        
+
         <div className="flex-1 flex flex-col overflow-auto">
           <header className="sticky top-0 z-40 border-b px-3 md:px-6 py-3 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 shadow-sm">
             <div className="flex items-center gap-3">
               {/* Mobile menu button */}
               <MobileNav />
-              
+
               {/* Desktop sidebar trigger */}
               <div className="hidden md:block">
                 <SidebarTrigger />
               </div>
-              
+
               {/* Search - responsive width */}
               <div className="flex-1 max-w-xl">
                 <GlobalSearch />
               </div>
-              
+
               {/* Offline Status Indicator */}
               <div className="flex items-center gap-2">
                 {isOffline ? (

@@ -112,12 +112,17 @@ export default function ShiftAnalytics() {
         [p.id]: p
       }), {}) || {};
 
-      // Fetch payments for the period
+      // Fetch payments for the period (Paid only)
       let paymentsQuery = supabase
         .from("payments")
-        .select("*")
-        .gte("created_at", start.toISOString())
-        .lte("created_at", end.toISOString());
+        .select("*, vehicle_entries(category)")
+        .eq("payment_status", "Paid")
+        .gte("paid_at", start.toISOString())
+        .lte("paid_at", end.toISOString());
+
+      if (operatorFilter !== "all") {
+        paymentsQuery = paymentsQuery.eq("cashier_id", operatorFilter);
+      }
 
       const { data: payments, error: paymentsError } = await paymentsQuery;
       if (paymentsError) throw paymentsError;
@@ -128,6 +133,10 @@ export default function ShiftAnalytics() {
         .select("*")
         .gte("created_at", start.toISOString())
         .lte("created_at", end.toISOString());
+
+      if (operatorFilter !== "all") {
+        penaltiesQuery = penaltiesQuery.eq("operator_id", operatorFilter);
+      }
 
       const { data: penalties, error: penaltiesError } = await penaltiesQuery;
       if (penaltiesError) throw penaltiesError;
@@ -142,10 +151,7 @@ export default function ShiftAnalytics() {
       const { shifts, payments, penalties, profilesMap } = analyticsData as any;
 
       // Helper to get operator name with fallbacks
-      const getOperatorName = (operatorId: string | null, operatorName: string | null) => {
-        if (operatorName && operatorName !== "User" && operatorName !== "Unknown") {
-          return operatorName;
-        }
+      const getOperatorName = (operatorId: string | null) => {
         if (operatorId && profilesMap?.[operatorId]) {
           const profile = profilesMap[operatorId];
           if (profile.full_name && profile.full_name !== "User") {
@@ -158,99 +164,104 @@ export default function ShiftAnalytics() {
         return "Unknown";
       };
 
-      // Aggregate by shift
-      const shiftMap = new Map();
-      shifts?.forEach((shift: any) => {
-        const key = `${shift.shift_name}_${shift.shift_date}`;
-        if (!shiftMap.has(key)) {
-          shiftMap.set(key, {
-            shift_name: shift.shift_name,
-            date: shift.shift_date,
-            vehicle_count: 0,
-            jv_count: 0,
-            mv_count: 0,
-            operator_name: getOperatorName(shift.operator_id, shift.operator_name),
-            operator_id: shift.operator_id,
-          });
-        }
-        const shiftData = shiftMap.get(key);
-        const entries = shift.vehicle_entries || [];
-        shiftData.vehicle_count += entries.length;
-        entries.forEach((entry: any) => {
-          if (entry.category?.startsWith("JV")) {
-            shiftData.jv_count++;
-          } else if (entry.category?.startsWith("MV")) {
-            shiftData.mv_count++;
-          }
-        });
-      });
-
-      // Calculate collections per shift
-      const shiftCollections = Array.from(shiftMap.values()).map((shift) => {
-        const shiftStart = shift.shift_name === "Day"
-          ? `${shift.date}T07:00:00`
-          : `${shift.date}T18:00:00`;
-        const nextDay = format(new Date(new Date(shift.date).setDate(new Date(shift.date).getDate() + 1)), "yyyy-MM-dd");
-        const shiftEnd = shift.shift_name === "Day"
-          ? `${shift.date}T18:00:00`
-          : `${nextDay}T07:00:00`;
-
-        const shiftPayments = payments?.filter((p: any) =>
-          p.created_at >= shiftStart && p.created_at < shiftEnd
-        ) || [];
-
-        const shiftPenalties = penalties?.filter((p: any) =>
-          p.created_at >= shiftStart && p.created_at < shiftEnd
-        ) || [];
-
-        const totalCollected =
-          shiftPayments.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0) +
-          shiftPenalties.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0);
-
-        return {
-          ...shift,
-          total_collected: totalCollected,
-          payments_count: shiftPayments.length,
-          penalties_count: shiftPenalties.length,
-        };
-      });
-
-      // Aggregate by operator
+      // 1. Operator Performance (Group directly by cashier_id)
       const operatorMap = new Map();
-      shiftCollections.forEach((shift) => {
-        const operatorId = shift.operator_id;
-        if (!operatorId) return;
 
-        if (!operatorMap.has(operatorId)) {
-          operatorMap.set(operatorId, {
-            operator_name: shift.operator_name,
+      // Process payments (Reliable - has cashier_id)
+      payments?.forEach((p: any) => {
+        const opId = p.cashier_id;
+        if (!opId) return;
+
+        if (!operatorMap.has(opId)) {
+          operatorMap.set(opId, {
+            operator_name: getOperatorName(opId),
             vehicle_count: 0,
             total_collected: 0,
             penalties_count: 0,
-            shifts_worked: 0,
+            shifts_worked: new Set(),
           });
         }
-
-        const operatorData = operatorMap.get(operatorId);
-        operatorData.vehicle_count += shift.vehicle_count;
-        operatorData.total_collected += shift.total_collected;
-        operatorData.penalties_count += shift.penalties_count;
-        operatorData.shifts_worked++;
+        const opData = operatorMap.get(opId);
+        opData.total_collected += parseFloat(p.amount.toString());
+        opData.vehicle_count++;
       });
 
+      // Process penalties (Fallback to time-window if operator_id missing, or just link to creator)
+      penalties?.forEach((p: any) => {
+        const opId = p.operator_id || p.user_id; // Check both common naming patterns
+        if (!opId) return; // For now, skip if unknown
+
+        if (!operatorMap.has(opId)) {
+          operatorMap.set(opId, {
+            operator_name: getOperatorName(opId),
+            vehicle_count: 0,
+            total_collected: 0,
+            penalties_count: 0,
+            shifts_worked: new Set(),
+          });
+        }
+        const opData = operatorMap.get(opId);
+        opData.total_collected += parseFloat(p.amount.toString());
+        opData.penalties_count++;
+      });
+
+      // Track shifts worked for operators
+      shifts?.forEach((s: any) => {
+        if (s.operator_id && operatorMap.has(s.operator_id)) {
+          operatorMap.get(s.operator_id).shifts_worked.add(`${s.shift_date}_${s.shift_name}`);
+        }
+      });
+
+      const operatorStats = Array.from(operatorMap.values()).map(op => ({
+        ...op,
+        shifts_worked: op.shifts_worked.size || 1
+      })).sort((a, b) => b.total_collected - a.total_collected);
+
+      // 2. Collections by Shift (Group by time windows)
+      const dayMap = new Map();
+      // Initialize buckets for the chart
+      const days = timePeriod === "daily" ? 1 : timePeriod === "weekly" ? 7 : 30;
+      for (let i = days - 1; i >= 0; i--) {
+        const d = format(subDays(new Date(), i), "yyyy-MM-dd");
+        dayMap.set(`${d}_Day`, { date: d, shift_name: "Day", total_collected: 0, jv_count: 0, mv_count: 0 });
+        dayMap.set(`${d}_Night`, { date: d, shift_name: "Night", total_collected: 0, jv_count: 0, mv_count: 0 });
+      }
+
+      payments?.forEach((p: any) => {
+        const date = p.paid_at.split('T')[0];
+        const time = new Date(p.paid_at).getHours();
+        const shiftType = (time >= 7 && time < 18) ? "Day" : "Night";
+        const key = `${date}_${shiftType}`;
+        if (dayMap.has(key)) {
+          dayMap.get(key).total_collected += parseFloat(p.amount.toString());
+        }
+      });
+
+      penalties?.forEach((p: any) => {
+        const date = p.created_at.split('T')[0];
+        const time = new Date(p.created_at).getHours();
+        const shiftType = (time >= 7 && time < 18) ? "Day" : "Night";
+        const key = `${date}_${shiftType}`;
+        if (dayMap.has(key)) {
+          dayMap.get(key).total_collected += parseFloat(p.amount.toString());
+        }
+      });
+
+      const shiftData = Array.from(dayMap.values()).filter(d => d.total_collected > 0 || d.date === format(new Date(), "yyyy-MM-dd"));
+
+      // 3. Category Data
+      const jvCount = payments?.filter((p: any) => p.vehicle_entries?.category?.startsWith("JV")).length || 0;
+      const mvCount = (payments?.length || 0) - jvCount;
+
       return {
-        shiftCollections: shiftCollections.sort((a, b) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        ),
-        operatorPerformance: Array.from(operatorMap.values()).sort((a, b) =>
-          b.total_collected - a.total_collected
-        ),
-        totalVehicles: shiftCollections.reduce((sum, s) => sum + s.vehicle_count, 0),
-        totalCollections: shiftCollections.reduce((sum, s) => sum + s.total_collected, 0),
-        totalPenalties: operatorFilter === "all" ? (penalties?.length || 0) : shiftCollections.reduce((sum, s) => sum + s.penalties_count, 0),
+        shiftCollections: shiftData,
+        operatorPerformance: operatorStats,
+        totalVehicles: payments?.length || 0,
+        totalCollections: operatorStats.reduce((sum, s) => sum + s.total_collected, 0),
+        totalPenalties: penalties?.length || 0,
         categoryData: [
-          { name: "JV Vehicles", value: shiftCollections.reduce((sum, s) => sum + s.jv_count, 0) },
-          { name: "MV Vehicles", value: shiftCollections.reduce((sum, s) => sum + s.mv_count, 0) },
+          { name: "JV Vehicles", value: jvCount },
+          { name: "MV Vehicles", value: mvCount },
         ],
       };
     })()

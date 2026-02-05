@@ -68,124 +68,131 @@ export default function WeighbridgeRequisitions() {
     });
 
     return (
-        <div className="p-6 max-w-6xl mx-auto space-y-6">
-            <div className="flex items-center gap-4 mb-2">
-                <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="print:hidden">
-                    <ArrowLeft className="h-4 w-4" />
+        <div className="p-6 max-w-7xl mx-auto space-y-6 animate-fade-in bg-slate-50/50 min-h-screen">
+            <div className="flex items-center gap-2 mb-2">
+                <Button variant="link" size="sm" onClick={() => navigate(-1)} className="p-0 text-slate-600 hover:no-underline">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    <span className="text-sm font-semibold text-slate-600 uppercase tracking-wider">Internal Procurement</span>
                 </Button>
-                <h1 className="text-xl font-bold text-slate-500 uppercase tracking-widest">Internal Procurement</h1>
             </div>
 
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100 gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900 tracking-tight">WEIGHBRIDGE REQUISITIONS</h1>
-                    <p className="text-slate-500 font-medium text-sm tracking-wide">SUDSUD GROUP</p>
+            <div className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm transition-all hover:shadow-md">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <h1 className="text-xl font-bold text-[#1e293b] flex items-center gap-2">
+                            <FileText className="h-5 w-5 text-slate-400" />
+                            Weighbridge Requisitions
+                        </h1>
+                        <p className="text-slate-500 text-sm mt-1">Manage and track procurement requests</p>
+                    </div>
+                    <Button onClick={() => setIsDialogOpen(true)} className="bg-[#1e293b] hover:bg-slate-800 h-9 px-6 font-semibold rounded text-xs transition-all active:scale-95 shadow-sm">
+                        <Plus className="mr-2 h-4 w-4" /> NEW REQUEST
+                    </Button>
                 </div>
-                <Button onClick={() => setIsDialogOpen(true)} className="bg-slate-900 hover:bg-slate-800 h-10 px-6 font-medium transition-all active:scale-95">
-                    <Plus className="mr-2 h-4 w-4" /> NEW REQUEST
-                </Button>
             </div>
 
-            <div className="grid md:grid-cols-4 gap-4">
-                <Card className="border-slate-100 shadow-sm bg-blue-50/30">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Total Requests</CardTitle>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                <Card className="border-slate-200 shadow-sm bg-white">
+                    <CardHeader className="py-4 px-4">
+                        <CardTitle className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Requests</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-3xl font-black text-slate-900 text-center">{requisitions?.length || 0}</p>
+                    <CardContent className="pt-0 flex justify-start pb-6 px-4">
+                        <p className="text-2xl font-bold text-[#1e293b]">{requisitions?.length || 0}</p>
                     </CardContent>
                 </Card>
-                <Card className="border-emerald-100 shadow-sm bg-emerald-50/30">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold text-emerald-600 uppercase tracking-wider text-center">Approved</CardTitle>
+                <Card className="border-slate-200 shadow-sm bg-white border-t-2 border-t-emerald-500">
+                    <CardHeader className="py-4 px-4">
+                        <CardTitle className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wider">Approved</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-3xl font-black text-emerald-700 text-center">
+                    <CardContent className="pt-0 flex justify-start pb-6 px-4">
+                        <p className="text-2xl font-bold text-emerald-600">
                             {requisitions?.filter(r => r.status === 'Approved').length || 0}
                         </p>
                     </CardContent>
                 </Card>
-                <Card className="border-amber-100 shadow-sm bg-amber-50/30">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold text-amber-600 uppercase tracking-wider text-center">Pending</CardTitle>
+                <Card className="border-slate-200 shadow-sm bg-white border-t-2 border-t-amber-500">
+                    <CardHeader className="py-4 px-4">
+                        <CardTitle className="text-[11px] font-semibold text-amber-600 uppercase tracking-wider">Pending</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-3xl font-black text-amber-700 text-center">
+                    <CardContent className="pt-0 flex justify-start pb-6 px-4">
+                        <p className="text-2xl font-bold text-amber-600">
                             {requisitions?.filter(r => r.status === 'Pending').length || 0}
                         </p>
                     </CardContent>
                 </Card>
-                <Card className="border-slate-100 shadow-sm">
-                    <CardHeader className="pb-2 text-center">
-                        <CardTitle className="text-xs font-bold text-slate-400 uppercase tracking-wider">Module</CardTitle>
+                <Card className="border-slate-200 shadow-sm bg-white border-t-2 border-t-slate-400">
+                    <CardHeader className="py-4 px-4">
+                        <CardTitle className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Module</CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-sm font-bold text-slate-600 text-center">WB-LOGISTICS</p>
+                    <CardContent className="pt-0 flex justify-start pb-6 px-4">
+                        <p className="text-[12px] font-bold text-slate-600 uppercase tracking-widest">WB-LOGISTICS</p>
                     </CardContent>
                 </Card>
             </div>
 
-            <Card className="border-slate-100 shadow-xl overflow-hidden rounded-2xl">
-                <CardHeader className="bg-slate-900 text-white py-4 px-6">
-                    <div className="flex justify-between items-center w-full">
-                        <div>
-                            <CardTitle className="text-lg font-bold flex items-center gap-2">
-                                <FileText className="h-5 w-5 text-blue-400" />
-                                PROCUREMENT LOGS
-                            </CardTitle>
-                        </div>
-                        <Badge variant="outline" className="text-blue-400 border-blue-400/50">SYSTEM PROTECTED</Badge>
+            <Card className="border-slate-200 shadow-sm overflow-hidden rounded-lg bg-white">
+                <CardHeader className="bg-[#1e293b] text-white py-3 px-6 flex flex-row items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-slate-400" />
+                        <CardTitle className="text-xs font-semibold uppercase tracking-widest">Procurement Logs</CardTitle>
                     </div>
+                    <Badge variant="outline" className="text-[9px] font-semibold text-slate-400 border-slate-700 uppercase">Secure</Badge>
                 </CardHeader>
                 <CardContent className="p-0">
                     <Table>
-                        <TableHeader className="bg-slate-50 border-b border-slate-100">
+                        <TableHeader className="bg-slate-50/50 border-b border-slate-200">
                             <TableRow>
-                                <TableHead className="font-bold text-slate-900 h-14">DATE LOGGED</TableHead>
-                                <TableHead className="font-bold text-slate-900 h-14">ITEM DESCRIPTION</TableHead>
-                                <TableHead className="font-bold text-slate-900 h-14">QUANTITY</TableHead>
-                                <TableHead className="font-bold text-slate-900 h-14 text-center">REQUESTED BY</TableHead>
-                                <TableHead className="font-bold text-slate-900 h-14 text-center">STATUS</TableHead>
+                                <TableHead className="font-semibold text-slate-600 h-12 text-[11px] uppercase tracking-wider px-6">DATE LOGGED</TableHead>
+                                <TableHead className="font-semibold text-slate-600 h-12 text-[11px] uppercase tracking-wider">ITEM DESCRIPTION</TableHead>
+                                <TableHead className="font-semibold text-slate-600 h-12 text-[11px] uppercase tracking-wider">QUANTITY</TableHead>
+                                <TableHead className="font-semibold text-slate-600 h-12 text-[11px] uppercase tracking-wider">REQUESTED BY</TableHead>
+                                <TableHead className="font-semibold text-slate-600 h-12 text-[11px] uppercase tracking-wider text-center px-6">STATUS</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {isLoading ? (
                                 <TableRow>
                                     <TableCell colSpan={5} className="text-center py-20">
-                                        <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-500" />
-                                        <p className="mt-2 text-slate-400 font-medium tracking-wide">Securely loading logs...</p>
+                                        <Loader2 className="h-6 w-6 animate-spin mx-auto text-slate-400" />
+                                        <p className="mt-2 text-slate-400 font-medium text-[11px] uppercase tracking-widest">Loading Records...</p>
                                     </TableCell>
                                 </TableRow>
                             ) : requisitions?.length === 0 ? (
                                 <TableRow>
                                     <TableCell colSpan={5} className="text-center py-20 text-slate-400">
-                                        <Package className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                                        <p className="font-bold uppercase tracking-widest text-xs">No procurement data found for Weighbridge</p>
+                                        <Package className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                                        <p className="font-semibold uppercase tracking-widest text-[11px]">No requisition data found</p>
                                     </TableCell>
                                 </TableRow>
                             ) : (
                                 requisitions?.map((req) => (
-                                    <TableRow key={req.id} className="hover:bg-slate-50/50 transition-colors border-b border-slate-50">
-                                        <TableCell className="font-medium text-slate-500">
+                                    <TableRow key={req.id} className="hover:bg-slate-50/50 transition-colors border-b border-slate-100">
+                                        <TableCell className="px-6 py-4">
                                             <div className="flex flex-col">
-                                                <span className="font-bold text-slate-900">{format(new Date(req.created_at), "MMM dd, yyyy")}</span>
-                                                <span className="text-[10px] text-slate-400 font-mono tracking-tighter">{format(new Date(req.created_at), "HH:mm:ss")}</span>
+                                                <span className="font-bold text-slate-900 text-[13px]">{format(new Date(req.created_at), "MMM dd, yyyy")}</span>
+                                                <span className="text-[10px] text-slate-400 font-mono">{format(new Date(req.created_at), "HH:mm:ss")}</span>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="font-bold text-slate-800 uppercase text-xs">{req.item_name}</TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-black text-lg">{req.quantity_requested}</span>
-                                                <span className="text-[10px] font-bold text-slate-400 uppercase">units</span>
+                                        <TableCell className="py-4">
+                                            <span className="font-semibold text-slate-700 uppercase text-[12px]">{req.item_name}</span>
+                                        </TableCell>
+                                        <TableCell className="py-4">
+                                            <div className="flex items-center gap-1">
+                                                <span className="font-bold text-sm text-slate-900">{req.quantity_requested}</span>
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase">PCS</span>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="font-bold text-slate-600 uppercase text-[10px] text-center">
-                                            {req.profiles?.full_name || "System"}
+                                        <TableCell className="py-4">
+                                            <span className="font-medium text-slate-500 uppercase text-[11px]">
+                                                {req.profiles?.full_name || "System"}
+                                            </span>
                                         </TableCell>
-                                        <TableCell className="text-center">
-                                            <Badge className={`px-3 py-1 rounded-full font-bold text-[10px] uppercase tracking-widest ${req.status === 'Approved' ? 'bg-emerald-500 text-white' :
-                                                req.status === 'Pending' ? 'bg-amber-500 text-white' :
-                                                    'bg-rose-500 text-white'
+                                        <TableCell className="text-center px-6 py-4">
+                                            <Badge className={`px-4 py-1 rounded-full font-bold text-[9px] uppercase tracking-widest border-none shadow-sm ${req.status === 'Approved' ? 'bg-emerald-500 text-white' :
+                                                    req.status === 'Pending' ? 'bg-amber-500 text-white' :
+                                                        req.status === 'Purchased' ? 'bg-[#F4516C] text-white' :
+                                                            req.status === 'Delivered' ? 'bg-blue-500 text-white' :
+                                                                'bg-rose-500 text-white'
                                                 }`}>
                                                 {req.status}
                                             </Badge>
@@ -198,63 +205,61 @@ export default function WeighbridgeRequisitions() {
                 </CardContent>
             </Card>
 
-            <footer className="text-center pt-10">
-                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.4em]">SUDSUD GROUP | Weighbridge Management System v2.0</p>
-            </footer>
-
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogContent className="sm:max-w-md border-slate-100 shadow-2xl rounded-3xl">
+                <DialogContent className="sm:max-w-md border-slate-200 shadow-2xl rounded-lg">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-3 text-slate-900 text-xl font-black">
-                            <div className="p-2 bg-blue-600 rounded-lg">
-                                <Package className="h-5 w-5 text-white" />
-                            </div>
-                            INTERNAL REQUISITION
+                        <DialogTitle className="flex items-center gap-2 text-slate-900 text-lg font-bold">
+                            <Package className="h-5 w-5 text-slate-400" />
+                            Internal Requisition
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-6 py-6 border-y border-slate-100 my-2">
-                        <div className="space-y-2">
-                            <Label className="font-bold text-slate-700 text-xs uppercase tracking-wider">Item Name / Description</Label>
+                    <div className="space-y-4 py-4 border-y border-slate-100 my-2">
+                        <div className="space-y-1.5">
+                            <Label className="font-semibold text-slate-700 text-xs">Item Description</Label>
                             <Input
-                                placeholder="e.g. Printer Toner, Weighbridge Tickets"
+                                placeholder="e.g. Printer Toner, Tickets"
                                 value={newReq.item_name}
                                 onChange={(e) => setNewReq({ ...newReq, item_name: e.target.value })}
-                                className="h-12 bg-slate-50 border-slate-200 focus:ring-blue-600 rounded-xl"
+                                className="h-10 bg-slate-50 border-slate-200 focus:ring-slate-400 rounded"
                             />
                         </div>
-                        <div className="space-y-2">
-                            <Label className="font-bold text-slate-700 text-xs uppercase tracking-wider">Quantity Required</Label>
+                        <div className="space-y-1.5">
+                            <Label className="font-semibold text-slate-700 text-xs">Quantity</Label>
                             <Input
                                 type="number"
                                 min="1"
                                 value={newReq.quantity}
                                 onChange={(e) => setNewReq({ ...newReq, quantity: parseInt(e.target.value) || 1 })}
-                                className="h-12 bg-slate-50 border-slate-200 focus:ring-blue-600 rounded-xl"
+                                className="h-10 bg-slate-50 border-slate-200 focus:ring-slate-400 rounded"
                             />
                         </div>
-                        <div className="space-y-2">
-                            <Label className="font-bold text-slate-700 text-xs uppercase tracking-wider">Additional Notes (Optional)</Label>
+                        <div className="space-y-1.5">
+                            <Label className="font-semibold text-slate-700 text-xs">Notes</Label>
                             <Textarea
-                                placeholder="Any specific details..."
+                                placeholder="Additional details..."
                                 value={newReq.notes}
                                 onChange={(e) => setNewReq({ ...newReq, notes: e.target.value })}
-                                className="bg-slate-50 border-slate-200 focus:ring-blue-600 rounded-xl"
+                                className="bg-slate-50 border-slate-200 focus:ring-slate-400 rounded"
                                 rows={3}
                             />
                         </div>
                     </div>
                     <DialogFooter className="gap-2">
-                        <Button variant="ghost" onClick={() => setIsDialogOpen(false)} className="rounded-xl font-bold">CANCEL</Button>
+                        <Button variant="ghost" onClick={() => setIsDialogOpen(false)} className="rounded font-semibold text-xs h-10 px-6">CANCEL</Button>
                         <Button
                             onClick={() => createReqMutation.mutate(newReq)}
                             disabled={!newReq.item_name || createReqMutation.isPending}
-                            className="bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-200 rounded-xl font-bold h-12 flex-1"
+                            className="bg-[#1e293b] hover:bg-slate-800 shadow shadow-slate-200 rounded font-bold h-10 px-8 text-xs"
                         >
                             {createReqMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "SUBMIT REQUEST"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <footer className="text-center pt-8">
+                <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-widest">SUDSUD GROUP | WB-LOGISTICS SYSTEM</p>
+            </footer>
         </div>
     );
 }

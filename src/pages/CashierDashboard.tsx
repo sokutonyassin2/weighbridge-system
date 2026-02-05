@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,7 @@ const ShiftCollectionsCard = ({ isAdmin, user, startDate, endDate, shiftName }: 
 };
 
 export default function CashierDashboard() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user, userProfile, userRole } = useAuth();
   const [processingId, setProcessingId] = useState<string | null>(null);
@@ -69,9 +70,9 @@ export default function CashierDashboard() {
   const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
   const [selectedShift, setSelectedShift] = useState<"Day" | "Night">(getCurrentShiftName());
   const [showShiftReport, setShowShiftReport] = useState(false);
-  const [reportDate, setReportDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  const [startDate, setStartDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  const [endDate, setEndDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [reportDate, setReportDate] = useState<string>(getCurrentShiftDate());
+  const [startDate, setStartDate] = useState<string>(getCurrentShiftDate());
+  const [endDate, setEndDate] = useState<string>(getCurrentShiftDate());
 
   // Sync admin filters when report date changes for a better UX
   const handleReportDateChange = (date: string) => {

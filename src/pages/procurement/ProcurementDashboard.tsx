@@ -171,6 +171,14 @@ const ProcurementDashboard = () => {
             toast({ title: "Supplier Added", description: "New vendor registered." });
             setIsAddSupplierOpen(false);
             setNewSupplier({ name: "", contact_person: "", phone: "", email: "", category: "General Spare Parts", location: "" });
+        },
+        onError: (error: any) => {
+            console.error("Vendor Registration Error:", error);
+            toast({
+                variant: "destructive",
+                title: "Registration Failed",
+                description: error.message || "Please check all fields and try again."
+            });
         }
     });
 
@@ -304,22 +312,22 @@ const ProcurementDashboard = () => {
                 <head>
                     <title>Purchase Order - ${displayPONumber}</title>
                     <style>
-                        body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; max-width: 800px; margin: auto; }
-                        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
-                        .company { font-size: 28px; font-weight: 800; color: #4f46e5; letter-spacing: -1px; }
-                        .po-label { background: #4f46e5; color: white; padding: 4px 12px; border-radius: 4px; font-size: 14px; font-weight: 800; margin-top: 10px; display: inline-block; }
-                        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
-                        .meta-box h3 { font-size: 10px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; }
-                        .meta-box p { font-size: 13px; font-weight: 600; margin: 2px 0; }
-                        table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
-                        th { text-align: left; background: #f8fafc; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; border-bottom: 2px solid #e2e8f0; }
-                        td { padding: 16px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
-                        .summary-table { width: 300px; margin-left: auto; }
-                        .summary-table td { padding: 8px 12px; border: none; }
-                        .total-row { font-size: 16px; font-weight: 900; color: #1e293b; border-top: 2px solid #e2e8f0 !important; }
-                        .footer { margin-top: 80px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px; }
-                        .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 100px; margin-top: 60px; }
-                        .sig-line { border-top: 1px solid #cbd5e1; text-align: center; padding-top: 8px; font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase; }
+                        body { font-family: 'Inter', sans-serif; padding: 20px; color: #1e293b; max-width: 800px; margin: auto; }
+                        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 15px; }
+                        .company { font-size: 20px; font-weight: 800; color: #4f46e5; letter-spacing: -0.5px; }
+                        .po-label { background: #4f46e5; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 800; margin-top: 5px; display: inline-block; }
+                        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+                        .meta-box h3 { font-size: 9px; text-transform: uppercase; color: #64748b; margin-bottom: 4px; border-bottom: 1px solid #f1f5f9; padding-bottom: 2px; }
+                        .meta-box p { font-size: 12px; font-weight: 600; margin: 1px 0; }
+                        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                        th { text-align: left; background: #f8fafc; padding: 8px; font-size: 10px; text-transform: uppercase; color: #64748b; border-bottom: 2px solid #e2e8f0; }
+                        td { padding: 8px 8px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+                        .summary-table { width: 250px; margin-left: auto; }
+                        .summary-table td { padding: 4px 8px; border: none; }
+                        .total-row { font-size: 14px; font-weight: 900; color: #1e293b; border-top: 2px solid #e2e8f0 !important; }
+                        .footer { margin-top: 40px; font-size: 9px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 10px; }
+                        .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 40px; }
+                        .sig-line { border-top: 1px solid #cbd5e1; text-align: center; padding-top: 4px; font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; }
                     </style>
                 </head>
                 <body>
@@ -1030,8 +1038,18 @@ const ProcurementDashboard = () => {
                         <Button variant="outline" onClick={() => setIsAddSupplierOpen(false)} className="h-10 font-bold uppercase text-[11px]">Cancel</Button>
                         <Button
                             className="h-10 bg-indigo-600 hover:bg-indigo-700 font-bold uppercase text-[11px] px-8"
-                            disabled={!newSupplier.name || addSupplierMutation.isPending}
-                            onClick={() => addSupplierMutation.mutate(newSupplier)}
+                            disabled={addSupplierMutation.isPending}
+                            onClick={() => {
+                                if (!newSupplier.name.trim()) {
+                                    toast({
+                                        variant: "destructive",
+                                        title: "Name Required",
+                                        description: "Please enter the supplier name."
+                                    });
+                                    return;
+                                }
+                                addSupplierMutation.mutate(newSupplier);
+                            }}
                         >
                             {addSupplierMutation.isPending ? "Registering..." : "Register Vendor"}
                         </Button>

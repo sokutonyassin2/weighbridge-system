@@ -621,8 +621,9 @@ Please process payment in Cashier section first.`,
           description: `Vehicle ${entry.vehicle_no} has used all 3 attempts. Payment required.`,
           duration: 7000,
         });
-        navigate("/cashier");
-        return;
+        // Proceed to show print dialog instead of navigating immediately
+        // navigate("/cashier");
+        // return;
       }
 
       if (newStatus === "Completed") {
@@ -656,7 +657,8 @@ Please process payment in Cashier section first.`,
         gtm: weighData.gtm || null,
         trailer_weight: weighData.trailer_weight || null,
         payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
-        isCompleted: newStatus === "Completed"
+        isCompleted: newStatus === "Completed",
+        warning_flag: weighData.warning_flag // Pass warning flag for receipt logic
       });
       setShowPrint(true);
     } catch (error: any) {
@@ -917,6 +919,20 @@ Please process payment in Cashier section first.`,
                 </div>
               )}
 
+              {/* JV-Payment Overweight Notice */}
+              {printData.category === "JV-Payment" && printData.warning_flag && !printData.isSecondWeigh && (
+                <div className="mt-4 p-3 border-2 border-dashed border-red-300 bg-red-50/50 rounded-lg text-center print:border-red-400 print:bg-transparent">
+                  <p className="font-bold text-red-600 print:text-black uppercase text-sm mb-1">
+                    ⚠️ OVERWEIGHT NOTICE
+                  </p>
+                  <p className="text-xs text-slate-700 print:text-black font-medium leading-relaxed">
+                    This receipt is valid for <strong>2 additional re-weigh attempts</strong> within <strong>12 hours</strong>.
+                    <br />
+                    If acceptable weight is not achieved within these limits, a new payment will be required.
+                  </p>
+                </div>
+              )}
+
               <div
                 className={`text-center text-sm text-muted-foreground pt-4 mt-6 print:pt-0.5 print:mt-1 ${settings.template === 'classic'
                   ? 'border-t-2 border-primary'
@@ -979,7 +995,13 @@ Please process payment in Cashier section first.`,
                 variant="outline"
                 onClick={() => {
                   setShowPrint(false);
-                  navigate("/");
+                  // If attempts are exhausted (3/3), we should redirect to cashier for penalty payment
+                  const isExhausted = printData.weigh_number === 3 && !printData.complete_vehicle && !printData.isCompleted;
+                  if (isExhausted) {
+                    navigate("/cashier");
+                  } else {
+                    navigate("/");
+                  }
                 }}
                 className="flex-1"
               >
@@ -1313,7 +1335,7 @@ Please process payment in Cashier section first.`,
                   </div>
                   <div>
                     <h3 className={`font-bold text-lg mb-1 ${weighData.warning_flag ? 'text-red-600 dark:text-red-400' : ''}`}>
-                      Weight Warning
+                      Over Weight
                     </h3>
                     <p className="text-sm text-muted-foreground">
                       Flag this vehicle for weight limits exceedance.
@@ -1367,6 +1389,7 @@ Please process payment in Cashier section first.`,
               </div>
             )}
 
+            {/* Exceedence notes hidden as per user request
             {weighData.warning_flag && (
               <div className="space-y-2">
                 <Label htmlFor="exceedence_notes">Exceedence Notes</Label>
@@ -1381,6 +1404,7 @@ Please process payment in Cashier section first.`,
                 />
               </div>
             )}
+            */}
 
             {requireImageCapture && !capturedPhotoUrl && (
               <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Clock, DollarSign, AlertCircle, Scale, Printer } from "lucide-react";
+import { Search, Clock, AlertCircle, Scale, Printer } from "lucide-react";
 import { format } from "date-fns";
 
 export default function VehicleHistory() {
@@ -617,7 +617,7 @@ export default function VehicleHistory() {
                   {vehicleData.payments.filter(p => p.entry_id === entry.id).length > 0 && (
                     <div>
                       <h4 className="font-semibold mb-2 flex items-center text-green-600">
-                        <DollarSign className="mr-2 h-4 w-4" />
+                        <span className="mr-2 text-xs font-bold border border-green-600 rounded px-1">TShs</span>
                         Payments
                       </h4>
                       <div className="space-y-2">

@@ -328,6 +328,40 @@ Please process payment in Cashier section first.`,
       return;
     }
 
+    // Validation: Ensure at least one weight is present and non-zero
+    const isWeightZeroOrEmpty = (w: string) => !w || parseFloat(w) <= 0;
+
+    // For MV vehicles, check the relevant field based on arrive status
+    if (isMVCategory) {
+      if (cameLoaded && isFirstWeigh && isWeightZeroOrEmpty(weighData.gross_weight)) {
+        toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Gross Weight" });
+        return;
+      }
+      if (!cameLoaded && isFirstWeigh && isWeightZeroOrEmpty(weighData.tare_weight)) {
+        toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Tare Weight" });
+        return;
+      }
+      if (!isFirstWeigh && cameLoaded && isWeightZeroOrEmpty(weighData.tare_weight)) {
+        toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Tare Weight" });
+        return;
+      }
+      if (!isFirstWeigh && !cameLoaded && isWeightZeroOrEmpty(weighData.gross_weight)) {
+        toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Gross Weight" });
+        return;
+      }
+    } else {
+      // General validation for other types
+      if (isWeightZeroOrEmpty(weighData.gross_weight) && isWeightZeroOrEmpty(weighData.tare_weight)) {
+        toast({
+          variant: "destructive",
+          title: "Missing Weight Value",
+          description: "Please enter a valid weight before saving.",
+          duration: 4000
+        });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     // Check if we're offline and handle accordingly

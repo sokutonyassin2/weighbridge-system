@@ -30,7 +30,7 @@ import {
 export default function VehicleEntry() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const [searchParams] = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previousEntry, setPreviousEntry] = useState<any>(null);
@@ -207,43 +207,60 @@ export default function VehicleEntry() {
     if (e) e.preventDefault();
     setIsSubmitting(true);
 
-    // Normalize vehicle number for comparison
     const normalizedInput = normalizeVehicleNo(formData.vehicle_no.toUpperCase());
     const displayVehicleNo = formData.vehicle_no.toUpperCase().trim();
+    const shiftDate = getCurrentShiftDate();
+    const shiftName = getCurrentShiftName();
 
     try {
-      let existingEntries = [];
+      // START PARALLEL CHECKS: Existing, Overdue, and Shift in one go
+      const [existingResult, overdueResult, shiftResult] = await Promise.all([
+        // 1. DUPLICATE CHECK
+        navigator.onLine ? (async () => {
+          const { data, error } = await supabase
+            .from("vehicle_entries")
+            .select("id, vehicle_no, status, wb_number")
+            .eq("completed", false)
+            .ilike("vehicle_no", displayVehicleNo); // More efficient lookup
 
-      if (navigator.onLine) {
-        // Online: check with Supabase
-        const { data, error: checkError } = await supabase
-          .from("vehicle_entries")
-          .select("id, vehicle_no, status, wb_number")
-          .eq("completed", false);
+          if (error) return { data: [], error };
+          // Still filter normalized to be safe
+          return { data: data.filter(e => normalizeVehicleNo(e.vehicle_no) === normalizedInput), error: null };
+        })() : (async () => {
+          const cachedEntries = JSON.parse(localStorage.getItem('cached_entries') || '{}');
+          const filtered = Object.values(cachedEntries).filter((e: any) =>
+            !e.completed && normalizeVehicleNo(e.vehicle_no) === normalizedInput
+          );
+          return { data: filtered, error: null };
+        })(),
 
-        if (checkError) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to check for existing vehicle entries",
-          });
-          setIsSubmitting(false);
-          return;
-        }
+        // 2. OVERDUE HISTORICAL CHECK
+        navigator.onLine ? supabase
+          .from("overdue_vehicles_history")
+          .select("*")
+          .ilike("vehicle_no", displayVehicleNo)
+          .order("overdue_time", { ascending: false })
+          .limit(1)
+          .maybeSingle() : Promise.resolve({ data: null, error: null }),
 
-        // Filter for normalized match
-        existingEntries = data.filter(e => normalizeVehicleNo(e.vehicle_no) === normalizedInput);
-      } else {
-        // Offline: use cached data to check for duplicates
-        const cachedEntries = JSON.parse(localStorage.getItem('cached_entries') || '{}');
-        existingEntries = Object.values(cachedEntries).filter((e: any) =>
-          !e.completed && normalizeVehicleNo(e.vehicle_no) === normalizedInput
-        );
-      }
+        // 3. SHIFT CHECK (Get ID early)
+        navigator.onLine ? supabase
+          .from("shifts")
+          .select("id")
+          .eq("shift_name", shiftName)
+          .eq("shift_date", shiftDate)
+          .maybeSingle() : (async () => {
+            const cachedShifts = JSON.parse(localStorage.getItem('cached_shifts') || '{}');
+            const key = `${shiftDate}_${shiftName}`;
+            return { data: cachedShifts[key] || null, error: null };
+          })()
+      ]);
 
-      // 1. DUPLICATE CHECK
-      if (existingEntries && existingEntries.length > 0) {
-        const existingEntry = existingEntries[0] as any;
+      if (existingResult.error) throw existingResult.error;
+
+      // --- Process Duplicate Check ---
+      if (existingResult.data && existingResult.data.length > 0) {
+        const existingEntry = existingResult.data[0] as any;
         let pendingWeigh = null;
 
         if (navigator.onLine) {
@@ -259,45 +276,23 @@ export default function VehicleEntry() {
           variant: "destructive",
           title: "⚠️ Vehicle Already In System",
           description: pendingWeigh
-            ? `Vehicle ${displayVehicleNo} (matches ${existingEntry.vehicle_no}) is already in the system.
-
-Entry ID: WB-${existingEntry.wb_number}
-Status: ${pendingWeigh.return_status}
-Attempts: ${(pendingWeigh.weigh_attempts || 0) + 1}/3
-${pendingWeigh.expected_return_time ? "Expected Return: " + format(new Date(pendingWeigh.expected_return_time), "MMM dd, HH:mm") : ""}
-
-Cannot add again until completed.`
-            : `Vehicle ${displayVehicleNo} (matches ${existingEntry.vehicle_no}) is already in the system.
-
-Entry ID: WB-${existingEntry.wb_number}
-Status: ${existingEntry.status}
-
-Cannot add again until completed.`,
+            ? `Vehicle ${displayVehicleNo} is already in the system (WB-${existingEntry.wb_number}). Status: ${pendingWeigh.return_status}.`
+            : `Vehicle ${displayVehicleNo} is already in the system (WB-${existingEntry.wb_number}). Status: ${existingEntry.status}.`,
         });
         setIsSubmitting(false);
         return;
       }
 
-      // 2. OVERDUE HISTORICAL CHECK
-      if (navigator.onLine) {
-        const { data: overdueData } = await supabase
-          .from("overdue_vehicles_history")
-          .select("*")
-          .ilike("vehicle_no", displayVehicleNo) // Use simple match first
-          .order("overdue_time", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (overdueData) {
-          setOverdueDetails(overdueData);
-          setOverdueWarningOpen(true);
-          setIsSubmitting(false); // Stop here and wait for confirmation
-          return;
-        }
+      // --- Process Overdue Warning ---
+      if (overdueResult.data) {
+        setOverdueDetails(overdueResult.data);
+        setOverdueWarningOpen(true);
+        setIsSubmitting(false);
+        return;
       }
 
-      // If no issues, proceed to creation
-      await createVehicleEntry();
+      // --- Proceed to Creation with pre-fetched shift result ---
+      await createVehicleEntry(shiftResult.data?.id);
 
     } catch (error: any) {
       toast({
@@ -309,88 +304,44 @@ Cannot add again until completed.`,
     }
   };
 
-  const createVehicleEntry = async () => {
-    // PROCEED TO CREATION
+  const createVehicleEntry = async (existingShiftId?: string) => {
     const normalizedVehicleNo = formData.vehicle_no.toUpperCase().trim();
     const shiftDate = getCurrentShiftDate();
     const shiftName = getCurrentShiftName();
 
-    let shiftId;
+    let shiftId = existingShiftId;
 
-    if (navigator.onLine) {
-      // Check if shift exists
-      const { data: existingShift } = await supabase
+    if (navigator.onLine && !shiftId) {
+      const { data: newShift, error: shiftError } = await supabase
         .from("shifts")
-        .select("*")
-        .eq("shift_name", shiftName)
-        .eq("shift_date", shiftDate)
-        .maybeSingle();
-
-      shiftId = existingShift?.id;
-
-      if (!shiftId) {
-        const { data: newShift, error: shiftError } = await supabase
-          .from("shifts")
-          .insert({
-            shift_name: shiftName,
-            shift_date: shiftDate,
-            operator_id: user?.id,
-            start_time: new Date().toISOString(),
-            end_time: new Date(new Date().getTime() + 12 * 60 * 60 * 1000).toISOString(),
-          })
-          .select()
-          .single();
-
-        if (shiftError) throw shiftError;
-        shiftId = newShift.id;
-      }
-    } else {
-      // Offline shift logic
-      const cachedShifts = JSON.parse(localStorage.getItem('cached_shifts') || '{}');
-      const key = `${shiftDate}_${shiftName}`;
-
-      if (cachedShifts[key]) {
-        shiftId = cachedShifts[key].id;
-      } else {
-        const offlineShiftId = `offline_${Date.now()}`;
-        cachedShifts[key] = {
-          id: offlineShiftId,
+        .insert({
           shift_name: shiftName,
           shift_date: shiftDate,
-          operator_id: user?.id
-        };
-        localStorage.setItem('cached_shifts', JSON.stringify(cachedShifts));
-        shiftId = offlineShiftId;
-      }
+          operator_id: user?.id,
+          start_time: new Date().toISOString(),
+          end_time: new Date(new Date().getTime() + 12 * 60 * 60 * 1000).toISOString(),
+        })
+        .select()
+        .single();
+
+      if (shiftError) throw shiftError;
+      shiftId = newShift.id;
+    } else if (!shiftId) {
+      // Offline shift logic (Fallback)
+      const offlineShiftId = `offline_${Date.now()}`;
+      shiftId = offlineShiftId;
     }
 
     const vehicleType = vehicleTypes?.find((vt) => vt.id === formData.vehicle_type_id);
 
-    let profile = null;
-    if (navigator.onLine) {
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name, username")
-        .eq("id", user?.id)
-        .single();
-      profile = data;
-    } else {
-      const cachedAuth = offlineDataManager.getCachedData('user_auth');
-      profile = cachedAuth ? {
-        full_name: cachedAuth.fullName,
-        username: cachedAuth.username
-      } : null;
-    }
-
-    const enteredByName = (profile?.full_name && profile?.full_name !== "User")
-      ? profile?.full_name
-      : profile?.username || "Unknown";
+    // Use userProfile from AuthContext instead of fetching it again
+    const enteredByName = (userProfile?.full_name && userProfile?.full_name !== "User")
+      ? userProfile?.full_name
+      : userProfile?.username || "Unknown";
 
     let entry;
-    let entryError;
-
     if (navigator.onLine) {
-      const result = await supabase
+      const { data, error } = await supabase
         .from("vehicle_entries")
         .insert({
           ...formData,
@@ -404,14 +355,11 @@ Cannot add again until completed.`,
         .select()
         .single();
 
-      entry = result.data;
-      entryError = result.error;
-
-      if (entryError) throw entryError;
+      if (error) throw error;
+      entry = data;
     } else {
-      const offlineEntryId = `offline_entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       entry = {
-        id: offlineEntryId,
+        id: `offline_entry_${Date.now()}`,
         ...formData,
         vehicle_no: normalizedVehicleNo,
         shift_id: shiftId,
@@ -424,24 +372,11 @@ Cannot add again until completed.`,
       };
 
       const offlineQueue = JSON.parse(localStorage.getItem('offline_entry_queue') || '[]');
-      offlineQueue.push({
-        type: 'vehicle_entry',
-        operation: 'create',
-        data: entry,
-        timestamp: Date.now()
-      });
+      offlineQueue.push({ type: 'vehicle_entry', operation: 'create', data: entry, timestamp: Date.now() });
       localStorage.setItem('offline_entry_queue', JSON.stringify(offlineQueue));
-
-      const cachedEntries = JSON.parse(localStorage.getItem('cached_entries') || '{}');
-      cachedEntries[normalizedVehicleNo] = entry;
-      localStorage.setItem('cached_entries', JSON.stringify(cachedEntries));
     }
 
-    toast({
-      title: "Success",
-      description: `Vehicle ${formData.vehicle_no} registered successfully. Proceed to weighing.`,
-    });
-
+    toast({ title: "Success", description: `Vehicle ${formData.vehicle_no} registered successfully.` });
     navigate(`/weigh/${entry.id}`);
     setIsSubmitting(false);
   };

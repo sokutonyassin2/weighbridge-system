@@ -69,8 +69,9 @@ export default function UserManagement() {
         throw profilesError;
       }
 
+      const profilesList = profiles as any[];
       const usersWithRoles = await Promise.all(
-        profiles.map(async (profile) => {
+        profilesList.map(async (profile) => {
           const { data: roleData } = await supabase
             .from("user_roles")
             .select("role")
@@ -270,6 +271,14 @@ export default function UserManagement() {
       toast({
         title: "User Updated",
         description: "User details have been updated successfully",
+      });
+    },
+    onError: (error: any) => {
+      console.error("Update User Error:", error);
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: error.message || "Failed to update user. Please try again.",
       });
     },
   });

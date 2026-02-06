@@ -83,10 +83,20 @@ serve(async (req) => {
       if (profErr) throw profErr;
 
       // Update Role
+      console.log(`Updating role for user ${userId} to: ${role}`);
       const { error: roleErr } = await supabaseAdmin
         .from('user_roles')
         .upsert({ user_id: userId, role }, { onConflict: 'user_id' });
-      if (roleErr) throw roleErr;
+
+      if (roleErr) {
+        console.error('Role update error:', roleErr);
+        return new Response(JSON.stringify({
+          error: `Database rejected role '${role}'. This often means the role name is not yet allowed in the database system.`,
+          details: roleErr.message
+        }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
 
       return new Response(JSON.stringify({ success: true }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }

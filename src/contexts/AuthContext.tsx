@@ -224,12 +224,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           };
 
           offlineDataManager.cacheCriticalData('user_auth', authCacheData);
-        }
 
-        toast({
-          title: "Welcome back!",
-          description: "You have successfully signed in.",
-        });
+          toast({
+            title: "Welcome back!",
+            description: "You have successfully signed in.",
+          });
+
+          if (role === 'super_admin') {
+            navigate('/admin/dashboard');
+          } else {
+            navigate('/');
+          }
+          return { error: null };
+        }
 
         navigate('/');
         return { error: null };

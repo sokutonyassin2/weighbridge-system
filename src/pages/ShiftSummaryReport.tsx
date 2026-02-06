@@ -155,6 +155,14 @@ export default function ShiftSummaryReport() {
       <style>
         {`
           @media print {
+            @page {
+              size: A5;
+              margin: 0.5cm;
+            }
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
             /* Hide everything in the body by default */
             body * {
               visibility: hidden;
@@ -166,7 +174,7 @@ export default function ShiftSummaryReport() {
               visibility: visible;
             }
 
-            /* Position the printable content at the top-left of the page */
+            /* Position the printable content */
             .print-container {
               position: absolute !important;
               left: 0 !important;
@@ -177,7 +185,7 @@ export default function ShiftSummaryReport() {
               visibility: visible !important;
             }
 
-            /* Fix layout properties that cause blank pages in some browsers */
+            /* Fix layout properties */
             body, html {
               height: auto !important;
               overflow: visible !important;
@@ -192,89 +200,101 @@ export default function ShiftSummaryReport() {
               padding: 0 !important;
             }
 
-            /* Hide the print button itself even if inside the container */
-            button, .print\\:hidden {
+            /* Hide UI elements */
+            button, .print\\:hidden, .print-receipt-close {
               display: none !important;
             }
             
-            /* Force Summary Cards to be small and horizontal */
+            /* Tighten Summary Cards */
             .print-container .grid {
               display: flex !important;
               flex-direction: row !important;
-              gap: 8px !important;
-              margin-bottom: 5px !important;
-              margin-top: 5px !important;
+              gap: 4px !important;
+              margin-bottom: 4px !important;
+              margin-top: 4px !important;
             }
             
             .print-container .grid > div {
               flex: 1 !important;
-              padding: 5px 8px !important;
-              border: 1px solid #eee !important;
+              padding: 2px 5px !important;
+              border: 0.5pt solid #eee !important;
             }
 
             .print-container .grid h3 {
-              font-size: 11px !important;
-              color: #666 !important;
+              font-size: 10px !important;
               margin: 0 !important;
             }
 
             .print-container .grid .text-2xl {
-              font-size: 14px !important;
+              font-size: 11px !important;
               font-weight: bold !important;
               margin: 0 !important;
             }
 
             /* Shrink Grand Total */
             .print-container .bg-primary\\/10 {
-              padding: 6px 12px !important;
-              margin-bottom: 8px !important;
-              margin-top: 5px !important;
-              border: 1px solid #ddd !important;
+              padding: 4px 8px !important;
+              margin-bottom: 4px !important;
+              margin-top: 4px !important;
+              border: 0.5pt solid #ddd !important;
             }
 
             .print-container .bg-primary\\/10 h2 {
-              font-size: 14px !important;
+              font-size: 12px !important;
             }
 
             .print-container .bg-primary\\/10 p {
-              font-size: 18px !important;
+              font-size: 14px !important;
             }
 
             /* Compress tables */
             .print-container table {
-              font-size: 11px !important;
+              font-size: 10px !important;
               margin-top: 0 !important;
+              width: 100% !important;
+              border-collapse: collapse !important;
             }
 
             .print-container th, 
             .print-container td {
-              padding: 3px 6px !important;
+              padding: 1px 4px !important;
+              border: 0.5pt solid #e2e8f0 !important;
+              line-height: 1.1 !important;
             }
 
             /* Header compression */
             .print-container .text-center {
-              margin-bottom: 5px !important;
-              padding-bottom: 5px !important;
+              margin-bottom: 4px !important;
+              padding-bottom: 4px !important;
             }
             
             .print-container .text-3xl {
-              font-size: 18px !important;
-              margin-bottom: 2px !important;
+              font-size: 16px !important;
+              margin-bottom: 1px !important;
             }
             
             .print-container .text-lg,
             .print-container .text-sm,
-            .print-container p {
-              font-size: 11px !important;
+            .print-container p,
+            .print-container span {
+              font-size: 10px !important;
               margin: 0 !important;
-              line-height: 1.2 !important;
+              line-height: 1.1 !important;
             }
 
-            /* Extra card margin removal */
+            /* Margin removal */
             .print-container .mt-8,
-            .print-container .mb-8 {
-              margin-top: 5px !important;
-              margin-bottom: 5px !important;
+            .print-container .mb-8,
+            .print-container .mt-4,
+            .print-container .mb-4 {
+              margin-top: 3px !important;
+              margin-bottom: 3px !important;
+            }
+            
+            /* Card border removal */
+            .print-container .rounded-lg, .print-container .border {
+              border-radius: 0 !important;
+              box-shadow: none !important;
             }
           }
         `}

@@ -104,40 +104,103 @@ export const CashierShiftReport = ({
     <>
       <style>{`
       @media print {
+        @page {
+          size: A5;
+          margin: 0.5cm;
+        }
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
         #print-receipt {
           max-width: 100% !important;
-          padding: 0.5rem !important;
+          padding: 0 !important;
+          margin: 0 !important;
         }
         .print-receipt-container {
           width: 100% !important;
           max-width: 100% !important;
         }
-        .print\:text-lg {
+        /* Tighten text sizes */
+        h1.print\:text-4xl {
+          font-size: 1.25rem !important; /* From 3xl/4xl to approx xl */
+          margin-bottom: 0.25rem !important;
+        }
+        h2.text-xl {
           font-size: 1rem !important;
+          margin-top: 0.1rem !important;
+          margin-bottom: 0.25rem !important;
+        }
+        .print\:text-lg {
+          font-size: 0.875rem !important;
         }
         .print\:text-base {
-          font-size: 0.9rem !important;
+          font-size: 0.8rem !important;
         }
         .print\:text-sm {
-          font-size: 0.8rem !important;
+          font-size: 0.75rem !important;
         }
         .print\:text-xs {
-          font-size: 0.7rem !important;
+          font-size: 0.65rem !important;
         }
+        p, span, div {
+          font-size: 0.75rem !important;
+          line-height: 1.1 !important;
+        }
+        /* Table compression */
         table {
-          font-size: 0.8rem !important;
+          font-size: 0.7rem !important;
           table-layout: fixed !important;
+          width: 100% !important;
+          border-collapse: collapse !important;
         }
-        .table-cell, th, td {
-          padding: 0.3rem 0.4rem !important;
-          word-wrap: break-word !important;
+        th, td {
+          padding: 1px 3px !important;
+          border: 0.5pt solid #e2e8f0 !important;
+          line-height: 1.1 !important;
+        }
+        .table-cell {
+          padding: 1px 3px !important;
+        }
+        /* Layout compression */
+        .mb-8, .mb-6, .mb-4 {
+          margin-bottom: 0.3rem !important;
+        }
+        .mt-8, .mt-6, .mt-4, .mt-2 {
+          margin-top: 0.2rem !important;
+        }
+        .p-6, .p-8, .p-4, .p-3, .p-2 {
+          padding: 0.15rem 0.25rem !important;
+        }
+        .space-y-6, .space-y-4, .space-y-3, .space-y-2 {
+          margin-top: 0 !important;
+          margin-bottom: 0 !important;
+        }
+        .space-y-6 > * + *, .space-y-4 > * + *, .space-y-3 > * + *, .space-y-2 > * + * {
+          margin-top: 0.15rem !important;
+        }
+        .flex {
+          gap: 0.25rem !important;
+        }
+        /* Card adjustments */
+        .rounded-lg, .rounded-md, .shadow-sm {
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          border: none !important;
+        }
+        .border {
+          border: 0.5pt solid #e2e8f0 !important;
+        }
+        .bg-primary\\/10 {
+          background-color: rgba(79, 70, 229, 0.05) !important;
+          padding: 0.5rem !important;
         }
         .break-inside-avoid {
           page-break-inside: avoid !important;
         }
       }
     `}</style>
-      <div className="p-6 space-y-6 bg-background min-h-screen print:p-2">
+      <div className="p-6 space-y-6 bg-background min-h-screen print:p-0 print:m-0">
         {/* Print Controls - Hidden when printing */}
         <div className="flex justify-between items-center print:hidden">
           <div>
@@ -157,29 +220,30 @@ export const CashierShiftReport = ({
         </div>
 
         {/* Printable Report */}
-        <div id="print-receipt" className="print:p-8">
+        <div id="print-receipt" className="print:p-0">
           {/* Header */}
-          <div className="text-center mb-8">
+          <div className="text-center mb-6 print:mb-2">
             <h1 className="text-3xl font-bold print:text-4xl">SUDSUD EAFEEDS {new Date().getFullYear()}</h1>
-            <h2 className="text-xl font-semibold mt-2">
+            <h2 className="text-xl font-semibold mt-2 print:mt-1">
               {reportType === "shift" ? "Shift Collection Report" : "Operator Collection Report"}
             </h2>
-            <div className="mt-4 space-y-1">
+            <div className="mt-4 print:mt-1 space-y-1 print:space-y-0 text-center flex flex-col items-center">
               {reportType === "shift" ? (
-                <>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-0.5 text-left w-fit mx-auto print:text-[8pt]">
                   <p><strong>Report Type:</strong> Shift-Based</p>
                   <p><strong>Shift:</strong> {shiftName} Shift</p>
                   <p><strong>Date:</strong> {format(new Date(shiftDate), "MMMM dd, yyyy")}</p>
                   <p><strong>Time Window:</strong> {shiftTimeDescription}</p>
-                  <p><strong>Operator In Charge:</strong> {displayOperatorName}</p>
-                </>
+                  <div className="col-span-2">
+                    <p><strong>Operator In Charge:</strong> {displayOperatorName}</p>
+                  </div>
+                </div>
               ) : (
-                <>
-                  <p><strong>Report Type:</strong> Operator-Based (My Vehicles)</p>
+                <div className="space-y-0.5 print:text-[8pt]">
+                  <p><strong>Report Type:</strong> Operator-Based</p>
                   <p><strong>Operator:</strong> {displayOperatorName}</p>
                   <p><strong>Date:</strong> {format(new Date(shiftDate), "MMMM dd, yyyy")}</p>
-                  <p className="text-sm text-muted-foreground italic">All vehicles personally weighed by this operator</p>
-                </>
+                </div>
               )}
             </div>
           </div>

@@ -197,6 +197,12 @@ export default function WeighEntry() {
       ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2)
       : "";
 
+  // Calculate Pulling GVM: Gross Weight + GTM
+  const pullingGVM =
+    weighData.gross_weight && weighData.gtm
+      ? (parseFloat(weighData.gross_weight) + parseFloat(weighData.gtm)).toFixed(2)
+      : "";
+
   // Pre-fill weights for MV second weigh
   useEffect(() => {
     if (isMVCategory && !isFirstWeigh && firstWeighRecord) {
@@ -473,18 +479,38 @@ Please process payment in Cashier section first.`,
     }
 
     try {
-      // 1. Shift Handling (Sequential - but required for everything else)
+      // 1. Start Shift Check in background immediately
       const shiftDate = getCurrentShiftDate();
       const shiftName = getCurrentShiftName();
-
-      let { data: currentShift } = await supabase
+      const shiftPromise = navigator.onLine ? supabase
         .from("shifts")
         .select("id")
         .eq("shift_date", shiftDate)
         .eq("shift_name", shiftName)
-        .maybeSingle();
+        .maybeSingle() : Promise.resolve({ data: { id: `offline_${shiftDate}_${shiftName}` }, error: null });
 
-      if (!currentShift) {
+      // 2. Prepare Data & Status while shift check is running
+      const calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
+      let newStatus = entry?.status;
+      const isMVVehicle = ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry?.category || "");
+      const isSecondWeighForMV = isMVVehicle && weighCount === 1;
+
+      if (weighData.complete_vehicle || isSecondWeighForMV) {
+        newStatus = "Completed";
+      } else if (isFirstWeigh) {
+        newStatus = entry?.vehicle_types?.requires_two_weighs ? "AwaitingSecondWeigh" : "Completed";
+      }
+
+      const isThirdWeigh = weighCount === 2;
+      const hasExhaustedAttempts = !isMVCategory && isThirdWeigh && !weighData.complete_vehicle;
+
+      // 3. Resolve Shift ID (or create if missing)
+      const { data: shiftData, error: shiftFetchError } = await shiftPromise;
+      if (shiftFetchError) throw shiftFetchError;
+
+      let currentShiftId = shiftData?.id;
+      if (!currentShiftId && navigator.onLine) {
+        // Only if absolutely missing, create it
         const { data: newShift, error: shiftError } = await supabase
           .from("shifts")
           .insert({
@@ -495,40 +521,11 @@ Please process payment in Cashier section first.`,
           })
           .select("id")
           .single();
-
-        if (shiftError) {
-          console.error("Shift creation error:", shiftError);
-          throw new Error(`Failed to create shift: ${shiftError.message}`);
-        }
-        currentShift = newShift;
+        if (shiftError) throw shiftError;
+        currentShiftId = newShift.id;
       }
 
-      if (!currentShift) {
-        throw new Error("Could not determine current shift. Please start a shift from the dashboard.");
-      }
-      const currentShiftId = currentShift.id;
-
-      // 2. Prepare Data for Parallel Execution
       const promises: Promise<any>[] = [];
-      const calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
-
-      // Determine Status
-      let newStatus = entry?.status;
-      const isMVVehicle = ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry?.category || "");
-      const isSecondWeighForMV = isMVVehicle && weighCount === 1;
-
-      if (weighData.complete_vehicle) {
-        newStatus = "Completed";
-      } else if (isSecondWeighForMV) {
-        newStatus = "Completed";
-      } else if (isFirstWeigh) {
-        newStatus = entry?.vehicle_types?.requires_two_weighs ? "AwaitingSecondWeigh" : "Completed";
-      } else {
-        newStatus = "AwaitingSecondWeigh";
-      }
-
-      const isThirdWeigh = weighCount === 2;
-      const hasExhaustedAttempts = !isMVCategory && isThirdWeigh && !weighData.complete_vehicle;
 
       // --- PARALLEL BLOCK START ---
 
@@ -634,10 +631,9 @@ Please process payment in Cashier section first.`,
         );
       }
 
-      // D. Handle Payments (Simplified check)
       let prePaidPromise: Promise<any> | null = null;
       if (isFirstWeigh || isMVCategory) {
-        prePaidPromise = supabase.from("payments").select("notes").eq("entry_id", id).eq("payment_type", "First Weigh").eq("payment_status", "Paid").maybeSingle();
+        prePaidPromise = Promise.resolve(supabase.from("payments").select("notes").eq("entry_id", id).eq("payment_type", "First Weigh").eq("payment_status", "Paid").maybeSingle());
         promises.push(prePaidPromise);
       }
 
@@ -680,38 +676,18 @@ Please process payment in Cashier section first.`,
         }
       }
 
+      const enteredByName = (userProfile?.full_name && userProfile?.full_name !== "User")
+        ? userProfile?.full_name
+        : userProfile?.username || "Unknown";
+
+      // EXECUTE ALL IN PARALLEL
+
       // EXECUTE ALL IN PARALLEL
       const results = await Promise.all(promises);
       const errors = results.filter(r => r?.error);
       if (errors.length > 0) throw errors[0].error;
 
-      // --- PARALLEL BLOCK END ---
-
-      if (hasExhaustedAttempts) {
-        toast({
-          variant: "destructive",
-          title: "⚠️ Weigh Attempts Exhausted",
-          description: `Vehicle ${entry.vehicle_no} has used all 3 attempts. Payment required.`,
-          duration: 7000,
-        });
-        // Proceed to show print dialog instead of navigating immediately
-        // navigate("/cashier");
-        // return;
-      }
-
-      if (newStatus === "Completed") {
-        queryClient.invalidateQueries({ queryKey: ["completed-vehicles"] });
-        queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
-        queryClient.invalidateQueries({ queryKey: ["shift-stats"] });
-      }
-
-      // Force immediate refetch of current entry to update UI state instantly
-      await refetch();
-      queryClient.invalidateQueries({ queryKey: ["vehicle-entry", id] });
-      queryClient.invalidateQueries({ queryKey: ["pending-weigh", id] });
-
-      // Final Step: Print or Redirect
-      // Always show print dialog as requested by user
+      // FAST-PATH PRINTING: Show print dialog immediately after DB confirmation
       const prePaidResult = prePaidPromise ? await prePaidPromise : null;
       const isPrepaid = prePaidResult?.data?.notes?.includes("Pre-paid");
 
@@ -731,13 +707,36 @@ Please process payment in Cashier section first.`,
         trailer_weight: weighData.trailer_weight || null,
         payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
         isCompleted: newStatus === "Completed",
-        warning_flag: weighData.warning_flag // Pass warning flag for receipt logic
+        warning_flag: weighData.warning_flag,
+        pulling_gvm: pullingGVM // Add to print data
       });
       setShowPrint(true);
+
+      if (hasExhaustedAttempts) {
+        toast({
+          variant: "destructive",
+          title: "⚠️ Weigh Attempts Exhausted",
+          description: `Vehicle ${entry.vehicle_no} has used all 3 attempts.`,
+          duration: 4000,
+        });
+      }
+
+      // Background UI Cleanup (User doesn't wait for this)
+      (async () => {
+        if (newStatus === "Completed") {
+          queryClient.invalidateQueries({ queryKey: ["completed-vehicles"] });
+          queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
+          queryClient.invalidateQueries({ queryKey: ["shift-stats"] });
+        }
+        await refetch();
+        queryClient.invalidateQueries({ queryKey: ["vehicle-entry", id] });
+        queryClient.invalidateQueries({ queryKey: ["pending-weigh", id] });
+        setIsSubmitting(false);
+      })();
+
     } catch (error: any) {
       console.error("Save error:", error);
       toast({ variant: "destructive", title: "Error", description: error.message });
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -958,12 +957,19 @@ Please process payment in Cashier section first.`,
                         <span className="font-bold">{printData.trailer_weight} kg</span>
                       </div>
                     )}
-                    {printData.payload && (
-                      <div className="flex justify-between items-center text-lg font-bold text-primary">
-                        <span>Payload (GTM - Trailer):</span>
-                        <span>{printData.payload} kg</span>
+                    {printData.pulling_gvm && (
+                      <div className="flex justify-between items-center bg-primary/5 p-1 rounded">
+                        <span className="font-bold">Pulling GVM (Gross + GTM):</span>
+                        <span className="font-black text-primary">{printData.pulling_gvm} kg</span>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {printData.payload && (
+                  <div className="flex justify-between items-center text-lg font-bold text-primary pt-2">
+                    <span>Payload (GTM - Trailer):</span>
+                    <span>{printData.payload} kg</span>
                   </div>
                 )}
               </div>
@@ -1372,10 +1378,20 @@ Please process payment in Cashier section first.`,
                     />
                   </div>
                 </div>
-                {payload && (
-                  <div className="flex justify-between items-center p-2 bg-primary/10 rounded">
-                    <span className="font-medium">Payload (GTM - Trailer):</span>
-                    <span className="text-lg font-bold text-primary">{payload} kg</span>
+                {(payload || pullingGVM) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {payload && (
+                      <div className="flex justify-between items-center p-3 bg-primary/5 rounded border border-primary/10">
+                        <span className="font-medium text-sm">Payload (GTM - Trailer):</span>
+                        <span className="text-xl font-bold text-primary">{payload} kg</span>
+                      </div>
+                    )}
+                    {pullingGVM && (
+                      <div className="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800/50">
+                        <span className="font-medium text-sm">Pulling GVM (Gross + GTM):</span>
+                        <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{pullingGVM} kg</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

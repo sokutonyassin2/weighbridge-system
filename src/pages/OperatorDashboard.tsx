@@ -42,14 +42,12 @@ export default function OperatorDashboard() {
 
   // Redirect users to their specific modules if they land on root dashboard
   useEffect(() => {
-    if (userRole === "super_admin") {
-      navigate("/admin/dashboard");
-    } else if (userRole === "logistics_admin" || userRole === "logistics_manager") {
+    if (userRole === "logistics_admin" || userRole === "logistics_manager") {
       navigate("/logistics");
     } else if (userRole === "mechanic") {
       navigate("/garage");
     }
-    // Admin and Operator stay on this dashboard
+    // Super Admin, Admin and Operator stay on this dashboard
   }, [userRole, navigate]);
 
   const getCurrentShift = () => {

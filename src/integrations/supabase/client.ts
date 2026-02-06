@@ -2,8 +2,10 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Safety Switch: If VITE_USE_MOCK_DATA is "true", we use a dummy URL to prevent any live sync.
+const IS_MOCK_MODE = import.meta.env.VITE_USE_MOCK_DATA === 'true';
+const SUPABASE_URL = IS_MOCK_MODE ? 'http://localhost:0000' : import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_PUBLISHABLE_KEY = IS_MOCK_MODE ? 'mock-key' : import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
@@ -12,6 +14,6 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   auth: {
     storage: localStorage,
     persistSession: true,
-    autoRefreshToken: true,
+    autoRefreshToken: !IS_MOCK_MODE, // Disable refresh in mock mode
   }
 });

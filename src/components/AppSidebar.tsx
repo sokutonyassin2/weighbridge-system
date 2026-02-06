@@ -116,7 +116,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r bg-gradient-to-b from-sidebar to-sidebar/95">
       {/* Header with logo */}
-      <div className="h-20 px-4 flex flex-col items-center justify-center border-b border-sidebar-border/50 bg-white shadow-sm">
+      <div className="h-24 px-4 flex flex-col items-center justify-center border-b border-sidebar-border/50 bg-white shadow-sm">
         {!isCollapsed ? (
           <>
             <div className="flex items-center gap-3 w-full justify-center">
@@ -129,13 +129,24 @@ export function AppSidebar() {
               </div>
             </div>
             {/* Environment Indicator Badge */}
-            <div className={`mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz')
-                ? 'bg-green-100 text-green-700 border border-green-200'
-                : 'bg-amber-100 text-amber-700 border border-amber-200 animate-pulse'
+            <div className={`mt-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex flex-col items-center gap-0.5 ${import.meta.env.VITE_USE_MOCK_DATA === 'true'
+                ? 'bg-amber-100 text-amber-700 border border-amber-300 animate-pulse'
+                : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz')
+                  ? 'bg-green-100 text-green-700 border border-green-200'
+                  : 'bg-blue-100 text-blue-700 border border-blue-200'
               }`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-amber-500'
-                }`} />
-              {import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'Live Production' : 'Development / Testing'}
+              <div className="flex items-center gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full ${import.meta.env.VITE_USE_MOCK_DATA === 'true'
+                    ? 'bg-amber-500'
+                    : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-blue-500'
+                  }`} />
+                {import.meta.env.VITE_USE_MOCK_DATA === 'true'
+                  ? '🛡️ Safety Testing Mode'
+                  : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'Live Production' : 'Staging / QA'}
+              </div>
+              {import.meta.env.VITE_USE_MOCK_DATA === 'true' && (
+                <span className="text-[8px] opacity-70">No data sent to server</span>
+              )}
             </div>
           </>
         ) : (
@@ -145,8 +156,10 @@ export function AppSidebar() {
               alt="SudSud Group"
               className="h-7 object-contain"
             />
-            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-amber-500 animate-pulse'
-              }`} />
+            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${import.meta.env.VITE_USE_MOCK_DATA === 'true'
+                ? 'bg-amber-500 animate-pulse'
+                : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-blue-500'
+              }`} title={import.meta.env.VITE_USE_MOCK_DATA === 'true' ? "Safety Testing Mode" : "Live Production"} />
           </div>
         )}
       </div>

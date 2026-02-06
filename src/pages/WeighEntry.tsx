@@ -559,6 +559,7 @@ Please process payment in Cashier section first.`,
             gtm: weighData.gtm ? parseFloat(weighData.gtm) : null,
             trailer_weight: weighData.trailer_weight ? parseFloat(weighData.trailer_weight) : null,
             photo_url: capturedPhotoUrl || null,
+            net_weight: calculatedNetWeight,
           }])
         )
       );

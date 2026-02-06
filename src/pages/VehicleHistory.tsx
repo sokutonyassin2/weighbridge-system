@@ -29,7 +29,7 @@ export default function VehicleHistory() {
         .select("*")
         .order("shift_date", { ascending: false })
         .limit(30);
-      
+
       if (error) throw error;
       return data;
     },
@@ -149,10 +149,18 @@ export default function VehicleHistory() {
     totalWeighs: vehicleData.entries.reduce((sum, e) => sum + (e.weigh_records?.length || 0), 0),
     totalPayments: vehicleData.payments.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0),
     totalPenalties: vehicleData.penalties.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0),
-    avgWeight: vehicleData.entries.reduce((sum, e) => {
-      const weighs = e.weigh_records || [];
-      return sum + weighs.reduce((s, w) => s + (parseFloat(w.net_weight?.toString() || "0")), 0);
-    }, 0) / (vehicleData.entries.reduce((sum, e) => sum + (e.weigh_records?.length || 0), 0) || 1),
+    avgWeight: (() => {
+      const completedEntries = vehicleData.entries.filter(e => e.status === "Completed");
+      if (completedEntries.length === 0) return 0;
+
+      const totalNetWeight = completedEntries.reduce((sum, e) => {
+        // Use the net weight from the latest record of the entry
+        const net = e.weigh_records?.[e.weigh_records.length - 1]?.net_weight || 0;
+        return sum + parseFloat(net.toString());
+      }, 0);
+
+      return totalNetWeight / completedEntries.length;
+    })(),
     totalEntries: vehicleData.entries.length,
   } : null;
 
@@ -289,18 +297,22 @@ export default function VehicleHistory() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <DollarSign className="mx-auto h-8 w-8 text-green-500 mb-2" />
+                <div className="flex items-center justify-center h-8 w-8 mx-auto mb-2 bg-green-100 rounded-full">
+                  <span className="text-[10px] font-bold text-green-600">TShs</span>
+                </div>
                 <p className="text-2xl font-bold">{stats.totalPayments.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Total Payments (TShs)</p>
+                <p className="text-sm text-muted-foreground">Total Payments</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <AlertCircle className="mx-auto h-8 w-8 text-red-500 mb-2" />
+                <div className="flex items-center justify-center h-8 w-8 mx-auto mb-2 bg-red-100 rounded-full">
+                  <span className="text-[10px] font-bold text-red-600">TShs</span>
+                </div>
                 <p className="text-2xl font-bold">{stats.totalPenalties.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Total Penalties (TShs)</p>
+                <p className="text-sm text-muted-foreground">Total Penalties</p>
               </div>
             </CardContent>
           </Card>
@@ -411,7 +423,7 @@ export default function VehicleHistory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vehicleData.entries.flatMap((entry) => 
+                  {vehicleData.entries.flatMap((entry) =>
                     (entry.weigh_records || []).map((weigh: any, idx: number) => (
                       <tr key={weigh.id}>
                         <td className="border border-black p-2 font-mono">WB-{entry.wb_number}</td>
@@ -498,10 +510,10 @@ export default function VehicleHistory() {
 
           {vehicleData.entries.map((entry) => {
             const isMVCategory = entry.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
-            
+
             return (
-              <Card 
-                key={entry.id} 
+              <Card
+                key={entry.id}
                 className={
                   isMVCategory
                     ? "border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-950/20"
@@ -515,9 +527,14 @@ export default function VehicleHistory() {
                         <span className="font-mono text-sm text-muted-foreground">WB-{entry.wb_number}</span>
                         <span>Entry: {format(new Date(entry.entry_time), "MMM dd, yyyy HH:mm")}</span>
                       </CardTitle>
-                      <CardDescription>
-                        {entry.vehicle_types?.type_name} • {entry.category}
-                        {isMVCategory && <span className="ml-2 text-blue-600">(Cargo Tracking)</span>}
+                      <CardDescription className="flex flex-col gap-0.5">
+                        <span className="font-bold text-primary">
+                          {entry.vehicle_no} • {entry.vehicle_types?.type_name}
+                        </span>
+                        <span className="text-xs">
+                          Category: {entry.category}
+                          {isMVCategory && <span className="ml-2 text-blue-600 font-semibold">(Cargo Tracking)</span>}
+                        </span>
                       </CardDescription>
                     </div>
                     <Badge variant={entry.status === "Completed" ? "default" : "secondary"}>
@@ -525,138 +542,144 @@ export default function VehicleHistory() {
                     </Badge>
                   </div>
                 </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Entry Details */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Driver</p>
-                    <p className="font-medium">{entry.driver_name || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Contact</p>
-                    <p className="font-medium">{entry.driver_contact || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Shift</p>
-                    <p className="font-medium">{entry.shifts?.shift_name || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Entered By</p>
-                    <p className="font-medium">{entry.entered_by || "N/A"}</p>
-                  </div>
-                </div>
-
-                {/* Weigh Records */}
-                {entry.weigh_records && entry.weigh_records.length > 0 && (
-                  <div>
-                    <h4 className="font-semibold mb-2 flex items-center text-blue-600">
-                      <Scale className="mr-2 h-4 w-4" />
-                      Weigh Records
-                    </h4>
-                    <div className="space-y-2">
-                      {entry.weigh_records.map((weigh: any, idx: number) => (
-                        <div key={weigh.id} className="bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                            <div>
-                              <p className="text-muted-foreground">Weigh #{idx + 1}</p>
-                              <p className="font-medium">{format(new Date(weigh.weigh_time), "HH:mm")}</p>
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground">Gross</p>
-                              <p className="font-medium">{weigh.gross_weight} kg</p>
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground">Tare</p>
-                              <p className="font-medium">{weigh.tare_weight} kg</p>
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground">Net</p>
-                              <p className="font-bold text-blue-600">{weigh.net_weight} kg</p>
-                            </div>
-                            <div>
-                              <p className="text-muted-foreground">By</p>
-                              <p className="font-medium">{weigh.weighed_by || "N/A"}</p>
-                            </div>
-                          </div>
-                          {weigh.warning_flag && (
-                            <Badge variant="destructive" className="mt-2">Warning: Weight Exceeds</Badge>
-                          )}
-                          {weigh.exceedence_notes && (
-                            <p className="mt-2 text-sm text-muted-foreground">{weigh.exceedence_notes}</p>
-                          )}
-                        </div>
-                      ))}
+                <CardContent className="space-y-4">
+                  {/* Entry Details */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Driver</p>
+                      <p className="font-medium">{entry.driver_name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Contact</p>
+                      <p className="font-medium">{entry.driver_contact || "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Shift</p>
+                      <p className="font-medium">{entry.shifts?.shift_name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Entered By</p>
+                      <p className="font-medium">{entry.entered_by || "N/A"}</p>
                     </div>
                   </div>
-                )}
 
-                {/* Payments for this entry */}
-                {vehicleData.payments.filter(p => p.entry_id === entry.id).length > 0 && (
-                  <div>
-                    <h4 className="font-semibold mb-2 flex items-center text-green-600">
-                      <DollarSign className="mr-2 h-4 w-4" />
-                      Payments
-                    </h4>
-                    <div className="space-y-2">
-                      {vehicleData.payments
-                        .filter(p => p.entry_id === entry.id)
-                        .map((payment) => (
-                          <div key={payment.id} className="bg-green-50 dark:bg-green-950 p-3 rounded-md">
-                            <div className="flex justify-between items-center">
+                  {/* Weigh Records */}
+                  {entry.weigh_records && entry.weigh_records.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 flex items-center text-blue-600">
+                        <Scale className="mr-2 h-4 w-4" />
+                        Weigh Records
+                      </h4>
+                      <div className="space-y-2">
+                        {entry.weigh_records.map((weigh: any, idx: number) => (
+                          <div key={weigh.id} className="bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
                               <div>
-                                <p className="font-medium">{payment.payment_type}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {format(new Date(payment.created_at || ""), "MMM dd, yyyy HH:mm")}
+                                <p className="text-muted-foreground">Weigh #{idx + 1}</p>
+                                <p className="font-medium">{format(new Date(weigh.weigh_time), "HH:mm")}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Gross</p>
+                                <p className="font-medium">{weigh.gross_weight || "-"} kg</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Tare</p>
+                                <p className="font-medium">{weigh.tare_weight || "-"} kg</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Net</p>
+                                <p className="font-bold text-blue-600">
+                                  {weigh.net_weight !== undefined && weigh.net_weight !== null
+                                    ? `${weigh.net_weight} kg`
+                                    : (weigh.gross_weight && weigh.tare_weight
+                                      ? `${(parseFloat(weigh.gross_weight) - parseFloat(weigh.tare_weight)).toFixed(2)} kg`
+                                      : "Pending")}
                                 </p>
                               </div>
-                              <div className="text-right">
-                                <p className="font-bold text-green-600">
-                                  TShs {parseFloat(payment.amount.toString()).toLocaleString()}
-                                </p>
-                                <Badge variant={payment.payment_status === "Paid" ? "default" : "secondary"}>
-                                  {payment.payment_status}
-                                </Badge>
+                              <div>
+                                <p className="text-muted-foreground">By</p>
+                                <p className="font-medium">{weigh.weighed_by || "N/A"}</p>
                               </div>
                             </div>
+                            {weigh.warning_flag && (
+                              <Badge variant="destructive" className="mt-2">Warning: Weight Exceeds</Badge>
+                            )}
+                            {weigh.exceedence_notes && (
+                              <p className="mt-2 text-sm text-muted-foreground">{weigh.exceedence_notes}</p>
+                            )}
                           </div>
                         ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Penalties for this entry */}
-                {vehicleData.penalties.filter(p => p.entry_id === entry.id).length > 0 && (
-                  <div>
-                    <h4 className="font-semibold mb-2 flex items-center text-red-600">
-                      <AlertCircle className="mr-2 h-4 w-4" />
-                      Penalties
-                    </h4>
-                    <div className="space-y-2">
-                      {vehicleData.penalties
-                        .filter(p => p.entry_id === entry.id)
-                        .map((penalty) => (
-                          <div key={penalty.id} className="bg-red-50 dark:bg-red-950 p-3 rounded-md">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="font-medium">{penalty.penalty_type}</p>
-                                <p className="text-sm text-muted-foreground">{penalty.reason}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {format(new Date(penalty.created_at), "MMM dd, yyyy HH:mm")}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="font-bold text-red-600">
-                                  TShs {parseFloat(penalty.amount.toString()).toLocaleString()}
-                                </p>
+                  {/* Payments for this entry */}
+                  {vehicleData.payments.filter(p => p.entry_id === entry.id).length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 flex items-center text-green-600">
+                        <DollarSign className="mr-2 h-4 w-4" />
+                        Payments
+                      </h4>
+                      <div className="space-y-2">
+                        {vehicleData.payments
+                          .filter(p => p.entry_id === entry.id)
+                          .map((payment) => (
+                            <div key={payment.id} className="bg-green-50 dark:bg-green-950 p-3 rounded-md">
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <p className="font-medium">{payment.payment_type}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {format(new Date(payment.created_at || ""), "MMM dd, yyyy HH:mm")}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-bold text-green-600">
+                                    TShs {parseFloat(payment.amount.toString()).toLocaleString()}
+                                  </p>
+                                  <Badge variant={payment.payment_status === "Paid" ? "default" : "secondary"}>
+                                    {payment.payment_status}
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+
+                  {/* Penalties for this entry */}
+                  {vehicleData.penalties.filter(p => p.entry_id === entry.id).length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 flex items-center text-red-600">
+                        <AlertCircle className="mr-2 h-4 w-4" />
+                        Penalties
+                      </h4>
+                      <div className="space-y-2">
+                        {vehicleData.penalties
+                          .filter(p => p.entry_id === entry.id)
+                          .map((penalty) => (
+                            <div key={penalty.id} className="bg-red-50 dark:bg-red-950 p-3 rounded-md">
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <p className="font-medium">{penalty.penalty_type}</p>
+                                  <p className="text-sm text-muted-foreground">{penalty.reason}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {format(new Date(penalty.created_at), "MMM dd, yyyy HH:mm")}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-bold text-red-600">
+                                    TShs {parseFloat(penalty.amount.toString()).toLocaleString()}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             );
           })}
         </div>

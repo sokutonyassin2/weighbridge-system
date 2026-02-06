@@ -82,16 +82,29 @@ serve(async (req) => {
         .eq('id', userId);
       if (profErr) throw profErr;
 
-      // Update Role
+      // Update Role (Safe Delete then Insert pattern)
       console.log(`Updating role for user ${userId} to: ${role}`);
+
+      // 1. Remove any existing roles to ensure a clean state
+      const { error: delErr } = await supabaseAdmin
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId);
+
+      if (delErr) {
+        console.error('Role deletion error:', delErr);
+        throw delErr;
+      }
+
+      // 2. Insert the new single role
       const { error: roleErr } = await supabaseAdmin
         .from('user_roles')
-        .upsert({ user_id: userId, role }, { onConflict: 'user_id' });
+        .insert({ user_id: userId, role });
 
       if (roleErr) {
         console.error('Role update error:', roleErr);
         return new Response(JSON.stringify({
-          error: `Database rejected role '${role}'. This often means the role name is not yet allowed in the database system.`,
+          error: `Database rejected role '${role}'.`,
           details: roleErr.message
         }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }

@@ -116,25 +116,37 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r bg-gradient-to-b from-sidebar to-sidebar/95">
       {/* Header with logo */}
-      <div className="h-16 px-4 flex items-center justify-center border-b border-sidebar-border/50 bg-white">
+      <div className="h-20 px-4 flex flex-col items-center justify-center border-b border-sidebar-border/50 bg-white shadow-sm">
         {!isCollapsed ? (
-          <div className="flex items-center gap-3 w-full justify-center">
-            <div className="relative w-full flex justify-center">
-              <img
-                src="/images/sudsud-energy-logo.png"
-                alt="SudSud Group | Energy Feeds"
-                className="h-12 w-auto object-contain drop-shadow-sm"
-              />
+          <>
+            <div className="flex items-center gap-3 w-full justify-center">
+              <div className="relative w-full flex justify-center">
+                <img
+                  src="/images/sudsud-energy-logo.png"
+                  alt="SudSud Group | Energy Feeds"
+                  className="h-10 w-auto object-contain drop-shadow-sm"
+                />
+              </div>
             </div>
-          </div>
+            {/* Environment Indicator Badge */}
+            <div className={`mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz')
+                ? 'bg-green-100 text-green-700 border border-green-200'
+                : 'bg-amber-100 text-amber-700 border border-amber-200 animate-pulse'
+              }`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-amber-500'
+                }`} />
+              {import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'Live Production' : 'Development / Testing'}
+            </div>
+          </>
         ) : (
-          <div className="relative mx-auto">
+          <div className="relative mx-auto py-4">
             <img
               src="/images/sudsud-logo.png"
               alt="SudSud Group"
               className="h-7 object-contain"
             />
-            <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-amber-500 animate-pulse'
+              }`} />
           </div>
         )}
       </div>

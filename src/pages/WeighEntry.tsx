@@ -487,6 +487,7 @@ Please process payment in Cashier section first.`,
         .select("id")
         .eq("shift_date", shiftDate)
         .eq("shift_name", shiftName)
+        .limit(1)
         .maybeSingle() : Promise.resolve({ data: { id: `offline_${shiftDate}_${shiftName}` }, error: null });
 
       // 2. Prepare Data & Status while shift check is running
@@ -519,10 +520,9 @@ Please process payment in Cashier section first.`,
             operator_id: user.id,
             start_time: new Date().toISOString(),
           })
-          .select("id")
-          .single();
+          .select("id");
         if (shiftError) throw shiftError;
-        currentShiftId = newShift.id;
+        currentShiftId = newShift?.[0]?.id;
       }
 
       const promises: Promise<any>[] = [];
@@ -535,7 +535,7 @@ Please process payment in Cashier section first.`,
           supabase
             .from("vehicle_entries")
             .update({
-              status: hasExhaustedAttempts ? status : newStatus, // Keep status if exhausted
+              status: hasExhaustedAttempts ? entry.status : newStatus, // Fixed undefined 'status'
               completed: !hasExhaustedAttempts && newStatus === "Completed",
               shift_id: currentShiftId
             })
@@ -634,7 +634,15 @@ Please process payment in Cashier section first.`,
 
       let prePaidPromise: Promise<any> | null = null;
       if (isFirstWeigh || isMVCategory) {
-        prePaidPromise = Promise.resolve(supabase.from("payments").select("notes").eq("entry_id", id).eq("payment_type", "First Weigh").eq("payment_status", "Paid").maybeSingle());
+        prePaidPromise = Promise.resolve(
+          supabase.from("payments")
+            .select("notes")
+            .eq("entry_id", id)
+            .eq("payment_type", "First Weigh")
+            .eq("payment_status", "Paid")
+            .limit(1)
+            .maybeSingle()
+        );
         promises.push(prePaidPromise);
       }
 
@@ -648,7 +656,13 @@ Please process payment in Cashier section first.`,
 
         if (typeof fee === 'number' && !skipPayment && !skipSecondWeighPayment && fee > 0) {
           promises.push((async () => {
-            const { data: existing } = await supabase.from("payments").select("id, payment_status").eq("entry_id", id).eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh").maybeSingle();
+            const { data: existingRecords } = await supabase.from("payments")
+              .select("id, payment_status")
+              .eq("entry_id", id)
+              .eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh")
+              .limit(1);
+
+            const existing = existingRecords?.[0];
 
             // Auto-mark as PAID if it's the second weigh (User requirement: "when they save automatically let the money reflect")
             const shouldBePaid = isFirstWeigh ? true : true; // Both First and Second weigh now auto-mark as paid on save/print if applicable

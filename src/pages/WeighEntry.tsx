@@ -810,7 +810,21 @@ Please process payment in Cashier section first.`,
 
     } catch (error: any) {
       console.error("Save error:", error);
-      toast({ variant: "destructive", title: "Error", description: error.message });
+
+      let errorMessage = error.message || "An unknown error occurred while saving.";
+
+      if (errorMessage.includes("Failed to fetch")) {
+        errorMessage = "Network Error: Could not connect to the database. Please check your internet connection and try again.";
+      } else if (errorMessage.includes("timeout")) {
+        errorMessage = "Request Timeout: The database is taking too long to respond. Please try saving again.";
+      }
+
+      toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: errorMessage,
+        duration: 10000
+      });
       setIsSubmitting(false);
     }
   };
@@ -1303,7 +1317,7 @@ Please process payment in Cashier section first.`,
                   vehicleNo={entry.vehicle_no}
                   weighNumber={weighCount + 1}
                   onPhotoCapture={(url) => setCapturedPhotoUrl(url)}
-                  disabled={isSubmitting || !requireImageCapture}
+                  disabled={isSubmitting}
                 />
               </div>
               <div className="space-y-2">

@@ -51,7 +51,7 @@ const ShiftCollectionsCard = ({ isAdmin, user, startDate, endDate, shiftName }: 
 
       return paymentsTotal + penaltiesTotal;
     },
-    refetchInterval: 5000, // Syncs with dashboard updates (5s for faster feedback)
+    refetchInterval: 30000, // Optimized refresh for fast feedback without overloading DB
   });
 
   return (
@@ -106,7 +106,7 @@ export default function CashierDashboard() {
       return data;
     },
     staleTime: 5000,
-    refetchInterval: 10000,
+    refetchInterval: 30000, // Optimized refresh
   });
 
   // Fetch penalties with date filtering for admin
@@ -130,7 +130,7 @@ export default function CashierDashboard() {
       return data;
     },
     staleTime: 10000,
-    refetchInterval: 15000, // Auto-refresh every 15 seconds
+    refetchInterval: 30000, // Auto-refresh every 30 seconds (Optimized)
   });
 
   // Fetch current active shift

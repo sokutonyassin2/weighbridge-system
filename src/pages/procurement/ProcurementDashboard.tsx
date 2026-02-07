@@ -85,20 +85,26 @@ const ProcurementDashboard = () => {
     const { data: inventory, isLoading: isLoadingInventory } = useQuery({
         queryKey: ["procurement-inventory"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_inventory").select("*").order("item_name");
+            const { data, error } = await sb
+                .from("garage_inventory")
+                .select("*")
+                .order("item_name")
+                .limit(50);
             if (error) throw error;
             return data;
         },
-        refetchInterval: 3000
+        refetchInterval: 60000 // Optimized refresh
     });
 
     // Fetch Requisitions with Supplier info
     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({
         queryKey: ["procurement-requisitions"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_requisitions")
+            const { data, error } = await sb
+                .from("garage_requisitions")
                 .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)")
-                .order("created_at", { ascending: false });
+                .order("created_at", { ascending: false })
+                .limit(50);
 
             console.log("📦 PROCUREMENT: Fetched requisitions:", data);
             console.log("📦 PROCUREMENT: Total count:", data?.length || 0);
@@ -112,7 +118,7 @@ const ProcurementDashboard = () => {
             }
             return data;
         },
-        refetchInterval: 3000
+        refetchInterval: 60000 // Optimized refresh
     });
 
     // Fetch Suppliers

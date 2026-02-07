@@ -45,7 +45,7 @@ export default function SuperadminDashboard() {
             if (error) throw error;
             return data as any[];
         },
-        refetchInterval: 5000, // Live Refresh
+        refetchInterval: 30000, // Live Refresh (Optimized)
     });
 
     // 2. Fetch Fleet Status
@@ -87,7 +87,7 @@ export default function SuperadminDashboard() {
             if (error) throw error;
             return data;
         },
-        refetchInterval: 3000, // Fast refresh
+        refetchInterval: 30000, // Fast refresh (Optimized)
     });
 
     // 4. Fetch Pending Quality Checks
@@ -122,7 +122,7 @@ export default function SuperadminDashboard() {
             if (error) throw error;
             return data;
         },
-        refetchInterval: 5000,
+        refetchInterval: 30000, // Optimized refresh
     });
 
     // Process Chart Data

@@ -108,7 +108,7 @@ export default function OperatorDashboard() {
       if (error) throw error;
       return data;
     },
-    refetchInterval: 15000,
+    refetchInterval: 30000, // Optimized refresh
     staleTime: 10000,
   });
 
@@ -148,7 +148,7 @@ export default function OperatorDashboard() {
         [pw.entry_id as string]: pw
       }), {}) || {};
     },
-    refetchInterval: 15000,
+    refetchInterval: 30000,
     staleTime: 10000,
   });
 

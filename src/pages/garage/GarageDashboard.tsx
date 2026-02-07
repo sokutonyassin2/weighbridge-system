@@ -209,11 +209,15 @@ const GarageDashboard = () => {
     const { data: inventory, isLoading: isLoadingInventory } = useQuery({
         queryKey: ["garage-inventory"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_inventory").select("*").order("item_name");
+            const { data, error } = await sb
+                .from("garage_inventory")
+                .select("*")
+                .order("item_name")
+                .limit(50);
             if (error) throw error;
             return data;
         },
-        refetchInterval: 5000
+        refetchInterval: 60000 // Optimized refresh
     });
 
     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({

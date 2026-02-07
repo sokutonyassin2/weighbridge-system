@@ -68,7 +68,8 @@ const FleetCommand = () => {
             const { data, error } = await supabase
                 .from("logistics_fleet")
                 .select("*")
-                .order("created_at", { ascending: false });
+                .order("created_at", { ascending: false })
+                .limit(100);
             if (error) throw error;
             return data;
         }

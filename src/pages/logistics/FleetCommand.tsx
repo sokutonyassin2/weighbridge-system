@@ -672,7 +672,7 @@ const FleetCommand = () => {
         return typeInfo?.type_category === "Trailer";
     };
 
-    // Check if an asset can be coupled (only horses and trailers)
+    // Check if an asset can be coupled (trailers + vehicles with requires_coupling flag)
     const canBeCoupled = (asset: any) => {
         const typeInfo = assetTypes?.find((t) => t.name === asset.asset_type);
         if (!typeInfo) return false;
@@ -680,10 +680,12 @@ const FleetCommand = () => {
         // Always allow trailers to be coupled
         if (typeInfo.type_category === "Trailer") return true;
 
-        // For vehicles, only allow specific types that can pull trailers
-        // Exclude standalone vehicles like Pickup, Tanker, Tricycle Motorcycle, etc.
-        const couplableVehicleTypes = ["Horse", "Truck", "Tractor"]; // Add more as needed
-        return typeInfo.type_category === "Vehicle" && couplableVehicleTypes.includes(typeInfo.name);
+        // For vehicles, check the requires_coupling flag
+        if (typeInfo.type_category === "Vehicle") {
+            return typeInfo.requires_coupling === true;
+        }
+
+        return false;
     };
 
     // Get available vehicles for coupling with the selected vehicle
@@ -1814,13 +1816,20 @@ const FleetCommand = () => {
                                                                 <Unlink className="w-3 h-3 mr-1" />
                                                                 SINGLE
                                                             </Badge>
-                                                            <button
-                                                                className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors"
-                                                                onClick={() => handleOpenCouplingDialog(asset)}
-                                                            >
-                                                                <Link className="h-3 w-3" />
-                                                                COUPLE NOW
-                                                            </button>
+                                                            {/* Only Horses can initiate coupling */}
+                                                            {isHorse(asset) && assetTypes?.find((t: any) => t.name === asset.asset_type)?.requires_coupling ? (
+                                                                <button
+                                                                    className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50/50 px-1 py-0.5 rounded font-bold flex items-center gap-1.5 transition-colors"
+                                                                    onClick={() => handleOpenCouplingDialog(asset)}
+                                                                >
+                                                                    <Link className="h-3 w-3" />
+                                                                    COUPLE NOW
+                                                                </button>
+                                                            ) : isTrailer(asset) ? (
+                                                                <span className="text-[10px] text-slate-400 italic font-medium">
+                                                                    ⏳ Awaiting Horse
+                                                                </span>
+                                                            ) : null}
                                                         </div>
                                                     )}
                                                 </div>

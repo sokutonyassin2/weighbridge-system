@@ -378,14 +378,39 @@ Please process payment in Cashier section first.`,
       });
 
       // Store the weigh data offline
+      // CRITICAL FIX: Apply same MV category logic for offline mode
+      let actualGrossWeight: number;
+      let actualTareWeight: number;
+
+      if (isMVCategory && isFirstWeigh) {
+        if (cameLoaded) {
+          actualGrossWeight = parseFloat(weighData.gross_weight);
+          actualTareWeight = 0;
+        } else {
+          actualGrossWeight = 0;
+          actualTareWeight = parseFloat(weighData.tare_weight);
+        }
+      } else if (isMVCategory && !isFirstWeigh) {
+        if (cameLoaded) {
+          actualGrossWeight = parseFloat(weighData.gross_weight);
+          actualTareWeight = parseFloat(weighData.tare_weight);
+        } else {
+          actualGrossWeight = parseFloat(weighData.gross_weight);
+          actualTareWeight = parseFloat(weighData.tare_weight);
+        }
+      } else {
+        actualGrossWeight = parseFloat(weighData.gross_weight);
+        actualTareWeight = parseFloat(weighData.tare_weight);
+      }
+
       const offlineId = offlineDataManager.addData({
         type: 'weigh_record',
         operation: 'create',
         data: {
           entry_id: id,
           vehicle_no: entry?.vehicle_no,
-          gross_weight: parseFloat(weighData.gross_weight),
-          tare_weight: parseFloat(weighData.tare_weight),
+          gross_weight: actualGrossWeight,
+          tare_weight: actualTareWeight,
           weigh_number: weighCount + 1,
           operator_id: user.id,
           warning_flag: weighData.warning_flag,
@@ -395,7 +420,7 @@ Please process payment in Cashier section first.`,
           gtm: weighData.gtm ? parseFloat(weighData.gtm) : null,
           trailer_weight: weighData.trailer_weight ? parseFloat(weighData.trailer_weight) : null,
           photo_url: capturedPhotoUrl || null,
-          net_weight: parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight),
+          net_weight: actualGrossWeight - actualTareWeight,
         }
       });
 
@@ -544,12 +569,46 @@ Please process payment in Cashier section first.`,
       );
 
       // B. Insert Weigh Record
+      // CRITICAL FIX: Determine correct gross/tare values based on MV category logic
+      // MV-PublicSeller & MV-Supplier arrive LOADED → First weigh = Gross, Second weigh = Tare
+      // MV-Company arrives EMPTY → First weigh = Tare, Second weigh = Gross
+      let actualGrossWeight: number;
+      let actualTareWeight: number;
+
+      if (isMVCategory && isFirstWeigh) {
+        // First weigh for MV vehicles
+        if (cameLoaded) {
+          // MV-PublicSeller & MV-Supplier: Arrived loaded, so first weigh is GROSS
+          actualGrossWeight = parseFloat(weighData.gross_weight);
+          actualTareWeight = 0; // Will be filled on second weigh
+        } else {
+          // MV-Company: Arrived empty, so first weigh is TARE
+          actualGrossWeight = 0; // Will be filled on second weigh
+          actualTareWeight = parseFloat(weighData.tare_weight);
+        }
+      } else if (isMVCategory && !isFirstWeigh) {
+        // Second weigh for MV vehicles
+        if (cameLoaded) {
+          // MV-PublicSeller & MV-Supplier: Now empty, so second weigh is TARE
+          actualGrossWeight = parseFloat(weighData.gross_weight); // Pre-filled from first weigh
+          actualTareWeight = parseFloat(weighData.tare_weight); // Newly captured
+        } else {
+          // MV-Company: Now loaded, so second weigh is GROSS
+          actualGrossWeight = parseFloat(weighData.gross_weight); // Newly captured
+          actualTareWeight = parseFloat(weighData.tare_weight); // Pre-filled from first weigh
+        }
+      } else {
+        // Non-MV vehicles: use values as-is
+        actualGrossWeight = parseFloat(weighData.gross_weight);
+        actualTareWeight = parseFloat(weighData.tare_weight);
+      }
+
       promises.push(
         Promise.resolve(
           supabase.from("weigh_records").insert([{
             entry_id: id,
-            gross_weight: parseFloat(weighData.gross_weight),
-            tare_weight: parseFloat(weighData.tare_weight),
+            gross_weight: actualGrossWeight,
+            tare_weight: actualTareWeight,
             weigh_number: weighCount + 1,
             operator_id: user.id,
             warning_flag: weighData.warning_flag,

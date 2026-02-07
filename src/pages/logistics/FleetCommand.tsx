@@ -40,6 +40,7 @@ const FleetCommand = () => {
         requires_coupling: false,
         is_active: true
     });
+    const [editingType, setEditingType] = useState<any>(null); // Track which type is being edited
 
     // For Registered Assets
     const [newAsset, setNewAsset] = useState({
@@ -226,6 +227,22 @@ const FleetCommand = () => {
             setIsTypeDialogOpen(false);
             setNewType({ name: "", description: "", type_category: "Vehicle", requires_coupling: false, is_active: true });
             toast({ title: "Type Added", description: "New asset type registered." });
+        },
+        onError: (error: any) => toast({ variant: "destructive", title: "Error", description: error.message })
+    });
+
+    const updateTypeMutation = useMutation({
+        mutationFn: async ({ id, updates }: { id: string, updates: typeof newType }) => {
+            const { data, error } = await supabase.from("logistics_asset_types").update(updates).eq("id", id).select();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics-asset-types"] });
+            setIsTypeDialogOpen(false);
+            setEditingType(null);
+            setNewType({ name: "", description: "", type_category: "Vehicle", requires_coupling: false, is_active: true });
+            toast({ title: "Type Updated", description: "Asset type updated successfully." });
         },
         onError: (error: any) => toast({ variant: "destructive", title: "Error", description: error.message })
     });
@@ -846,7 +863,14 @@ const FleetCommand = () => {
                     <Dialog open={isTypeDialogOpen} onOpenChange={(open) => {
                         setIsTypeDialogOpen(open);
                         if (open) {
-                            setNewType(prev => ({ ...prev, type_category: activeTypeTab }));
+                            if (!editingType) {
+                                // Only reset for new types, not when editing
+                                setNewType(prev => ({ ...prev, type_category: activeTypeTab }));
+                            }
+                        } else {
+                            // Reset when closing
+                            setEditingType(null);
+                            setNewType({ name: "", description: "", type_category: "Vehicle", requires_coupling: false, is_active: true });
                         }
                     }}>
                         <DialogTrigger asChild>
@@ -856,7 +880,7 @@ const FleetCommand = () => {
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[400px]">
                             <DialogHeader>
-                                <DialogTitle>Add Asset Type</DialogTitle>
+                                <DialogTitle>{editingType ? "Edit Asset Type" : "Add Asset Type"}</DialogTitle>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
                                 <div className="space-y-2">
@@ -892,7 +916,20 @@ const FleetCommand = () => {
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button className="w-full bg-primary" onClick={() => createTypeMutation.mutate(newType)}>Add Type</Button>
+                                <Button
+                                    className="w-full bg-primary"
+                                    onClick={() => {
+                                        if (editingType) {
+                                            // Update existing type
+                                            updateTypeMutation.mutate({ id: editingType.id, updates: newType });
+                                        } else {
+                                            // Create new type
+                                            createTypeMutation.mutate(newType);
+                                        }
+                                    }}
+                                >
+                                    {editingType ? "Update Type" : "Add Type"}
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -935,9 +972,34 @@ const FleetCommand = () => {
                                                         />
                                                     </TableCell>
                                                     <TableCell className="text-right pr-6">
-                                                        <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => deleteTypeMutation.mutate(type.id)}>
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="text-primary h-8 w-8"
+                                                                onClick={() => {
+                                                                    setEditingType(type);
+                                                                    setNewType({
+                                                                        name: type.name,
+                                                                        description: type.description || "",
+                                                                        type_category: type.type_category || "Vehicle",
+                                                                        requires_coupling: (type as any).requires_coupling || false,
+                                                                        is_active: type.is_active
+                                                                    });
+                                                                    setIsTypeDialogOpen(true);
+                                                                }}
+                                                            >
+                                                                <Edit className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="text-destructive h-8 w-8"
+                                                                onClick={() => deleteTypeMutation.mutate(type.id)}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
                                             ))}

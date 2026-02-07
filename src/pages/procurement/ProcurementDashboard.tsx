@@ -404,15 +404,42 @@ const ProcurementDashboard = () => {
     };
 
     // Helper: Get Badge for status
-    const getStatusBadge = (status: string) => {
+    const getStatusBadge = (status: string, req?: any) => {
         switch (status) {
             case 'Pending': return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">Pending</Badge>;
             case 'Approved': return <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">Approved</Badge>;
             case 'Purchased': return <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">Purchased</Badge>;
             case 'Delivered': return <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200">Delivered</Badge>;
             case 'Rejected': return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">Rejected</Badge>;
+            case 'Processing':
+                return (
+                    <div className="flex flex-col gap-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">Processing</Badge>
+                        {req?.processing_reason && (
+                            <span className="text-[10px] text-slate-500 italic">Reason: {req.processing_reason}</span>
+                        )}
+                    </div>
+                );
+            case 'Revoked':
+                return (
+                    <div className="flex flex-col gap-1">
+                        <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">Rework Required</Badge>
+                        {req?.revoke_reason && (
+                            <span className="text-[10px] text-slate-500 italic">Reason: {req.revoke_reason}</span>
+                        )}
+                    </div>
+                );
             default: return <Badge variant="outline">{status}</Badge>;
         }
+    };
+
+    // Helper: Get Department Name from Company
+    const getDepartmentName = (company: string) => {
+        if (!company) return "General";
+        if (company.includes("LOGISTICS")) return "Logistics";
+        if (company.includes("WEIGHBRIDGE")) return "Weighbridge";
+        if (company.includes("GARAGE")) return "Garage";
+        return company;
     };
 
     return (
@@ -601,16 +628,22 @@ const ProcurementDashboard = () => {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant="outline" className="text-xs font-bold bg-slate-50 text-slate-600 border-slate-200 uppercase">
-                                                    {req.target_company}
+                                                    {getDepartmentName(req.target_company)}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="font-mono text-xs text-slate-500">
                                                 {req.po_number || <span className="text-slate-300">-- No PO --</span>}
                                             </TableCell>
                                             <TableCell>
-                                                <div className="flex flex-col">
+                                                <div className="flex flex-col gap-1">
                                                     <span className="font-semibold text-sm text-slate-800">{req.item_name}</span>
                                                     <span className="text-xs text-slate-400">Qty: {req.quantity_requested} units</span>
+                                                    {req.vehicle_id && req.vehicle && (
+                                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 w-fit text-[10px] font-bold">
+                                                            <Truck className="h-3 w-3 mr-1" />
+                                                            For Vehicle: {req.vehicle.vehicle_no || req.vehicle.horse_number || 'N/A'}
+                                                        </Badge>
+                                                    )}
                                                 </div>
                                             </TableCell>
                                             <TableCell className="text-sm font-medium text-slate-600">
@@ -941,7 +974,7 @@ const ProcurementDashboard = () => {
                         <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)} className="h-11 font-bold uppercase text-[11px]">Cancel</Button>
                         <Button
                             className="h-11 bg-indigo-600 hover:bg-indigo-700 font-bold uppercase text-[11px] px-8"
-                            disabled={!approvalDetails.supplier_id || approveMutation.isPending}
+                            disabled={!approvalDetails.supplier_id || !approvalDetails.temp_price || approvalDetails.temp_price <= 0 || approveMutation.isPending}
                             onClick={() => approveMutation.mutate({
                                 reqId: selectedReq?.id,
                                 qty: selectedReq?.quantity_requested,

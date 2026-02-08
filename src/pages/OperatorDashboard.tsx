@@ -12,6 +12,7 @@ import { Plus, Scale as ScaleIcon, Sun, Moon, AlertTriangle, Power, Trash2, Cloc
 import { format, differenceInDays } from "date-fns";
 import { getShortEntryId } from "@/lib/utils";
 import { getCurrentShiftDate } from "@/lib/shiftUtils";
+import offlineDataManager from "@/lib/offlineDataManager";
 import { ExhaustedVehiclePaymentDialog } from "@/components/ExhaustedVehiclePaymentDialog";
 import { SignatureCapture } from "@/components/SignatureCapture";
 import {
@@ -510,7 +511,10 @@ export default function OperatorDashboard() {
                 </TableHeader>
                 <TableBody>
                   {pendingEntries.map((entry) => {
-                    const weighCount = entry.weigh_records?.length || 0;
+                    const dbWeighCount = entry.weigh_records?.length || 0;
+                    const pendingOfflineCount = offlineDataManager.getPendingCount(entry.id, 'weigh_record');
+                    const weighCount = dbWeighCount + pendingOfflineCount;
+
                     const isMVCategory = entry.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
                     const isExhausted = !isMVCategory && weighCount >= 3;
                     const pendingWeigh = pendingWeighsMap?.[entry.id];

@@ -116,6 +116,14 @@ class OfflineDataManager {
     return allData.filter(item => item.syncStatus === 'pending');
   }
 
+  getPendingCount(entryId: string, type: 'weigh_record' | 'vehicle_entry' | 'payment'): number {
+    const pending = this.getPendingItems();
+    return pending.filter(item =>
+      item.type === type &&
+      (item.data.entry_id === entryId || item.data.id === entryId)
+    ).length;
+  }
+
   async syncWithServer(): Promise<boolean> {
     if (!navigator.onLine) {
       return false;

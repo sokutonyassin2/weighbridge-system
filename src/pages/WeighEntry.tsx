@@ -160,7 +160,10 @@ export default function WeighEntry() {
     enabled: !!id,
   });
 
-  const weighCount = entry?.weigh_records?.length || 0;
+  const dbWeighCount = entry?.weigh_records?.length || 0;
+  const pendingOfflineWeighs = id ? offlineDataManager.getPendingCount(id, 'weigh_record') : 0;
+  const weighCount = dbWeighCount + pendingOfflineWeighs;
+
   const isFirstWeigh = weighCount === 0;
   const isMVCategory = entry?.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
   const isJVCategory = entry?.category && ["JV-Payment", "JV-Free"].includes(entry.category);

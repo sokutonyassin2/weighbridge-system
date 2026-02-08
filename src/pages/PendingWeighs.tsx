@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { Clock, AlertTriangle, CheckCircle, DollarSign, Sun, Moon } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
+import offlineDataManager from "@/lib/offlineDataManager";
 
 export default function PendingWeighs() {
   const { toast } = useToast();
@@ -76,16 +77,24 @@ export default function PendingWeighs() {
   // - activePending: Within 12hr window and < 3 attempts
   // - exhaustedPending: Vehicles with payment_required (exhausted attempts only)
   // Note: Time-based overdue vehicles are now auto-removed to overdue_vehicles_history
-  const activePending = pendingWeighs?.filter(
-    (pw) => !pw.payment_required &&
+  const activePending = pendingWeighs?.filter((pw) => {
+    const dbAttempts = pw.weigh_attempts || 0;
+    const pendingOffline = offlineDataManager.getPendingCount(pw.entry_id, 'weigh_record');
+    const totalAttempts = dbAttempts + pendingOffline;
+
+    return !pw.payment_required &&
       (!pw.expected_return_time || new Date(pw.expected_return_time) >= now) &&
-      (pw.weigh_attempts || 0) < 3
-  ) || [];
+      totalAttempts < 3;
+  }) || [];
 
   // Only show exhausted attempts (3/3) requiring payment, NOT time-based overdue
-  const exhaustedPending = pendingWeighs?.filter(
-    (pw) => pw.payment_required && (pw.weigh_attempts || 0) >= 3
-  ) || [];
+  const exhaustedPending = pendingWeighs?.filter((pw) => {
+    const dbAttempts = pw.weigh_attempts || 0;
+    const pendingOffline = offlineDataManager.getPendingCount(pw.entry_id, 'weigh_record');
+    const totalAttempts = dbAttempts + pendingOffline;
+
+    return pw.payment_required || totalAttempts >= 3;
+  }) || [];
 
   const handleMarkComplete = async (entryId: string, vehicleNo: string) => {
     setProcessingId(entryId);
@@ -256,9 +265,16 @@ export default function PendingWeighs() {
                         {timeRemaining}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={(pending.weigh_attempts || 0) >= 2 ? "destructive" : "secondary"}>
-                          {(pending.weigh_attempts || 0) + 1}/3
-                        </Badge>
+                        {(() => {
+                          const dbAttempts = pending.weigh_attempts || 0;
+                          const pendingOffline = offlineDataManager.getPendingCount(pending.entry_id, 'weigh_record');
+                          const totalAttempts = dbAttempts + pendingOffline;
+                          return (
+                            <Badge variant={totalAttempts >= 2 ? "destructive" : "secondary"}>
+                              {totalAttempts + 1}/3
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">

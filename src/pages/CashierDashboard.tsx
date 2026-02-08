@@ -13,6 +13,7 @@ import { Banknote, CheckCircle, AlertCircle, Printer, Calendar } from "lucide-re
 import { format } from "date-fns";
 import { ExhaustedVehiclePaymentDialog } from "@/components/ExhaustedVehiclePaymentDialog";
 import { getShortEntryId } from "@/lib/utils";
+import offlineDataManager from "@/lib/offlineDataManager";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { CashierShiftReport } from "@/components/CashierShiftReport";
 import { getShiftTimeWindow, getCurrentShiftDate, getCurrentShiftName, getShiftTimeDescription } from "@/lib/shiftUtils";
@@ -596,7 +597,14 @@ export default function CashierDashboard() {
                     <TableCell className="font-medium">{pw.vehicle_no}</TableCell>
                     <TableCell>{pw.vehicle_entries?.vehicle_types?.type_name || "N/A"}</TableCell>
                     <TableCell>
-                      <Badge variant="destructive">{pw.weigh_attempts}/3 EXHAUSTED</Badge>
+                      {(() => {
+                        const dbAttempts = pw.weigh_attempts || 0;
+                        const pendingOffline = offlineDataManager.getPendingCount(pw.entry_id, 'weigh_record');
+                        const totalAttempts = dbAttempts + pendingOffline;
+                        return (
+                          <Badge variant="destructive">{totalAttempts}/3 EXHAUSTED</Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="font-bold text-destructive">
                       TShs {(pw.vehicle_entries?.vehicle_types?.first_weigh_fee || 0).toLocaleString()}

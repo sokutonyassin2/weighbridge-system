@@ -14,8 +14,11 @@ import { useToast } from "@/hooks/use-toast"; // Verify hook path
 import {
     MapPin, Calendar, Truck, User, Package, Plus, Search,
     ArrowRight, Clock, CheckCircle2, AlertTriangle, FileText,
-    Navigation, RefreshCw, Filter, Printer
+    Navigation, RefreshCw, Filter, Printer, Check, ChevronsUpDown
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
 // Types
@@ -36,6 +39,8 @@ const TripManagement = () => {
         actual_fuel_cost: ""
     });
     const [podFile, setPodFile] = useState<File | null>(null);
+    const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
+    const [isTrailerPopoverOpen, setIsTrailerPopoverOpen] = useState(false);
 
     // Form State
     const [newTrip, setNewTrip] = useState({
@@ -131,23 +136,39 @@ const TripManagement = () => {
 
     // Filtered Resources (Only show available ones)
     const availableVehicles = fleet?.filter(v => {
+        // 1. MUST BE ACTIVE & NOT IN GARAGE
+        if (v.status === 'In Garage' || v.status === 'Inactive') return false;
+
+        // 2. MUST NOT BE ON AN ACTIVE TRIP
+        const isOnTrip = activeTripResources?.some(tr => tr.vehicle_id === v.id || tr.trailer_id === v.id);
+        if (isOnTrip) return false;
+
         const typeInfo = assetTypes?.find(t => t.name === v.asset_type);
-        if (!typeInfo || typeInfo.type_category !== 'Vehicle') return false;
+        if (!typeInfo) return false;
 
-        // If it requires coupling, it MUST be coupled to show up
-        if (typeInfo.requires_coupling && v.coupling_status !== 'coupled') return false;
+        // 3. ARTICULATED CLASSIFICATION
+        if (typeInfo.type_category === 'Vehicle') {
+            // Horses must be coupled to show in the primary vehicle list
+            if (typeInfo.requires_coupling && v.coupling_status !== 'coupled') return false;
+            return true;
+        }
 
-        return !activeTripResources?.some(tr => tr.vehicle_id === v.id);
+        return false; // Trailers are picked via coupling or separate select
     }) || [];
 
     const availableTrailers = fleet?.filter(v => {
+        // 1. MUST BE ACTIVE & NOT IN GARAGE
+        if (v.status === 'In Garage' || v.status === 'Inactive') return false;
+
+        // 2. MUST NOT BE ON AN ACTIVE TRIP
+        const isOnTrip = activeTripResources?.some(tr => tr.vehicle_id === v.id || tr.trailer_id === v.id);
+        if (isOnTrip) return false;
+
         const typeInfo = assetTypes?.find(t => t.name === v.asset_type);
         if (!typeInfo || typeInfo.type_category !== 'Trailer') return false;
 
-        // Trailers ALWAYS require coupling to be on a trip
-        if (v.coupling_status !== 'coupled') return false;
-
-        return !activeTripResources?.some(tr => tr.trailer_id === v.id);
+        // 3. COUPLING CHECK (Optional for trailers if manual pick is allowed, but usually auto-selected)
+        return true;
     }) || [];
 
     const availableDrivers = drivers?.filter(d =>
@@ -539,29 +560,54 @@ const TripManagement = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Vehicle *</Label>
-                                        <Select onValueChange={(v) => {
-                                            const selectedHorse = fleet?.find(f => f.id === v);
-                                            const coupling = couplings?.find(c => c.horse_id === v);
-                                            setNewTrip({
-                                                ...newTrip,
-                                                vehicle_id: v,
-                                                trailer_id: coupling ? coupling.trailer_id : ""
-                                            });
-                                        }}>
-                                            <SelectTrigger><SelectValue placeholder="Select Vehicle" /></SelectTrigger>
-                                            <SelectContent>
-                                                {availableVehicles.map((v: any) => (
-                                                    <SelectItem
-                                                        key={v.id}
-                                                        value={v.id}
-                                                        disabled={v.status === 'In Garage'}
-                                                        className={v.status === 'In Garage' ? "text-muted-foreground opacity-50" : ""}
-                                                    >
-                                                        {v.vehicle_no} ({v.asset_type}) {v.status === 'In Garage' && '⛔ (In Garage)'}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <Popover open={isVehiclePopoverOpen} onOpenChange={setIsVehiclePopoverOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    aria-expanded={isVehiclePopoverOpen}
+                                                    className="w-full justify-between"
+                                                >
+                                                    {newTrip.vehicle_id
+                                                        ? fleet?.find((f) => f.id === newTrip.vehicle_id)?.vehicle_no
+                                                        : "Select Vehicle..."}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-full p-0" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder="Search plate number..." />
+                                                    <CommandList>
+                                                        <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {availableVehicles.map((v: any) => (
+                                                                <CommandItem
+                                                                    key={v.id}
+                                                                    value={v.vehicle_no}
+                                                                    onSelect={() => {
+                                                                        const coupling = couplings?.find(c => c.horse_id === v.id);
+                                                                        setNewTrip({
+                                                                            ...newTrip,
+                                                                            vehicle_id: v.id,
+                                                                            trailer_id: coupling ? coupling.trailer_id : ""
+                                                                        });
+                                                                        setIsVehiclePopoverOpen(false);
+                                                                    }}
+                                                                >
+                                                                    <Check
+                                                                        className={cn(
+                                                                            "mr-2 h-4 w-4",
+                                                                            newTrip.vehicle_id === v.id ? "opacity-100" : "opacity-0"
+                                                                        )}
+                                                                    />
+                                                                    {v.vehicle_no} ({v.asset_type})
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                         <p className="text-[10px] text-muted-foreground">{availableVehicles.length} units available</p>
                                     </div>
                                     <div className="space-y-2">

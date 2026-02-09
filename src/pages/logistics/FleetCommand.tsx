@@ -1736,7 +1736,7 @@ const FleetCommand = () => {
                                                         ) : (
                                                             <>
                                                                 {(asset.horse_number && asset.vehicle_no && asset.horse_number !== asset.vehicle_no) && <span>H: {asset.horse_number}</span>}
-                                                                {(asset.trailer_number && asset.vehicle_no) && <span>T: {asset.trailer_number}</span>}
+                                                                {(asset.trailer_number && asset.vehicle_no && asset.trailer_number !== asset.vehicle_no) && <span>T: {asset.trailer_number}</span>}
                                                             </>
                                                         )}
                                                     </div>

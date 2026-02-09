@@ -620,12 +620,12 @@ const FleetCommand = () => {
         }
 
         // Map plate to correct columns based on category
+        // CRITICAL FIX: vehicle_no is UNIQUE NOT NULL in DB - must ALWAYS be the plate number
         if (activeRegTab === "Vehicle") {
-            finalAsset.horse_number = newAsset.vehicle_no;
+            finalAsset.horse_number = finalAsset.vehicle_no;
             finalAsset.trailer_number = "";
         } else {
-            finalAsset.trailer_number = newAsset.vehicle_no;
-            finalAsset.vehicle_no = "";
+            finalAsset.trailer_number = finalAsset.vehicle_no;
             finalAsset.horse_number = "";
         }
 

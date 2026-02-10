@@ -1,0 +1,170 @@
+﻿commit 1356b355ef046795772a94a6882c1233a3ba8db3
+Author: Weighbridge Admin <admin@weighbridgesystem.local>
+Date:   Sat Feb 7 17:33:50 2026 +0300
+
+    perf: optimize dashboard loading by increasing refetch intervals and adding data limits
+
+diff --git a/src/pages/CashierDashboard.tsx b/src/pages/CashierDashboard.tsx
+index 9193311..044f914 100644
+--- a/src/pages/CashierDashboard.tsx
++++ b/src/pages/CashierDashboard.tsx
+@@ -51,7 +51,7 @@ const ShiftCollectionsCard = ({ isAdmin, user, startDate, endDate, shiftName }:
+ 
+       return paymentsTotal + penaltiesTotal;
+     },
+-    refetchInterval: 5000, // Syncs with dashboard updates (5s for faster feedback)
++    refetchInterval: 30000, // Optimized refresh for fast feedback without overloading DB
+   });
+ 
+   return (
+@@ -106,7 +106,7 @@ export default function CashierDashboard() {
+       return data;
+     },
+     staleTime: 5000,
+-    refetchInterval: 10000,
++    refetchInterval: 30000, // Optimized refresh
+   });
+ 
+   // Fetch penalties with date filtering for admin
+@@ -130,7 +130,7 @@ export default function CashierDashboard() {
+       return data;
+     },
+     staleTime: 10000,
+-    refetchInterval: 15000, // Auto-refresh every 15 seconds
++    refetchInterval: 30000, // Auto-refresh every 30 seconds (Optimized)
+   });
+ 
+   // Fetch current active shift
+diff --git a/src/pages/OperatorDashboard.tsx b/src/pages/OperatorDashboard.tsx
+index 8856c86..b2cea30 100644
+--- a/src/pages/OperatorDashboard.tsx
++++ b/src/pages/OperatorDashboard.tsx
+@@ -108,7 +108,7 @@ export default function OperatorDashboard() {
+       if (error) throw error;
+       return data;
+     },
+-    refetchInterval: 15000,
++    refetchInterval: 30000, // Optimized refresh
+     staleTime: 10000,
+   });
+ 
+@@ -148,7 +148,7 @@ export default function OperatorDashboard() {
+         [pw.entry_id as string]: pw
+       }), {}) || {};
+     },
+-    refetchInterval: 15000,
++    refetchInterval: 30000,
+     staleTime: 10000,
+   });
+ 
+diff --git a/src/pages/SuperadminDashboard.tsx b/src/pages/SuperadminDashboard.tsx
+index df4c993..f0803b6 100644
+--- a/src/pages/SuperadminDashboard.tsx
++++ b/src/pages/SuperadminDashboard.tsx
+@@ -45,7 +45,7 @@ export default function SuperadminDashboard() {
+             if (error) throw error;
+             return data as any[];
+         },
+-        refetchInterval: 5000, // Live Refresh
++        refetchInterval: 30000, // Live Refresh (Optimized)
+     });
+ 
+     // 2. Fetch Fleet Status
+@@ -87,7 +87,7 @@ export default function SuperadminDashboard() {
+             if (error) throw error;
+             return data;
+         },
+-        refetchInterval: 3000, // Fast refresh
++        refetchInterval: 30000, // Fast refresh (Optimized)
+     });
+ 
+     // 4. Fetch Pending Quality Checks
+@@ -122,7 +122,7 @@ export default function SuperadminDashboard() {
+             if (error) throw error;
+             return data;
+         },
+-        refetchInterval: 5000,
++        refetchInterval: 30000, // Optimized refresh
+     });
+ 
+     // Process Chart Data
+diff --git a/src/pages/garage/GarageDashboard.tsx b/src/pages/garage/GarageDashboard.tsx
+index f40b66b..0e6c100 100644
+--- a/src/pages/garage/GarageDashboard.tsx
++++ b/src/pages/garage/GarageDashboard.tsx
+@@ -209,11 +209,15 @@ const GarageDashboard = () => {
+     const { data: inventory, isLoading: isLoadingInventory } = useQuery({
+         queryKey: ["garage-inventory"],
+         queryFn: async () => {
+-            const { data, error } = await sb.from("garage_inventory").select("*").order("item_name");
++            const { data, error } = await sb
++                .from("garage_inventory")
++                .select("*")
++                .order("item_name")
++                .limit(50);
+             if (error) throw error;
+             return data;
+         },
+-        refetchInterval: 5000
++        refetchInterval: 60000 // Optimized refresh
+     });
+ 
+     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({
+diff --git a/src/pages/logistics/FleetCommand.tsx b/src/pages/logistics/FleetCommand.tsx
+index 1628025..cadaf06 100644
+--- a/src/pages/logistics/FleetCommand.tsx
++++ b/src/pages/logistics/FleetCommand.tsx
+@@ -68,7 +68,8 @@ const FleetCommand = () => {
+             const { data, error } = await supabase
+                 .from("logistics_fleet")
+                 .select("*")
+-                .order("created_at", { ascending: false });
++                .order("created_at", { ascending: false })
++                .limit(100);
+             if (error) throw error;
+             return data;
+         }
+diff --git a/src/pages/procurement/ProcurementDashboard.tsx b/src/pages/procurement/ProcurementDashboard.tsx
+index 3478a5f..137af27 100644
+--- a/src/pages/procurement/ProcurementDashboard.tsx
++++ b/src/pages/procurement/ProcurementDashboard.tsx
+@@ -85,20 +85,26 @@ const ProcurementDashboard = () => {
+     const { data: inventory, isLoading: isLoadingInventory } = useQuery({
+         queryKey: ["procurement-inventory"],
+         queryFn: async () => {
+-            const { data, error } = await sb.from("garage_inventory").select("*").order("item_name");
++            const { data, error } = await sb
++                .from("garage_inventory")
++                .select("*")
++                .order("item_name")
++                .limit(50);
+             if (error) throw error;
+             return data;
+         },
+-        refetchInterval: 3000
++        refetchInterval: 60000 // Optimized refresh
+     });
+ 
+     // Fetch Requisitions with Supplier info
+     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({
+         queryKey: ["procurement-requisitions"],
+         queryFn: async () => {
+-            const { data, error } = await sb.from("garage_requisitions")
++            const { data, error } = await sb
++                .from("garage_requisitions")
+                 .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)")
+-                .order("created_at", { ascending: false });
++                .order("created_at", { ascending: false })
++                .limit(50);
+ 
+             console.log("≡ƒôª PROCUREMENT: Fetched requisitions:", data);
+             console.log("≡ƒôª PROCUREMENT: Total count:", data?.length || 0);
+@@ -112,7 +118,7 @@ const ProcurementDashboard = () => {
+             }
+             return data;
+         },
+-        refetchInterval: 3000
++        refetchInterval: 60000 // Optimized refresh
+     });
+ 
+     // Fetch Suppliers

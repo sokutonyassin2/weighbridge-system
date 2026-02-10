@@ -14,7 +14,8 @@ import { useToast } from "@/hooks/use-toast"; // Verify hook path
 import {
     MapPin, Calendar, Truck, User, Package, Plus, Search,
     ArrowRight, Clock, CheckCircle2, AlertTriangle, FileText,
-    Navigation, RefreshCw, Filter, Printer, Check, ChevronsUpDown
+    Navigation, RefreshCw, Filter, Printer, Check, ChevronsUpDown,
+    Pencil, Trash2
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -33,10 +34,13 @@ const TripManagement = () => {
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedTripForCompletion, setSelectedTripForCompletion] = useState<any>(null);
     const [selectedTripForPrint, setSelectedTripForPrint] = useState<any>(null);
+    const [tripToEdit, setTripToEdit] = useState<any>(null);
+    const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [completionData, setCompletionData] = useState({
         closing_km: "",
         actual_fuel_liters: "",
-        actual_fuel_cost: ""
+        actual_fuel_cost: "",
+        return_cargo: ""
     });
     const [podFile, setPodFile] = useState<File | null>(null);
     const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
@@ -83,7 +87,7 @@ const TripManagement = () => {
         queryFn: async () => {
             const { data } = await supabase
                 .from("logistics_fleet")
-                .select("id, vehicle_no, asset_type, status") // Added status
+                .select("id, vehicle_no, asset_type, asset_status, assignment_status, coupling_status")
                 .eq("is_active", true);
             return data || [];
         }
@@ -106,7 +110,7 @@ const TripManagement = () => {
             const { data } = await supabase
                 .from("logistics_trips")
                 .select("vehicle_id, trailer_id, driver_id")
-                .not("status", "in", "('Completed', 'Cancelled')");
+                .in("status", ["Planned", "Dispatched", "In Transit", "At Destination", "Returning"]);
             return data || [];
         }
     });
@@ -135,45 +139,56 @@ const TripManagement = () => {
     });
 
     // Filtered Resources (Only show available ones)
-    const availableVehicles = fleet?.filter(v => {
-        // 1. MUST BE ACTIVE & NOT IN GARAGE
-        if (v.status === 'In Garage' || v.status === 'Inactive') return false;
-
-        // 2. MUST NOT BE ON AN ACTIVE TRIP
-        const isOnTrip = activeTripResources?.some(tr => tr.vehicle_id === v.id || tr.trailer_id === v.id);
-        if (isOnTrip) return false;
-
+    const availableVehicles = fleet?.map(v => {
         const typeInfo = assetTypes?.find(t => t.name === v.asset_type);
-        if (!typeInfo) return false;
+        const isRecordedOnTrip = activeTripResources?.some(tr => tr.vehicle_id === v.id || tr.trailer_id === v.id);
+        const isBusy = v.assignment_status === 'On Job' || v.assignment_status === 'In Transit' || isRecordedOnTrip;
+        const isGarage = v.asset_status === 'In Garage' || v.asset_status === 'Inactive';
 
-        // 3. ARTICULATED CLASSIFICATION
-        if (typeInfo.type_category === 'Vehicle') {
-            // Horses must be coupled to show in the primary vehicle list
-            if (typeInfo.requires_coupling && v.coupling_status !== 'coupled') return false;
-            return true;
+        // Articulated check
+        const isArticulated = typeInfo?.requires_coupling;
+        const isCoupled = v.coupling_status === 'coupled';
+
+        // We only show Horses (if they need coupling, they must be coupled) or standalone vehicles
+        let shouldShow = false;
+        if (typeInfo?.type_category === 'Vehicle') {
+            if (isArticulated) {
+                if (isCoupled) shouldShow = true;
+            } else {
+                shouldShow = true;
+            }
+        } else if (!typeInfo && !v.asset_type?.toLowerCase().includes('trailer')) {
+            shouldShow = true;
         }
 
-        return false; // Trailers are picked via coupling or separate select
-    }) || [];
+        return {
+            ...v,
+            isBusy,
+            isGarage,
+            shouldShow
+        };
+    }).filter(v => v.shouldShow) || [];
 
-    const availableTrailers = fleet?.filter(v => {
-        // 1. MUST BE ACTIVE & NOT IN GARAGE
-        if (v.status === 'In Garage' || v.status === 'Inactive') return false;
-
-        // 2. MUST NOT BE ON AN ACTIVE TRIP
-        const isOnTrip = activeTripResources?.some(tr => tr.vehicle_id === v.id || tr.trailer_id === v.id);
-        if (isOnTrip) return false;
-
+    const availableTrailers = fleet?.map(v => {
         const typeInfo = assetTypes?.find(t => t.name === v.asset_type);
-        if (!typeInfo || typeInfo.type_category !== 'Trailer') return false;
+        const isRecordedOnTrip = activeTripResources?.some(tr => tr.vehicle_id === v.id || tr.trailer_id === v.id);
+        const isBusy = v.assignment_status === 'On Job' || v.assignment_status === 'In Transit' || isRecordedOnTrip;
+        const isGarage = v.asset_status === 'In Garage' || v.asset_status === 'Inactive';
 
-        // 3. COUPLING CHECK (Optional for trailers if manual pick is allowed, but usually auto-selected)
-        return true;
-    }) || [];
+        let isTrailer = typeInfo?.type_category === 'Trailer' || v.asset_type?.toLowerCase().includes('trailer');
 
-    const availableDrivers = drivers?.filter(d =>
-        !activeTripResources?.some(tr => tr.driver_id === d.id)
-    ) || [];
+        return {
+            ...v,
+            isBusy,
+            isGarage,
+            isTrailer
+        };
+    }).filter(v => v.isTrailer) || [];
+
+    const availableDrivers = drivers?.map(d => ({
+        ...d,
+        isBusy: activeTripResources?.some(tr => tr.driver_id === d.id)
+    })) || [];
 
     // Create Trip Mutation
     const createTripMutation = useMutation({
@@ -182,7 +197,16 @@ const TripManagement = () => {
                 throw new Error("Please fill in all required fields.");
             }
 
-            const { error } = await supabase.from("logistics_trips").insert([tripData]);
+            const formattedData = {
+                ...tripData,
+                trailer_id: tripData.trailer_id === "" ? null : tripData.trailer_id,
+                starting_km: Number(tripData.starting_km) || 0,
+                fuel_liters: Number(tripData.fuel_liters) || 0,
+                fuel_cost: Number(tripData.fuel_cost) || 0,
+                trip_allowance: Number(tripData.trip_allowance) || 0
+            };
+
+            const { error } = await supabase.from("logistics_trips").insert([formattedData]);
             if (error) throw error;
         },
         onSuccess: () => {
@@ -204,6 +228,54 @@ const TripManagement = () => {
                 trip_allowance: ""
             });
             toast({ title: "Trip Created", description: "The trip has been successfully planned." });
+        },
+        onError: (error: any) => {
+            toast({ variant: "destructive", title: "Error", description: error.message });
+        }
+    });
+
+    const editTripMutation = useMutation({
+        mutationFn: async (tripData: any) => {
+            // Explicitly pick only editable columns to avoid schema errors with computed/readonly columns
+            const formattedData = {
+                origin: tripData.origin,
+                destination: tripData.destination,
+                cargo_outbound: tripData.cargo_outbound,
+                cargo_inbound: tripData.cargo_inbound,
+                starting_km: Number(tripData.starting_km) || 0,
+                fuel_liters: Number(tripData.fuel_liters) || 0,
+                fuel_cost: Number(tripData.fuel_cost) || 0,
+                trip_allowance: Number(tripData.trip_allowance) || 0,
+                trailer_id: tripData.trailer_id === "" || tripData.trailer_id === "none" ? null : tripData.trailer_id,
+                created_at: tripData.created_at // Allow updating the timestamp
+            };
+
+            const { error } = await supabase
+                .from("logistics_trips")
+                .update(formattedData)
+                .eq("id", tripData.id);
+
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_trips"] });
+            setIsEditDialogOpen(false);
+            setTripToEdit(null);
+            toast({ title: "Trip Updated", description: "Changes have been saved." });
+        },
+        onError: (error: any) => {
+            toast({ variant: "destructive", title: "Error", description: error.message });
+        }
+    });
+
+    const deleteTripMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await supabase.from("logistics_trips").delete().eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_trips"] });
+            toast({ title: "Trip Deleted", description: "The trip has been removed." });
         },
         onError: (error: any) => {
             toast({ variant: "destructive", title: "Error", description: error.message });
@@ -242,9 +314,10 @@ const TripManagement = () => {
                 }
 
                 if (completionData) {
-                    updates.closing_km = completionData.closing_km ? parseInt(completionData.closing_km) : null;
-                    updates.actual_fuel_liters = completionData.actual_fuel_liters ? parseFloat(completionData.actual_fuel_liters) : null;
-                    updates.actual_fuel_cost = completionData.actual_fuel_cost ? parseFloat(completionData.actual_fuel_cost) : null;
+                    updates.closing_km = completionData.closing_km ? Number(completionData.closing_km) : 0;
+                    updates.actual_fuel_liters = completionData.actual_fuel_liters ? Number(completionData.actual_fuel_liters) : 0;
+                    updates.actual_fuel_cost = completionData.actual_fuel_cost ? Number(completionData.actual_fuel_cost) : 0;
+                    updates.cargo_inbound = completionData.return_cargo || null;
                 }
             }
 
@@ -312,17 +385,46 @@ const TripManagement = () => {
                                     <span className="text-xs font-bold text-slate-500">{trip.trip_number}</span>
                                     <Badge variant="outline" className="text-[10px] w-fit mt-1">{format(new Date(trip.created_at), 'MMM dd')}</Badge>
                                 </div>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 text-slate-400 hover:text-primary"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handlePrintTrip(trip);
-                                    }}
-                                >
-                                    <Printer className="h-4 w-4" />
-                                </Button>
+                                <div className="flex gap-1">
+                                    {status === 'Planned' && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-slate-400 hover:text-blue-600"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setTripToEdit(trip);
+                                                setIsEditDialogOpen(true);
+                                            }}
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-slate-400 hover:text-rose-600"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (confirm("Are you sure you want to delete this trip?")) {
+                                                deleteTripMutation.mutate(trip.id);
+                                            }
+                                        }}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-slate-400 hover:text-primary"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handlePrintTrip(trip);
+                                        }}
+                                    >
+                                        <Printer className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </div>
 
                             <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -403,37 +505,57 @@ const TripManagement = () => {
 
                             <div className="pt-1">
                                 {status === 'Planned' && (
-                                    <Button size="sm" className="w-full h-7 text-xs bg-indigo-600 hover:bg-indigo-700"
+                                    <Button
+                                        size="sm"
+                                        className="w-full h-7 text-xs bg-indigo-600 hover:bg-indigo-700"
+                                        disabled={updateStatusMutation.isPending}
                                         onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'Dispatched' })}>
-                                        Dispatch <Navigation className="w-3 h-3 ml-2" />
+                                        {updateStatusMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin mr-2" /> : "Dispatch"}
+                                        {!updateStatusMutation.isPending && <Navigation className="w-3 h-3 ml-2" />}
                                     </Button>
                                 )}
                                 {status === 'Dispatched' && (
-                                    <Button size="sm" className="w-full h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                                    <Button
+                                        size="sm"
+                                        className="w-full h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                                        disabled={updateStatusMutation.isPending}
                                         onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'In Transit' })}>
-                                        Start Transit <ArrowRight className="w-3 h-3 ml-2" />
+                                        {updateStatusMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin mr-2" /> : "Start Transit"}
+                                        {!updateStatusMutation.isPending && <ArrowRight className="w-3 h-3 ml-2" />}
                                     </Button>
                                 )}
                                 {status === 'In Transit' && (
-                                    <Button size="sm" className="w-full h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
+                                    <Button
+                                        size="sm"
+                                        className="w-full h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
+                                        disabled={updateStatusMutation.isPending}
                                         onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'At Destination' })}>
-                                        Arrived <MapPin className="w-3 h-3 ml-2" />
+                                        {updateStatusMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin mr-2" /> : "Arrived"}
+                                        {!updateStatusMutation.isPending && <MapPin className="w-3 h-3 ml-2" />}
                                     </Button>
                                 )}
                                 {status === 'At Destination' && (
-                                    <Button size="sm" className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700"
+                                    <Button
+                                        size="sm"
+                                        className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700"
+                                        disabled={updateStatusMutation.isPending}
                                         onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'Returning' })}>
-                                        Return <RefreshCw className="w-3 h-3 ml-2" />
+                                        {updateStatusMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin mr-2" /> : "Return"}
+                                        {!updateStatusMutation.isPending && <RefreshCw className="w-3 h-3 ml-2" />}
                                     </Button>
                                 )}
                                 {status === 'Returning' && (
-                                    <Button size="sm" className="w-full h-7 text-xs bg-slate-800 hover:bg-slate-900"
+                                    <Button
+                                        size="sm"
+                                        className="w-full h-7 text-xs bg-slate-800 hover:bg-slate-900"
+                                        disabled={updateStatusMutation.isPending}
                                         onClick={() => {
                                             setSelectedTripForCompletion(trip);
                                             setCompletionData({
                                                 closing_km: trip.closing_km?.toString() || "",
-                                                actual_fuel_liters: trip.fuel_liters?.toString() || "",
-                                                actual_fuel_cost: trip.fuel_cost?.toString() || ""
+                                                actual_fuel_liters: trip.actual_fuel_liters?.toString() || trip.fuel_liters?.toString() || "",
+                                                actual_fuel_cost: trip.actual_fuel_cost?.toString() || trip.fuel_cost?.toString() || "",
+                                                return_cargo: trip.cargo_inbound || ""
                                             });
                                             setIsCompletionDialogOpen(true);
                                         }}>
@@ -503,6 +625,18 @@ const TripManagement = () => {
 
                                     <div className="space-y-2 border-t pt-4">
                                         <Label className="text-sm font-bold flex items-center gap-2">
+                                            <Package className="w-4 h-4 text-emerald-600" />
+                                            Return Cargo (Optional)
+                                        </Label>
+                                        <Input
+                                            placeholder="What is the vehicle carrying back?"
+                                            value={completionData.return_cargo}
+                                            onChange={(e) => setCompletionData({ ...completionData, return_cargo: e.target.value })}
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2 border-t pt-4">
+                                        <Label className="text-sm font-bold flex items-center gap-2">
                                             <FileText className="w-4 h-4" />
                                             Proof of Delivery (Optional)
                                         </Label>
@@ -546,7 +680,7 @@ const TripManagement = () => {
                         </DialogTrigger>
                         <DialogContent className="max-w-xl">
                             <DialogHeader><DialogTitle>Plan New Trip</DialogTitle></DialogHeader>
-                            <div className="grid gap-4 py-4">
+                            <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto px-1">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Origin</Label>
@@ -583,13 +717,17 @@ const TripManagement = () => {
                                                             {availableVehicles.map((v: any) => (
                                                                 <CommandItem
                                                                     key={v.id}
-                                                                    value={v.vehicle_no}
+                                                                    value={`${v.vehicle_no} ${v.asset_type}`}
+                                                                    disabled={v.isBusy || v.isGarage}
                                                                     onSelect={() => {
                                                                         const coupling = couplings?.find(c => c.horse_id === v.id);
+                                                                        const typeInfo = assetTypes?.find(t => t.name === v.asset_type);
+                                                                        const needsCoupling = typeInfo?.requires_coupling;
+
                                                                         setNewTrip({
                                                                             ...newTrip,
                                                                             vehicle_id: v.id,
-                                                                            trailer_id: coupling ? coupling.trailer_id : ""
+                                                                            trailer_id: (needsCoupling && coupling) ? coupling.trailer_id : ""
                                                                         });
                                                                         setIsVehiclePopoverOpen(false);
                                                                     }}
@@ -600,7 +738,11 @@ const TripManagement = () => {
                                                                             newTrip.vehicle_id === v.id ? "opacity-100" : "opacity-0"
                                                                         )}
                                                                     />
-                                                                    {v.vehicle_no} ({v.asset_type})
+                                                                    <div className="flex flex-col">
+                                                                        <span>{v.vehicle_no} ({v.asset_type})</span>
+                                                                        {v.isBusy && <span className="text-[10px] text-rose-500 font-bold italic">⚠️ Currently on Trip</span>}
+                                                                        {v.isGarage && <span className="text-[10px] text-amber-500 font-bold italic">⛔ In Garage</span>}
+                                                                    </div>
                                                                 </CommandItem>
                                                             ))}
                                                         </CommandGroup>
@@ -608,7 +750,7 @@ const TripManagement = () => {
                                                 </Command>
                                             </PopoverContent>
                                         </Popover>
-                                        <p className="text-[10px] text-muted-foreground">{availableVehicles.length} units available</p>
+                                        <p className="text-[10px] text-muted-foreground">{!fleet ? "Loading resources..." : `${availableVehicles.length} units available`}</p>
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Driver *</Label>
@@ -616,41 +758,64 @@ const TripManagement = () => {
                                             <SelectTrigger><SelectValue placeholder="Select Driver" /></SelectTrigger>
                                             <SelectContent>
                                                 {availableDrivers.map((d: any) => (
-                                                    <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>
+                                                    <SelectItem key={d.id} value={d.id} disabled={d.isBusy}>
+                                                        {d.full_name} {d.isBusy && "⚠️ (On Trip)"}
+                                                    </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                         <p className="text-[10px] text-muted-foreground">{availableDrivers.length} drivers available</p>
                                     </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label>Trailer {newTrip.trailer_id && "(Auto-Selected)"}</Label>
-                                    <Select
-                                        value={newTrip.trailer_id || "none"}
-                                        onValueChange={(v) => setNewTrip({ ...newTrip, trailer_id: v === "none" ? "" : v })}
-                                    >
-                                        <SelectTrigger><SelectValue placeholder="Select Trailer" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="none">None</SelectItem>
-                                            {fleet?.filter(f => f.asset_type.toLowerCase().includes('trailer')).map((v: any) => (
-                                                <SelectItem
-                                                    key={v.id}
-                                                    value={v.id}
-                                                    disabled={v.status === 'In Garage'}
-                                                    className={v.status === 'In Garage' ? "text-muted-foreground opacity-50" : ""}
-                                                >
-                                                    {v.vehicle_no} {v.status === 'In Garage' && '⛔ (In Garage)'}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <p className="text-[10px] text-muted-foreground italic">Note: Coupled trailers are auto-selected.</p>
-                                </div>
+                                {(() => {
+                                    const selectedVehicle = fleet?.find(f => f.id === newTrip.vehicle_id);
+                                    const vehicleType = assetTypes?.find(t => t.name === selectedVehicle?.asset_type);
+                                    const isArticulated = vehicleType?.requires_coupling;
+                                    const activeCoupling = couplings?.find(c => c.horse_id === newTrip.vehicle_id);
+                                    const isLocked = !newTrip.vehicle_id || !isArticulated || !!activeCoupling;
+
+                                    return (
+                                        <div className="space-y-2">
+                                            <Label className={cn(isLocked && "text-muted-foreground opacity-50")}>
+                                                Trailer {newTrip.trailer_id && "(Auto-Selected)"}
+                                            </Label>
+                                            <Select
+                                                disabled={isLocked}
+                                                value={newTrip.trailer_id || "none"}
+                                                onValueChange={(v) => setNewTrip({ ...newTrip, trailer_id: v === "none" ? "" : v })}
+                                            >
+                                                <SelectTrigger><SelectValue placeholder="Select Trailer" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">None</SelectItem>
+                                                    {availableTrailers.map((v: any) => (
+                                                        <SelectItem
+                                                            key={v.id}
+                                                            value={v.id}
+                                                            disabled={v.isBusy || v.isGarage}
+                                                            className={(v.isBusy || v.isGarage) ? "text-muted-foreground opacity-50" : ""}
+                                                        >
+                                                            {v.vehicle_no} {v.isGarage ? '⛔ (In Garage)' : v.isBusy ? '⚠️ (On Trip)' : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-[10px] text-muted-foreground italic">Note: Coupled trailers are auto-selected.</p>
+                                        </div>
+                                    );
+                                })()}
                                 <div className="space-y-2">
                                     <Label>Cargo Outbound</Label>
                                     <Input placeholder="Description..." value={newTrip.cargo_outbound} onChange={(e) => setNewTrip({ ...newTrip, cargo_outbound: e.target.value })} />
                                 </div>
-                                <div className="grid grid-cols-2 gap-4 border-t pt-4 mt-2">
+                                <div className="grid grid-cols-2 gap-4 border-t pt-4">
+                                    <div className="space-y-2 col-span-2">
+                                        <Label className="text-slate-500">Trip Date & Time</Label>
+                                        <div className="flex items-center gap-2 p-2 border rounded-md bg-slate-100 text-slate-500 text-sm">
+                                            <Calendar className="w-4 h-4" />
+                                            <span>Recorded Automatically: {format(new Date(), 'MMM dd, yyyy HH:mm')}</span>
+                                        </div>
+                                        <p className="text-[10px] text-muted-foreground italic">System ensures date accountability.</p>
+                                    </div>
                                     <div className="space-y-2">
                                         <Label className="text-indigo-600">Starting KM (Odometer)</Label>
                                         <Input type="number" placeholder="0" value={newTrip.starting_km} onChange={(e) => setNewTrip({ ...newTrip, starting_km: e.target.value })} />
@@ -672,7 +837,82 @@ const TripManagement = () => {
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button onClick={() => createTripMutation.mutate(newTrip)} className="w-full">Confirm & Plan Trip</Button>
+                                <Button
+                                    disabled={createTripMutation.isPending}
+                                    onClick={() => createTripMutation.mutate(newTrip)}
+                                    className="w-full"
+                                >
+                                    {createTripMutation.isPending ? "Planning Trip..." : "Confirm & Plan Trip"}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                        <DialogContent className="max-w-xl">
+                            <DialogHeader><DialogTitle>Edit Trip: {tripToEdit?.trip_number}</DialogTitle></DialogHeader>
+                            <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto px-1">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Origin</Label>
+                                        <Input value={tripToEdit?.origin} onChange={(e) => setTripToEdit({ ...tripToEdit, origin: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Destination *</Label>
+                                        <Input placeholder="City/Port" value={tripToEdit?.destination} onChange={(e) => setTripToEdit({ ...tripToEdit, destination: e.target.value })} />
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Cargo Outbound</Label>
+                                    <Input placeholder="Description..." value={tripToEdit?.cargo_outbound} onChange={(e) => setTripToEdit({ ...tripToEdit, cargo_outbound: e.target.value })} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 border-t pt-4">
+                                    <div className="space-y-2 col-span-2">
+                                        <Label className="text-slate-500">Trip Date & Time</Label>
+                                        <div className="flex items-center gap-2 p-2 border rounded-md bg-slate-100 text-slate-500 text-sm">
+                                            <Calendar className="w-4 h-4" />
+                                            <span>{tripToEdit?.created_at ? format(new Date(tripToEdit.created_at), 'MMM dd, yyyy HH:mm') : 'N/A'} (Recorded)</span>
+                                        </div>
+                                        <p className="text-[10px] text-muted-foreground italic">Recorded date cannot be modified.</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-indigo-600">Starting KM (Odometer)</Label>
+                                        <Input type="number" placeholder="0" value={tripToEdit?.starting_km} onChange={(e) => setTripToEdit({ ...tripToEdit, starting_km: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-emerald-600">Trip Allowance (TShs)</Label>
+                                        <Input type="number" placeholder="Enter amount" value={tripToEdit?.trip_allowance} onChange={(e) => setTripToEdit({ ...tripToEdit, trip_allowance: e.target.value })} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 bg-orange-50/50 p-3 rounded-lg border border-orange-100">
+                                    <div className="space-y-2">
+                                        <Label className="text-orange-700">Fuel Liters</Label>
+                                        <Input type="number" step="0.01" placeholder="0.00" value={tripToEdit?.fuel_liters} onChange={(e) => setTripToEdit({ ...tripToEdit, fuel_liters: e.target.value })} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-orange-700">Fuel Cost (TShs)</Label>
+                                        <Input type="number" placeholder="0" value={tripToEdit?.fuel_cost} onChange={(e) => setTripToEdit({ ...tripToEdit, fuel_cost: e.target.value })} />
+                                    </div>
+                                </div>
+                                {tripToEdit?.status === 'Completed' && (
+                                    <div className="space-y-2 border-t pt-4">
+                                        <Label className="text-emerald-600 font-bold">Return Cargo (Inbound)</Label>
+                                        <Input
+                                            placeholder="Cargo carried back..."
+                                            value={tripToEdit?.cargo_inbound || ""}
+                                            onChange={(e) => setTripToEdit({ ...tripToEdit, cargo_inbound: e.target.value })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            <DialogFooter>
+                                <Button
+                                    disabled={editTripMutation.isPending}
+                                    onClick={() => editTripMutation.mutate(tripToEdit)}
+                                    className="w-full bg-blue-600"
+                                >
+                                    {editTripMutation.isPending ? "Saving Changes..." : "Save Changes"}
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -703,7 +943,7 @@ const TripManagement = () => {
                                 <div className="text-right">
                                     <h2 className="text-xl font-bold">SUDSUD EAFEEDS</h2>
                                     <p className="text-sm text-gray-500 italic">Fueling Industry Growth</p>
-                                    <p className="text-sm font-medium mt-2">Date: {format(new Date(), 'PPP')}</p>
+                                    <p className="text-sm font-medium mt-2">Date: {format(new Date(), 'PPP p')}</p>
                                 </div>
                             </div>
 
@@ -748,19 +988,22 @@ const TripManagement = () => {
                                     <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
                                             <p className="font-medium text-slate-500">Fuel Allocation</p>
-                                            <p className="font-bold">{selectedTripForPrint.fuel_liters || 0} Liters</p>
+                                            <p className="font-bold">{selectedTripForPrint.fuel_liters || 0}L (Plan) / {selectedTripForPrint.actual_fuel_liters || 0}L (Actual)</p>
                                         </div>
                                         <div>
-                                            <p className="font-medium text-slate-500">Est. Fuel Cost</p>
-                                            <p className="font-bold">TShs {parseFloat(selectedTripForPrint.fuel_cost || 0).toLocaleString()}</p>
+                                            <p className="font-medium text-slate-500">Fuel Cost</p>
+                                            <p className="font-bold">TShs {parseFloat(selectedTripForPrint.actual_fuel_cost || selectedTripForPrint.fuel_cost || 0).toLocaleString()}</p>
                                         </div>
                                         <div>
                                             <p className="font-medium text-slate-500">Trip Allowance</p>
                                             <p className="font-bold">TShs {parseFloat(selectedTripForPrint.trip_allowance || 0).toLocaleString()}</p>
                                         </div>
                                         <div>
-                                            <p className="font-medium text-slate-500">Starting KM</p>
-                                            <p className="font-bold">{selectedTripForPrint.starting_km || 'N/A'}</p>
+                                            <p className="font-medium text-slate-500">Odometer (Start/End)</p>
+                                            <p className="font-bold">{selectedTripForPrint.starting_km || 0} → {selectedTripForPrint.closing_km || '...'}</p>
+                                            {selectedTripForPrint.closing_km && (
+                                                <p className="text-[10px] text-slate-400">Total: {Number(selectedTripForPrint.closing_km) - Number(selectedTripForPrint.starting_km)} KM</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

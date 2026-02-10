@@ -59,24 +59,34 @@ const DriverRegistry = () => {
             const { data, error } = await supabase
                 .from("logistics_drivers")
                 .select(`
-          *,
-          logistics_fleet!logistics_drivers_assigned_vehicle_id_fkey(vehicle_no, id, assignment_status, coupling_status),
-          logistics_driver_documents(*)
-        `)
+                    *,
+                    logistics_fleet!logistics_drivers_assigned_vehicle_id_fkey(vehicle_no, id, assignment_status, coupling_status),
+                    logistics_driver_documents(*),
+                    logistics_trips!logistics_trips_driver_id_fkey(
+                        id, 
+                        status, 
+                        vehicle_id, 
+                        vehicle:logistics_fleet!logistics_trips_vehicle_id_fkey(vehicle_no),
+                        trailer_id,
+                        trailer:logistics_fleet!logistics_trips_trailer_id_fkey(vehicle_no)
+                    )
+                `)
                 .order("created_at", { ascending: false });
             if (error) throw error;
             return data;
         }
     });
 
+    const getActiveTrip = (driver: any) => {
+        if (!driver?.logistics_trips) return null;
+        // Consider any trip that isn't 'Completed' or 'Cancelled' as active
+        return driver.logistics_trips.find((t: any) =>
+            ['Planned', 'Dispatched', 'In Transit', 'At Destination', 'Returning'].includes(t.status)
+        );
+    };
+
     const isDriverOnTrip = (driver: any) => {
-        if (!driver) return false;
-        if (driver.status === 'In Transit') return true;
-        const fleetInfo = driver.logistics_fleet;
-        if (fleetInfo && (fleetInfo.assignment_status === 'On Job' || fleetInfo.assignment_status === 'In Transit')) {
-            return true;
-        }
-        return false;
+        return !!getActiveTrip(driver);
     };
 
     // Fetch Fleet Data for Assignment
@@ -105,6 +115,16 @@ const DriverRegistry = () => {
     });
 
     const getAssignedUnitLabel = (driver: any) => {
+        const activeTrip = getActiveTrip(driver);
+
+        // If driver is on a trip, show the trip vehicle/pair
+        if (activeTrip && activeTrip.vehicle) {
+            if (activeTrip.trailer) {
+                return `${activeTrip.vehicle.vehicle_no} + ${activeTrip.trailer.vehicle_no}`;
+            }
+            return activeTrip.vehicle.vehicle_no;
+        }
+
         if (!driver.assigned_vehicle_id || !fleetAssignment) return null;
 
         const { fleet, couplings } = fleetAssignment;
@@ -145,17 +165,24 @@ const DriverRegistry = () => {
         if (!fleetAssignment) return [];
         const { fleet, types, couplings } = fleetAssignment;
 
+        // Find all vehicles currently on a trip cross-referencing all drivers' active trips
+        const busyVehicleIds = (drivers as any[])?.reduce((acc: string[], d: any) => {
+            const activeTrip = getActiveTrip(d);
+            if (activeTrip?.vehicle_id) acc.push(activeTrip.vehicle_id);
+            return acc;
+        }, []) || [];
+
         return fleet.reduce((acc: any[], item: any) => {
             const typeInfo = types.find((t: any) => t.name === item.asset_type);
             const isHorse = typeInfo?.type_category === "Vehicle";
             const isTrailer = typeInfo?.type_category === "Trailer";
 
-            // Check if this vehicle is already taken by another driver
-            const isTaken = assignedVehicleIds.includes(item.id);
-            // Allow if it's the specific vehicle currently assigned to the driver being edited
-            const isAllowed = !isTaken || (includeVehicleId && item.id === includeVehicleId);
+            const isTakenByOtherDriver = assignedVehicleIds.includes(item.id);
+            const isAllowed = !isTakenByOtherDriver || (includeVehicleId && item.id === includeVehicleId);
 
             if (!isAllowed) return acc;
+
+            const isBusy = busyVehicleIds.includes(item.id);
 
             if (item.coupling_status === "coupled") {
                 if (isHorse) {
@@ -165,20 +192,19 @@ const DriverRegistry = () => {
                         acc.push({
                             id: item.id,
                             label: `${item.vehicle_no || item.horse_number} + ${trailer.vehicle_no || trailer.trailer_number} (Coupled Pair)`,
+                            isBusy,
                             category: item.fleet_category
                         });
                     }
                 }
-                // Trailers are handled via their paired Horse
             } else if (!isHorse && !isTrailer) {
-                // Standalone vehicles
                 acc.push({
                     id: item.id,
                     label: `${item.vehicle_no} (${item.asset_type})`,
+                    isBusy,
                     category: item.fleet_category
                 });
             }
-            // Uncoupled Horses and Trailers are EXCLUDED
             return acc;
         }, []);
     };
@@ -227,8 +253,12 @@ const DriverRegistry = () => {
             // Wait for photo upload (needed for driver record)
             const photoUrl = await photoUploadPromise;
 
-            // Sanitize driver payload
-            const driverPayload = { ...driver, passport_photo_url: photoUrl };
+            // Sanitize driver payload - Fix UUID syntax error
+            const driverPayload = {
+                ...driver,
+                passport_photo_url: photoUrl,
+                assigned_vehicle_id: driver.assigned_vehicle_id === "" || driver.assigned_vehicle_id === "none" ? null : driver.assigned_vehicle_id
+            };
             if (driverPayload.license_expiry === "") driverPayload.license_expiry = null;
 
             // Insert Driver
@@ -302,6 +332,7 @@ const DriverRegistry = () => {
             const {
                 logistics_driver_documents,
                 logistics_fleet,
+                logistics_trips, // Fix: Exclude this read-only relation
                 ...dirtyUpdates
             } = updates;
 
@@ -501,12 +532,17 @@ const DriverRegistry = () => {
         setIsEditDialogOpen(true);
     };
 
-    const getStatusBadge = (status: string) => {
-        switch (status) {
+    const getStatusBadge = (driver: any) => {
+        const activeTrip = getActiveTrip(driver);
+        if (activeTrip) {
+            return <Badge className="bg-indigo-600 hover:bg-indigo-700 animate-pulse"><Truck className="w-3 h-3 mr-1" /> On Job ({activeTrip.status})</Badge>;
+        }
+
+        switch (driver.status) {
             case "Active": return <Badge className="bg-green-500 hover:bg-green-600"><UserCheck className="w-3 h-3 mr-1" /> Active</Badge>;
             case "On Leave": return <Badge className="bg-blue-500 hover:bg-blue-600"><Calendar className="w-3 h-3 mr-1" /> On Leave</Badge>;
             case "Suspended": return <Badge variant="destructive"><UserMinus className="w-3 h-3 mr-1" /> Suspended</Badge>;
-            default: return <Badge variant="outline">{status}</Badge>;
+            default: return <Badge variant="outline">{driver.status}</Badge>;
         }
     };
 
@@ -639,8 +675,8 @@ const DriverRegistry = () => {
                                         <SelectContent>
                                             <SelectItem value="none">No Assignment</SelectItem>
                                             {getAvailableForAssignment().map((unit: any) => (
-                                                <SelectItem key={unit.id} value={unit.id}>
-                                                    {unit.label}
+                                                <SelectItem key={unit.id} value={unit.id} disabled={unit.isBusy}>
+                                                    {unit.label} {unit.isBusy && "⚠️ (Currently on Trip)"}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -865,14 +901,20 @@ const DriverRegistry = () => {
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="px-4 py-3">
-                                        {driver.assigned_vehicle_id ? (
-                                            <div className="flex items-center gap-2 text-primary font-bold">
-                                                <Truck className="w-4 h-4" />
-                                                {getAssignedUnitLabel(driver) || "Assigned"}
-                                            </div>
-                                        ) : (
-                                            <span className="text-slate-300">—</span>
-                                        )}
+                                        {(() => {
+                                            const label = getAssignedUnitLabel(driver);
+                                            const activeTrip = getActiveTrip(driver);
+                                            if (label) {
+                                                return (
+                                                    <div className="flex items-center gap-2 text-primary font-bold">
+                                                        <Truck className="w-4 h-4" />
+                                                        {label}
+                                                        {activeTrip && !driver.assigned_vehicle_id && <span className="text-[9px] text-indigo-500 font-medium">(Trip)</span>}
+                                                    </div>
+                                                );
+                                            }
+                                            return <span className="text-slate-300">—</span>;
+                                        })()}
                                     </TableCell>
                                     <TableCell className="px-4 py-3">
                                         <div className="flex flex-col gap-1.5">
@@ -919,7 +961,7 @@ const DriverRegistry = () => {
                                                 <ShieldAlert className="w-3 h-3 mr-1" /> Blocked
                                             </Badge>
                                         ) : (
-                                            getStatusBadge(driver.status || "Active")
+                                            getStatusBadge(driver)
                                         )}
                                     </TableCell>
                                     <TableCell className="px-4 py-3 text-right">
@@ -1082,8 +1124,8 @@ const DriverRegistry = () => {
                                     <SelectContent>
                                         <SelectItem value="none">No Assignment</SelectItem>
                                         {getAvailableForAssignment(editingDriver.assigned_vehicle_id).map((unit: any) => (
-                                            <SelectItem key={unit.id} value={unit.id}>
-                                                {unit.label}
+                                            <SelectItem key={unit.id} value={unit.id} disabled={unit.isBusy}>
+                                                {unit.label} {unit.isBusy && "⚠️ (Currently on Trip)"}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

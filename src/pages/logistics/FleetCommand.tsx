@@ -99,6 +99,18 @@ const FleetCommand = () => {
         }
     });
 
+    // Fetch Active Logistics Trips for Status Sync
+    const { data: activeTrips } = useQuery({
+        queryKey: ["active-logistics-trips-fleet"],
+        queryFn: async () => {
+            const { data } = await supabase
+                .from("logistics_trips")
+                .select("id, status, vehicle_id, trailer_id")
+                .in("status", ["Planned", "Dispatched", "In Transit", "At Destination", "Returning"]);
+            return data || [];
+        }
+    });
+
     // Fetch Document Types
     const { data: docTypes } = useQuery({
         queryKey: ["logistics-document-types"],
@@ -636,12 +648,18 @@ const FleetCommand = () => {
         }
     };
 
-    const getStatusBadge = (status: string) => {
-        switch (status) {
+    const getStatusBadge = (asset: any) => {
+        const activeTrip = activeTrips?.find(t => t.vehicle_id === asset.id || t.trailer_id === asset.id);
+
+        if (activeTrip) {
+            return <Badge className="bg-indigo-600 hover:bg-indigo-700 animate-pulse"><Truck className="w-3 h-3 mr-1" /> On Trip ({activeTrip.status})</Badge>;
+        }
+
+        switch (asset.asset_status) {
             case "Active": return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="w-3 h-3 mr-1" /> Active</Badge>;
             case "Maintenance": return <Badge className="bg-amber-500 hover:bg-amber-600"><Clock className="w-3 h-3 mr-1" /> Maintenance</Badge>;
             case "Breakdown": return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" /> Breakdown</Badge>;
-            default: return <Badge variant="outline">{status}</Badge>;
+            default: return <Badge variant="outline">{asset.asset_status}</Badge>;
         }
     };
 
@@ -1852,17 +1870,7 @@ const FleetCommand = () => {
 
                                             <TableCell>
                                                 <div className="flex items-center gap-2">
-                                                    <Badge
-                                                        className={`h-5 cursor-default ${asset.asset_status === 'Active' ? 'bg-green-100 text-green-700 hover:bg-green-100' :
-                                                            asset.asset_status === 'Maintenance' ? 'bg-amber-100 text-amber-700 hover:bg-amber-100' :
-                                                                'bg-slate-100 text-slate-700 hover:bg-slate-100'
-                                                            }`}
-                                                    >
-                                                        {asset.asset_status === 'Active' ? <CheckCircle2 className="w-3 h-3 mr-1" /> :
-                                                            asset.asset_status === 'Maintenance' ? <Wrench className="w-3 h-3 mr-1" /> :
-                                                                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5" />}
-                                                        {asset.asset_status}
-                                                    </Badge>
+                                                    {getStatusBadge(asset)}
 
                                                     {/* Pending Issues Indicator (Tooltip) */}
                                                     {(asset as any).has_pending_issues && asset.asset_status === 'Active' && (

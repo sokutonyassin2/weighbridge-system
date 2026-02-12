@@ -226,7 +226,8 @@ const GarageDashboard = () => {
             const { data, error } = await sb.from("garage_requisitions").select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)").order("created_at", { ascending: false });
             if (error) throw error;
             return data;
-        }
+        },
+        refetchInterval: 10000 // Real-time updates for status changes
     });
 
     const addProductMutation = useMutation({
@@ -1369,11 +1370,19 @@ const GarageDashboard = () => {
                                                             ) : `${hours}h ${minutes}m`}
                                                         </TableCell>
                                                         <TableCell className="text-right">
-                                                            <Badge className={`text-sm font-semibold px-2 py-0.5 rounded-full ${req.status === 'Pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                                                                req.status === 'Approved' || req.status === 'Stocked' ? 'bg-green-50 text-green-600 border border-green-100' :
-                                                                    req.status === 'Rejected' ? 'bg-red-50 text-red-600 border border-red-100' :
-                                                                        'bg-indigo-50 text-indigo-600 border border-indigo-100'
-                                                                }`}>{req.status}</Badge>
+                                                            <div className="flex flex-col items-end gap-1">
+                                                                <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${req.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
+                                                                    req.status === 'Awaiting Approval' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                                                                        req.status === 'Approved' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
+                                                                            req.status === 'Paid' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
+                                                                                req.status === 'Stocked' ? 'bg-green-50 text-green-600 border border-green-200' :
+                                                                                    ['Revoked', 'Rejected'].includes(req.status) ? 'bg-rose-50 text-rose-600 border border-rose-200' :
+                                                                                        'bg-slate-50 text-slate-600'
+                                                                    }`}>{req.status}</Badge>
+                                                                {req.status === 'Revoked' && req.revoke_reason && (
+                                                                    <span className="text-[10px] text-rose-500 italic font-medium max-w-[150px] text-right leading-tight">Reason: {req.revoke_reason}</span>
+                                                                )}
+                                                            </div>
                                                         </TableCell>
                                                     </TableRow>
                                                 );

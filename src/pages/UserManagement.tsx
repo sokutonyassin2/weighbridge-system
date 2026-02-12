@@ -42,8 +42,8 @@ export default function UserManagement() {
   const [deletingUser, setDeletingUser] = useState<any>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Redirect non-admins
-  if (userRole !== "admin" && userRole !== "super_admin") {
+  // Redirect non-super-admins
+  if (userRole !== "super_admin") {
     navigate("/");
     return null;
   }
@@ -356,12 +356,17 @@ export default function UserManagement() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
-                    <SelectItem value="admin">Administrator</SelectItem>
-                    <SelectItem value="operator">Weighbridge Operator</SelectItem>
+                    <SelectItem value="super_admin">Super Admin (IT/System)</SelectItem>
+                    <SelectItem value="admin">Operations Manager</SelectItem>
+                    <SelectItem value="finance">Finance / Accounts</SelectItem>
+                    <SelectItem value="procurement_officer">Procurement Officer</SelectItem>
+                    <SelectItem value="garage_manager">Garage Manager (Head)</SelectItem>
+                    <SelectItem value="storekeeper">Storekeeper (Inventory)</SelectItem>
+                    <SelectItem value="mechanic">Mechanic / Technical</SelectItem>
                     <SelectItem value="logistics_admin">Logistics Admin</SelectItem>
                     <SelectItem value="logistics_manager">Logistics Manager</SelectItem>
-                    <SelectItem value="mechanic">Mechanic / Garage Staff</SelectItem>
+                    <SelectItem value="operator">Weighbridge Operator</SelectItem>
+                    <SelectItem value="observer">Camera Observer</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -408,10 +413,16 @@ export default function UserManagement() {
                         <Badge
                           variant={user.role === "admin" ? "default" : user.role === "super_admin" ? "outline" : "secondary"}
                           className={
-                            user.role === "super_admin" ? "bg-purple-600 text-white hover:bg-purple-700" :
-                              user.role?.includes("logistics") ? "bg-amber-500 text-white hover:bg-amber-600" :
-                                user.role === "mechanic" ? "bg-slate-700 text-white hover:bg-slate-800" :
-                                  ""
+                            user.role === "super_admin" ? "bg-indigo-900 text-white hover:bg-black" :
+                              user.role === "admin" ? "bg-blue-600 text-white hover:bg-blue-700" :
+                                user.role === "finance" ? "bg-emerald-600 text-white hover:bg-emerald-700" :
+                                  user.role === "procurement_officer" ? "bg-amber-600 text-white hover:bg-amber-700" :
+                                    user.role === "garage_manager" ? "bg-slate-800 text-white hover:bg-black" :
+                                      user.role === "storekeeper" ? "bg-orange-600 text-white hover:bg-orange-700" :
+                                        user.role === "observer" ? "bg-purple-600 text-white hover:bg-purple-700" :
+                                          user.role === "operator" ? "bg-slate-500 text-white hover:bg-slate-600" :
+                                            user.role?.includes("logistics") ? "bg-cyan-600 text-white hover:bg-cyan-700" :
+                                              ""
                           }
                         >
                           {user.role?.replace("_", " ").toUpperCase()}
@@ -565,12 +576,17 @@ export default function UserManagement() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="super_admin">Super Admin</SelectItem>
-                  <SelectItem value="admin">Administrator</SelectItem>
-                  <SelectItem value="operator">Weighbridge Operator</SelectItem>
+                  <SelectItem value="super_admin">Super Admin (IT/System)</SelectItem>
+                  <SelectItem value="admin">Operations Manager</SelectItem>
+                  <SelectItem value="finance">Finance / Accounts</SelectItem>
+                  <SelectItem value="procurement_officer">Procurement Officer</SelectItem>
+                  <SelectItem value="garage_manager">Garage Manager (Head)</SelectItem>
+                  <SelectItem value="storekeeper">Storekeeper (Inventory)</SelectItem>
+                  <SelectItem value="mechanic">Mechanic / Technical</SelectItem>
                   <SelectItem value="logistics_admin">Logistics Admin</SelectItem>
                   <SelectItem value="logistics_manager">Logistics Manager</SelectItem>
-                  <SelectItem value="mechanic">Mechanic / Garage Staff</SelectItem>
+                  <SelectItem value="operator">Weighbridge Operator</SelectItem>
+                  <SelectItem value="observer">Camera Observer</SelectItem>
                 </SelectContent>
               </Select>
             </div>

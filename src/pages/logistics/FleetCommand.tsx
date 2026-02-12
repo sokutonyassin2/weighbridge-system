@@ -9,12 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle, CheckCircle2, Clock, Settings, XCircle, Link, Unlink, FileText, Upload, Wrench } from "lucide-react";
+import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle, CheckCircle2, Clock, Settings, XCircle, Link, Unlink, FileText, Upload, Wrench, Check, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const FleetCommand = () => {
     const { toast } = useToast();
@@ -26,6 +29,7 @@ const FleetCommand = () => {
     const [activeTypeTab, setActiveTypeTab] = useState<"Vehicle" | "Trailer">("Vehicle");
     const [activeRegTab, setActiveRegTab] = useState<"Vehicle" | "Trailer">("Vehicle");
     const [isCouplingDialogOpen, setIsCouplingDialogOpen] = useState(false);
+    const [openCombobox, setOpenCombobox] = useState(false);
     const [selectedVehicleForCoupling, setSelectedVehicleForCoupling] = useState<any>(null);
     const [selectedPartnerVehicle, setSelectedPartnerVehicle] = useState("");
     const [couplingNotes, setCouplingNotes] = useState("");
@@ -1407,23 +1411,51 @@ const FleetCommand = () => {
                                         <Label>
                                             Select {isHorse(selectedVehicleForCoupling) ? "Trailer" : "Horse"} to Couple *
                                         </Label>
-                                        <Select value={selectedPartnerVehicle} onValueChange={setSelectedPartnerVehicle}>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder={`Choose a ${isHorse(selectedVehicleForCoupling) ? "trailer" : "horse"}...`} />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {getAvailableForCoupling(selectedVehicleForCoupling).map((vehicle: any) => (
-                                                    <SelectItem key={vehicle.id} value={vehicle.id}>
-                                                        {vehicle.vehicle_no || vehicle.horse_number || vehicle.trailer_number} - {vehicle.asset_type}
-                                                    </SelectItem>
-                                                ))}
-                                                {getAvailableForCoupling(selectedVehicleForCoupling).length === 0 && (
-                                                    <SelectItem value="none" disabled>
-                                                        No available {isHorse(selectedVehicleForCoupling) ? "trailers" : "horses"}
-                                                    </SelectItem>
-                                                )}
-                                            </SelectContent>
-                                        </Select>
+                                        <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    aria-expanded={openCombobox}
+                                                    className="w-full justify-between"
+                                                >
+                                                    {selectedPartnerVehicle
+                                                        ? getAvailableForCoupling(selectedVehicleForCoupling).find((vehicle: any) => vehicle.id === selectedPartnerVehicle)?.vehicle_no ||
+                                                        getAvailableForCoupling(selectedVehicleForCoupling).find((vehicle: any) => vehicle.id === selectedPartnerVehicle)?.horse_number ||
+                                                        getAvailableForCoupling(selectedVehicleForCoupling).find((vehicle: any) => vehicle.id === selectedPartnerVehicle)?.trailer_number
+                                                        : `Select ${isHorse(selectedVehicleForCoupling) ? "trailer" : "horse"}...`}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[400px] p-0">
+                                                <Command>
+                                                    <CommandInput placeholder={`Search ${isHorse(selectedVehicleForCoupling) ? "trailer" : "horse"}...`} />
+                                                    <CommandList>
+                                                        <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {getAvailableForCoupling(selectedVehicleForCoupling).map((vehicle: any) => (
+                                                                <CommandItem
+                                                                    key={vehicle.id}
+                                                                    value={vehicle.vehicle_no || vehicle.horse_number || vehicle.trailer_number}
+                                                                    onSelect={() => {
+                                                                        setSelectedPartnerVehicle(vehicle.id === selectedPartnerVehicle ? "" : vehicle.id);
+                                                                        setOpenCombobox(false);
+                                                                    }}
+                                                                >
+                                                                    <Check
+                                                                        className={cn(
+                                                                            "mr-2 h-4 w-4",
+                                                                            selectedPartnerVehicle === vehicle.id ? "opacity-100" : "opacity-0"
+                                                                        )}
+                                                                    />
+                                                                    {vehicle.vehicle_no || vehicle.horse_number || vehicle.trailer_number} - {vehicle.asset_type}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                     </div>
 
                                     <div>

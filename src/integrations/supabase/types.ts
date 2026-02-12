@@ -873,7 +873,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "operator"
+      app_role: "admin" | "operator" | "super_admin" | "logistics_admin" | "logistics_manager" | "observer" | "procurement_officer" | "storekeeper" | "garage_manager" | "finance" | "mechanic"
       payment_status: "Pending" | "Paid" | "Overdue" | "Waived"
       vehicle_category:
       | "JV-Payment"
@@ -1009,7 +1009,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "operator"],
+      app_role: ["admin", "operator", "super_admin", "logistics_admin", "logistics_manager", "observer", "procurement_officer", "storekeeper", "garage_manager", "finance", "mechanic"],
       payment_status: ["Pending", "Paid", "Overdue", "Waived"],
       vehicle_category: [
         "JV-Payment",

@@ -40,6 +40,9 @@ import InventoryReports from "./pages/garage/InventoryReports";
 import GarageAttendance from "./pages/garage/Attendance";
 import SuperadminDashboard from "./pages/SuperadminDashboard";
 import WeighbridgeRequisitions from "./pages/WeighbridgeRequisitions";
+import ObserverDashboard from "./pages/ObserverDashboard";
+import FinanceDashboard from "./pages/FinanceDashboard";
+import ManagementApprovals from "./pages/procurement/ManagementApprovals";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -115,6 +118,16 @@ const App = () => {
               }
             />
             <Route
+              path="/finance-dashboard"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <FinanceDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/cashier"
               element={
                 <ProtectedRoute>
@@ -127,7 +140,7 @@ const App = () => {
             <Route
               path="/vehicle-types"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <VehicleTypes />
                   </Layout>
@@ -137,7 +150,7 @@ const App = () => {
             <Route
               path="/all-entries"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <AllEntries />
                   </Layout>
@@ -177,7 +190,7 @@ const App = () => {
             <Route
               path="/activity-logs"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <ActivityLogs />
                   </Layout>
@@ -187,7 +200,7 @@ const App = () => {
             <Route
               path="/user-management"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <UserManagement />
                   </Layout>
@@ -197,7 +210,7 @@ const App = () => {
             <Route
               path="/audit-trail"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <AuditTrail />
                   </Layout>
@@ -207,7 +220,7 @@ const App = () => {
             <Route
               path="/shift-reports"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
                   <Layout>
                     <ShiftSummaryReport />
                   </Layout>
@@ -215,9 +228,19 @@ const App = () => {
               }
             />
             <Route
+              path="/admin/dashboard"
+              element={
+                <ProtectedRoute requireSuperAdmin>
+                  <Layout>
+                    <SuperadminDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/penalties"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
                   <Layout>
                     <AdminPenalties />
                   </Layout>
@@ -227,7 +250,7 @@ const App = () => {
             <Route
               path="/admin/company-weights"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
                   <Layout>
                     <AdminCompanyWeights />
                   </Layout>
@@ -237,7 +260,7 @@ const App = () => {
             <Route
               path="/analytics"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
                   <Layout>
                     <ShiftAnalytics />
                   </Layout>
@@ -247,7 +270,7 @@ const App = () => {
             <Route
               path="/admin/receipt-settings"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <AdminReceiptSettings />
                   </Layout>
@@ -257,7 +280,7 @@ const App = () => {
             <Route
               path="/admin/weight-settings"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireSuperAdmin>
                   <Layout>
                     <AdminWeightSettings />
                   </Layout>
@@ -359,7 +382,7 @@ const App = () => {
             <Route
               path="/garage/inventory-reports"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowedRoles={['admin', 'garage_manager', 'finance', 'storekeeper']}>
                   <Layout>
                     <InventoryReports />
                   </Layout>
@@ -397,11 +420,31 @@ const App = () => {
               }
             />
             <Route
-              path="/admin/dashboard"
+              path="/procurement/approvals"
               element={
                 <ProtectedRoute requireAdmin>
                   <Layout>
-                    <SuperadminDashboard />
+                    <ManagementApprovals />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/procurement/compliance"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ComplianceCenter />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/observer"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ObserverDashboard />
                   </Layout>
                 </ProtectedRoute>
               }

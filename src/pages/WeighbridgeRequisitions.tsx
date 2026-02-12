@@ -37,6 +37,7 @@ export default function WeighbridgeRequisitions() {
             if (error) throw error;
             return data;
         },
+        refetchInterval: 10000 // Real-time updates
     });
 
     const createReqMutation = useMutation({
@@ -188,14 +189,21 @@ export default function WeighbridgeRequisitions() {
                                             </span>
                                         </TableCell>
                                         <TableCell className="text-center px-6 py-4">
-                                            <Badge className={`px-4 py-1 rounded-full font-bold text-[9px] uppercase tracking-widest border-none shadow-sm ${req.status === 'Approved' ? 'bg-emerald-500 text-white' :
-                                                    req.status === 'Pending' ? 'bg-amber-500 text-white' :
-                                                        req.status === 'Purchased' ? 'bg-[#F4516C] text-white' :
-                                                            req.status === 'Delivered' ? 'bg-blue-500 text-white' :
-                                                                'bg-rose-500 text-white'
-                                                }`}>
-                                                {req.status}
-                                            </Badge>
+                                            <div className="flex flex-col items-center gap-1">
+                                                <Badge className={`px-4 py-1 rounded-full font-bold text-[9px] uppercase tracking-widest border-none shadow-sm ${req.status === 'Approved' ? 'bg-indigo-500 text-white' :
+                                                    req.status === 'Pending' ? 'bg-slate-500 text-white' :
+                                                        req.status === 'Awaiting Approval' ? 'bg-amber-500 text-white' :
+                                                            req.status === 'Paid' ? 'bg-emerald-500 text-white' :
+                                                                req.status === 'Stocked' ? 'bg-green-600 text-white shadow' :
+                                                                    req.status === 'Delivered' ? 'bg-blue-500 text-white' :
+                                                                        'bg-rose-500 text-white'
+                                                    }`}>
+                                                    {req.status}
+                                                </Badge>
+                                                {req.status === 'Revoked' && req.revoke_reason && (
+                                                    <span className="text-[9px] text-rose-500 font-bold italic max-w-[120px] text-center leading-tight">Reason: {req.revoke_reason}</span>
+                                                )}
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 ))

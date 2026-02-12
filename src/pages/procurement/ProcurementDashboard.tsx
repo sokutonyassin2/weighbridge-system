@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2 } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,6 +22,19 @@ const ProcurementDashboard = () => {
     const sb = supabase as any;
     const { toast } = useToast();
     const queryClient = useQueryClient();
+
+    // Fetch User Role
+    const { data: profile } = useQuery({
+        queryKey: ["user-profile"],
+        queryFn: async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return null;
+            const { data, error } = await sb.from("profiles").select("*").eq("id", user.id).single();
+            if (error) throw error;
+            return data;
+        }
+    });
+    const userRole = profile?.role;
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
     const [activeTab, setActiveTab] = useState("requisitions");
@@ -35,7 +48,8 @@ const ProcurementDashboard = () => {
         po_number: "",
         includes_vat: false,
         vat_amount: 0,
-        temp_price: 0
+        temp_price: 0,
+        payment_method_id: "" // Added for payment mode selection
     });
 
     const [newReq, setNewReq] = useState({
@@ -48,10 +62,11 @@ const ProcurementDashboard = () => {
     const [newSupplier, setNewSupplier] = useState({
         name: "",
         contact_person: "",
-        phone: "",
+        phone: ["", ""], // Supports multiple numbers
         email: "",
         category: "General Spare Parts",
-        location: ""
+        location: "",
+        customCategory: "" // For manual entry
     });
 
     const [isUpdatePriceOpen, setIsUpdatePriceOpen] = useState(false);
@@ -74,11 +89,11 @@ const ProcurementDashboard = () => {
         company: ""
     });
 
-    // Generate PO Number (PO-YYYYMMDD-XXXX)
-    const generatePONumber = () => {
+    // Generate Daily Serial PO Number (PO-YYYYMMDD-XXXX)
+    const generatePONumber = (countToday: number = 0) => {
         const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-        const rand = Math.floor(1000 + Math.random() * 9000);
-        return `PO-${date}-${rand}`;
+        const serial = (countToday + 1).toString().padStart(4, '0');
+        return `PO-${date}-${serial}`;
     };
 
     // Fetch Inventory (with Prices)
@@ -89,7 +104,7 @@ const ProcurementDashboard = () => {
                 .from("garage_inventory")
                 .select("*")
                 .order("item_name")
-                .limit(50);
+                .limit(100);
             if (error) throw error;
             return data;
         },
@@ -102,15 +117,13 @@ const ProcurementDashboard = () => {
         queryFn: async () => {
             const { data, error } = await sb
                 .from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)")
+                .select(`
+                    *,
+                    vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number),
+                    garage_suppliers(name)
+                `)
                 .order("created_at", { ascending: false })
-                .limit(50);
-
-            console.log("📦 PROCUREMENT: Fetched requisitions:", data);
-            console.log("📦 PROCUREMENT: Total count:", data?.length || 0);
-            if (data && data.length > 0) {
-                console.log("📦 PROCUREMENT: Sample requisition:", data[0]);
-            }
+                .limit(100);
 
             if (error) {
                 console.error("📦 PROCUREMENT ERROR:", error);
@@ -118,52 +131,110 @@ const ProcurementDashboard = () => {
             }
             return data;
         },
-        refetchInterval: 60000 // Optimized refresh
+        refetchInterval: 10000 // Real-time feedback (10s)
     });
 
     // Fetch Suppliers
     const { data: suppliers } = useQuery({
         queryKey: ["procurement-suppliers"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_suppliers").select("*").order("name");
+            const { data, error } = await sb.from("garage_suppliers").select("id, name").order("name");
             if (error) throw error;
             return data;
         }
     });
 
+    // Fetch Payment Methods
+    const { data: allPaymentMethods } = useQuery({
+        queryKey: ["procurement-payment-methods"],
+        queryFn: async () => {
+            const { data, error } = await sb.from("garage_supplier_payment_methods").select("*");
+            if (error) throw error;
+            return data;
+        }
+    });
+
+    const [isAddPaymentMethodOpen, setIsAddPaymentMethodOpen] = useState(false);
+    const [selectedSupplierForPayment, setSelectedSupplierForPayment] = useState<any>(null);
+    const [isEditSupplierOpen, setIsEditSupplierOpen] = useState(false);
+    const [editingSupplier, setEditingSupplier] = useState<any>(null);
+    const [editPhones, setEditPhones] = useState<string[]>([]);
+    const [showCustomCategory, setShowCustomCategory] = useState(false);
+    const [reqStatusFilter, setReqStatusFilter] = useState<'Pending' | 'Awaiting Approval' | 'Approved' | 'Paid' | 'Revoked' | 'All'>('Pending');
+
+    // Helper for monthly grouping
+    const groupRequisitionsByMonth = (reqs: any[]) => {
+        return reqs.reduce((groups: any, req: any) => {
+            const date = new Date(req.created_at);
+            const monthYear = date.toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase();
+            if (!groups[monthYear]) groups[monthYear] = [];
+            groups[monthYear].push(req);
+            return groups;
+        }, {});
+    };
+    const [newPaymentMethod, setNewPaymentMethod] = useState({
+        method_type: "Bank",
+        bank_name: "",
+        account_number: "",
+        account_name: "",
+        is_default: false
+    });
+
+    const [isEditPaymentMethodOpen, setIsEditPaymentMethodOpen] = useState(false);
+    const [editingPaymentMethod, setEditingPaymentMethod] = useState<any>(null);
+
     // Mutations
-    const approveMutation = useMutation({
-        mutationFn: async ({ reqId, qty, itemId, details }: { reqId: string, qty: number, itemId?: string, details: any }) => {
+    const workflowMutation = useMutation({
+        mutationFn: async ({ reqId, qty, itemId, details, nextStatus }: { reqId: string, qty: number, itemId?: string, details: any, nextStatus: string }) => {
             const item = (inventory || []).find((i: any) => i.id === itemId);
             const unitPrice = details.temp_price || item?.unit_price || 0;
             const subtotal = unitPrice * qty;
             const vat = details.includes_vat ? subtotal * 0.18 : 0;
 
-            const { error: reqError } = await sb.from("garage_requisitions").update({
-                status: 'Approved',
+            const updateData: any = {
+                status: nextStatus,
                 quantity_approved: qty,
                 unit_price: unitPrice,
                 total_price: subtotal + vat,
                 supplier_id: details.supplier_id,
                 po_number: details.po_number,
                 includes_vat: details.includes_vat,
-                vat_amount: vat
-            }).eq("id", reqId);
+                vat_amount: vat,
+                payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null
+            };
+
+            if (nextStatus === 'Revoked') {
+                updateData.revoke_reason = revokeReason;
+            }
+
+            const { error: reqError } = await sb.from("garage_requisitions").update(updateData).eq("id", reqId);
             if (reqError) throw reqError;
 
-            // Reduce Stock
-            if (itemId && item) {
+            // Reduce Stock ONLY when fully approved by Management
+            if (nextStatus === 'Approved' && itemId && item) {
                 const { error: invError } = await sb.from("garage_inventory").update({
                     quantity: (item.quantity || 0) - qty
                 }).eq("id", itemId);
                 if (invError) throw invError;
             }
         },
-        onSuccess: () => {
+        onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
             queryClient.invalidateQueries({ queryKey: ["procurement-inventory"] });
             setIsApproveDialogOpen(false);
-            toast({ title: "Approved & PO Generated", description: "Audit trail record created." });
+            setRevokeReason("");
+
+            const titles: Record<string, string> = {
+                'Awaiting Approval': "Sent for Approval",
+                'Approved': "PO Approved & Issued",
+                'Paid': "Marked as Paid",
+                'Revoked': "PO Revoked"
+            };
+
+            toast({
+                title: titles[variables.nextStatus] || "Status Updated",
+                description: variables.nextStatus === 'Revoked' ? "Reason recorded." : "Requisition state moved forward."
+            });
         }
     });
 
@@ -176,7 +247,8 @@ const ProcurementDashboard = () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
             toast({ title: "Supplier Added", description: "New vendor registered." });
             setIsAddSupplierOpen(false);
-            setNewSupplier({ name: "", contact_person: "", phone: "", email: "", category: "General Spare Parts", location: "" });
+            setNewSupplier({ name: "", contact_person: "", phone: ["", ""], email: "", category: "General Spare Parts", location: "", customCategory: "" });
+            setShowCustomCategory(false);
         },
         onError: (error: any) => {
             console.error("Vendor Registration Error:", error);
@@ -185,6 +257,69 @@ const ProcurementDashboard = () => {
                 title: "Registration Failed",
                 description: error.message || "Please check all fields and try again."
             });
+        }
+    });
+
+    const deleteSupplierMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_suppliers").delete().eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
+            toast({ title: "Supplier Deleted", description: "Vendor removed from directory." });
+        }
+    });
+
+    const updateSupplierMutation = useMutation({
+        mutationFn: async (supplier: any) => {
+            const { id, ...updateData } = supplier;
+            const { error } = await sb.from("garage_suppliers").update(updateData).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
+            toast({ title: "Supplier Updated", description: "Vendor records saved." });
+            setIsEditSupplierOpen(false);
+            setEditingSupplier(null);
+        }
+    });
+
+    const addPaymentMethodMutation = useMutation({
+        mutationFn: async (method: any) => {
+            const { error } = await sb.from("garage_supplier_payment_methods").insert([method]);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-payment-methods"] });
+            toast({ title: "Payment Method Added", description: "Supplier records updated." });
+            setIsAddPaymentMethodOpen(false);
+            setNewPaymentMethod({ method_type: "Bank", bank_name: "", account_number: "", account_name: "", is_default: false });
+        }
+    });
+
+    const deletePaymentMethodMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_supplier_payment_methods").delete().eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-payment-methods"] });
+            toast({ title: "Payment Method Deleted", description: "Supplier record removed." });
+        }
+    });
+
+    const editPaymentMethodMutation = useMutation({
+        mutationFn: async (method: any) => {
+            const { id, ...updateData } = method;
+            const { error } = await sb.from("garage_supplier_payment_methods").update(updateData).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-payment-methods"] });
+            toast({ title: "Payment Method Updated", description: "Supplier records saved." });
+            setIsEditPaymentMethodOpen(false);
+            setEditingPaymentMethod(null);
         }
     });
 
@@ -298,7 +433,7 @@ const ProcurementDashboard = () => {
                         <div style="font-weight: 700;">${req.item_name}</div>
                         <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
                             Vehicle: ${req.vehicle?.vehicle_no || 'N/A'} 
-                            ${req.vehicle?.horse_number ? `(Horse: ${req.horse_number})` : ''}
+                            ${req.vehicle?.horse_number ? `(Horse: ${req.vehicle.horse_number})` : ''}
                         </div>
                     </td>
                     <td style="text-align: center;">${qty}</td>
@@ -413,7 +548,9 @@ const ProcurementDashboard = () => {
     const getStatusBadge = (status: string, req?: any) => {
         switch (status) {
             case 'Pending': return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">Pending</Badge>;
-            case 'Approved': return <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">Approved</Badge>;
+            case 'Awaiting Approval': return <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200 uppercase text-[10px]">Sent for Approval</Badge>;
+            case 'Approved': return <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-200">Approved</Badge>;
+            case 'Paid': return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200">Paid</Badge>;
             case 'Purchased': return <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">Purchased</Badge>;
             case 'Delivered': return <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200">Delivered</Badge>;
             case 'Rejected': return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">Rejected</Badge>;
@@ -429,9 +566,9 @@ const ProcurementDashboard = () => {
             case 'Revoked':
                 return (
                     <div className="flex flex-col gap-1">
-                        <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">Rework Required</Badge>
+                        <Badge variant="outline" className="bg-rose-50 text-rose-600 border-rose-200">Revoked / Rework</Badge>
                         {req?.revoke_reason && (
-                            <span className="text-[10px] text-slate-500 italic">Reason: {req.revoke_reason}</span>
+                            <span className="text-[10px] text-slate-500 italic font-medium">Reason: {req.revoke_reason}</span>
                         )}
                     </div>
                 );
@@ -441,10 +578,12 @@ const ProcurementDashboard = () => {
 
     // Helper: Get Department Name from Company
     const getDepartmentName = (company: string) => {
-        if (!company) return "General";
-        if (company.includes("LOGISTICS")) return "Logistics";
-        if (company.includes("WEIGHBRIDGE")) return "Weighbridge";
-        if (company.includes("GARAGE")) return "Garage";
+        if (!company) return "Garage";
+        const c = company.toUpperCase();
+        // If it's a Logistics company but in the Garage dashboard, label it as "Garage"
+        if (c.includes("LOGISTICS") || c.includes("GARAGE")) return "Garage";
+        if (c.includes("WEIGHBRIDGE")) return "Weighbridge";
+        if (c.includes("SUDENERGY")) return company.replace("SUDENERGY", "").trim() || "Garage";
         return company;
     };
 
@@ -453,21 +592,21 @@ const ProcurementDashboard = () => {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
-                        <Building2 className="w-6 h-6 text-indigo-600" />
+                        <Building2 className="w-6 h-6 text-blue-900" />
                         Procurement Command
-                        <Badge className="ml-2 bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-bold animate-pulse">Live Syncing</Badge>
+                        <Badge className="ml-2 bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-semibold animate-pulse">Live Syncing</Badge>
                     </h1>
                     <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Purchase Order (PO) Management & Strategic Sourcing</p>
                 </div>
                 <div className="flex items-center gap-3">
                     {(isLoadingRequisitions || isLoadingInventory) && (
-                        <div className="flex items-center gap-2 text-indigo-500 text-xs font-bold animate-pulse">
+                        <div className="flex items-center gap-2 text-blue-950 text-xs font-semibold animate-pulse">
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Fetching Data...
                         </div>
                     )}
                     <div className="flex gap-2">
-                        <Button onClick={() => setIsCreateReqOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-xs font-medium h-9 uppercase tracking-wider">
+                        <Button onClick={() => setIsCreateReqOpen(true)} className="bg-blue-900 hover:bg-black text-xs font-medium h-9 uppercase tracking-wider">
                             <Plus className="w-4 h-4 mr-1" /> New Requisition
                         </Button>
                     </div>
@@ -476,13 +615,13 @@ const ProcurementDashboard = () => {
 
             <Tabs defaultValue="requisitions" className="w-full" onValueChange={setActiveTab}>
                 <TabsList className="bg-white border-b border-slate-200 w-full justify-start rounded-none h-12 p-0 gap-8">
-                    <TabsTrigger value="requisitions" className="data-[state=active]:border-indigo-600 data-[state=active]:text-indigo-600 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium uppercase tracking-widest">
+                    <TabsTrigger value="requisitions" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium uppercase tracking-widest">
                         <FileText className="w-4 h-4 mr-2" /> Requisitions
                     </TabsTrigger>
-                    <TabsTrigger value="inventory" className="data-[state=active]:border-indigo-600 data-[state=active]:text-indigo-600 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-bold uppercase tracking-widest">
+                    <TabsTrigger value="inventory" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium">
                         <Package className="w-4 h-4 mr-2" /> Store Inventory
                     </TabsTrigger>
-                    <TabsTrigger value="suppliers" className="data-[state=active]:border-indigo-600 data-[state=active]:text-indigo-600 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-bold uppercase tracking-widest">
+                    <TabsTrigger value="suppliers" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium">
                         <Users className="w-4 h-4 mr-2" /> Suppliers
                     </TabsTrigger>
                 </TabsList>
@@ -502,7 +641,7 @@ const ProcurementDashboard = () => {
                         <Card className="border-none shadow-sm bg-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">PO's Issued</CardTitle>
-                                <FileCheck className="h-4 w-4 text-indigo-500" />
+                                <FileCheck className="h-4 w-4 text-blue-950" />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.po_number).length}</div>
@@ -517,7 +656,7 @@ const ProcurementDashboard = () => {
                                 <div className="text-2xl font-semibold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
                             </CardContent>
                         </Card>
-                        <Card className="border-none shadow-sm bg-indigo-600 text-white">
+                        <Card className="border-none shadow-sm bg-blue-900 text-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
                                 <TrendingUp className="h-4 w-4 text-indigo-200" />
@@ -531,21 +670,48 @@ const ProcurementDashboard = () => {
                     </div>
 
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
-                        <CardHeader className="flex flex-row items-center justify-between border-b pb-4 bg-slate-50/50">
-                            <div className="flex items-center gap-3">
-                                <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Audit Trail: Requisitions & POs</CardTitle>
-                                <Badge variant="outline" className="bg-slate-100/50 text-slate-500 border-slate-200 text-[10px] font-mono">
-                                    Total: {requisitions?.length || 0} Records
-                                </Badge>
+                        <CardHeader className="flex flex-col border-b bg-slate-50/50 p-0">
+                            <div className="flex flex-row items-center justify-between px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                    <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Audit Trail: Requisitions & POs</CardTitle>
+                                    <Badge variant="outline" className="bg-slate-100/50 text-slate-500 border-slate-200 text-[10px] font-mono">
+                                        Total: {requisitions?.length || 0} Records
+                                    </Badge>
+                                </div>
+                                <div className="relative w-64">
+                                    <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                                    <Input
+                                        placeholder="Search by item, company, or PO..."
+                                        className="pl-8 h-8 text-[11px] bg-white border-slate-200"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
                             </div>
-                            <div className="relative w-64">
-                                <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                                <Input
-                                    placeholder="Search by item, company, or PO..."
-                                    className="pl-8 h-8 text-[11px] bg-white border-slate-200"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
+
+                            {/* Status Sub-Tabs */}
+                            <div className="flex px-6 border-t border-slate-200 bg-white">
+                                {['Pending', 'Approved', 'Purchased', 'All'].map((status) => (
+                                    <button
+                                        key={status}
+                                        onClick={() => setReqStatusFilter(status as any)}
+                                        className={`px-4 py-3 text-[10px] uppercase font-bold tracking-wider transition-all border-b-2 hover:text-blue-900 ${reqStatusFilter === status
+                                            ? 'border-blue-900 text-blue-900'
+                                            : 'border-transparent text-slate-400'
+                                            }`}
+                                    >
+                                        {status === 'Pending' ? 'Pending Review' :
+                                            status === 'Approved' ? 'Approved & Processing' :
+                                                status === 'Purchased' ? 'Purchased/Complete' : 'All History'}
+                                        <Badge className={`ml-2 h-4 px-1 text-[9px] ${reqStatusFilter === status ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-500'
+                                            }`}>
+                                            {(requisitions || []).filter(r => status === 'All' ? true :
+                                                status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review') :
+                                                    r.status === status
+                                            ).length}
+                                        </Badge>
+                                    </button>
+                                ))}
                             </div>
                         </CardHeader>
                         <CardContent className="p-0">
@@ -577,217 +743,250 @@ const ProcurementDashboard = () => {
                                     {isLoadingRequisitions ? (
                                         Array.from({ length: 5 }).map((_, i) => (
                                             <TableRow key={i}>
-                                                <TableCell colSpan={7} className="p-4">
+                                                <TableCell colSpan={8} className="p-4">
                                                     <Skeleton className="h-12 w-full bg-slate-100/50" />
                                                 </TableCell>
                                             </TableRow>
                                         ))
-                                    ) : (requisitions || []).filter((r: any) => {
-                                        const searchLower = searchTerm.toLowerCase();
-                                        // Robust filter: check item, company, PO, and status
-                                        return (
-                                            (r.item_name || "").toLowerCase().includes(searchLower) ||
-                                            (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
-                                            (r.po_number || "").toLowerCase().includes(searchLower) ||
-                                            (r.status || "").toLowerCase().includes(searchLower)
-                                        );
-                                    }).length === 0 ? (
-                                        <TableRow>
-                                            <TableCell colSpan={8} className="py-20 text-center">
-                                                <div className="flex flex-col items-center gap-2 opacity-50">
-                                                    <FileText className="w-10 h-10 text-slate-300" />
-                                                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest">No Requisitions Found</h3>
-                                                    <p className="text-xs text-slate-400 font-medium tracking-tight">Try clearing your search or check if the garage has sent any requests.</p>
-                                                    {searchTerm && (
-                                                        <Button variant="link" onClick={() => setSearchTerm("")} className="text-indigo-600 font-bold h-auto p-0 text-xs">Clear Search</Button>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : (requisitions || []).filter((r: any) => {
-                                        const searchLower = searchTerm.toLowerCase();
-                                        return (
-                                            (r.item_name || "").toLowerCase().includes(searchLower) ||
-                                            (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
-                                            (r.po_number || "").toLowerCase().includes(searchLower) ||
-                                            (r.status || "").toLowerCase().includes(searchLower)
-                                        );
-                                    }).map((req: any) => (
-                                        <TableRow key={req.id} className={`hover:bg-slate-50/50 transition-colors ${selectedRequisitionIds.includes(req.id) ? 'bg-indigo-50/30' : ''}`}>
-                                            <TableCell className="px-4">
-                                                <Checkbox
-                                                    checked={selectedRequisitionIds.includes(req.id)}
-                                                    onCheckedChange={(checked) => {
-                                                        if (checked) {
-                                                            setSelectedRequisitionIds(prev => [...prev, req.id]);
-                                                        } else {
-                                                            setSelectedRequisitionIds(prev => prev.filter(id => id !== req.id));
-                                                        }
-                                                    }}
-                                                />
-                                            </TableCell>
-                                            <TableCell className="py-4">
-                                                <div className="flex flex-col">
-                                                    <span className="text-xs text-slate-500 font-medium">{new Date(req.created_at).toLocaleDateString()}</span>
-                                                    <span className="text-[13px] text-indigo-500 font-bold">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <Badge variant="outline" className="text-xs font-bold bg-slate-50 text-slate-600 border-slate-200 uppercase">
-                                                    {getDepartmentName(req.target_company)}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="font-mono text-xs text-slate-500">
-                                                {req.po_number || <span className="text-slate-300">-- No PO --</span>}
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex flex-col gap-1">
-                                                    <span className="font-semibold text-sm text-slate-800">{req.item_name}</span>
-                                                    <span className="text-xs text-slate-400">Qty: {req.quantity_requested} units</span>
-                                                    {req.vehicle_id && req.vehicle && (
-                                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 w-fit text-[10px] font-bold">
-                                                            <Truck className="h-3 w-3 mr-1" />
-                                                            For Vehicle: {req.vehicle.vehicle_no || req.vehicle.horse_number || 'N/A'}
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-sm font-medium text-slate-600">
-                                                {req.supplier?.name || <span className="text-slate-300">Not Assigned</span>}
-                                            </TableCell>
-                                            <TableCell>
-                                                <Select
-                                                    value={req.status || 'Pending'}
-                                                    onValueChange={(status) => {
-                                                        if (status === 'Revoked') {
-                                                            // Show dialog for revoke reason
-                                                            setRevokeDialogReqId(req.id);
-                                                            setRevokeDialogOpen(true);
-                                                        } else {
-                                                            updateStatusMutation.mutate({ reqId: req.id, status, revokeReason: null });
-                                                        }
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="w-40 h-8 text-[10px] font-bold uppercase bg-white border-slate-200">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="Pending" className="text-[10px]">🟡 Pending Review</SelectItem>
-                                                        <SelectItem value="Processing" className="text-[10px]">🔵 Processing</SelectItem>
-                                                        <SelectItem value="Purchased" className="text-[10px]">🟢 Purchased</SelectItem>
-                                                        <SelectItem value="Revoked" className="text-[10px]">🔴 Revoked</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </TableCell>
-                                            <TableCell className="text-right px-6">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    {req.status === 'Pending' ? (
-                                                        <>
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="h-8 text-[10px] px-3 font-bold uppercase tracking-wider text-slate-600 hover:text-indigo-600 border-slate-200"
-                                                                onClick={() => printPurchaseOrder({ reqId: req.id })}
-                                                            >
-                                                                <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] px-4 font-bold uppercase tracking-wider"
-                                                                onClick={() => {
-                                                                    setSelectedReq(req);
-                                                                    setApprovalDetails({
-                                                                        supplier_id: "",
-                                                                        po_number: generatePONumber(),
-                                                                        includes_vat: false,
-                                                                        vat_amount: 0,
-                                                                        temp_price: (inventory || []).find(i => i.id === req.item_id)?.unit_price || 0
-                                                                    });
-                                                                    setIsApproveDialogOpen(true);
-                                                                }}
-                                                            >Review & Approve</Button>
-                                                        </>
-                                                    ) : (
-                                                        <div className="flex gap-1 items-center">
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="h-8 text-[10px] px-3 font-bold uppercase tracking-wider text-slate-600 hover:text-indigo-600 border-slate-200"
-                                                                onClick={() => printPurchaseOrder({ poNumber: req.po_number })}
-                                                            >
-                                                                <Printer className="w-3.5 h-3.5 mr-1.5" /> Print PO
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                                                            >
-                                                                <Upload className="w-4 h-4" />
-                                                            </Button>
+                                    ) : (() => {
+                                        const filteredReqs = (requisitions || []).filter((r: any) => {
+                                            const searchLower = searchTerm.toLowerCase();
+                                            const matchesSearch = (
+                                                (r.item_name || "").toLowerCase().includes(searchLower) ||
+                                                (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
+                                                (r.po_number || "").toLowerCase().includes(searchLower) ||
+                                                (r.status || "").toLowerCase().includes(searchLower)
+                                            );
+
+                                            const matchesStatus = reqStatusFilter === 'All' ? true :
+                                                reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review') :
+                                                    r.status === reqStatusFilter;
+
+                                            return matchesSearch && matchesStatus;
+                                        });
+
+                                        if (filteredReqs.length === 0) {
+                                            return (
+                                                <TableRow>
+                                                    <TableCell colSpan={8} className="py-20 text-center">
+                                                        <div className="flex flex-col items-center gap-2 opacity-50">
+                                                            <FileText className="w-10 h-10 text-slate-300" />
+                                                            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-widest">No Records Found</h3>
+                                                            <p className="text-xs text-slate-400 font-medium tracking-tight">Try adjusting your filters or search term.</p>
                                                         </div>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        }
+
+                                        const grouped = groupRequisitionsByMonth(filteredReqs);
+                                        return Object.keys(grouped).map((month) => (
+                                            <React.Fragment key={month}>
+                                                <TableRow className="bg-slate-50/80 border-y">
+                                                    <TableCell colSpan={8} className="py-2 px-6">
+                                                        <div className="flex items-center gap-2">
+                                                            <Calendar className="w-3.5 h-3.5 text-blue-900" />
+                                                            <span className="text-[10px] font-bold text-blue-950 uppercase tracking-widest">{month}</span>
+                                                            <Badge variant="outline" className="ml-auto text-[9px] bg-white font-mono">
+                                                                {grouped[month].length} Items
+                                                            </Badge>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                                {grouped[month].map((req: any) => (
+                                                    <TableRow key={req.id} className={`hover:bg-slate-50/30 transition-colors ${selectedRequisitionIds.includes(req.id) ? 'bg-blue-50/50' : ''}`}>
+                                                        <TableCell className="px-4">
+                                                            <Checkbox
+                                                                checked={selectedRequisitionIds.includes(req.id)}
+                                                                onCheckedChange={(checked) => {
+                                                                    if (checked) {
+                                                                        setSelectedRequisitionIds(prev => [...prev, req.id]);
+                                                                    } else {
+                                                                        setSelectedRequisitionIds(prev => prev.filter(id => id !== req.id));
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell className="py-4">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-xs text-slate-500 font-medium">{new Date(req.created_at).toLocaleDateString()}</span>
+                                                                <span className="text-[13px] text-blue-950 font-semibold">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline" className="text-xs font-semibold bg-slate-50 text-slate-600 border-slate-200 uppercase">
+                                                                {getDepartmentName(req.target_company)}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="font-mono text-xs text-slate-500">
+                                                            {req.po_number || <span className="text-slate-300">-- No PO --</span>}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="font-semibold text-sm text-slate-800">{req.item_name}</span>
+                                                                <span className="text-xs text-slate-400">Qty: {req.quantity_requested} units</span>
+                                                                {req.vehicle_id && req.vehicle && (
+                                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 w-fit text-[10px] font-semibold">
+                                                                        <Truck className="h-3 w-3 mr-1" />
+                                                                        For Vehicle: {req.vehicle.vehicle_no || req.vehicle.horse_number || 'N/A'}
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-sm font-medium text-slate-600">
+                                                            {req.garage_suppliers?.name || req.supplier?.name || <span className="text-slate-300">Not Assigned</span>}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex items-center">
+                                                                {getStatusBadge(req.status, req)}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right px-6">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                {/* PROCUREMENT OFFICER: Prepare Quote */}
+                                                                {req.status === 'Pending' && (userRole === 'procurement_officer' || userRole === 'super_admin' || userRole === 'admin') && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
+                                                                        onClick={() => {
+                                                                            setSelectedReq(req);
+                                                                            setApprovalDetails({
+                                                                                supplier_id: "",
+                                                                                po_number: generatePONumber(requisitions?.filter((r: any) =>
+                                                                                    new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number
+                                                                                ).length || 0),
+                                                                                includes_vat: false,
+                                                                                vat_amount: 0,
+                                                                                temp_price: req.unit_price || (inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0,
+                                                                                payment_method_id: ""
+                                                                            });
+                                                                            setIsApproveDialogOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        {userRole === 'procurement_officer' ? "Prepare Quote" : "Review & Quote"}
+                                                                    </Button>
+                                                                )}
+
+                                                                {/* OPERATIONS MANAGER: Management Approval */}
+                                                                {req.status === 'Awaiting Approval' && (userRole === 'admin' || userRole === 'super_admin') && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase text-white shadow-md shadow-indigo-100"
+                                                                        onClick={() => {
+                                                                            setSelectedReq(req);
+                                                                            setApprovalDetails({
+                                                                                supplier_id: req.supplier_id || "",
+                                                                                po_number: req.po_number || generatePONumber(),
+                                                                                includes_vat: req.includes_vat || false,
+                                                                                vat_amount: req.vat_amount || 0,
+                                                                                temp_price: req.unit_price || 0,
+                                                                                payment_method_id: req.payment_details?.id || ""
+                                                                            });
+                                                                            setIsApproveDialogOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        Management Approval
+                                                                    </Button>
+                                                                )}
+
+                                                                {/* FINANCE: Mark as Paid */}
+                                                                {req.status === 'Approved' && (userRole === 'finance' || userRole === 'super_admin' || userRole === 'admin') && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-8 bg-emerald-600 hover:bg-emerald-700 text-[10px] font-bold uppercase text-white"
+                                                                        onClick={() => {
+                                                                            workflowMutation.mutate({
+                                                                                reqId: req.id,
+                                                                                qty: req.quantity_approved,
+                                                                                itemId: req.item_id,
+                                                                                details: { ...req, payment_method_id: req.payment_details?.id },
+                                                                                nextStatus: 'Paid'
+                                                                            });
+                                                                        }}
+                                                                    >
+                                                                        Mark as Paid
+                                                                    </Button>
+                                                                )}
+
+                                                                {/* PRINT OPTIONS */}
+                                                                {req.po_number && (
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-8 text-[10px] font-bold uppercase border-slate-200"
+                                                                        onClick={() => printPurchaseOrder({ reqId: req.id })}
+                                                                    >
+                                                                        <Printer className="w-3 h-3 mr-1" />
+                                                                        Print PO
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </React.Fragment>
+                                        ));
+                                    })()}
                                 </TableBody>
                             </Table>
-                        </CardContent>
-                    </Card>
+                        </CardContent >
+                    </Card >
 
                     {/* Floating Grouped Actions Bar */}
-                    {selectedRequisitionIds.length > 0 && (
-                        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                            <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-full px-6 py-3 flex items-center gap-6 backdrop-blur-md bg-opacity-95">
-                                <div className="flex items-center gap-3 border-r border-slate-700 pr-6">
-                                    <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
-                                        {selectedRequisitionIds.length}
+                    {
+                        selectedRequisitionIds.length > 0 && (
+                            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-full px-6 py-3 flex items-center gap-6 backdrop-blur-md bg-opacity-95">
+                                    <div className="flex items-center gap-3 border-r border-slate-700 pr-6">
+                                        <div className="w-6 h-6 rounded-full bg-blue-900 text-white text-[10px] font-semibold flex items-center justify-center">
+                                            {selectedRequisitionIds.length}
+                                        </div>
+                                        <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">Items Selected</span>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Items Selected</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-slate-400 hover:text-white hover:bg-slate-800 text-[10px] font-bold uppercase"
-                                        onClick={() => setSelectedRequisitionIds([])}
-                                    >
-                                        Deselect All
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase px-6 h-9 rounded-full shadow-lg shadow-indigo-500/20"
-                                        onClick={() => {
-                                            // Validate same company
-                                            const selectedReqs = (requisitions || []).filter((r: any) => selectedRequisitionIds.includes(r.id));
-                                            const companies = new Set(selectedReqs.map((r: any) => r.target_company));
+                                    <div className="flex items-center gap-3">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-slate-400 hover:text-white hover:bg-slate-800 text-[10px] font-semibold uppercase"
+                                            onClick={() => setSelectedRequisitionIds([])}
+                                        >
+                                            Deselect All
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            className="bg-blue-900 hover:bg-black text-white text-[10px] font-semibold uppercase px-6 h-9 rounded-full shadow-lg shadow-blue-900/10"
+                                            onClick={() => {
+                                                // Validate same company
+                                                const selectedReqs = (requisitions || []).filter((r: any) => selectedRequisitionIds.includes(r.id));
+                                                const companies = new Set(selectedReqs.map((r: any) => r.target_company));
 
-                                            if (companies.size > 1) {
-                                                toast({
-                                                    variant: "destructive",
-                                                    title: "Invalid Selection",
-                                                    description: "Please select requisitions from the same company to group them into a single PO."
+                                                if (companies.size > 1) {
+                                                    toast({
+                                                        variant: "destructive",
+                                                        title: "Invalid Selection",
+                                                        description: "Please select requisitions from the same company to group them into a single PO."
+                                                    });
+                                                    return;
+                                                }
+
+                                                // Open Review Dialog
+                                                setGroupedPODetails({
+                                                    supplier_id: "",
+                                                    po_number: generatePONumber(),
+                                                    company: [...companies][0] as string
                                                 });
-                                                return;
-                                            }
-
-                                            // Open Review Dialog
-                                            setGroupedPODetails({
-                                                supplier_id: "",
-                                                po_number: generatePONumber(),
-                                                company: [...companies][0] as string
-                                            });
-                                            setIsGroupedPODialogOpen(true);
-                                        }}
-                                    >
-                                        <FileCheck className="w-4 h-4 mr-2" />
-                                        Generate Grouped PO
-                                    </Button>
+                                                setIsGroupedPODialogOpen(true);
+                                            }}
+                                        >
+                                            <FileCheck className="w-4 h-4 mr-2" />
+                                            Generate Grouped PO
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
-                </TabsContent>
+                        )
+                    }
+                </TabsContent >
 
                 <TabsContent value="inventory" className="mt-6">
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
@@ -824,16 +1023,16 @@ const ProcurementDashboard = () => {
                                         i.item_name.toLowerCase().includes(inventorySearch.toLowerCase())
                                     ).map((item: any) => (
                                         <TableRow key={item.id} className="hover:bg-slate-50/50">
-                                            <TableCell className="font-bold text-slate-700">{item.item_name}</TableCell>
+                                            <TableCell className="font-semibold text-slate-700">{item.item_name}</TableCell>
                                             <TableCell>
-                                                <Badge variant="secondary" className="text-[10px] font-bold uppercase">{item.category}</Badge>
+                                                <Badge variant="secondary" className="text-[10px] font-semibold uppercase">{item.category}</Badge>
                                             </TableCell>
                                             <TableCell>
                                                 <Badge className={(item.quantity || 0) <= (item.min_threshold || 0) ? "bg-red-50 text-red-700 border-red-100" : "bg-green-50 text-green-700 border-green-100"} variant="outline">
                                                     {item.quantity} units
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="font-bold text-indigo-600">
+                                            <TableCell className="font-semibold text-blue-900">
                                                 {item.unit_price?.toLocaleString()} TZS
                                             </TableCell>
                                             <TableCell className="text-slate-400 text-xs">Min: {item.min_threshold || 0}</TableCell>
@@ -841,7 +1040,7 @@ const ProcurementDashboard = () => {
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
-                                                    className="h-8 text-xs font-bold uppercase text-indigo-600"
+                                                    className="h-8 text-xs font-semibold uppercase text-blue-900"
                                                     onClick={() => {
                                                         setSelectedInventoryItem(item);
                                                         setUpdatePriceDetails({
@@ -863,17 +1062,17 @@ const ProcurementDashboard = () => {
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
                         <CardHeader className="flex flex-row items-center justify-between border-b pb-4 bg-slate-50/50">
                             <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Vendor & Supplier Directory</CardTitle>
-                            <Button onClick={() => setIsAddSupplierOpen(true)} className="h-8 bg-indigo-600 text-[10px] font-bold uppercase"><Plus className="w-3 h-3 mr-2" /> Add Supplier</Button>
+                            <Button onClick={() => setIsAddSupplierOpen(true)} className="h-8 bg-blue-900 text-[10px] font-semibold uppercase"><Plus className="w-3 h-3 mr-2" /> Add Supplier</Button>
                         </CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/40 border-b">
-                                        <TableHead className="text-[11px] font-bold uppercase">Supplier Name</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Contact Person</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Phone/Email</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase">Specialty</TableHead>
-                                        <TableHead className="text-right text-[11px] font-bold uppercase px-6">Action</TableHead>
+                                        <TableHead className="text-[11px] font-semibold uppercase">Supplier Name</TableHead>
+                                        <TableHead className="text-[11px] font-semibold uppercase">Contact Person</TableHead>
+                                        <TableHead className="text-[11px] font-semibold uppercase">Phone/Email</TableHead>
+                                        <TableHead className="text-[11px] font-semibold uppercase">Specialty</TableHead>
+                                        <TableHead className="text-right text-[11px] font-semibold uppercase px-6">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -883,130 +1082,254 @@ const ProcurementDashboard = () => {
                                         </TableRow>
                                     ) : (suppliers || []).map((s: any) => (
                                         <TableRow key={s.id}>
-                                            <TableCell className="font-bold text-slate-700">{s.name}</TableCell>
+                                            <TableCell className="font-semibold text-slate-700">{s.name}</TableCell>
                                             <TableCell className="text-sm">{s.contact_person}</TableCell>
                                             <TableCell className="text-[11px] text-slate-500">{s.phone} / {s.email}</TableCell>
-                                            <TableCell><Badge variant="outline" className="text-[10px] font-bold uppercase">{s.category}</Badge></TableCell>
+                                            <TableCell><Badge variant="outline" className="text-[10px] font-semibold uppercase">{s.category}</Badge></TableCell>
                                             <TableCell className="text-right px-6">
-                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0"><ExternalLink className="w-4 h-4 text-slate-400" /></Button>
+                                                <div className="flex justify-end gap-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-blue-900"
+                                                        onClick={() => {
+                                                            setEditingSupplier(s);
+                                                            const phones = s.phone ? s.phone.split(",").map((p: string) => p.trim()) : ["", ""];
+                                                            setEditPhones(phones.length >= 2 ? phones : [...phones, ""]);
+                                                            setIsEditSupplierOpen(true);
+                                                        }}
+                                                    >
+                                                        <FileCheck className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
+                                                        onClick={() => {
+                                                            if (confirm(`Are you sure you want to delete ${s.name}? This will also delete their payment methods.`)) {
+                                                                deleteSupplierMutation.mutate(s.id);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <XCircle className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 text-[10px] font-semibold uppercase border-blue-100 text-blue-900 hover:bg-blue-50"
+                                                        onClick={() => {
+                                                            setSelectedSupplierForPayment(s);
+                                                            setIsAddPaymentMethodOpen(true);
+                                                        }}
+                                                    >
+                                                        <Plus className="w-3 h-3 mr-1" /> Add Payment info
+                                                    </Button>
+                                                </div>
                                             </TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
                             </Table>
+                            <div className="p-4 border-t bg-slate-50/30">
+                                <h4 className="text-[10px] font-semibold uppercase text-slate-400 mb-3 tracking-widest">Registered Payment Modes</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {(allPaymentMethods || []).map((pm: any) => {
+                                        const supplier = (suppliers || []).find((s: any) => s.id === pm.supplier_id);
+                                        return (
+                                            <div key={pm.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex items-start gap-3 group relative">
+                                                <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-blue-900">
+                                                    {pm.method_type === 'Bank' ? <Building2 className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
+                                                </div>
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between items-start">
+                                                        <p className="text-[10px] font-semibold text-slate-400 uppercase">{supplier?.name || 'Unknown'}</p>
+                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-6 w-6 p-0 text-slate-400 hover:text-blue-900"
+                                                                onClick={() => {
+                                                                    setEditingPaymentMethod(pm);
+                                                                    setIsEditPaymentMethodOpen(true);
+                                                                }}
+                                                            >
+                                                                <FileCheck className="w-3 h-3" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-6 w-6 p-0 text-slate-400 hover:text-red-600"
+                                                                onClick={() => {
+                                                                    if (confirm("Delete this payment method?")) {
+                                                                        deletePaymentMethodMutation.mutate(pm.id);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <XCircle className="w-3 h-3" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-xs font-semibold text-slate-800">{pm.method_type === 'Mobile Money' ? 'Network' : 'Bank'}: {pm.bank_name || 'N/A'}</p>
+                                                    <p className="text-[11px] text-slate-500 font-mono">
+                                                        {pm.method_type === 'Mobile Money' ? 'Lipa #' : 'Acc #'}: {pm.account_number}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>
-            </Tabs>
+            </Tabs >
 
             {/* Professional Approval Dialog */}
-            <Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen}>
+            < Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen} >
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
-                        <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <Receipt className="w-5 h-5 text-indigo-600" />
-                            Final Review: Issue Purchase Order
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Receipt className="w-5 h-5 text-blue-900" />
+                            {selectedReq?.status === 'Pending' ? 'Stage 1: Prepare Quote' : 'Stage 2: Management Approval'}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-6 py-4">
                         <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 flex justify-between items-center">
-                            <div>
-                                <p className="text-[10px] text-slate-500 uppercase font-bold">Planned PO Number</p>
-                                <p className="font-mono text-lg font-bold text-slate-900">{approvalDetails.po_number}</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-[10px] text-slate-500 uppercase font-bold">Item</p>
-                                <p className="font-bold text-indigo-600">{selectedReq?.item_name}</p>
-                            </div>
+                            <p className="text-[10px] text-slate-500 uppercase font-semibold">Planned PO Number</p>
+                            <p className="font-mono text-lg font-semibold text-slate-900">{approvalDetails.po_number}</p>
                         </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Select Supplier</Label>
-                                <Select
-                                    value={approvalDetails.supplier_id}
-                                    onValueChange={(val) => setApprovalDetails({ ...approvalDetails, supplier_id: val })}
-                                >
-                                    <SelectTrigger className="h-10 text-xs">
-                                        <SelectValue placeholder="Choose Vendor..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(suppliers || []).map((s: any) => (
-                                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Confirmed Unit Price</Label>
-                                <Input
-                                    type="number"
-                                    value={approvalDetails.temp_price}
-                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, temp_price: parseFloat(e.target.value) })}
-                                    className="h-10 font-bold"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-between p-3 border rounded-lg bg-white">
-                            <div className="space-y-0.5">
-                                <Label className="text-sm font-bold">Include VAT (18%)</Label>
-                                <p className="text-[10px] text-slate-500 italic">Tax will be added to the total valuation.</p>
-                            </div>
-                            <Switch
-                                checked={approvalDetails.includes_vat}
-                                onCheckedChange={(val) => setApprovalDetails({ ...approvalDetails, includes_vat: val })}
-                            />
-                        </div>
-
-                        <div className="border-t pt-4 space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Subtotal:</span>
-                                <span className="font-bold">{(selectedReq?.quantity_requested * approvalDetails.temp_price).toLocaleString()} TZS</span>
-                            </div>
-                            {approvalDetails.includes_vat && (
-                                <div className="flex justify-between text-sm text-indigo-600 font-medium">
-                                    <span>VAT (18%):</span>
-                                    <span>{((selectedReq?.quantity_requested * approvalDetails.temp_price) * 0.18).toLocaleString()} TZS</span>
-                                </div>
-                            )}
-                            <div className="flex justify-between text-lg font-black border-t pt-2">
-                                <span>TOTAL:</span>
-                                <span>{((selectedReq?.quantity_requested * approvalDetails.temp_price) * (approvalDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS</span>
-                            </div>
+                        <div className="text-right">
+                            <p className="text-[10px] text-slate-500 uppercase font-semibold">Item</p>
+                            <p className="font-semibold text-blue-900">{selectedReq?.item_name}</p>
                         </div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)} className="h-11 font-bold uppercase text-[11px]">Cancel</Button>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase">Select Supplier</Label>
+                            <Select
+                                value={approvalDetails.supplier_id}
+                                onValueChange={(val) => setApprovalDetails({ ...approvalDetails, supplier_id: val })}
+                            >
+                                <SelectTrigger className="h-10 text-xs">
+                                    <SelectValue placeholder="Choose Vendor..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {(suppliers || []).map((s: any) => (
+                                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase">Confirmed Unit Price</Label>
+                            <Input
+                                type="number"
+                                value={approvalDetails.temp_price}
+                                onChange={(e) => setApprovalDetails({ ...approvalDetails, temp_price: parseFloat(e.target.value) })}
+                                className="h-10 font-semibold"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label className="text-[11px] font-semibold text-slate-500 uppercase">Select Payment Mode</Label>
+                        <Select
+                            value={approvalDetails.payment_method_id}
+                            onValueChange={(val) => setApprovalDetails({ ...approvalDetails, payment_method_id: val })}
+                            disabled={!approvalDetails.supplier_id}
+                        >
+                            <SelectTrigger className="h-10 text-xs font-semibold border-blue-100">
+                                <SelectValue placeholder={approvalDetails.supplier_id ? "Choose Account..." : "Select Supplier first"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {(allPaymentMethods || [])
+                                    .filter((m: any) => m.supplier_id === approvalDetails.supplier_id)
+                                    .map((m: any) => (
+                                        <SelectItem key={m.id} value={m.id} className="text-[11px]">
+                                            {m.method_type}: {m.bank_name || ''} ({m.account_number})
+                                        </SelectItem>
+                                    ))}
+                            </SelectContent>
+                        </Select>
+                        {!approvalDetails.payment_method_id && approvalDetails.supplier_id && (
+                            <p className="text-[10px] text-amber-600 font-medium italic">⚠️ Please select a payment account to link to this PO.</p>
+                        )}
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-white">
+                        <div className="space-y-0.5">
+                            <Label className="text-sm font-semibold">Include VAT (18%)</Label>
+                            <p className="text-[10px] text-slate-500 italic">Tax will be added to the total valuation.</p>
+                        </div>
+                        <Switch
+                            checked={approvalDetails.includes_vat}
+                            onCheckedChange={(val) => setApprovalDetails({ ...approvalDetails, includes_vat: val })}
+                        />
+                    </div>
+
+                    <div className="border-t pt-4 space-y-2">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Subtotal:</span>
+                            <span className="font-semibold">{(selectedReq?.quantity_requested * approvalDetails.temp_price).toLocaleString()} TZS</span>
+                        </div>
+                        {approvalDetails.includes_vat && (
+                            <div className="flex justify-between text-sm text-blue-900 font-medium">
+                                <span>VAT (18%):</span>
+                                <span>{((selectedReq?.quantity_requested * approvalDetails.temp_price) * 0.18).toLocaleString()} TZS</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between text-lg font-black border-t pt-2">
+                            <span>TOTAL:</span>
+                            <span>{((selectedReq?.quantity_requested * approvalDetails.temp_price) * (approvalDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS</span>
+                        </div>
+                    </div>
+
+                    {/* Revoke Reason for Management */}
+                    {(selectedReq?.status === 'Awaiting Approval' && (userRole === 'admin' || userRole === 'super_admin')) && (
+                        <div className="space-y-2 pt-2 border-t mt-2">
+                            <Label className="text-[11px] font-semibold text-rose-600 uppercase">Revoke Reason (Only if rejecting)</Label>
+                            <textarea
+                                className="w-full min-h-[60px] p-2 text-xs border border-rose-100 rounded-md bg-rose-50/20 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                                placeholder="Enter reason for revocation..."
+                                value={revokeReason}
+                                onChange={(e) => setRevokeReason(e.target.value)}
+                            />
+                        </div>
+                    )}
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)} className="h-11 font-semibold uppercase text-[11px] flex-1">Cancel</Button>
+
                         <Button
-                            className="h-11 bg-indigo-600 hover:bg-indigo-700 font-bold uppercase text-[11px] px-8"
-                            disabled={!approvalDetails.supplier_id || !approvalDetails.temp_price || approvalDetails.temp_price <= 0 || approveMutation.isPending}
-                            onClick={() => approveMutation.mutate({
+                            className="h-11 bg-blue-900 hover:bg-black font-semibold uppercase text-[11px] px-8 flex-1"
+                            disabled={!approvalDetails.supplier_id || !approvalDetails.temp_price || approvalDetails.temp_price <= 0 || !approvalDetails.payment_method_id || workflowMutation.isPending}
+                            onClick={() => workflowMutation.mutate({
                                 reqId: selectedReq?.id,
                                 qty: selectedReq?.quantity_requested,
                                 itemId: selectedReq?.item_id,
-                                details: approvalDetails
+                                details: approvalDetails,
+                                nextStatus: selectedReq?.status === 'Pending' ? 'Awaiting Approval' : 'Approved'
                             })}
                         >
-                            {approveMutation.isPending ? "Generating..." : "Finalize & Issue PO"}
+                            {workflowMutation.isPending ? "Saving..." : (selectedReq?.status === 'Pending' ? "Send for Approval" : "Approve & Issue PO")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
             {/* Add Supplier Dialog */}
-            <Dialog open={isAddSupplierOpen} onOpenChange={setIsAddSupplierOpen}>
+            < Dialog open={isAddSupplierOpen} onOpenChange={setIsAddSupplierOpen} >
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
-                        <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-indigo-600" />
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Users className="w-5 h-5 text-blue-900" />
                             Register New Vendor
                         </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Supplier Name</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Supplier Name</Label>
                                 <Input
                                     placeholder="Company Name"
                                     className="h-10 text-sm"
@@ -1015,12 +1338,15 @@ const ProcurementDashboard = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Category</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Category</Label>
                                 <Select
                                     value={newSupplier.category}
-                                    onValueChange={(val) => setNewSupplier({ ...newSupplier, category: val })}
+                                    onValueChange={(val) => {
+                                        setNewSupplier({ ...newSupplier, category: val });
+                                        setShowCustomCategory(val === 'Other');
+                                    }}
                                 >
-                                    <SelectTrigger className="h-10 text-xs">
+                                    <SelectTrigger className="h-10 text-xs text-slate-700">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -1029,54 +1355,87 @@ const ProcurementDashboard = () => {
                                         <SelectItem value="Oils & Lubricants">Oils & Lubricants</SelectItem>
                                         <SelectItem value="Fuel & Additives">Fuel & Additives</SelectItem>
                                         <SelectItem value="Engineering Tools">Engineering Tools</SelectItem>
+                                        <SelectItem value="Other">Other (Custom...)</SelectItem>
                                     </SelectContent>
                                 </Select>
+                                {showCustomCategory && (
+                                    <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                        <Input
+                                            placeholder="Enter manual category..."
+                                            className="h-9 text-xs border-blue-100 bg-blue-50/30"
+                                            value={newSupplier.customCategory}
+                                            onChange={(e) => setNewSupplier({ ...newSupplier, customCategory: e.target.value })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div >
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Contact Person</Label>
+                                    <Input
+                                        placeholder="Full Name"
+                                        className="h-10 text-sm"
+                                        value={newSupplier.contact_person}
+                                        onChange={(e) => setNewSupplier({ ...newSupplier, contact_person: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <Label className="text-[11px] font-semibold text-slate-500 uppercase">Phone Numbers</Label>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-5 px-1 text-[10px] text-blue-900 hover:text-blue-700 font-semibold"
+                                            onClick={() => setNewSupplier({ ...newSupplier, phone: [...newSupplier.phone, ""] })}
+                                        >
+                                            <Plus className="w-3 h-3 mr-0.5" /> add
+                                        </Button>
+                                    </div>
+                                    <div className="space-y-2 overflow-y-auto max-h-[80px] scrollbar-thin">
+                                        {newSupplier.phone.map((p, idx) => (
+                                            <Input
+                                                key={idx}
+                                                placeholder={idx === 0 ? "Primary (+255...)" : "Additional..."}
+                                                className="h-9 text-xs"
+                                                value={p}
+                                                onChange={(e) => {
+                                                    const next = [...newSupplier.phone];
+                                                    next[idx] = e.target.value;
+                                                    setNewSupplier({ ...newSupplier, phone: next });
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Contact Person</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Email Address</Label>
                                 <Input
-                                    placeholder="Full Name"
+                                    placeholder="vendor@example.com"
                                     className="h-10 text-sm"
-                                    value={newSupplier.contact_person}
-                                    onChange={(e) => setNewSupplier({ ...newSupplier, contact_person: e.target.value })}
+                                    value={newSupplier.email}
+                                    onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Phone</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Location</Label>
                                 <Input
-                                    placeholder="+255..."
+                                    placeholder="Physical Address"
                                     className="h-10 text-sm"
-                                    value={newSupplier.phone}
-                                    onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })}
+                                    value={newSupplier.location}
+                                    onChange={(e) => setNewSupplier({ ...newSupplier, location: e.target.value })}
                                 />
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Email Address</Label>
-                            <Input
-                                type="email"
-                                placeholder="vendor@example.com"
-                                className="h-10 text-sm"
-                                value={newSupplier.email}
-                                onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Location</Label>
-                            <Input
-                                placeholder="Physical Address"
-                                className="h-10 text-sm"
-                                value={newSupplier.location}
-                                onChange={(e) => setNewSupplier({ ...newSupplier, location: e.target.value })}
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddSupplierOpen(false)} className="h-10 font-bold uppercase text-[11px]">Cancel</Button>
+                    </div >
+                    <DialogFooter className="gap-2 border-t pt-4">
+                        <Button variant="ghost" onClick={() => setIsAddSupplierOpen(false)} className="h-11 font-semibold uppercase text-[11px] text-slate-500">Cancel</Button>
                         <Button
-                            className="h-10 bg-indigo-600 hover:bg-indigo-700 font-bold uppercase text-[11px] px-8"
+                            className="h-11 bg-blue-950 hover:bg-black font-semibold uppercase text-[11px] px-8 transition-all shadow-md active:scale-[0.98]"
                             disabled={addSupplierMutation.isPending}
                             onClick={() => {
                                 if (!newSupplier.name.trim()) {
@@ -1087,34 +1446,157 @@ const ProcurementDashboard = () => {
                                     });
                                     return;
                                 }
-                                addSupplierMutation.mutate(newSupplier);
+                                const finalCategory = newSupplier.category === 'Other' ? newSupplier.customCategory : newSupplier.category;
+                                const cleanedPhones = newSupplier.phone.filter(p => p.trim() !== "").join(", ");
+
+                                addSupplierMutation.mutate({
+                                    ...newSupplier,
+                                    category: finalCategory,
+                                    phone: cleanedPhones
+                                });
                             }}
                         >
                             {addSupplierMutation.isPending ? "Registering..." : "Register Vendor"}
                         </Button>
                     </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                </DialogContent >
+            </Dialog >
 
-            {/* Update Pricing Dialog */}
-            <Dialog open={isUpdatePriceOpen} onOpenChange={setIsUpdatePriceOpen}>
+            {/* Edit Supplier Dialog */}
+            < Dialog open={isEditSupplierOpen} onOpenChange={setIsEditSupplierOpen} >
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
-                        <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-indigo-600" />
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Users className="w-5 h-5 text-blue-900" />
+                            Edit Supplier Details
+                        </DialogTitle>
+                    </DialogHeader>
+                    {editingSupplier && (
+                        <div className="grid gap-4 py-4">
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Company Name</Label>
+                                <Input
+                                    placeholder="Vendor Name"
+                                    className="h-10 text-sm font-semibold text-blue-900"
+                                    value={editingSupplier.name}
+                                    onChange={(e) => setEditingSupplier({ ...editingSupplier, name: e.target.value })}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Category</Label>
+                                    <Select
+                                        value={editingSupplier.category}
+                                        onValueChange={(val) => setEditingSupplier({ ...editingSupplier, category: val })}
+                                    >
+                                        <SelectTrigger className="h-10 text-xs text-blue-900 font-semibold border-blue-50">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="General Spare Parts">General Spare Parts</SelectItem>
+                                            <SelectItem value="Tires & Alignment">Tires & Alignment</SelectItem>
+                                            <SelectItem value="Oils & Lubricants">Oils & Lubricants</SelectItem>
+                                            <SelectItem value="Fuel & Additives">Fuel & Additives</SelectItem>
+                                            <SelectItem value="Engineering Tools">Engineering Tools</SelectItem>
+                                            <SelectItem value="Other">Other (Custom...)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Contact Person</Label>
+                                    <Input
+                                        placeholder="Full Name"
+                                        className="h-10 text-sm"
+                                        value={editingSupplier.contact_person}
+                                        onChange={(e) => setEditingSupplier({ ...editingSupplier, contact_person: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Phone Numbers</Label>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-[10px] text-blue-900 border-blue-100 font-semibold"
+                                        onClick={() => setEditPhones([...editPhones, ""])}
+                                    >
+                                        <Plus className="w-3 h-3 mr-1" /> Add
+                                    </Button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 max-h-[100px] overflow-y-auto pr-1 scrollbar-thin">
+                                    {editPhones.map((p, idx) => (
+                                        <Input
+                                            key={idx}
+                                            placeholder="Contact..."
+                                            className="h-9 text-xs"
+                                            value={p}
+                                            onChange={(e) => {
+                                                const next = [...editPhones];
+                                                next[idx] = e.target.value;
+                                                setEditPhones(next);
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Email</Label>
+                                    <Input
+                                        placeholder="vendor@example.com"
+                                        className="h-10 text-sm"
+                                        value={editingSupplier.email}
+                                        onChange={(e) => setEditingSupplier({ ...editingSupplier, email: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Location</Label>
+                                    <Input
+                                        placeholder="Physical Address"
+                                        className="h-10 text-sm"
+                                        value={editingSupplier.location}
+                                        onChange={(e) => setEditingSupplier({ ...editingSupplier, location: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter className="border-t pt-4">
+                        <Button variant="ghost" onClick={() => setIsEditSupplierOpen(false)} className="h-11 font-semibold uppercase text-[11px] text-slate-500">Cancel</Button>
+                        <Button
+                            className="h-11 bg-blue-950 hover:bg-black font-semibold uppercase text-[11px] px-8 transition-all shadow-md active:scale-[0.98]"
+                            onClick={() => {
+                                const phones = editPhones.filter(p => p.trim() !== "").join(", ");
+                                updateSupplierMutation.mutate({ ...editingSupplier, phone: phones });
+                            }}
+                            disabled={updateSupplierMutation.isPending}
+                        >
+                            {updateSupplierMutation.isPending ? "Saving..." : "Update Supplier"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog >
+
+            {/* Update Pricing Dialog */}
+            < Dialog open={isUpdatePriceOpen} onOpenChange={setIsUpdatePriceOpen} >
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-blue-900" />
                             Update Unit Pricing
                         </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="p-3 bg-slate-50 rounded border text-center">
-                            <Label className="text-xs uppercase font-bold text-slate-500">Selected Item</Label>
-                            <p className="font-bold text-slate-900">{selectedInventoryItem?.item_name}</p>
+                            <Label className="text-xs uppercase font-semibold text-slate-500">Selected Item</Label>
+                            <p className="font-semibold text-slate-900">{selectedInventoryItem?.item_name}</p>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-xs font-bold text-slate-500 uppercase">Current Market Price (TZS)</Label>
+                            <Label className="text-xs font-semibold text-slate-500 uppercase">Current Market Price (TZS)</Label>
                             <Input
                                 type="number"
-                                className="h-10 text-sm border-slate-200 font-bold text-indigo-600"
+                                className="h-10 text-sm border-slate-200 font-semibold text-blue-900"
                                 value={updatePriceDetails.unit_price}
                                 onChange={(e) => setUpdatePriceDetails({ ...updatePriceDetails, unit_price: parseFloat(e.target.value) })}
                             />
@@ -1122,9 +1604,8 @@ const ProcurementDashboard = () => {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsUpdatePriceOpen(false)} className="h-10 text-xs font-bold uppercase">Cancel</Button>
                         <Button
-                            className="h-10 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold uppercase px-8"
+                            className="h-10 bg-blue-900 hover:bg-black text-xs font-semibold uppercase px-8"
                             onClick={() => updatePricingMutation.mutate({
                                 id: selectedInventoryItem?.id,
                                 price: updatePriceDetails.unit_price
@@ -1135,21 +1616,180 @@ const ProcurementDashboard = () => {
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
-            {/* Create Requisition Dialog (Keep as is) */}
-            <Dialog open={isCreateReqOpen} onOpenChange={setIsCreateReqOpen}>
+            {/* Add Payment Method Dialog */}
+            < Dialog open={isAddPaymentMethodOpen} onOpenChange={setIsAddPaymentMethodOpen} >
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
-                        <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            <FileCheck className="w-5 h-5 text-indigo-600" />
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Plus className="w-5 h-5 text-blue-900" />
+                            Add Payment Account
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="p-3 bg-slate-50 rounded border text-center">
+                            <Label className="text-xs uppercase font-medium text-slate-500">Supplier</Label>
+                            <p className="font-semibold text-slate-900">{selectedSupplierForPayment?.name}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 uppercase">Method Type</Label>
+                                <Select
+                                    value={newPaymentMethod.method_type}
+                                    onValueChange={(val) => setNewPaymentMethod({ ...newPaymentMethod, method_type: val })}
+                                >
+                                    <SelectTrigger className="h-10 text-xs">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Bank">Bank Transfer</SelectItem>
+                                        <SelectItem value="Mobile Money">Mobile Money</SelectItem>
+                                        <SelectItem value="Cash">Cash</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 uppercase">
+                                    {newPaymentMethod.method_type === 'Mobile Money' ? 'Network Provider' :
+                                        newPaymentMethod.method_type === 'Cash' ? 'Reference' : 'Bank Name'}
+                                </Label>
+                                <Input
+                                    placeholder={newPaymentMethod.method_type === 'Mobile Money' ? 'e.g., M-Pesa, TigoPesa' :
+                                        newPaymentMethod.method_type === 'Cash' ? 'Internal Ref' : 'e.g., NMB, CRDB'}
+                                    className="h-10 text-sm"
+                                    value={newPaymentMethod.bank_name}
+                                    onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, bank_name: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-xs font-semibold text-slate-500 uppercase">
+                                {newPaymentMethod.method_type === 'Mobile Money' ? 'Lipa Number' : 'Account Number'}
+                            </Label>
+                            <Input
+                                placeholder="Number..."
+                                className="h-10 text-sm font-mono"
+                                value={newPaymentMethod.account_number}
+                                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, account_number: e.target.value })}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-xs font-semibold text-slate-500 uppercase">Account Name</Label>
+                            <Input
+                                placeholder="Registered Name"
+                                className="h-10 text-sm"
+                                value={newPaymentMethod.account_name}
+                                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, account_name: e.target.value })}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAddPaymentMethodOpen(false)} className="h-10 text-xs font-semibold uppercase">Cancel</Button>
+                        <Button
+                            className="h-10 bg-blue-950 hover:bg-black text-xs font-semibold uppercase px-8"
+                            onClick={() => addPaymentMethodMutation.mutate({
+                                ...newPaymentMethod,
+                                supplier_id: selectedSupplierForPayment?.id
+                            })}
+                            disabled={!newPaymentMethod.account_number || !newPaymentMethod.account_name || addPaymentMethodMutation.isPending}
+                        >
+                            {addPaymentMethodMutation.isPending ? "Creating..." : "Save Method"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog >
+
+            {/* Edit Payment Method Dialog */}
+            < Dialog open={isEditPaymentMethodOpen} onOpenChange={setIsEditPaymentMethodOpen} >
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <FileCheck className="w-5 h-5 text-blue-900" />
+                            Edit Payment Account
+                        </DialogTitle>
+                    </DialogHeader>
+                    {editingPaymentMethod && (
+                        <div className="grid gap-4 py-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-slate-500 uppercase">Method Type</Label>
+                                    <Select
+                                        value={editingPaymentMethod.method_type}
+                                        onValueChange={(val) => setEditingPaymentMethod({ ...editingPaymentMethod, method_type: val })}
+                                    >
+                                        <SelectTrigger className="h-10 text-xs">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Bank">Bank Transfer</SelectItem>
+                                            <SelectItem value="Mobile Money">Mobile Money</SelectItem>
+                                            <SelectItem value="Cash">Cash</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-slate-500 uppercase">
+                                        {editingPaymentMethod.method_type === 'Mobile Money' ? 'Network Provider' :
+                                            editingPaymentMethod.method_type === 'Cash' ? 'Reference' : 'Bank Name'}
+                                    </Label>
+                                    <Input
+                                        placeholder={editingPaymentMethod.method_type === 'Mobile Money' ? 'e.g., M-Pesa, TigoPesa' :
+                                            editingPaymentMethod.method_type === 'Cash' ? 'Internal Ref' : 'e.g., NMB, CRDB'}
+                                        className="h-10 text-sm"
+                                        value={editingPaymentMethod.bank_name || ""}
+                                        onChange={(e) => setEditingPaymentMethod({ ...editingPaymentMethod, bank_name: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 uppercase">
+                                    {editingPaymentMethod.method_type === 'Mobile Money' ? 'Lipa Number' : 'Account Number'}
+                                </Label>
+                                <Input
+                                    placeholder="Number..."
+                                    className="h-10 text-sm font-mono"
+                                    value={editingPaymentMethod.account_number || ""}
+                                    onChange={(e) => setEditingPaymentMethod({ ...editingPaymentMethod, account_number: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 uppercase">Account Name</Label>
+                                <Input
+                                    placeholder="Registered Name"
+                                    className="h-10 text-sm"
+                                    value={editingPaymentMethod.account_name || ""}
+                                    onChange={(e) => setEditingPaymentMethod({ ...editingPaymentMethod, account_name: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditPaymentMethodOpen(false)} className="h-10 text-xs font-semibold uppercase">Cancel</Button>
+                        <Button
+                            className="h-10 bg-blue-900 hover:bg-black text-xs font-semibold uppercase px-8"
+                            onClick={() => editPaymentMethodMutation.mutate(editingPaymentMethod)}
+                            disabled={editPaymentMethodMutation.isPending}
+                        >
+                            {editPaymentMethodMutation.isPending ? "Saving..." : "Update Method"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog >
+
+            {/* Create Requisition Dialog (Keep as is) */}
+            < Dialog open={isCreateReqOpen} onOpenChange={setIsCreateReqOpen} >
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <FileCheck className="w-5 h-5 text-blue-900" />
                             Internal Requisition
                         </DialogTitle>
                     </DialogHeader>
                     {/* ... (Existing dialog content) */}
                     <div className="grid gap-4 py-4">
                         <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Target Company</Label>
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase">Target Company</Label>
                             <Select
                                 value={newReq.target_company}
                                 onValueChange={(val) => setNewReq({ ...newReq, target_company: val })}
@@ -1165,7 +1805,7 @@ const ProcurementDashboard = () => {
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Item Description</Label>
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase">Item Description</Label>
                             <Input
                                 placeholder="Enter item name"
                                 className="h-10 text-sm border-slate-200"
@@ -1174,7 +1814,7 @@ const ProcurementDashboard = () => {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Quantity Requested</Label>
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase">Quantity Requested</Label>
                             <Input
                                 type="number"
                                 className="h-10 text-sm border-slate-200"
@@ -1184,9 +1824,9 @@ const ProcurementDashboard = () => {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsCreateReqOpen(false)} className="h-10 text-[11px] font-bold uppercase">Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsCreateReqOpen(false)} className="h-10 text-[11px] font-semibold uppercase">Cancel</Button>
                         <Button
-                            className="h-10 bg-indigo-600 hover:bg-indigo-700 text-[11px] font-bold uppercase"
+                            className="h-10 bg-blue-900 hover:bg-black text-[11px] font-semibold uppercase"
                             onClick={() => createReqMutation.mutate(newReq)}
                             disabled={!newReq.item_name || createReqMutation.isPending}
                         >
@@ -1194,10 +1834,10 @@ const ProcurementDashboard = () => {
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
             {/* Revoke Reason Dialog */}
-            <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
+            < Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen} >
                 <DialogContent className="sm:max-w-[450px]">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-slate-700">
@@ -1212,7 +1852,7 @@ const ProcurementDashboard = () => {
                             </p>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-700">Management's Reason for Rejection</Label>
+                            <Label className="text-sm font-semibold text-slate-700">Management's Reason for Rejection</Label>
                             <Textarea
                                 placeholder="Enter the reason from management (e.g., 'Not in budget', 'Item not needed', etc.)"
                                 className="min-h-[100px] text-sm"
@@ -1262,17 +1902,17 @@ const ProcurementDashboard = () => {
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
             {/* Grouped PO Review Dialog */}
-            <Dialog open={isGroupedPODialogOpen} onOpenChange={setIsGroupedPODialogOpen}>
+            < Dialog open={isGroupedPODialogOpen} onOpenChange={setIsGroupedPODialogOpen} >
                 <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
                     <DialogHeader>
-                        <DialogTitle className="text-xl font-bold text-slate-900 flex items-center justify-between">
+                        <DialogTitle className="text-xl font-semibold text-slate-900 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <FileCheck className="w-6 h-6 text-indigo-600" />
+                                <FileCheck className="w-6 h-6 text-blue-950" />
                                 Grouped PO Review
                             </div>
-                            <Badge variant="outline" className="text-[10px] font-bold uppercase py-1 bg-indigo-50 text-indigo-600 border-indigo-200">
+                            <Badge variant="outline" className="text-[10px] font-semibold uppercase py-1 bg-indigo-50 text-blue-950 border-indigo-200">
                                 {groupedPODetails.company}
                             </Badge>
                         </DialogTitle>
@@ -1281,7 +1921,7 @@ const ProcurementDashboard = () => {
                     <div className="flex-1 overflow-hidden py-4 flex flex-col gap-6">
                         {/* Selected Items List */}
                         <div className="space-y-3">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-2">
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase flex items-center gap-2">
                                 <Package className="w-4 h-4" /> Selected Items ({selectedRequisitionIds.length})
                             </Label>
                             <ScrollArea className="h-[200px] rounded-xl border border-slate-100 bg-slate-50/50 p-1">
@@ -1289,10 +1929,10 @@ const ProcurementDashboard = () => {
                                     {requisitions?.filter((r: any) => selectedRequisitionIds.includes(r.id)).map((req: any) => (
                                         <div key={req.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex items-center justify-between group">
                                             <div>
-                                                <p className="font-bold text-slate-800 text-sm">{req.item_name}</p>
+                                                <p className="font-semibold text-slate-800 text-sm">{req.item_name}</p>
                                                 <p className="text-[10px] text-slate-400 font-medium">Requested on {new Date(req.created_at).toLocaleDateString()}</p>
                                             </div>
-                                            <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-200 border-none font-bold">
+                                            <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-200 border-none font-semibold">
                                                 Qty: {req.quantity_requested}
                                             </Badge>
                                         </div>
@@ -1304,7 +1944,7 @@ const ProcurementDashboard = () => {
                         {/* PO Finalization Details */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Vendor / Supplier</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Vendor / Supplier</Label>
                                 <Select
                                     value={groupedPODetails.supplier_id}
                                     onValueChange={(val) => setGroupedPODetails({ ...groupedPODetails, supplier_id: val })}
@@ -1320,11 +1960,11 @@ const ProcurementDashboard = () => {
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Generated PO Number</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Generated PO Number</Label>
                                 <Input
                                     value={groupedPODetails.po_number}
                                     onChange={(e) => setGroupedPODetails({ ...groupedPODetails, po_number: e.target.value })}
-                                    className="h-11 font-mono font-bold text-indigo-600 border-slate-200 shadow-sm"
+                                    className="h-11 font-mono font-semibold text-blue-950 border-slate-200 shadow-sm"
                                 />
                             </div>
                         </div>
@@ -1334,12 +1974,12 @@ const ProcurementDashboard = () => {
                         <Button
                             variant="ghost"
                             onClick={() => setIsGroupedPODialogOpen(false)}
-                            className="h-11 font-bold uppercase text-[11px] px-6 text-slate-500 hover:text-slate-700"
+                            className="h-11 font-semibold uppercase text-[11px] px-6 text-slate-500 hover:text-slate-700"
                         >
                             Cancel
                         </Button>
                         <Button
-                            className="h-11 bg-indigo-600 hover:bg-indigo-700 font-bold uppercase text-[11px] px-10 shadow-lg shadow-indigo-100"
+                            className="h-11 bg-blue-950 hover:bg-black font-semibold uppercase text-[11px] px-10 shadow-lg shadow-indigo-100"
                             disabled={!groupedPODetails.supplier_id || !groupedPODetails.po_number || bulkUpdateRequisitionsMutation.isPending}
                             onClick={() => bulkUpdateRequisitionsMutation.mutate({
                                 ids: selectedRequisitionIds,
@@ -1358,8 +1998,8 @@ const ProcurementDashboard = () => {
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
-        </div>
+            </Dialog >
+        </div >
     );
 };
 

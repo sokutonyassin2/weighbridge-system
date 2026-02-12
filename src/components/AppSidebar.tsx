@@ -1,4 +1,4 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart } from "lucide-react";
+import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -21,53 +21,61 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useEffect, useState } from "react";
 
 const weighbridgeItems = [
-  { title: "Dashboard", url: "/", icon: Scale, roles: ["admin", "operator"] },
-  { title: "New Entry", url: "/entry", icon: Truck, roles: ["admin", "operator"] },
-  { title: "Vehicle History", url: "/vehicle-history", icon: History, roles: ["admin", "operator"] },
-  { title: "Pending Weighs", url: "/pending", icon: Clock, roles: ["admin", "operator"] },
-  { title: "Completed Vehicles", url: "/completed", icon: CheckCircle, roles: ["admin", "operator"] },
-  { title: "Receipt History", url: "/receipt-history", icon: Printer, roles: ["admin", "operator"] },
-  { title: "Cashier", url: "/cashier", icon: DollarSign, roles: ["admin", "operator"] },
-  { title: "Procurement Request", url: "/weighbridge-requisitions", icon: Package, roles: ["admin", "operator"] },
-  { title: "Overdue History", url: "/overdue-history", icon: TimerOff, roles: ["admin", "operator"] },
-  { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["admin", "super_admin"] },
+  { title: "Dashboard", url: "/", icon: Scale, roles: ["admin", "super_admin", "operator", "finance"] },
+  { title: "New Entry", url: "/entry", icon: Truck, roles: ["admin", "super_admin", "operator"] },
+  { title: "Vehicle History", url: "/vehicle-history", icon: History, roles: ["admin", "super_admin", "operator", "finance"] },
+  { title: "Pending Weighs", url: "/pending", icon: Clock, roles: ["admin", "super_admin", "operator"] },
+  { title: "Completed Vehicles", url: "/completed", icon: CheckCircle, roles: ["admin", "super_admin", "operator", "finance"] },
+  { title: "Receipt History", url: "/receipt-history", icon: Printer, roles: ["admin", "super_admin", "operator"] },
+  { title: "Cashier", url: "/cashier", icon: DollarSign, roles: ["admin", "super_admin", "operator", "finance"] },
+  { title: "Procurement Request", url: "/weighbridge-requisitions", icon: Package, roles: ["admin", "super_admin", "operator"] },
+  { title: "Overdue History", url: "/overdue-history", icon: TimerOff, roles: ["admin", "super_admin", "operator"] },
+  { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["super_admin"] },
 
-  // Management & Settings items moved from System to Weighbridge
-  { title: "Audit Trail", url: "/audit-trail", icon: FileText, roles: ["admin", "super_admin"] },
-  { title: "Shift Reports", url: "/shift-reports", icon: BarChart3, roles: ["admin", "super_admin"] },
-  { title: "Analytics", url: "/analytics", icon: TrendingUp, roles: ["admin", "super_admin"] },
-  { title: "Penalties History", url: "/admin/penalties", icon: AlertTriangle, roles: ["admin", "super_admin"] },
-  { title: "Company Weights", url: "/admin/company-weights", icon: Truck, roles: ["admin", "super_admin"] },
-  { title: "Receipt Settings", url: "/admin/receipt-settings", icon: Settings, roles: ["admin", "super_admin"] },
-  { title: "Weight Settings", url: "/admin/weight-settings", icon: Scale, roles: ["admin", "super_admin"] },
-  { title: "All Entries", url: "/all-entries", icon: List, roles: ["admin", "super_admin"] },
+  // Management & Settings items
+  { title: "Audit Trail", url: "/audit-trail", icon: FileText, roles: ["super_admin"] },
+  { title: "Shift Reports", url: "/shift-reports", icon: BarChart3, roles: ["admin", "super_admin", "finance"] },
+  { title: "Analytics", url: "/analytics", icon: TrendingUp, roles: ["admin", "super_admin", "finance"] },
+  { title: "Penalties History", url: "/admin/penalties", icon: AlertTriangle, roles: ["admin", "super_admin", "finance"] },
+  { title: "Company Weights", url: "/admin/company-weights", icon: Truck, roles: ["admin", "super_admin", "finance"] },
+  { title: "Receipt Settings", url: "/admin/receipt-settings", icon: Settings, roles: ["super_admin"] },
+  { title: "Weight Settings", url: "/admin/weight-settings", icon: Scale, roles: ["super_admin"] },
+  { title: "All Entries", url: "/all-entries", icon: List, roles: ["super_admin"] },
+  { title: "Guardian Eye", url: "/observer", icon: Activity, roles: ["admin", "super_admin", "observer"] },
 ];
 
 const logisticsItems = [
-  { title: "Overview", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager"] },
-  { title: "Compliance Center", url: "/logistics/compliance", icon: Shield, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Overview", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Compliance Center", url: "/logistics/compliance", icon: Shield, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "procurement_officer"] },
+  { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
 ];
 
 const garageItems = [
-  { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin"] },
-  { title: "Parts & Store", url: "/garage/store", icon: Package, roles: ["mechanic", "admin", "super_admin"] },
-  { title: "Requisition Logs", url: "/garage/logs", icon: History, roles: ["mechanic", "admin", "super_admin"] },
-  { title: "Inventory Reports", url: "/garage/inventory-reports", icon: BarChart3, roles: ["admin", "super_admin"] },
-  { title: "Staff Attendance", url: "/garage/attendance", icon: UserCheck, roles: ["mechanic", "admin", "super_admin"] },
+  { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
+  { title: "Parts & Store", url: "/garage/store", icon: Package, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
+  { title: "Requisition Logs", url: "/garage/logs", icon: History, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
+  { title: "Inventory Reports", url: "/garage/inventory-reports", icon: BarChart3, roles: ["admin", "super_admin", "garage_manager", "finance", "storekeeper"] },
+  { title: "Staff Attendance", url: "/garage/attendance", icon: UserCheck, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
 ];
 
 const procurementItems = [
-  { title: "Overview", url: "/procurement", icon: BarChart3, roles: ["admin", "super_admin"] },
-  // Future procurement sub-items can go here
+  { title: "Management Approvals", url: "/procurement/approvals", icon: CheckCircle, roles: ["admin", "super_admin"] },
+  { title: "Overview", url: "/procurement", icon: BarChart3, roles: ["admin", "super_admin", "procurement_officer", "finance"] },
+  { title: "Compliance Centre", url: "/procurement/compliance", icon: Shield, roles: ["admin", "super_admin", "procurement_officer"] },
 ];
 
 const systemItems = [
-  { title: "User Management", url: "/user-management", icon: Users, roles: ["admin", "super_admin"] },
-  { title: "Activity Logs", url: "/activity-logs", icon: Activity, roles: ["admin", "super_admin"] },
+  { title: "User Management", url: "/user-management", icon: Users, roles: ["super_admin"] },
+  { title: "Activity Logs", url: "/activity-logs", icon: Activity, roles: ["super_admin"] },
+];
+
+const financeItems = [
+  { title: "Finance Dashboard", url: "/finance-dashboard", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
+  { title: "Shift Analytics", url: "/analytics", icon: TrendingUp, roles: ["finance", "admin", "super_admin"] },
+  { title: "Revenue History", url: "/cashier", icon: DollarSign, roles: ["finance", "admin", "super_admin"] },
 ];
 
 const getCurrentShift = () => {
@@ -95,20 +103,23 @@ export function AppSidebar() {
     if (userRole === "super_admin") return true;
     if (!userRole) return false;
 
-    // Direct role check
     return itemRoles.includes(userRole);
   };
 
   // Filter sections based on role
-  const showWeighbridge = userRole === "super_admin" || userRole === "admin" || userRole === "operator";
-  const showLogistics = userRole === "super_admin" || userRole === "logistics_admin" || userRole === "logistics_manager";
-  const showSystem = userRole === "super_admin" || userRole === "admin"; // Admin sees some system stuff too
+  const showWeighbridge = userRole === "super_admin" || userRole === "admin" || userRole === "operator" || userRole === "finance";
+  const showLogistics = userRole === "super_admin" || userRole === "admin" || userRole === "logistics_admin" || userRole === "logistics_manager" || userRole === "garage_manager";
+  const showGarage = userRole === "super_admin" || userRole === "admin" || userRole === "garage_manager" || userRole === "mechanic" || userRole === "storekeeper";
+  const showProcurement = userRole === "super_admin" || userRole === "admin" || userRole === "procurement_officer" || userRole === "finance";
+  const showObserver = userRole === "super_admin" || userRole === "admin" || userRole === "observer";
+  const showSystem = userRole === "super_admin";
 
   const filteredWeighbridge = weighbridgeItems.filter(item => hasAccess(item.roles));
   const filteredLogistics = logisticsItems.filter(item => hasAccess(item.roles));
   const filteredGarage = garageItems.filter(item => hasAccess(item.roles));
   const filteredProcurement = procurementItems.filter(item => hasAccess(item.roles));
   const filteredSystem = systemItems.filter(item => hasAccess(item.roles));
+  const filteredFinance = financeItems.filter(item => hasAccess(item.roles));
 
   const shiftIcon = currentShift === "Day" ? Sun : Moon;
   const ShiftIcon = shiftIcon;
@@ -130,15 +141,15 @@ export function AppSidebar() {
             </div>
             {/* Environment Indicator Badge */}
             <div className={`mt-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex flex-col items-center gap-0.5 ${import.meta.env.VITE_USE_MOCK_DATA === 'true'
-                ? 'bg-amber-100 text-amber-700 border border-amber-300 animate-pulse'
-                : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz')
-                  ? 'bg-green-100 text-green-700 border border-green-200'
-                  : 'bg-blue-100 text-blue-700 border border-blue-200'
+              ? 'bg-amber-100 text-amber-700 border border-amber-300 animate-pulse'
+              : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz')
+                ? 'bg-green-100 text-green-700 border border-green-200'
+                : 'bg-blue-100 text-blue-700 border border-blue-200'
               }`}>
               <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${import.meta.env.VITE_USE_MOCK_DATA === 'true'
-                    ? 'bg-amber-500'
-                    : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-blue-500'
+                  ? 'bg-amber-500'
+                  : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-blue-500'
                   }`} />
                 {import.meta.env.VITE_USE_MOCK_DATA === 'true'
                   ? '🛡️ Safety Testing Mode'
@@ -157,8 +168,8 @@ export function AppSidebar() {
               className="h-7 object-contain"
             />
             <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${import.meta.env.VITE_USE_MOCK_DATA === 'true'
-                ? 'bg-amber-500 animate-pulse'
-                : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-blue-500'
+              ? 'bg-amber-500 animate-pulse'
+              : import.meta.env.VITE_SUPABASE_URL?.includes('vsgtvcvzijuehawpodhz') ? 'bg-green-500' : 'bg-blue-500'
               }`} title={import.meta.env.VITE_USE_MOCK_DATA === 'true' ? "Safety Testing Mode" : "Live Production"} />
           </div>
         )}
@@ -382,6 +393,43 @@ export function AppSidebar() {
           </Collapsible>
         )}
 
+        {/* FINANCE SECTION */}
+        {filteredFinance.length > 0 && (
+          <Collapsible defaultOpen={userRole === 'finance'} className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <DollarSign className="mr-2 h-4 w-4" />
+                  <span>Finance & Accounts</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  {filteredFinance.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild tooltip={item.title}>
+                        <NavLink
+                          to={item.url}
+                          className={({ isActive }) =>
+                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                              ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg scale-[1.02]"
+                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                            }`
+                          }
+                        >
+                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
         {/* SYSTEM SECTION */}
         {showSystem && (
           <Collapsible className="group/collapsible">
@@ -413,6 +461,41 @@ export function AppSidebar() {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {/* OBSERVER SECTION */}
+        {showObserver && (
+          <Collapsible className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <Activity className="mr-2 h-4 w-4" />
+                  <span>Security & Audit</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="Guardian Eye">
+                      <NavLink
+                        to="/observer"
+                        className={({ isActive }) =>
+                          `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                            ? "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-[1.02]"
+                            : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                          }`
+                        }
+                      >
+                        <Activity className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                        <span className="font-medium text-sm tracking-tight">Guardian Eye</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
                 </SidebarMenu>
               </CollapsibleContent>
             </SidebarGroup>

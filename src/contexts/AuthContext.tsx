@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import offlineDataManager from '@/lib/offlineDataManager';
 
-type UserRole = 'admin' | 'operator' | 'super_admin' | 'logistics_admin' | 'logistics_manager' | null;
+type UserRole = 'admin' | 'operator' | 'super_admin' | 'logistics_admin' | 'logistics_manager' | 'observer' | 'procurement_officer' | 'storekeeper' | 'garage_manager' | 'finance' | 'mechanic' | null;
 
 interface AuthContextType {
   user: User | null;

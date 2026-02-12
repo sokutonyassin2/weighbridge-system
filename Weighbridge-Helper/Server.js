@@ -8,10 +8,17 @@ import path from "path";
 import os from "os";
 import { Server } from "socket.io";
 import { createServer } from "http";
+import https from "https"; // Added for direct Supabase sync
+
 
 const app = express();
 const PORT = 5000;
 const httpServer = createServer(app);
+
+// HTTP KEEPALIVE: Prevent server from timing out
+httpServer.keepAliveTimeout = 65000; // 65 seconds
+httpServer.headersTimeout = 66000; // 66 seconds
+
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
@@ -24,6 +31,13 @@ app.use(express.json());
 
 // Global variables
 let latestWeight = "0";
+let sessionActive = false;
+let stableWeightCount = 0;
+let manualCapturePerformed = false;
+let lastStableWeight = 0;
+let stabilityCounter = 0;
+const STABILITY_THRESHOLD = 5; // ~3 seconds of consistent readings (depending on data frequency)
+const WEIGHT_SENSITIVITY = 100; // KG difference to consider a "new" position
 
 /* ===============================
    OS DETECTION & CONFIG
@@ -35,6 +49,11 @@ const isMac = process.platform === "darwin";
 ================================ */
 const COM_PORT = isMac ? "/dev/cu.usbserial-14140" : "COM6";
 const BAUD_RATE = 9600;
+
+// SUPABASE CONFIG (For syncing Audit Logs)
+const SUPABASE_URL = "vsgtvcvzijuehawpodhz.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzZ3R2Y3Z6aWp1ZWhhd3BvZG h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzg4MTc0MjEsImV4cCI6MjA1NDM5MzQyMX0.q4bYTrRmZV49ErK7py56DLIT_LHRM4j8";
+
 
 /* ===============================
    CAMERA CONFIG (WORKING)
@@ -81,6 +100,49 @@ serialPort.on("data", (data) => {
     const cleanNumber = parseInt(match[1], 10);
     latestWeight = cleanNumber.toString();
 
+    // --- GHOST DETECTION LOGIC ---
+    if (cleanNumber > 500) {
+      if (!sessionActive) {
+        console.log("🚛 Vehicle Session Started");
+        sessionActive = true;
+        stableWeightCount = 0;
+        manualCapturePerformed = false;
+        lastStableWeight = 0;
+      }
+
+      // Check for stability
+      if (Math.abs(cleanNumber - lastStableWeight) < 20) { // If weight is relatively steady
+        stabilityCounter++;
+        if (stabilityCounter === STABILITY_THRESHOLD) {
+          stableWeightCount++;
+          console.log(`⚖️ Stable Weight #${stableWeightCount} Detected: ${cleanNumber}kg`);
+          lastStableWeight = cleanNumber;
+
+          // TRIGGER AUTO-CAPTURE if this is the 2nd stable point and no manual button was pressed
+          if (stableWeightCount >= 2 && !manualCapturePerformed) {
+            console.log("🚨 GHOST WEIGHING DETECTED! Triggering Auto-Capture...");
+            processCapture({ query: { entryID: "AUTO", plate: "GHOST" } }, {
+              json: () => { },
+              send: () => { },
+              status: () => ({ send: () => { } })
+            });
+          }
+        }
+      } else {
+        // Weight is moving
+        stabilityCounter = 0;
+        lastStableWeight = cleanNumber;
+      }
+    } else {
+      if (sessionActive && cleanNumber < 100) { // Truck left the scale
+        console.log("🏁 Vehicle Session Ended");
+        sessionActive = false;
+        stableWeightCount = 0;
+        manualCapturePerformed = false;
+        stabilityCounter = 0;
+      }
+    }
+
     // Stream live weight to all connected clients
     io.emit("liveWeightUpdate", { weight: latestWeight });
   }
@@ -90,8 +152,37 @@ serialPort.on("open", () => {
   console.log(`✅ COM Port ${COM_PORT} opened`);
 });
 
+// KEEPALIVE: Prevent serial port from sleeping
+setInterval(() => {
+  if (serialPort.isOpen) {
+    try {
+      serialPort.write(Buffer.from([0x00])); // Send null byte to keep connection alive
+    } catch (err) {
+      console.error('⚠️ Keepalive error:', err.message);
+    }
+  }
+}, 30000); // Every 30 seconds
+
 serialPort.on("error", (err) => {
   console.error("❌ COM Port error:", err.message);
+});
+
+// AUTO-RECONNECT: Reopen serial port if it closes unexpectedly
+serialPort.on("close", () => {
+  console.warn('⚠️ Serial port closed. Attempting reconnect in 5s...');
+  setTimeout(() => {
+    try {
+      serialPort.open((err) => {
+        if (err) {
+          console.error('❌ Reconnect failed:', err.message);
+        } else {
+          console.log('✅ Serial port reconnected');
+        }
+      });
+    } catch (err) {
+      console.error('❌ Reconnect attempt failed:', err.message);
+    }
+  }, 5000);
 });
 
 /* ===============================
@@ -110,7 +201,19 @@ io.on("connection", (socket) => {
    ENDPOINTS
 ================================ */
 app.get("/", (req, res) => {
-  res.send("Helper running with Socket.io ✅");
+  res.send("Helper running with Socket.io ✅ (Ghost Detection Active)");
+});
+
+// NETWORK PHOTO SERVER (For Camera Observer)
+app.get("/photo-stream/:monthYear/:week/:day/:shift/:filename", (req, res) => {
+  const { monthYear, week, day, shift, filename } = req.params;
+  const filePath = path.join(PHOTO_DIR, monthYear, week, day, shift, filename);
+
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send("Photo not found");
+  }
 });
 
 app.get("/api/hardware/status", (req, res) => {
@@ -138,10 +241,47 @@ app.get("/weight", (req, res) => {
 });
 
 /* ===============================
+   SYNC AUDIT LOG TO SUPABASE
+================================ */
+function syncToSupabase(logData) {
+  const data = JSON.stringify(logData);
+  const options = {
+    hostname: SUPABASE_URL,
+    path: '/rest/v1/camera_audit_logs',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer': 'return=minimal'
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    console.log(`📡 Supabase Sync Status: ${res.statusCode}`);
+  });
+
+  req.on('error', (error) => {
+    console.error('❌ Supabase Sync Error:', error.message);
+  });
+
+  req.write(data);
+  req.end();
+}
+
+/* ===============================
    CAPTURE CAMERA IMAGE (NON-BLOCKING)
 ================================ */
 function processCapture(req, res) {
   try {
+    const isAuto = req.query?.entryID === "AUTO";
+
+    // Flag this session as "Honest" if the request came from the app
+    if (req.body?.entryId || (req.query?.entryID && !isAuto)) {
+      manualCapturePerformed = true;
+      console.log("✅ Manual Capture Registered (Honest Operator)");
+    }
+
     const entryID = req.body?.entryId || req.query?.entryID || 0;
     const plate = (req.body?.vehicleNo || req.query?.plate || "UNKNOWN").replace(/ /g, "_");
     const now = new Date();
@@ -182,6 +322,17 @@ function processCapture(req, res) {
       }
 
       console.log(`✅ Photo saved: ${filename}`);
+
+      // SYNC TO DATABASE
+      syncToSupabase({
+        timestamp: now.toISOString(),
+        detected_weight: parseFloat(latestWeight),
+        photo_filename: filename,
+        type: isAuto ? 'auto' : 'manual',
+        shift: shift,
+        status: isAuto ? 'suspicious' : 'verified'
+      });
+
       res.json({
         photoPath: photoPath,
         photoUrl: `file://${photoPath}`,

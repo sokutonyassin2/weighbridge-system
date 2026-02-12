@@ -8,7 +8,7 @@ class HardwareWebSocket {
   private reconnectInterval: number = 5000;
   private url: string;
 
-  constructor(url: string = `http://${window.location.hostname}:5000`) {
+  constructor(url: string = 'http://192.168.1.105:5000') {
     this.url = url;
   }
 

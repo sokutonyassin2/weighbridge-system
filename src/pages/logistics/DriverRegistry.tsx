@@ -12,8 +12,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
     Users, Plus, Search, Filter, Phone, Calendar, ShieldCheck, UserMinus, UserCheck,
     Edit, Trash2, Truck, AlertTriangle, ShieldAlert, FileText, History,
-    Camera, FileUp, Printer, AlertCircle, ChevronDown, ChevronUp
+    Camera, FileUp, Printer, AlertCircle, ChevronDown, ChevronUp, Check, ChevronsUpDown
 } from "lucide-react";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
@@ -32,6 +35,9 @@ const DriverRegistry = () => {
     const [editingDriver, setEditingDriver] = useState<any>(null);
     const [isEmergencyDialogOpen, setIsEmergencyDialogOpen] = useState(false);
     const [emergencyReason, setEmergencyReason] = useState("");
+
+    const [openNewDriverCombobox, setOpenNewDriverCombobox] = useState(false);
+    const [openEditDriverCombobox, setOpenEditDriverCombobox] = useState(false);
     const [emergencyDriver, setEmergencyDriver] = useState<any>(null);
     const [newDriver, setNewDriver] = useState({
         full_name: "",
@@ -161,7 +167,7 @@ const DriverRegistry = () => {
     // Calculate all currently assigned vehicle IDs to prevent double-booking
     const assignedVehicleIds = drivers?.map((d: any) => d.assigned_vehicle_id).filter(Boolean) || [];
 
-    const getAvailableForAssignment = (includeVehicleId?: string | null) => {
+    const getAvailableForAssignment = (includeVehicleId?: string | null, operationType: string = "Local") => {
         if (!fleetAssignment) return [];
         const { fleet, types, couplings } = fleetAssignment;
 
@@ -173,10 +179,14 @@ const DriverRegistry = () => {
         }, []) || [];
 
         return fleet.reduce((acc: any[], item: any) => {
+            // 1. Filter by Operation Type (Local vs Transit)
+            if (item.fleet_category !== operationType) return acc;
+
             const typeInfo = types.find((t: any) => t.name === item.asset_type);
-            const isHorse = typeInfo?.type_category === "Vehicle";
+            const isDrivable = typeInfo?.type_category === "Vehicle";
             const isTrailer = typeInfo?.type_category === "Trailer";
 
+            // 2. Filter out already assigned vehicles (unless it's the current one)
             const isTakenByOtherDriver = assignedVehicleIds.includes(item.id);
             const isAllowed = !isTakenByOtherDriver || (includeVehicleId && item.id === includeVehicleId);
 
@@ -184,27 +194,55 @@ const DriverRegistry = () => {
 
             const isBusy = busyVehicleIds.includes(item.id);
 
-            if (item.coupling_status === "coupled") {
-                if (isHorse) {
-                    const coupling = couplings.find((c: any) => c.horse_id === item.id);
-                    const trailer = fleet.find((f: any) => f.id === coupling?.trailer_id);
-                    if (trailer) {
+            // 3. Logic:
+            if (isDrivable) {
+                // Determine if this vehicle strictly requires a trailer (Horse/Prime Mover)
+                const requiresCoupling = item.asset_type === "Horse" || item.asset_type === "Prime Mover";
+
+                if (requiresCoupling) {
+                    if (item.coupling_status === "coupled") {
+                        const coupling = couplings.find((c: any) => c.horse_id === item.id);
+                        const trailer = fleet.find((f: any) => f.id === coupling?.trailer_id);
+                        if (trailer) {
+                            acc.push({
+                                id: item.id,
+                                label: `${item.vehicle_no || item.horse_number} + ${trailer.vehicle_no || trailer.trailer_number} (Coupled)`,
+                                isBusy,
+                                isDisabled: isBusy,
+                                category: item.fleet_category
+                            });
+                        }
+                    } else {
+                        // Uncoupled Horse -> Disabled (User Requirement)
                         acc.push({
                             id: item.id,
-                            label: `${item.vehicle_no || item.horse_number} + ${trailer.vehicle_no || trailer.trailer_number} (Coupled Pair)`,
-                            isBusy,
+                            label: `${item.vehicle_no || item.horse_number} (Single Horse - Uncoupled)`,
+                            isBusy: isBusy,
+                            isDisabled: true, // Always disabled
                             category: item.fleet_category
                         });
                     }
+                } else {
+                    // Rigid Vehicle (Truck, Van, Pickup, etc.) -> Enabled Standalone
+                    acc.push({
+                        id: item.id,
+                        label: `${item.vehicle_no} (${item.asset_type})`,
+                        isBusy,
+                        isDisabled: isBusy,
+                        category: item.fleet_category
+                    });
                 }
-            } else if (!isHorse && !isTrailer) {
+            } else if (!isTrailer) {
+                // Fallback for non-Trailer, non-Vehicle assets (if any)
                 acc.push({
                     id: item.id,
                     label: `${item.vehicle_no} (${item.asset_type})`,
                     isBusy,
+                    isDisabled: isBusy,
                     category: item.fleet_category
                 });
             }
+
             return acc;
         }, []);
     };
@@ -665,22 +703,68 @@ const DriverRegistry = () => {
                                 {/* Row 4: Vehicle Assignment */}
                                 <div className="space-y-2">
                                     <Label>Vehicle Assignment</Label>
-                                    <Select
-                                        value={newDriver.assigned_vehicle_id || "none"}
-                                        onValueChange={v => setNewDriver({ ...newDriver, assigned_vehicle_id: v === "none" ? "" : v })}
-                                    >
-                                        <SelectTrigger className="h-11">
-                                            <SelectValue placeholder="Select coupled pair or standalone vehicle" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="none">No Assignment</SelectItem>
-                                            {getAvailableForAssignment().map((unit: any) => (
-                                                <SelectItem key={unit.id} value={unit.id} disabled={unit.isBusy}>
-                                                    {unit.label} {unit.isBusy && "⚠️ (Currently on Trip)"}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Popover open={openNewDriverCombobox} onOpenChange={setOpenNewDriverCombobox}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                role="combobox"
+                                                aria-expanded={openNewDriverCombobox}
+                                                className="w-full justify-between"
+                                            >
+                                                {newDriver.assigned_vehicle_id
+                                                    ? getAvailableForAssignment(null, newDriver.operation_type).find((unit: any) => unit.id === newDriver.assigned_vehicle_id)?.label
+                                                    : "Select coupled pair or standalone vehicle"}
+                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[400px] p-0">
+                                            <Command>
+                                                <CommandInput placeholder="Search vehicle..." />
+                                                <CommandList>
+                                                    <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        <CommandItem
+                                                            value="none"
+                                                            onSelect={() => {
+                                                                setNewDriver({ ...newDriver, assigned_vehicle_id: "" });
+                                                                setOpenNewDriverCombobox(false);
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4",
+                                                                    !newDriver.assigned_vehicle_id ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            No Assignment
+                                                        </CommandItem>
+                                                        {getAvailableForAssignment(null, newDriver.operation_type).map((unit: any) => (
+                                                            <CommandItem
+                                                                key={unit.id}
+                                                                value={unit.label}
+                                                                disabled={unit.isBusy || unit.isDisabled}
+                                                                onSelect={() => {
+                                                                    setNewDriver({ ...newDriver, assigned_vehicle_id: unit.id });
+                                                                    setOpenNewDriverCombobox(false);
+                                                                }}
+                                                            >
+                                                                <Check
+                                                                    className={cn(
+                                                                        "mr-2 h-4 w-4",
+                                                                        newDriver.assigned_vehicle_id === unit.id ? "opacity-100" : "opacity-0"
+                                                                    )}
+                                                                />
+                                                                <span className={cn(unit.isDisabled && !unit.isBusy && "text-slate-400 italic")}>
+                                                                    {unit.label}
+                                                                </span>
+                                                                {unit.isBusy && <span className="ml-2 text-rose-500 font-bold text-[10px] uppercase">⚠️ On Trip</span>}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
                                 </div>
 
                                 {/* Document Management Section */}
@@ -1114,22 +1198,68 @@ const DriverRegistry = () => {
                             {/* Row 4: Vehicle Assignment */}
                             <div className="space-y-2">
                                 <Label>Vehicle Assignment</Label>
-                                <Select
-                                    value={editingDriver.assigned_vehicle_id || "none"}
-                                    onValueChange={v => setEditingDriver({ ...editingDriver, assigned_vehicle_id: v === "none" ? "" : v })}
-                                >
-                                    <SelectTrigger className="h-11">
-                                        <SelectValue placeholder="Select unit" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">No Assignment</SelectItem>
-                                        {getAvailableForAssignment(editingDriver.assigned_vehicle_id).map((unit: any) => (
-                                            <SelectItem key={unit.id} value={unit.id} disabled={unit.isBusy}>
-                                                {unit.label} {unit.isBusy && "⚠️ (Currently on Trip)"}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <Popover open={openEditDriverCombobox} onOpenChange={setOpenEditDriverCombobox}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={openEditDriverCombobox}
+                                            className="w-full justify-between"
+                                        >
+                                            {editingDriver.assigned_vehicle_id
+                                                ? getAvailableForAssignment(editingDriver.assigned_vehicle_id, editingDriver.operation_type).find((unit: any) => unit.id === editingDriver.assigned_vehicle_id)?.label
+                                                : "Select unit"}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[400px] p-0">
+                                        <Command>
+                                            <CommandInput placeholder="Search vehicle..." />
+                                            <CommandList>
+                                                <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    <CommandItem
+                                                        value="none"
+                                                        onSelect={() => {
+                                                            setEditingDriver({ ...editingDriver, assigned_vehicle_id: "" });
+                                                            setOpenEditDriverCombobox(false);
+                                                        }}
+                                                    >
+                                                        <Check
+                                                            className={cn(
+                                                                "mr-2 h-4 w-4",
+                                                                !editingDriver.assigned_vehicle_id ? "opacity-100" : "opacity-0"
+                                                            )}
+                                                        />
+                                                        No Assignment
+                                                    </CommandItem>
+                                                    {getAvailableForAssignment(editingDriver.assigned_vehicle_id, editingDriver.operation_type).map((unit: any) => (
+                                                        <CommandItem
+                                                            key={unit.id}
+                                                            value={unit.label}
+                                                            disabled={unit.isBusy || unit.isDisabled}
+                                                            onSelect={() => {
+                                                                setEditingDriver({ ...editingDriver, assigned_vehicle_id: unit.id });
+                                                                setOpenEditDriverCombobox(false);
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4",
+                                                                    editingDriver.assigned_vehicle_id === unit.id ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            <span className={cn(unit.isDisabled && !unit.isBusy && "text-slate-400 italic")}>
+                                                                {unit.label}
+                                                            </span>
+                                                            {unit.isBusy && <span className="ml-2 text-rose-500 font-bold text-[10px] uppercase">⚠️ On Trip</span>}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
                             </div>
 
                             {/* Document Management Section */}

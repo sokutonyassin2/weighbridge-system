@@ -359,15 +359,45 @@ Please process payment in Cashier section first.`,
         return;
       }
     } else {
-      // General validation for other types
-      if (isWeightZeroOrEmpty(weighData.gross_weight) && isWeightZeroOrEmpty(weighData.tare_weight)) {
-        toast({
-          variant: "destructive",
-          title: "Missing Weight Value",
-          description: "Please enter a valid weight before saving.",
-          duration: 4000
-        });
-        return;
+      // Check if this is a GVM-only category (JV-Free, JV-Payment, Transit)
+      const isGVMOnlyCategory = ["JV-Free", "JV-Payment", "Transit"].includes(entry?.category || "");
+
+      if (isGVMOnlyCategory) {
+        // For GVM-only categories: ONLY Gross Weight (GVM) can be saved alone
+        // Reject if only Tare is filled
+        if (isWeightZeroOrEmpty(weighData.gross_weight) && !isWeightZeroOrEmpty(weighData.tare_weight)) {
+          toast({
+            variant: "destructive",
+            title: "Invalid Weight Entry",
+            description: "For this vehicle category, only GVM (Gross Weight) can be saved alone. Please enter GVM.",
+            duration: 4000
+          });
+          return;
+        }
+
+        // Reject if both are empty
+        if (isWeightZeroOrEmpty(weighData.gross_weight) && isWeightZeroOrEmpty(weighData.tare_weight)) {
+          toast({
+            variant: "destructive",
+            title: "Missing Weight Value",
+            description: "Please enter at least GVM (Gross Weight) before saving.",
+            duration: 4000
+          });
+          return;
+        }
+
+        // Allow: GVM only, or GVM + Tare (both are valid)
+      } else {
+        // General validation for other types (Local, Quarry, etc.)
+        if (isWeightZeroOrEmpty(weighData.gross_weight) && isWeightZeroOrEmpty(weighData.tare_weight)) {
+          toast({
+            variant: "destructive",
+            title: "Missing Weight Value",
+            description: "Please enter a valid weight before saving.",
+            duration: 4000
+          });
+          return;
+        }
       }
     }
 

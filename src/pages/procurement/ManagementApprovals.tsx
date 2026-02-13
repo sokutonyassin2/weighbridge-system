@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { CheckCircle, XCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle } from "lucide-react";
+import { CheckCircle, XCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, TrendingUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -22,15 +22,31 @@ const ManagementApprovals = () => {
     const [selectedReq, setSelectedReq] = useState<any>(null);
     const [revokeReason, setRevokeReason] = useState("");
 
-    // Approval Details State
     const [approvalDetails, setApprovalDetails] = useState({
         supplier_id: "",
         po_number: "",
         includes_vat: false,
         vat_amount: 0,
         temp_price: 0,
-        payment_method_id: ""
+        payment_method_id: "",
+        quantity_approving: 0
     });
+
+    const formatDate = (dateString: string | null) => {
+        if (!dateString) return "N/A";
+        const [year, month, day] = dateString.split('T')[0].split('-');
+        return `${day}/${month}/${year}`;
+    };
+
+    const groupRequisitionsByMonth = (reqs: any[]) => {
+        return reqs.reduce((groups: any, req: any) => {
+            const date = new Date(req.created_at);
+            const month = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+            if (!groups[month]) groups[month] = [];
+            groups[month].push(req);
+            return groups;
+        }, {});
+    };
 
     // Fetch Requisitions waiting for approval
     const { data: approvals, isLoading } = useQuery({
@@ -89,7 +105,7 @@ const ManagementApprovals = () => {
                 includes_vat: details.includes_vat,
                 vat_amount: vat,
                 status_updated_at: new Date().toISOString(),
-                payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null // Keep as object for JSONB or adjust if schema requires ID
+                payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null
             };
 
             if (nextStatus === 'Revoked') {
@@ -98,6 +114,23 @@ const ManagementApprovals = () => {
 
             const { error: reqError } = await sb.from("garage_requisitions").update(updateData).eq("id", reqId);
             if (reqError) throw reqError;
+
+            // Handle splitting if quantity approved is less than requested
+            if (nextStatus === 'Approved' && qty < selectedReq?.quantity_requested) {
+                const remaining = selectedReq.quantity_requested - qty;
+                await sb.from("garage_requisitions").insert({
+                    ...selectedReq,
+                    id: undefined,
+                    quantity_requested: remaining,
+                    original_quantity: selectedReq.original_quantity || selectedReq.quantity_requested,
+                    parent_id: selectedReq.id,
+                    status: 'Pending',
+                    created_at: new Date().toISOString(),
+                    po_number: null,
+                    unit_price: 0,
+                    total_price: 0
+                });
+            }
 
             // Reduce Stock Only on Approval
             if (nextStatus === 'Approved' && itemId) {
@@ -155,76 +188,100 @@ const ManagementApprovals = () => {
                             </CardContent>
                         </Card>
                     ) : (
-                        (approvals || []).map((req: any) => (
-                            <Card key={req.id} className="overflow-hidden border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow">
-                                <CardHeader className="bg-white border-b pb-3">
-                                    <div className="flex justify-between items-start">
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-2">
-                                                <Badge variant="outline" className="font-mono text-[10px] text-slate-500">
-                                                    REQ #{req.id.slice(0, 8).toUpperCase()}
-                                                </Badge>
-                                                <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
-                                                    Awaiting Approval
-                                                </Badge>
-                                            </div>
-                                            <CardTitle className="text-lg font-bold text-slate-800">
-                                                {req.item_name}
-                                            </CardTitle>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-2xl font-bold text-blue-900">
-                                                {(req.unit_price * req.quantity_requested).toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
-                                            </div>
-                                            <div className="text-xs text-slate-500 font-medium">Est. Total Value</div>
-                                        </div>
+                        (() => {
+                            const grouped = groupRequisitionsByMonth(approvals || []);
+                            return Object.keys(grouped).map((month) => (
+                                <div key={month} className="space-y-4">
+                                    <div className="flex items-center gap-2 py-2">
+                                        <Calendar className="w-4 h-4 text-blue-900" />
+                                        <h3 className="text-sm font-bold text-blue-950 uppercase tracking-widest">{month}</h3>
+                                        <Badge variant="outline" className="ml-2 text-[10px] bg-white text-slate-500">
+                                            {grouped[month].length} Items
+                                        </Badge>
                                     </div>
-                                </CardHeader>
-                                <CardContent className="pt-4 grid md:grid-cols-4 gap-6">
-                                    <div className="space-y-1">
-                                        <Label className="text-[10px] uppercase text-slate-500 font-semibold">Requested By</Label>
-                                        <p className="text-sm font-medium text-slate-700">{req.profiles?.full_name || 'Unknown'}</p>
-                                        <p className="text-xs text-slate-500">{new Date(req.created_at).toLocaleDateString()}</p>
-                                    </div>
+                                    {grouped[month].map((req: any) => (
+                                        <Card key={req.id} className="overflow-hidden border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow">
+                                            <CardHeader className="bg-white border-b pb-3">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <Badge variant="outline" className="font-mono text-[10px] text-slate-500">
+                                                                REQ #{req.id.slice(0, 8).toUpperCase()}
+                                                            </Badge>
+                                                            <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
+                                                                Awaiting Approval
+                                                            </Badge>
+                                                        </div>
+                                                        <CardTitle className="text-lg font-bold text-slate-800">
+                                                            {req.item_name}
+                                                        </CardTitle>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-2xl font-bold text-blue-900">
+                                                            {(req.unit_price * req.quantity_requested).toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                                        </div>
+                                                        <div className="text-xs text-slate-500 font-medium">Est. Total Value</div>
+                                                    </div>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="pt-4 grid md:grid-cols-4 gap-6">
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] uppercase text-slate-500 font-semibold">Requested By</Label>
+                                                    <p className="text-sm font-medium text-slate-700">{req.profiles?.full_name || 'Unknown'}</p>
+                                                    <p className="text-xs text-slate-500 font-bold">{formatDate(req.created_at)}</p>
+                                                </div>
 
-                                    <div className="space-y-1">
-                                        <Label className="text-[10px] uppercase text-slate-500 font-semibold">Quantity</Label>
-                                        <p className="text-sm font-medium text-slate-700">{req.quantity_requested} Units</p>
-                                        {req.vehicle && (
-                                            <Badge variant="secondary" className="text-[10px] mt-1">
-                                                Vehicle: {req.vehicle.vehicle_no}
-                                            </Badge>
-                                        )}
-                                    </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] uppercase text-slate-500 font-semibold">Quantity</Label>
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-sm font-medium text-slate-700">{req.quantity_requested} Units</p>
+                                                        {req.original_quantity && req.original_quantity !== req.quantity_requested && (
+                                                            <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50">
+                                                                Partial of {req.original_quantity}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                    {req.vehicle && (
+                                                        <Badge variant="secondary" className="text-[10px] mt-1 bg-blue-50 text-blue-700 border-blue-100">
+                                                            <Truck className="w-3 h-3 mr-1" />
+                                                            {req.vehicle.vehicle_no || req.vehicle.horse_number}
+                                                        </Badge>
+                                                    )}
+                                                </div>
 
-                                    <div className="space-y-1">
-                                        <Label className="text-[10px] uppercase text-slate-500 font-semibold">Target Company</Label>
-                                        <p className="text-sm font-medium text-slate-700">{req.target_company}</p>
-                                    </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px] uppercase text-slate-500 font-semibold">Supplier & Payment</Label>
+                                                    <p className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Vendor'}</p>
+                                                    <p className="text-[10px] text-slate-500 truncate max-w-[150px]">{req.payment_details?.bank_name} {req.payment_details?.account_number}</p>
+                                                </div>
 
-                                    <div className="flex items-center justify-end">
-                                        <Button
-                                            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-100 uppercase text-xs font-bold px-6 h-10"
-                                            onClick={() => {
-                                                setSelectedReq(req);
-                                                setApprovalDetails({
-                                                    supplier_id: req.supplier_id || "",
-                                                    po_number: req.po_number || "",
-                                                    includes_vat: req.includes_vat || false,
-                                                    vat_amount: req.vat_amount || 0,
-                                                    temp_price: req.unit_price || 0,
-                                                    payment_method_id: req.payment_details?.id || ""
-                                                });
-                                                setIsApproveDialogOpen(true);
-                                            }}
-                                        >
-                                            <FileCheck className="w-4 h-4 mr-2" />
-                                            Review & Action
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))
+                                                <div className="flex items-center justify-end">
+                                                    <Button
+                                                        className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-100 uppercase text-xs font-bold px-6 h-10"
+                                                        onClick={() => {
+                                                            setSelectedReq(req);
+                                                            setApprovalDetails({
+                                                                supplier_id: req.supplier_id || "",
+                                                                po_number: req.po_number || "",
+                                                                includes_vat: req.includes_vat || false,
+                                                                vat_amount: req.vat_amount || 0,
+                                                                temp_price: req.unit_price || 0,
+                                                                payment_method_id: req.payment_details?.id || "",
+                                                                quantity_approving: req.quantity_requested || 0
+                                                            });
+                                                            setIsApproveDialogOpen(true);
+                                                        }}
+                                                    >
+                                                        <FileCheck className="w-4 h-4 mr-2" />
+                                                        Review & Action
+                                                    </Button>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
+                            ));
+                        })()
                     )}
                 </div>
             )}
@@ -240,35 +297,29 @@ const ManagementApprovals = () => {
                     </DialogHeader>
 
                     <div className="grid gap-6 py-4">
-                        {/* Summary Header */}
-                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-100">
-                            <div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
                                 <p className="text-[10px] uppercase font-bold text-slate-500">Item</p>
                                 <p className="font-bold text-lg text-slate-800">{selectedReq?.item_name}</p>
                             </div>
-                            <div className="text-right">
+                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-right">
                                 <p className="text-[10px] uppercase font-bold text-slate-500">PO Number</p>
-                                <p className="font-mono font-bold text-lg text-blue-900">{approvalDetails.po_number}</p>
+                                <p className="font-mono font-bold text-lg text-blue-900">{approvalDetails.po_number || 'N/A'}</p>
                             </div>
                         </div>
 
-                        {/* Financials Input */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Vendor</Label>
-                                <Select
-                                    value={approvalDetails.supplier_id}
-                                    onValueChange={(val) => setApprovalDetails({ ...approvalDetails, supplier_id: val })}
-                                >
-                                    <SelectTrigger className="h-10 text-xs font-medium">
-                                        <SelectValue placeholder="Select Vendor" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(suppliers || []).map((s: any) => (
-                                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Approving Quantity</Label>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    max={selectedReq?.quantity_requested}
+                                    value={approvalDetails.quantity_approving}
+                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, quantity_approving: parseInt(e.target.value) })}
+                                    className="h-10 font-bold border-indigo-200 bg-indigo-50/20 text-indigo-900"
+                                />
+                                <p className="text-[10px] text-slate-500 italic">Requested: {selectedReq?.quantity_requested}</p>
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-[11px] font-bold text-slate-500 uppercase">Confirmed Unit Price</Label>
@@ -315,17 +366,17 @@ const ManagementApprovals = () => {
                         <div className="space-y-1 pt-2 border-t">
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-500">Subtotal:</span>
-                                <span className="font-semibold">{(selectedReq?.quantity_requested * approvalDetails.temp_price).toLocaleString()} TZS</span>
+                                <span className="font-semibold">{(approvalDetails.quantity_approving * approvalDetails.temp_price).toLocaleString()} TZS</span>
                             </div>
                             {approvalDetails.includes_vat && (
                                 <div className="flex justify-between text-sm text-indigo-600">
                                     <span>VAT (18%):</span>
-                                    <span>{((selectedReq?.quantity_requested * approvalDetails.temp_price) * 0.18).toLocaleString()} TZS</span>
+                                    <span>{(approvalDetails.quantity_approving * approvalDetails.temp_price * 0.18).toLocaleString()} TZS</span>
                                 </div>
                             )}
                             <div className="flex justify-between text-lg font-black text-slate-900 pt-2">
                                 <span>TOTAL PAYABLE:</span>
-                                <span>{((selectedReq?.quantity_requested * approvalDetails.temp_price) * (approvalDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS</span>
+                                <span>{(approvalDetails.quantity_approving * approvalDetails.temp_price * (approvalDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS</span>
                             </div>
                         </div>
                     </div>

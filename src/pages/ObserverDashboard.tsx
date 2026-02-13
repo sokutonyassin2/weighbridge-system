@@ -23,6 +23,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 interface AuditLog {
     id: string;
@@ -33,6 +39,8 @@ interface AuditLog {
     shift: 'Day_Shift' | 'Night_Shift';
     status: 'pending' | 'verified' | 'suspicious';
     vehicle_entry_id?: string;
+    vehicle_no?: string;
+    vehicle_type?: string;
 }
 
 interface VehicleEntry {
@@ -53,6 +61,8 @@ export default function ObserverDashboard() {
     const [searchTerm, setSearchTerm] = useState("");
     const [activeTab, setActiveTab] = useState("all");
     const [isMacBookOnline, setIsMacBookOnline] = useState<boolean | null>(null);
+    const [selectedShift, setSelectedShift] = useState<string>("all");
+    const [selectedZoomImage, setSelectedZoomImage] = useState<string | null>(null);
 
     // Check MacBook Connectivity
     useEffect(() => {
@@ -81,26 +91,29 @@ export default function ObserverDashboard() {
 
     // Fetch Audit Logs (The Scale Audit Feed)
     const { data: auditLogs, isLoading: isLoadingLogs, refetch: refetchLogs } = useQuery({
-        queryKey: ["camera-audit-logs", selectedDate],
+        queryKey: ["camera-audit-logs", selectedDate, selectedShift],
         queryFn: async () => {
-            const { data, error } = await supabase
+            let query = supabase
                 .from("camera_audit_logs")
                 .select(`
-          *,
-          vehicle_entries (
-            vehicle_no,
-            gross_weight,
-            tare_weight,
-            status
-          )
-        `)
+                  *,
+                  vehicle_entries (*)
+                `)
                 .gte("timestamp", startOfDay(selectedDate).toISOString())
-                .lte("timestamp", endOfDay(selectedDate).toISOString())
-                .order("timestamp", { ascending: false });
+                .lte("timestamp", endOfDay(selectedDate).toISOString());
+
+            if (selectedShift !== "all") {
+                query = query.eq("shift", selectedShift === "day" ? "Day_Shift" : "Night_Shift");
+            }
+
+            const { data, error } = await query
+                .order("timestamp", { ascending: false })
+                .limit(200);
 
             if (error) throw error;
             return data as any[];
         },
+        refetchInterval: 5000, // Auto-refresh every 5 seconds
     });
 
     // Real-time updates for audit logs
@@ -168,7 +181,33 @@ export default function ObserverDashboard() {
                         onChange={(e) => setSelectedDate(new Date(e.target.value))}
                         className="w-40 border-slate-200"
                     />
-                    <Button variant="outline" onClick={() => refetchLogs()}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
+                    <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <Button
+                            variant={selectedShift === "all" ? "secondary" : "ghost"}
+                            size="sm"
+                            className={`h-8 px-3 text-xs font-bold ${selectedShift === "all" ? "bg-white shadow-sm" : "text-slate-500"}`}
+                            onClick={() => setSelectedShift("all")}
+                        >
+                            All
+                        </Button>
+                        <Button
+                            variant={selectedShift === "day" ? "secondary" : "ghost"}
+                            size="sm"
+                            className={`h-8 px-3 text-xs font-bold ${selectedShift === "day" ? "bg-white shadow-sm text-amber-600" : "text-slate-500"}`}
+                            onClick={() => setSelectedShift("day")}
+                        >
+                            Day
+                        </Button>
+                        <Button
+                            variant={selectedShift === "night" ? "secondary" : "ghost"}
+                            size="sm"
+                            className={`h-8 px-3 text-xs font-bold ${selectedShift === "night" ? "bg-white shadow-sm text-indigo-600" : "text-slate-500"}`}
+                            onClick={() => setSelectedShift("night")}
+                        >
+                            Night
+                        </Button>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => refetchLogs()}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
                 </div>
             </div>
 
@@ -252,6 +291,7 @@ export default function ObserverDashboard() {
                                                 alt="Vehicle"
                                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform cursor-pointer"
                                                 onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
+                                                onClick={() => setSelectedZoomImage(getPhotoUrl(log))}
                                             />
                                             <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1 rounded">
                                                 <Camera className="w-2 h-2 inline mr-0.5" /> Manual
@@ -260,8 +300,9 @@ export default function ObserverDashboard() {
                                         <div className="flex-1">
                                             <div className="flex justify-between items-start mb-2">
                                                 <div>
-                                                    <p className="text-sm font-bold text-slate-900">{log.vehicle_entries?.vehicle_no || "N/A"}</p>
-                                                    <p className="text-[11px] text-slate-500">{format(new Date(log.timestamp), 'HH:mm:ss aa')}</p>
+                                                    <p className="text-sm font-bold text-slate-900">{log.vehicle_no || "N/A"}</p>
+                                                    <p className="text-[11px] text-slate-500 font-medium">{log.vehicle_type || "No Type"}</p>
+                                                    <p className="text-[11px] text-slate-400 mt-0.5">{format(new Date(log.timestamp), 'HH:mm:ss aa')}</p>
                                                 </div>
                                                 <Badge variant="outline" className={getShiftColor(log.shift)}>{log.shift.replace('_', ' ')}</Badge>
                                             </div>
@@ -318,6 +359,7 @@ export default function ObserverDashboard() {
                                                         alt="Ghost Vehicle"
                                                         className="w-full h-full object-cover group-hover:scale-110 transition-transform cursor-zoom-in"
                                                         onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
+                                                        onClick={() => setSelectedZoomImage(getPhotoUrl(log))}
                                                     />
                                                     <div className="absolute top-1 left-1 bg-red-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-lg">
                                                         GHOST DETECTED
@@ -349,6 +391,28 @@ export default function ObserverDashboard() {
                     </ScrollArea>
                 </Card>
             </div>
+
+            <Dialog open={!!selectedZoomImage} onOpenChange={(open) => !open && setSelectedZoomImage(null)}>
+                <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black/90 border-none">
+                    <DialogHeader className="p-4 absolute top-0 left-0 right-0 z-50 bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
+                        <DialogTitle className="text-white flex items-center gap-2">
+                            <Camera className="w-5 h-5" /> High-Resolution Inspection View
+                        </DialogTitle>
+                    </DialogHeader>
+                    {selectedZoomImage && (
+                        <div className="flex items-center justify-center min-h-[40vh] bg-slate-900">
+                            <img
+                                src={selectedZoomImage}
+                                alt="Zoomed view"
+                                className="max-w-full max-h-[85vh] object-contain shadow-2xl"
+                                onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src = "/placeholder-image.jpg";
+                                }}
+                            />
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -27,8 +27,8 @@ const weighbridgeItems = [
   { title: "Pending Weighs", url: "/pending", icon: Clock, roles: ["admin", "super_admin", "operator"] },
   { title: "Completed Vehicles", url: "/completed", icon: CheckCircle, roles: ["admin", "super_admin", "operator", "finance"] },
   { title: "Receipt History", url: "/receipt-history", icon: Printer, roles: ["admin", "super_admin", "operator"] },
-  { title: "Cashier", url: "/cashier", icon: DollarSign, roles: ["admin", "super_admin", "operator", "finance"] },
-  { title: "Procurement Request", url: "/weighbridge-requisitions", icon: Package, roles: ["admin", "super_admin", "operator"] },
+  { title: "Cashier", url: "/cashier", icon: DollarSign, roles: ["admin", "super_admin", "operator", "finance", "cashier"] },
+  { title: "Procurement Request", url: "/weighbridge-requisitions", icon: Package, roles: ["admin", "super_admin", "operator", "cashier"] },
   { title: "Overdue History", url: "/overdue-history", icon: TimerOff, roles: ["admin", "super_admin", "operator"] },
   { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["super_admin"] },
 
@@ -63,7 +63,9 @@ const garageItems = [
 
 const procurementItems = [
   { title: "Management Approvals", url: "/procurement/approvals", icon: CheckCircle, roles: ["admin", "super_admin"] },
+  { title: "Payment Portal", url: "/procurement/cashier-portal", icon: DollarSign, roles: ["admin", "super_admin", "cashier", "procurement_cashier"] },
   { title: "Overview", url: "/procurement", icon: BarChart3, roles: ["admin", "super_admin", "procurement_officer", "finance"] },
+  { title: "Procurement Reports", url: "/procurement/reports", icon: FileBarChart, roles: ["admin", "super_admin", "procurement_officer", "cashier", "finance"] },
   { title: "Compliance Centre", url: "/procurement/compliance", icon: Shield, roles: ["admin", "super_admin", "procurement_officer"] },
 ];
 
@@ -107,10 +109,10 @@ export function AppSidebar() {
   };
 
   // Filter sections based on role
-  const showWeighbridge = userRole === "super_admin" || userRole === "admin" || userRole === "operator" || userRole === "finance";
+  const showWeighbridge = userRole === "super_admin" || userRole === "admin" || userRole === "operator" || userRole === "finance" || userRole === "cashier";
   const showLogistics = userRole === "super_admin" || userRole === "admin" || userRole === "logistics_admin" || userRole === "logistics_manager" || userRole === "garage_manager";
   const showGarage = userRole === "super_admin" || userRole === "admin" || userRole === "garage_manager" || userRole === "mechanic" || userRole === "storekeeper";
-  const showProcurement = userRole === "super_admin" || userRole === "admin" || userRole === "procurement_officer" || userRole === "finance";
+  const showProcurement = userRole === "super_admin" || userRole === "admin" || userRole === "procurement_officer" || userRole === "finance" || userRole === "cashier" || userRole === "procurement_cashier";
   const showObserver = userRole === "super_admin" || userRole === "admin" || userRole === "observer";
   const showSystem = userRole === "super_admin";
 
@@ -248,9 +250,9 @@ export function AppSidebar() {
         {/* WEIGHBRIDGE SECTION */}
         {showWeighbridge && (
           <Collapsible defaultOpen className="group/collapsible">
-            <SidebarGroup>
+            <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
                   <Scale className="mr-2 h-4 w-4" />
                   <span>Weighbridge System</span>
                   <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
@@ -271,7 +273,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -285,9 +287,9 @@ export function AppSidebar() {
         {/* LOGISTICS SECTION */}
         {filteredLogistics.length > 0 && (
           <Collapsible defaultOpen={userRole?.includes('logistics')} className="group/collapsible">
-            <SidebarGroup>
+            <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
                   <Truck className="mr-2 h-4 w-4" />
                   <span>Logistics</span>
                   <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
@@ -308,7 +310,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -322,9 +324,9 @@ export function AppSidebar() {
         {/* GARAGE SECTION */}
         {filteredGarage.length > 0 && (
           <Collapsible defaultOpen={userRole?.includes('mechanic')} className="group/collapsible">
-            <SidebarGroup>
+            <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
                   <Wrench className="mr-2 h-4 w-4" />
                   <span>Garage & Maint.</span>
                   <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
@@ -345,7 +347,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -358,10 +360,10 @@ export function AppSidebar() {
 
         {/* PROCUREMENT SECTION */}
         {filteredProcurement.length > 0 && (
-          <Collapsible className="group/collapsible">
-            <SidebarGroup>
+          <Collapsible defaultOpen={userRole === 'cashier' || userRole === 'procurement_officer'} className="group/collapsible">
+            <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
                   <DollarSign className="mr-2 h-4 w-4" />
                   <span>Procurement</span>
                   <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
@@ -382,7 +384,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -396,9 +398,9 @@ export function AppSidebar() {
         {/* FINANCE SECTION */}
         {filteredFinance.length > 0 && (
           <Collapsible defaultOpen={userRole === 'finance'} className="group/collapsible">
-            <SidebarGroup>
+            <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
                   <DollarSign className="mr-2 h-4 w-4" />
                   <span>Finance & Accounts</span>
                   <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
@@ -419,7 +421,7 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -430,12 +432,47 @@ export function AppSidebar() {
           </Collapsible>
         )}
 
-        {/* SYSTEM SECTION */}
+        {/* OBSERVER SECTION */}
+        {showObserver && (
+          <Collapsible className="group/collapsible">
+            <SidebarGroup className="py-0">
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                  <Activity className="mr-2 h-4 w-4" />
+                  <span>Security & Audit</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="Guardian Eye">
+                      <NavLink
+                        to="/observer"
+                        className={({ isActive }) =>
+                          `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                            ? "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-[1.02]"
+                            : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                          }`
+                        }
+                      >
+                        <Activity className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                        <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">Guardian Eye</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {/* SYSTEM SECTION - NOW LAST */}
         {showSystem && (
           <Collapsible className="group/collapsible">
-            <SidebarGroup>
+            <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
+                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
                   <Settings className="mr-2 h-4 w-4" />
                   <span>System Administration</span>
                   <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
@@ -456,46 +493,11 @@ export function AppSidebar() {
                           }
                         >
                           <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight">{item.title}</span>
+                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
-                </SidebarMenu>
-              </CollapsibleContent>
-            </SidebarGroup>
-          </Collapsible>
-        )}
-
-        {/* OBSERVER SECTION */}
-        {showObserver && (
-          <Collapsible className="group/collapsible">
-            <SidebarGroup>
-              <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-4 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
-                  <Activity className="mr-2 h-4 w-4" />
-                  <span>Security & Audit</span>
-                  <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90 text-amber-500" />
-                </CollapsibleTrigger>
-              </SidebarGroupLabel>
-              <CollapsibleContent>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild tooltip="Guardian Eye">
-                      <NavLink
-                        to="/observer"
-                        className={({ isActive }) =>
-                          `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
-                            ? "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-[1.02]"
-                            : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
-                          }`
-                        }
-                      >
-                        <Activity className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                        <span className="font-medium text-sm tracking-tight">Guardian Eye</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
                 </SidebarMenu>
               </CollapsibleContent>
             </SidebarGroup>

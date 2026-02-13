@@ -36,6 +36,8 @@ let stableWeightCount = 0;
 let manualCapturePerformed = false;
 let lastStableWeight = 0;
 let stabilityCounter = 0;
+let lastCaptureTime = 0; // Debounce timestamp
+const CAPTURE_COOLDOWN_MS = 60000; // 60 Seconds between auto-captures for same truck
 const STABILITY_THRESHOLD = 5; // ~3 seconds of consistent readings (depending on data frequency)
 const WEIGHT_SENSITIVITY = 100; // KG difference to consider a "new" position
 
@@ -118,9 +120,19 @@ serialPort.on("data", (data) => {
           console.log(`⚖️ Stable Weight #${stableWeightCount} Detected: ${cleanNumber}kg`);
           lastStableWeight = cleanNumber;
 
-          // TRIGGER AUTO-CAPTURE if this is the 2nd stable point and no manual button was pressed
-          if (stableWeightCount >= 2 && !manualCapturePerformed) {
+          // TRIGGER AUTO-CAPTURE (GHOST DETECTION)
+          // Rules:
+          // 1. Must be stable at least twice (confirm it's not a fly-by)
+          // 2. Must NOT have been manually captured (honest operator)
+          // 3. Must NOT have been auto-captured recently (debounce)
+          const now = Date.now();
+          if (
+            stableWeightCount >= 2 &&
+            !manualCapturePerformed &&
+            (now - lastCaptureTime > CAPTURE_COOLDOWN_MS)
+          ) {
             console.log("🚨 GHOST WEIGHING DETECTED! Triggering Auto-Capture...");
+            lastCaptureTime = now; // Update timestamp
             processCapture({ query: { entryID: "AUTO", plate: "GHOST" } }, {
               json: () => { },
               send: () => { },
@@ -140,6 +152,7 @@ serialPort.on("data", (data) => {
         stableWeightCount = 0;
         manualCapturePerformed = false;
         stabilityCounter = 0;
+        lastCaptureTime = 0; // Reset cooldown
       }
     }
 
@@ -283,7 +296,9 @@ function processCapture(req, res) {
     }
 
     const entryID = req.body?.entryId || req.query?.entryID || 0;
-    const plate = (req.body?.vehicleNo || req.query?.plate || "UNKNOWN").replace(/ /g, "_");
+    const vehicleType = req.body?.vehicleType || req.query?.vehicleType || "Unknown";
+    const rawPlate = req.body?.vehicleNo || req.query?.plate || "UNKNOWN";
+    const plate = rawPlate.replace(/ /g, "_");
     const now = new Date();
 
     const monthName = now.toLocaleString('default', { month: 'long' });
@@ -330,7 +345,9 @@ function processCapture(req, res) {
         photo_filename: filename,
         type: isAuto ? 'auto' : 'manual',
         shift: shift,
-        status: isAuto ? 'suspicious' : 'verified'
+        status: isAuto ? 'suspicious' : 'verified',
+        vehicle_no: rawPlate,
+        vehicle_type: vehicleType
       });
 
       res.json({

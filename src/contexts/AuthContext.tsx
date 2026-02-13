@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import offlineDataManager from '@/lib/offlineDataManager';
 
-type UserRole = 'admin' | 'operator' | 'super_admin' | 'logistics_admin' | 'logistics_manager' | 'observer' | 'procurement_officer' | 'storekeeper' | 'garage_manager' | 'finance' | 'mechanic' | null;
+type UserRole = 'admin' | 'operator' | 'super_admin' | 'logistics_admin' | 'logistics_manager' | 'observer' | 'procurement_officer' | 'storekeeper' | 'garage_manager' | 'finance' | 'mechanic' | 'cashier' | 'procurement_cashier' | null;
 
 interface AuthContextType {
   user: User | null;
@@ -232,13 +232,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           if (role === 'super_admin') {
             navigate('/admin/dashboard');
+          } else if (role === 'cashier' || role === 'procurement_cashier') {
+            navigate('/procurement/cashier-portal');
           } else {
             navigate('/');
           }
           return { error: null };
         }
 
-        navigate('/');
+        if (authData?.user) {
+          const role = await fetchUserRole(authData.user.id);
+          if (role === 'super_admin') navigate('/admin/dashboard');
+          else if (role === 'cashier' || role === 'procurement_cashier') navigate('/procurement/cashier-portal');
+          else navigate('/');
+        } else {
+          navigate('/');
+        }
         return { error: null };
       } else {
         // If offline, check for cached user credentials

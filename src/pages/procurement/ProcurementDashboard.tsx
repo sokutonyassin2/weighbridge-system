@@ -225,10 +225,10 @@ const ProcurementDashboard = () => {
             setRevokeReason("");
 
             const titles: Record<string, string> = {
-                'Awaiting Approval': "Sent for Approval",
-                'Approved': "PO Approved & Issued",
-                'Paid': "Marked as Paid",
-                'Revoked': "PO Revoked"
+                'Awaiting Approval': "Quote Submitted for Approval",
+                'Approved': "Authorized (Buying Phase)",
+                'Paid': "Payment Confirmed",
+                'Revoked': "Quote Rejected"
             };
 
             toast({
@@ -547,11 +547,11 @@ const ProcurementDashboard = () => {
     // Helper: Get Badge for status
     const getStatusBadge = (status: string, req?: any) => {
         switch (status) {
-            case 'Pending': return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">Pending</Badge>;
-            case 'Awaiting Approval': return <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200 uppercase text-[10px]">Sent for Approval</Badge>;
-            case 'Approved': return <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-200">Approved</Badge>;
-            case 'Paid': return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200">Paid</Badge>;
-            case 'Purchased': return <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">Purchased</Badge>;
+            case 'Pending': return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">New Request</Badge>;
+            case 'Awaiting Approval': return <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200 uppercase text-[10px]">Quote Submitted</Badge>;
+            case 'Approved': return <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-200 uppercase text-[10px]">Authorized (Buying)</Badge>;
+            case 'Paid': return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200">Paid & Complete</Badge>;
+            case 'Purchased': return <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200 uppercase text-[10px]">Purchased</Badge>;
             case 'Delivered': return <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200">Delivered</Badge>;
             case 'Rejected': return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">Rejected</Badge>;
             case 'Processing':
@@ -700,13 +700,13 @@ const ProcurementDashboard = () => {
                                             : 'border-transparent text-slate-400'
                                             }`}
                                     >
-                                        {status === 'Pending' ? 'Pending Review' :
-                                            status === 'Approved' ? 'Approved & Processing' :
-                                                status === 'Purchased' ? 'Purchased/Complete' : 'All History'}
+                                        {status === 'Pending' ? 'New Requests & Quotes' :
+                                            status === 'Approved' ? 'Authorized & Buying' :
+                                                status === 'Purchased' ? 'Completed Purchases' : 'All History'}
                                         <Badge className={`ml-2 h-4 px-1 text-[9px] ${reqStatusFilter === status ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-500'
                                             }`}>
                                             {(requisitions || []).filter(r => status === 'All' ? true :
-                                                status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review') :
+                                                status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval') :
                                                     r.status === status
                                             ).length}
                                         </Badge>
@@ -759,7 +759,7 @@ const ProcurementDashboard = () => {
                                             );
 
                                             const matchesStatus = reqStatusFilter === 'All' ? true :
-                                                reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review') :
+                                                reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval') :
                                                     r.status === reqStatusFilter;
 
                                             return matchesSearch && matchesStatus;
@@ -844,7 +844,7 @@ const ProcurementDashboard = () => {
                                                         <TableCell className="text-right px-6">
                                                             <div className="flex items-center justify-end gap-2">
                                                                 {/* PROCUREMENT OFFICER: Prepare Quote */}
-                                                                {req.status === 'Pending' && (userRole === 'procurement_officer' || userRole === 'super_admin' || userRole === 'admin') && (
+                                                                {(req.status === 'Pending' || req.status === 'Pending Review') && (
                                                                     <Button
                                                                         size="sm"
                                                                         className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"

@@ -1348,6 +1348,7 @@ Please process payment in Cashier section first.`,
                 <CameraCaptureButton
                   entryId={entry.wb_number ? getShortEntryId(entry.id, entry.wb_number) : id || ""}
                   vehicleNo={entry.vehicle_no}
+                  vehicleType={entry.vehicle_types?.type_name}
                   weighNumber={weighCount + 1}
                   onPhotoCapture={(url) => setCapturedPhotoUrl(url)}
                   disabled={isSubmitting}

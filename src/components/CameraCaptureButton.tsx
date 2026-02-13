@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 interface CameraCaptureButtonProps {
   entryId: string;
   vehicleNo: string;
+  vehicleType?: string;
   weighNumber: number;
   onPhotoCapture?: (photoUrl: string) => void;
   disabled?: boolean;
@@ -20,6 +21,7 @@ interface CameraSettings {
 export function CameraCaptureButton({
   entryId,
   vehicleNo,
+  vehicleType,
   weighNumber,
   onPhotoCapture,
   disabled = false,
@@ -67,6 +69,7 @@ export function CameraCaptureButton({
         body: JSON.stringify({
           entryId,
           vehicleNo,
+          vehicleType: vehicleType || "Unknown",
         }),
         signal: AbortSignal.timeout(60000),
       });

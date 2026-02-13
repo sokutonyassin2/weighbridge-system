@@ -89,7 +89,7 @@ const ManagementApprovals = () => {
                 includes_vat: details.includes_vat,
                 vat_amount: vat,
                 status_updated_at: new Date().toISOString(),
-                payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null
+                payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null // Keep as object for JSONB or adjust if schema requires ID
             };
 
             if (nextStatus === 'Revoked') {

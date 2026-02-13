@@ -1,7 +1,8 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { Layout } from "./components/Layout";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -43,6 +44,8 @@ import WeighbridgeRequisitions from "./pages/WeighbridgeRequisitions";
 import ObserverDashboard from "./pages/ObserverDashboard";
 import FinanceDashboard from "./pages/FinanceDashboard";
 import ManagementApprovals from "./pages/procurement/ManagementApprovals";
+import CashierPaymentPortal from "./pages/procurement/CashierPaymentPortal";
+import ProcurementReports from "./pages/procurement/ProcurementReports";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +62,15 @@ const App = () => {
   // Service Worker registration removed to fix Auth issues
   // It is now handled (disabled) in main.tsx
 
+  // Helper component to redirect Cashiers away from Operator Dashboard
+  const SafeHome = () => {
+    const { userRole } = useAuth();
+    if (userRole === 'cashier' || userRole === 'procurement_cashier') {
+      return <Navigate to="/procurement/cashier-portal" replace />;
+    }
+    return <OperatorDashboard />;
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <Toaster />
@@ -72,7 +84,7 @@ const App = () => {
               element={
                 <ProtectedRoute>
                   <Layout>
-                    <OperatorDashboard />
+                    <SafeHome />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -130,9 +142,29 @@ const App = () => {
             <Route
               path="/cashier"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['admin', 'cashier']}>
                   <Layout>
                     <CashierDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/procurement/cashier-portal"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'cashier', 'procurement_cashier']}>
+                  <Layout>
+                    <CashierPaymentPortal />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/procurement/reports"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'procurement_officer', 'garage_manager', 'cashier']}>
+                  <Layout>
+                    <ProcurementReports />
                   </Layout>
                 </ProtectedRoute>
               }

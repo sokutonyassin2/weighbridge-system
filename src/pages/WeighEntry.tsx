@@ -290,12 +290,15 @@ export default function WeighEntry() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    setIsSubmitting(true);
+
     if (!user?.id) {
       toast({
         variant: "destructive",
         title: "Error",
         description: "You must be logged in to record weights",
       });
+      setIsSubmitting(false);
       return;
     }
 
@@ -308,6 +311,7 @@ export default function WeighEntry() {
         description: `This vehicle has exhausted all ${MAX_WEIGH_ATTEMPTS} weigh attempts. Payment is required before any further weighing. Please process payment in the Cashier section.`,
         duration: 7000,
       });
+      setIsSubmitting(false);
       return;
     }
 
@@ -323,6 +327,7 @@ Amount Due: TShs ${(pendingWeigh.payment_amount || 0).toLocaleString()}
 Please process payment in Cashier section first.`,
         duration: 7000,
       });
+      setIsSubmitting(false);
       return;
     }
 
@@ -334,6 +339,7 @@ Please process payment in Cashier section first.`,
         description: "Admin has enabled mandatory photo capture. Please capture a vehicle photo before saving.",
         duration: 5000,
       });
+      setIsSubmitting(false);
       return;
     }
 
@@ -344,18 +350,22 @@ Please process payment in Cashier section first.`,
     if (isMVCategory) {
       if (cameLoaded && isFirstWeigh && isWeightZeroOrEmpty(weighData.gross_weight)) {
         toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Gross Weight" });
+        setIsSubmitting(false);
         return;
       }
       if (!cameLoaded && isFirstWeigh && isWeightZeroOrEmpty(weighData.tare_weight)) {
         toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Tare Weight" });
+        setIsSubmitting(false);
         return;
       }
       if (!isFirstWeigh && cameLoaded && isWeightZeroOrEmpty(weighData.tare_weight)) {
         toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Tare Weight" });
+        setIsSubmitting(false);
         return;
       }
       if (!isFirstWeigh && !cameLoaded && isWeightZeroOrEmpty(weighData.gross_weight)) {
         toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Gross Weight" });
+        setIsSubmitting(false);
         return;
       }
     } else {
@@ -372,6 +382,7 @@ Please process payment in Cashier section first.`,
             description: "For this vehicle category, only GVM (Gross Weight) can be saved alone. Please enter GVM.",
             duration: 4000
           });
+          setIsSubmitting(false);
           return;
         }
 
@@ -383,6 +394,7 @@ Please process payment in Cashier section first.`,
             description: "Please enter at least GVM (Gross Weight) before saving.",
             duration: 4000
           });
+          setIsSubmitting(false);
           return;
         }
 
@@ -396,12 +408,12 @@ Please process payment in Cashier section first.`,
             description: "Please enter a valid weight before saving.",
             duration: 4000
           });
+          setIsSubmitting(false);
           return;
         }
       }
     }
 
-    setIsSubmitting(true);
 
     // Check if we're offline and handle accordingly
     if (!navigator.onLine) {
@@ -673,16 +685,24 @@ Please process payment in Cashier section first.`,
         );
 
         promises.push(
-          Promise.resolve(
-            supabase.from("penalties").insert({
-              entry_id: id,
-              vehicle_no: entry.vehicle_no,
-              penalty_type: 'Exhausted Attempts',
-              reason: 'Used all 3 weigh attempts without achieving acceptable weight',
-              amount: penaltyAmount,
-              operator_id: user.id
-            })
-          )
+          (async () => {
+            const { data: existingPenalties } = await supabase.from("penalties")
+              .select("id")
+              .eq("entry_id", id)
+              .eq("penalty_type", 'Exhausted Attempts')
+              .limit(1);
+
+            if (!existingPenalties || existingPenalties.length === 0) {
+              return supabase.from("penalties").insert({
+                entry_id: id,
+                vehicle_no: entry.vehicle_no,
+                penalty_type: 'Exhausted Attempts',
+                reason: 'Used all 3 weigh attempts without achieving acceptable weight',
+                amount: penaltyAmount,
+                operator_id: user.id
+              });
+            }
+          })()
         );
 
         promises.push(

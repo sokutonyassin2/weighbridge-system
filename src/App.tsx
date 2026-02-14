@@ -65,7 +65,7 @@ const App = () => {
   // Helper component to redirect Cashiers away from Operator Dashboard
   const SafeHome = () => {
     const { userRole } = useAuth();
-    if (userRole === 'cashier' || userRole === 'procurement_cashier') {
+    if (userRole === 'procurement_cashier') {
       return <Navigate to="/procurement/cashier-portal" replace />;
     }
     return <OperatorDashboard />;
@@ -142,7 +142,7 @@ const App = () => {
             <Route
               path="/cashier"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'cashier']}>
+                <ProtectedRoute allowedRoles={['admin', 'cashier', 'operator']}>
                   <Layout>
                     <CashierDashboard />
                   </Layout>

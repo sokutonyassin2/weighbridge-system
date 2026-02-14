@@ -232,7 +232,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
           if (role === 'super_admin') {
             navigate('/admin/dashboard');
-          } else if (role === 'cashier' || role === 'procurement_cashier') {
+          } else if (role === 'procurement_cashier') {
             navigate('/procurement/cashier-portal');
           } else {
             navigate('/');

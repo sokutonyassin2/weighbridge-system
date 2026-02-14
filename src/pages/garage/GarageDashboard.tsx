@@ -1,7 +1,4 @@
-import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +19,7 @@ const GarageDashboard = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const queryClient = useQueryClient();
+    const { userRole } = useAuth();
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -269,13 +267,15 @@ const GarageDashboard = () => {
     // Record Usage Mutation
     const recordUsageMutation = useMutation({
         mutationFn: async (usageData: any) => {
+            const { data: { user } } = await supabase.auth.getUser();
             const { error } = await sb.from("garage_inventory_usage").insert({
                 item_id: usageData.item_id,
                 item_name: usageData.item_name,
                 quantity_used: usageData.quantity,
                 issued_to: usageData.issued_to,
                 vehicle_id: usageData.vehicle_id || null,
-                notes: usageData.notes
+                notes: usageData.notes,
+                status: 'Pending'
             });
             if (error) throw error;
         },
@@ -293,10 +293,34 @@ const GarageDashboard = () => {
     const { data: usageLogs } = useQuery({
         queryKey: ["garage-usage"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_inventory_usage").select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)").order("created_at", { ascending: false });
+            const { data, error } = await sb.from("garage_inventory_usage").select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name)").order("created_at", { ascending: false });
             if (error) throw error;
             return data;
-        }
+        },
+        refetchInterval: 10000
+    });
+
+    const approveIssuanceMutation = useMutation({
+        mutationFn: async ({ id, status }: { id: string, status: 'Approved' | 'Rejected' }) => {
+            const { data: { user } } = await supabase.auth.getUser();
+            const { error } = await sb.from("garage_inventory_usage")
+                .update({
+                    status,
+                    approved_by: user?.id,
+                    approved_at: new Date().toISOString()
+                })
+                .eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-usage"] });
+            toast({
+                title: variables.status === 'Approved' ? "Issuance Approved" : "Issuance Rejected",
+                description: variables.status === 'Approved' ? "Inventory has been updated." : "Request removed."
+            });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Action Failed", description: err.message })
     });
 
     const createRequisitionMutation = useMutation({
@@ -1324,6 +1348,16 @@ const GarageDashboard = () => {
                             <TabsTrigger value="issued" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
                                 <ShoppingCart className="w-4 h-4 mr-2" /> Issued Items Report
                             </TabsTrigger>
+                            {(userRole === 'admin' || userRole === 'garage_manager') && (
+                                <TabsTrigger value="approvals" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider relative">
+                                    <ClipboardCheck className="w-4 h-4 mr-2" /> Issuance Approvals
+                                    {(usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0 && (
+                                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                                            {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
+                                        </span>
+                                    )}
+                                </TabsTrigger>
+                            )}
                         </TabsList>
 
                         <TabsContent value="requisitions" className="space-y-6">
@@ -1410,8 +1444,9 @@ const GarageDashboard = () => {
                                                 <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Issued To</TableHead>
                                                 <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item Taken</TableHead>
                                                 <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">Qty</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Used On Vehicle</TableHead>
-                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Notes</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Vehicle</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Manager</TableHead>
+                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Status</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -1430,18 +1465,22 @@ const GarageDashboard = () => {
                                                                     <span className="font-mono text-[11px] text-amber-500">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                                 </div>
                                                             </TableCell>
-                                                            <TableCell className="font-medium text-slate-700 text-sm">{log.issued_to}</TableCell>
-                                                            <TableCell className="font-medium text-slate-700 text-sm">{log.item_name}</TableCell>
-                                                            <TableCell className="text-sm font-mono font-semibold text-red-500 text-center">-{log.quantity_used}</TableCell>
-                                                            <TableCell>
-                                                                {log.vehicle ? (
-                                                                    <Badge variant="outline" className="text-xs font-mono font-medium bg-slate-50 text-slate-600">
-                                                                        {log.vehicle.vehicle_no || log.vehicle.horse_number}
-                                                                    </Badge>
-                                                                ) : <span className="text-xs text-slate-400 italic">General Use</span>}
+                                                            <TableCell className="font-semibold text-slate-900 font-mono italic text-sm">{log.issued_to}</TableCell>
+                                                            <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{log.item_name}</TableCell>
+                                                            <TableCell className="text-center font-mono font-bold text-slate-600 border-x border-slate-50">{log.quantity_used}</TableCell>
+                                                            <TableCell className="text-xs font-semibold text-indigo-600 italic">
+                                                                {log.vehicle?.vehicle_no || log.vehicle?.horse_number || log.vehicle?.trailer_number || "-"}
                                                             </TableCell>
-                                                            <TableCell className="text-right text-xs text-slate-500 italic max-w-[150px] truncate">
-                                                                {log.notes || '---'}
+                                                            <TableCell className="text-[11px] text-slate-500 font-medium">
+                                                                {log.approved_by_profile?.full_name || '-'}
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${log.status === 'Approved' ? 'bg-green-50 text-green-600 border border-green-200' :
+                                                                    log.status === 'Rejected' ? 'bg-rose-50 text-rose-600 border border-rose-200' :
+                                                                        'bg-amber-50 text-amber-600 border border-amber-200'
+                                                                    }`}>
+                                                                    {log.status || 'Pending'}
+                                                                </Badge>
                                                             </TableCell>
                                                         </TableRow>
                                                     );
@@ -1451,7 +1490,7 @@ const GarageDashboard = () => {
                                                 return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
                                             }).length === 0 && (
                                                     <TableRow>
-                                                        <TableCell colSpan={6} className="h-24 text-center text-sm text-slate-400 italic">No usage recorded for this period.</TableCell>
+                                                        <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-400 italic">No usage recorded for this period.</TableCell>
                                                     </TableRow>
                                                 )}
                                         </TableBody>
@@ -1459,8 +1498,84 @@ const GarageDashboard = () => {
                                 </CardContent>
                             </Card>
                         </TabsContent>
-                    </Tabs>
-                </div>
+
+                        <TabsContent value="approvals" className="space-y-6">
+                            <Card className="border-none shadow-lg bg-white overflow-hidden">
+                                <CardHeader className="bg-indigo-50/50 border-b">
+                                    <CardTitle className="text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                                        <ClipboardCheck className="w-4 h-4 text-indigo-500" />
+                                        Pending Issuance Approvals
+                                    </CardTitle>
+                                    <p className="text-[11px] text-slate-500 mt-1 font-medium tracking-tight">Review item issuances before they deduct from stock</p>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-slate-50/20">
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Requested</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Recipient</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">Qty</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Target Vehicle</TableHead>
+                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {(usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0 ? (
+                                                (usageLogs || []).filter((l: any) => l.status === 'Pending').map((log: any) => {
+                                                    const created = new Date(log.created_at);
+                                                    return (
+                                                        <TableRow key={log.id} className="hover:bg-amber-50/30 border-b border-indigo-50 last:border-0 transition-colors">
+                                                            <TableCell className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                                                                <div className="flex flex-col">
+                                                                    <span>{created.toLocaleDateString()}</span>
+                                                                    <span className="font-mono text-[10px] text-indigo-400">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="font-bold text-slate-900 text-xs uppercase">{log.issued_to}</TableCell>
+                                                            <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{log.item_name}</TableCell>
+                                                            <TableCell className="text-center font-mono font-bold text-indigo-600 bg-indigo-50/30 text-lg">{log.quantity_used}</TableCell>
+                                                            <TableCell className="text-xs font-semibold text-slate-500">
+                                                                {log.vehicle?.vehicle_no || log.vehicle?.horse_number || log.vehicle?.trailer_number || "-"}
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        className="h-8 text-[10px] font-bold uppercase tracking-wider text-rose-500 border-rose-200 hover:bg-rose-50"
+                                                                        onClick={() => approveIssuanceMutation.mutate({ id: log.id, status: 'Rejected' })}
+                                                                        disabled={approveIssuanceMutation.isPending}
+                                                                    >
+                                                                        Reject
+                                                                    </Button>
+                                                                    <Button
+                                                                        className="h-8 text-[10px] font-bold uppercase tracking-wider bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                                                                        onClick={() => approveIssuanceMutation.mutate({ id: log.id, status: 'Approved' })}
+                                                                        disabled={approveIssuanceMutation.isPending}
+                                                                    >
+                                                                        {approveIssuanceMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve Stock Exit"}
+                                                                    </Button>
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })
+                                            ) : (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic text-sm">
+                                                        <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                                        No pending issuance requests found
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+                    </Tabs >
+                </div >
             ) : null
             }
 
@@ -1583,7 +1698,7 @@ const GarageDashboard = () => {
                                 onChange={(e) => setUsageForm({ ...usageForm, quantity: parseInt(e.target.value) || 1 })}
                                 className="h-10 text-lg font-mono font-bold text-red-500"
                             />
-                            <p className="text-xs text-slate-400 italic font-medium">This quantity will be subtracted from current stock immediately.</p>
+                            <p className="text-xs text-amber-600 italic font-bold">This issuance will be sent to the Garage Manager for approval before stock is reduced.</p>
                         </div>
 
                         <div className="space-y-2">

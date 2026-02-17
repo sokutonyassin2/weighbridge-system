@@ -113,6 +113,88 @@ export default function OperatorDashboard() {
     staleTime: 10000,
   });
 
+  // Fetch pending_weighs to check for overdue and payment status
+  const { data: pendingWeighsMap } = useQuery({
+    queryKey: ["pending-weighs-map"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pending_weighs")
+        .select("*")
+        .eq("return_status", "Pending");
+
+      if (error) throw error;
+      // Create a map by entry_id for easy lookup
+      return data?.reduce((acc: Record<string, any>, pw) => ({
+        ...acc,
+        [pw.entry_id as string]: pw
+      }), {}) || {};
+    },
+    refetchInterval: 30000,
+    staleTime: 10000,
+    enabled: !!user,
+  });
+
+  const handleArchiveStaleEntry = async (entry: any) => {
+    try {
+      setIsProcessingOverdue(true);
+      const operatorName = userProfile?.full_name || userProfile?.username || "Unknown";
+
+      // 1. Move to overdue history
+      const { error: historyError } = await supabase.from("overdue_vehicles_history").insert({
+        entry_id: entry.id,
+        vehicle_no: entry.vehicle_no,
+        category: entry.category,
+        first_weigh_time: entry.weigh_records?.[0]?.weigh_time || entry.entry_time,
+        overdue_time: new Date().toISOString(),
+        shift_id: entry.shift_id,
+        shift_name: entry.shifts?.shift_name,
+        shift_date: entry.shifts?.shift_date,
+        notes: `Archived stale entry (> 2 days). Status: ${entry.status}. Attempts used: ${entry.weigh_records?.length || 0}/3.`
+      });
+
+      if (historyError) throw historyError;
+
+      // 2. Mark as completed in vehicle_entries to hide from dashboard
+      const { error: updateError } = await supabase.from("vehicle_entries")
+        .update({
+          completed: true,
+          status: "Archived-Stale"
+        })
+        .eq("id", entry.id);
+
+      if (updateError) throw updateError;
+
+      // 3. Clear from pending_weighs
+      await supabase.from("pending_weighs")
+        .delete()
+        .eq("entry_id", entry.id);
+
+      // 4. Log activity
+      await supabase.from("activity_logs").insert({
+        user_id: user?.id || "",
+        user_name: operatorName,
+        user_role: userRole as any,
+        action: "Archived Stale Vehicle",
+        details: `Vehicle ${entry.vehicle_no} archived after being stale for > 3 days with exhausted attempts.`,
+      });
+
+      toast({
+        title: "Entry Archived",
+        description: `Vehicle ${entry.vehicle_no} has been moved to Overdue History.`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Archive Failed",
+        description: error.message,
+      });
+    } finally {
+      setIsProcessingOverdue(false);
+    }
+  };
+
   // Helper to format shift badge with aging info
   const formatShiftBadge = (shifts: { shift_name: string; shift_date: string } | null) => {
     if (!shifts) return null;
@@ -133,25 +215,6 @@ export default function OperatorDashboard() {
     };
   };
 
-  // Fetch pending_weighs to check for overdue and payment status
-  const { data: pendingWeighsMap } = useQuery({
-    queryKey: ["pending-weighs-map"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("pending_weighs")
-        .select("*")
-        .eq("return_status", "Pending");
-
-      if (error) throw error;
-      // Create a map by entry_id for easy lookup
-      return data?.reduce((acc: Record<string, any>, pw) => ({
-        ...acc,
-        [pw.entry_id as string]: pw
-      }), {}) || {};
-    },
-    refetchInterval: 30000,
-    staleTime: 10000,
-  });
 
   const { data: shiftStats } = useQuery({
     queryKey: ["shift-stats", currentShift],
@@ -354,7 +417,7 @@ export default function OperatorDashboard() {
       await supabase.from("activity_logs").insert({
         user_id: user?.id || "",
         user_name: userProfile?.full_name || userProfile?.username || "Unknown",
-        user_role: userRole,
+        user_role: userRole as any,
         action: "Manual Overdue Check",
         details: `Manually triggered overdue vehicle check. ${overdueCount} vehicle(s) processed.`,
       });
@@ -592,6 +655,13 @@ export default function OperatorDashboard() {
                               </>
                             )}
                           </Badge>
+                          {shiftInfo && shiftInfo.daysDiff >= 2 && (
+                            <div className="mt-1">
+                              <Badge variant="outline" className="text-[10px] text-destructive border-destructive animate-pulse-soft">
+                                STALE (&gt; 2 DAYS)
+                              </Badge>
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
                           {requiresPayment ? (
@@ -611,6 +681,20 @@ export default function OperatorDashboard() {
                                 <AlertTriangle className="mr-2 h-4 w-4" />
                                 Payment Required
                               </Button>
+
+                              {shiftInfo && shiftInfo.daysDiff >= 2 && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="w-full text-[10px] h-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => handleArchiveStaleEntry(entry)}
+                                  disabled={isProcessingOverdue}
+                                >
+                                  <Trash2 className="mr-1 h-3 w-3" />
+                                  Archive Stale Entry
+                                </Button>
+                              )}
+
                               <p className="text-xs text-destructive">{paymentReason}</p>
                             </div>
                           ) : requiresMoveToHistory ? (
@@ -644,13 +728,12 @@ export default function OperatorDashboard() {
                                       .delete()
                                       .eq("entry_id", entry.id);
 
-                                    // Log activity
                                     await supabase.from("activity_logs").insert({
                                       user_id: user?.id || "",
                                       user_name: userProfile?.full_name || userProfile?.username || "Unknown",
-                                      user_role: userRole,
-                                      action: "Vehicle Moved to Overdue History",
-                                      details: `Vehicle ${entry.vehicle_no} moved to overdue history (exceeded 12-hour window)`,
+                                      user_role: userRole as any,
+                                      action: "Overdue Vehicle Removed",
+                                      details: `Vehicle ${entry.vehicle_no} manually removed from pending lists after exceeding 12-hour window.`
                                     });
 
                                     toast({
@@ -675,21 +758,35 @@ export default function OperatorDashboard() {
                               <p className="text-xs text-orange-600">Exceeded 12hr window</p>
                             </div>
                           ) : (
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                onClick={() => navigate(`/weigh/${entry.id}`)}
-                              >
-                                <ScaleIcon className="mr-2 h-4 w-4" />
-                                Weigh
-                              </Button>
-                              {weighCount === 0 && (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => navigate(`/weigh/${entry.id}`)}
+                                >
+                                  <ScaleIcon className="mr-2 h-4 w-4" />
+                                  Weigh
+                                </Button>
+                                {weighCount === 0 && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleDeleteVehicle(entry.id, entry.vehicle_no, weighCount)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                              {shiftInfo && shiftInfo.daysDiff >= 2 && (
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => handleDeleteVehicle(entry.id, entry.vehicle_no, weighCount)}
+                                  className="text-[10px] h-7 text-muted-foreground hover:text-destructive w-full"
+                                  onClick={() => handleArchiveStaleEntry(entry)}
+                                  disabled={isProcessingOverdue}
                                 >
-                                  <Trash2 className="h-4 w-4" />
+                                  <Trash2 className="mr-1 h-3 w-3" />
+                                  Archive Stale Entry
                                 </Button>
                               )}
                             </div>

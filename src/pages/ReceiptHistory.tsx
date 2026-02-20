@@ -93,13 +93,23 @@ export default function ReceiptHistory() {
         // Find final weight (usually the last record, or calculated)
         // If it's a completed entry, net weight is gross - tare.
         // If we have weigh records, use them.
-        const lastRecord = entry.weigh_records?.[entry.weigh_records.length - 1]; // Naive last record
+        const lastRecord = entry.weigh_records?.[entry.weigh_records.length - 1];
         const firstRecord = entry.weigh_records?.[0];
+        const isPulling = entry.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+            entry.weigh_records?.some((r: any) => (r.gtm || 0) > 0);
 
         const gross = lastRecord?.gross_weight || 0;
-        const tare = firstRecord?.tare_weight || lastRecord?.tare_weight || 0; // Fallback
-        // Correct logic depends on flow, but for history, usually we display the final net.
-        const net = gross - tare;
+        const tare = firstRecord?.tare_weight || lastRecord?.tare_weight || 0;
+
+        let net = gross - tare;
+        let pulling_net = null;
+
+        if (isPulling && firstRecord && lastRecord) {
+            const combo1 = (firstRecord.gross_weight || 0) + (firstRecord.gtm || 0);
+            const combo2 = (lastRecord.gross_weight || 0) + (lastRecord.gtm || 0);
+            pulling_net = Math.abs(combo1 - combo2).toFixed(2);
+            net = parseFloat(pulling_net);
+        }
 
         // Determine Operator Name
         // Try shift operator first, then profile check if needed (but we don't have joined profiles yet)
@@ -111,6 +121,16 @@ export default function ReceiptHistory() {
             gross_weight: gross,
             tare_weight: tare,
             net_weight: net.toFixed(2),
+            gvm: lastRecord?.gvm || null,
+            gtm: lastRecord?.gtm || null,
+            trailer_weight: lastRecord?.trailer_weight || null,
+            payload: (lastRecord?.gtm && lastRecord?.trailer_weight)
+                ? (lastRecord.gtm - lastRecord.trailer_weight).toFixed(2)
+                : null,
+            pulling_gvm: isPulling ? pulling_net : ((gross && lastRecord?.gtm) ? (gross + lastRecord.gtm).toFixed(2) : null),
+            isPulling,
+            firstRecord,
+            lastRecord,
             vehicle_type_name: entry.vehicle_types?.type_name,
             price: entry.vehicle_types?.first_weigh_fee || 0, // Fallback price
             weighed_by: operatorName,
@@ -239,12 +259,24 @@ export default function ReceiptHistory() {
                                         </TableCell>
                                         <TableCell>
                                             {/* Calculate net from weigh records if possible, basically logic duplication but safe */}
-                                            <div className="text-sm">
-                                                Net: <span className="font-semibold">
-                                                    {/* Quick calc for display */}
-                                                    {Number((receipt.weigh_records?.[receipt.weigh_records.length - 1]?.gross_weight || 0) - (receipt.weigh_records?.[0]?.tare_weight || 0)).toLocaleString()}
-                                                </span>
-                                            </div>
+                                            {(() => {
+                                                const records = receipt.weigh_records || [];
+                                                if (records.length < 2) return "0";
+                                                const sorted = [...records].sort((a: any, b: any) =>
+                                                    new Date(a.weigh_time || 0).getTime() - new Date(b.weigh_time || 0).getTime()
+                                                );
+                                                const first = sorted[0];
+                                                const last = sorted[sorted.length - 1];
+                                                const isPulling = receipt.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+                                                    records.some((r: any) => Number(r.gtm) > 0);
+
+                                                if (isPulling) {
+                                                    const combo1 = (Number(first.gross_weight) || 0) + (Number(first.gtm) || 0);
+                                                    const combo2 = (Number(last.gross_weight) || 0) + (Number(last.gtm) || 0);
+                                                    return Math.abs(combo1 - combo2).toLocaleString();
+                                                }
+                                                return Number((last.gross_weight || 0) - (first.tare_weight || last.tare_weight || 0)).toLocaleString();
+                                            })()}
                                         </TableCell>
                                         <TableCell>
                                             <Badge variant={receipt.status === "Completed" ? "default" : "secondary"}>
@@ -381,12 +413,77 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="text-center text-sm text-gray-500 mt-12 print:mt-2">
-                            <p>{settings.footer.text}</p>
-                            <p className="text-xs mt-2">Reprinted on: {new Date().toLocaleString()}</p>
+                            {/* GVM/GTM/Trailer/Payload - Only show if values entered */}
+                            {(data.gvm || data.gtm || data.trailer_weight) && (
+                                <div className="mt-4 pt-4 border-t border-dashed border-gray-200 space-y-2">
+                                    <p className="text-sm font-semibold text-gray-500">Vehicle Mass Details:</p>
+                                    <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                                        {data.gvm && (
+                                            <div className="flex justify-between items-center text-sm">
+                                                <span className="text-gray-600">GVM (Gross Vehicle Mass):</span>
+                                                <span className="font-bold">{Number(data.gvm).toLocaleString()} kg</span>
+                                            </div>
+                                        )}
+                                        {data.gtm && (
+                                            <div className="flex justify-between items-center text-sm">
+                                                <span className="text-gray-600">GTM (Gross Trailer Mass):</span>
+                                                <span className="font-bold">{Number(data.gtm).toLocaleString()} kg</span>
+                                            </div>
+                                        )}
+                                        {data.trailer_weight && (
+                                            <div className="flex justify-between items-center text-sm">
+                                                <span className="text-gray-600">Trailer Weight:</span>
+                                                <span className="font-bold">{Number(data.trailer_weight).toLocaleString()} kg</span>
+                                            </div>
+                                        )}
+                                        {data.isPulling && data.firstRecord && (
+                                            <div className="flex justify-between items-center text-sm py-2 bg-blue-50/50 dark:bg-blue-900/10 px-2 rounded">
+                                                <span className="text-gray-600 font-medium">Loaded Combination (Gross + GTM):</span>
+                                                <span className="font-bold">{(data.firstRecord.gross_weight + data.firstRecord.gtm).toLocaleString()} kg</span>
+                                            </div>
+                                        )}
+                                        {data.isPulling && data.lastRecord && (
+                                            <div className="flex justify-between items-center text-sm py-2 bg-blue-50/50 dark:bg-blue-900/10 px-2 rounded">
+                                                <span className="text-gray-600 font-medium">Empty Combination (Gross + GTM):</span>
+                                                <span className="font-bold">{(data.lastRecord.gross_weight + data.lastRecord.gtm).toLocaleString()} kg</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {data.isPulling && (
+                                <div className="mt-4 p-4 bg-primary/5 rounded-xl border border-primary/10">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-lg font-bold text-primary italic">FINAL PRODUCT:</span>
+                                        <span className="text-2xl font-black text-primary underline decoration-double">
+                                            {Number(data.net_weight).toLocaleString()} kg
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] text-center text-slate-400 mt-2 uppercase tracking-widest font-bold">
+                                        Calculated: (Loaded Combination) - (Empty Combination)
+                                    </p>
+                                </div>
+                            )}
+                            {data.pulling_gvm && !data.isPulling && (
+                                <div className="flex justify-between items-center text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
+                                    <span className="text-blue-600 dark:text-blue-400">Pulling GVM (Gross + GTM):</span>
+                                    <span className="font-bold text-blue-600 dark:text-blue-400 text-lg">{Number(data.pulling_gvm).toLocaleString()} kg</span>
+                                </div>
+                            )}
+                            {data.payload && (
+                                <div className="flex justify-between items-center text-lg font-bold text-black pt-2 col-span-2">
+                                    <span>Payload (GTM - Trailer):</span>
+                                    <span>{Number(data.payload).toLocaleString()} kg</span>
+                                </div>
+                            )}
                         </div>
+                    </div>
+
+                    <div className="text-center text-sm text-gray-500 mt-12 print:mt-2">
+                        <p>{settings.footer.text}</p>
+                        <p className="text-xs mt-2">Reprinted on: {new Date().toLocaleString()}</p>
                     </div>
                 </CardContent>
             </Card>
@@ -397,5 +494,5 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                 </Button>
             </div>
         </div>
-    )
-}
+    );
+};

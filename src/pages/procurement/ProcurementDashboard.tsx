@@ -90,6 +90,12 @@ const ProcurementDashboard = () => {
         company: ""
     });
 
+    // Receive Goods Dialog State
+    const [isReceiveDialogOpen, setIsReceiveDialogOpen] = useState(false);
+    const [receivingItem, setReceivingItem] = useState<any>(null);
+    const [receivingQuantity, setReceivingQuantity] = useState(0);
+    const [receivingNote, setReceivingNote] = useState("");
+
     // Generate Daily Serial PO Number (PO-YYYYMMDD-XXXX)
     const generatePONumber = (countToday: number = 0) => {
         const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -161,7 +167,7 @@ const ProcurementDashboard = () => {
     const [editingSupplier, setEditingSupplier] = useState<any>(null);
     const [editPhones, setEditPhones] = useState<string[]>([]);
     const [showCustomCategory, setShowCustomCategory] = useState(false);
-    const [reqStatusFilter, setReqStatusFilter] = useState<'Pending' | 'Awaiting Approval' | 'Approved' | 'Paid' | 'Revoked' | 'All'>('Pending');
+    const [reqStatusFilter, setReqStatusFilter] = useState<'Pending' | 'Awaiting Approval' | 'Approved' | 'Paid' | 'Purchased' | 'Delivered' | 'Revoked' | 'All'>('Pending');
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return "N/A";
@@ -561,7 +567,8 @@ const ProcurementDashboard = () => {
             case 'Pending': return <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">New Request</Badge>;
             case 'Awaiting Approval': return <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200 uppercase text-[10px]">Quote Submitted</Badge>;
             case 'Approved': return <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-200 uppercase text-[10px]">Authorized (Buying)</Badge>;
-            case 'Paid': return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200">Paid & Complete</Badge>;
+            case 'Paid': return <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200 uppercase text-[10px]">Payment Confirmed</Badge>;
+            case 'Closed': return <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200">Released & Closed</Badge>;
             case 'Purchased': return <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200 uppercase text-[10px]">Purchased</Badge>;
             case 'Delivered': return <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-200">Delivered</Badge>;
             case 'Rejected': return <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">Rejected</Badge>;
@@ -720,7 +727,8 @@ const ProcurementDashboard = () => {
                                             }`}>
                                             {(requisitions || []).filter(r => status === 'All' ? true :
                                                 status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval') :
-                                                    r.status === status
+                                                    status === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
+                                                        r.status === status
                                             ).length}
                                         </Badge>
                                     </button>
@@ -773,7 +781,8 @@ const ProcurementDashboard = () => {
 
                                             const matchesStatus = reqStatusFilter === 'All' ? true :
                                                 reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval') :
-                                                    r.status === reqStatusFilter;
+                                                    reqStatusFilter === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
+                                                        r.status === reqStatusFilter;
 
                                             return matchesSearch && matchesStatus;
                                         });
@@ -1288,17 +1297,10 @@ const ProcurementDashboard = () => {
                                                         size="sm"
                                                         className="h-8 bg-emerald-600 hover:bg-emerald-700 text-[10px] font-bold uppercase"
                                                         onClick={() => {
-                                                            if (confirm(`Confirm arrival of ${req.quantity_approved} units of ${req.item_name}?`)) {
-                                                                workflowMutation.mutate({
-                                                                    reqId: req.id,
-                                                                    qty: req.quantity_approved,
-                                                                    details: {
-                                                                        ...approvalDetails,
-                                                                        received_at: new Date().toISOString()
-                                                                    },
-                                                                    nextStatus: 'Arrived'
-                                                                });
-                                                            }
+                                                            setReceivingItem(req);
+                                                            setReceivingQuantity(req.quantity_approved); // Default to approved amount
+                                                            setReceivingNote("");
+                                                            setIsReceiveDialogOpen(true);
                                                         }}
                                                     >
                                                         Mark as Arrived
@@ -2169,7 +2171,88 @@ const ProcurementDashboard = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog >
-        </div >
+
+            {/* Receive Goods Dialog */}
+            <Dialog open={isReceiveDialogOpen} onOpenChange={setIsReceiveDialogOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Truck className="w-5 h-5 text-blue-900" />
+                            Receive Goods
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    {receivingItem && (
+                        <div className="grid gap-4 py-4">
+                            <div className="p-3 bg-slate-50 rounded border">
+                                <Label className="text-[10px] uppercase font-bold text-slate-500">Item Details</Label>
+                                <p className="font-semibold text-slate-900">{receivingItem.item_name}</p>
+                                <p className="text-[11px] text-slate-500">PO: {receivingItem.po_number}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Paid Quantity</Label>
+                                    <Input
+                                        disabled
+                                        value={receivingItem.quantity_approved}
+                                        className="h-10 font-bold bg-slate-100 text-slate-500 border-slate-200"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-semibold text-slate-500 uppercase">Received Quantity</Label>
+                                    <Input
+                                        type="number"
+                                        min={1}
+                                        value={receivingQuantity}
+                                        onChange={(e) => setReceivingQuantity(parseInt(e.target.value) || 0)}
+                                        className="h-10 font-bold text-blue-900 border-blue-200 bg-blue-50/20"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Notes (Optional)</Label>
+                                <Textarea
+                                    placeholder="Any discrepancies or remarks..."
+                                    value={receivingNote}
+                                    onChange={(e) => setReceivingNote(e.target.value)}
+                                    className="h-20 text-sm border-slate-200 resize-none"
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsReceiveDialogOpen(false)} className="h-10 text-xs font-semibold uppercase">Cancel</Button>
+                        <Button
+                            className="h-10 bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold uppercase px-6"
+                            onClick={() => {
+                                if (receivingQuantity <= 0) {
+                                    toast({ variant: "destructive", title: "Invalid Quantity", description: "Quantity must be greater than 0." });
+                                    return;
+                                }
+                                workflowMutation.mutate({
+                                    reqId: receivingItem.id,
+                                    qty: receivingQuantity,
+                                    itemId: receivingItem.item_id, // Pass item_id for stock update
+                                    details: {
+                                        ...approvalDetails,
+                                        received_at: new Date().toISOString(),
+                                        received_note: receivingNote
+                                    },
+                                    nextStatus: 'Arrived'
+                                });
+                                setIsReceiveDialogOpen(false);
+                            }}
+                            disabled={workflowMutation.isPending}
+                        >
+                            {workflowMutation.isPending ? "Processing..." : "Confirm Receipt"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
     );
 };
 

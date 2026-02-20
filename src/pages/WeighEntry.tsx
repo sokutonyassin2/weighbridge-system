@@ -167,6 +167,7 @@ export default function WeighEntry() {
   const isFirstWeigh = weighCount === 0;
   const isMVCategory = entry?.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
   const isJVCategory = entry?.category && ["JV-Payment", "JV-Free"].includes(entry.category);
+  const isPullingType = entry?.vehicle_types?.type_name?.toLowerCase().includes("pull");
 
   // Determine "Came Loaded" state based on Category Rules:
   // 1. MV-Company -> ALWAYS Arrive Empty (First Weigh = Tare)
@@ -190,9 +191,16 @@ export default function WeighEntry() {
   const showPrefilledTare = isMVCategory && !isFirstWeigh && !cameLoaded && !!firstWeighRecord;
 
   const netWeight =
-    weighData.gross_weight && weighData.tare_weight
-      ? (parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight)).toFixed(2)
-      : "";
+    isPullingType
+      ? (weighData.gross_weight && weighData.gtm && weighCount > 0 && entry?.weigh_records?.[0])
+        ? Math.abs(
+          (parseFloat(entry.weigh_records[0].gross_weight?.toString() || "0") + parseFloat(entry.weigh_records[0].gtm?.toString() || "0")) -
+          (parseFloat(weighData.gross_weight) + parseFloat(weighData.gtm))
+        ).toFixed(2)
+        : ""
+      : weighData.gross_weight && weighData.tare_weight
+        ? Math.abs(parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight)).toFixed(2)
+        : "";
 
   // Calculate Payload for JV vehicles: GTM - Trailer
   const payload =
@@ -519,12 +527,20 @@ Please process payment in Cashier section first.`,
       // Navigate based on conditions
       if (isFirstWeigh || isMVCategory) {
         // Prepare print data for offline scenario
-        const calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
+        let calculatedNetWeight = parseFloat(weighData.gross_weight || "0") - parseFloat(weighData.tare_weight || "0");
+
+        if (isPullingType && weighCount > 0 && entry?.weigh_records?.[0]) {
+          const first = entry.weigh_records[0];
+          const combo1 = (Number(first.gross_weight) || 0) + (Number(first.gtm) || 0);
+          const combo2 = (Number(weighData.gross_weight) || 0) + (Number(weighData.gtm) || 0);
+          calculatedNetWeight = Math.abs(combo1 - combo2);
+        }
+
         const printInfo = {
           ...entry,
           gross_weight: weighData.gross_weight,
           tare_weight: weighData.tare_weight,
-          net_weight: calculatedNetWeight,
+          net_weight: calculatedNetWeight.toFixed(2),
           vehicle_type_name: entry.vehicle_types?.type_name,
           price: entry.vehicle_types?.first_weigh_fee || 0,
           isPrepaid: false,
@@ -561,7 +577,21 @@ Please process payment in Cashier section first.`,
         .maybeSingle() : Promise.resolve({ data: { id: `offline_${shiftDate}_${shiftName}` }, error: null });
 
       // 2. Prepare Data & Status while shift check is running
-      const calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
+      const isPulling = entry?.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+        Number(weighData.gtm) > 0;
+
+      let calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
+
+      if (isPulling && weighCount === 1) {
+        // We have both weights now for a pulling vehicle
+        const firstRecord = entry.weigh_records?.[0];
+        if (firstRecord) {
+          const combo1 = (Number(firstRecord.gross_weight) || 0) + (Number(firstRecord.gtm) || 0);
+          const combo2 = (Number(weighData.gross_weight) || 0) + (Number(weighData.gtm) || 0);
+          calculatedNetWeight = Math.abs(combo1 - combo2);
+        }
+      }
+
       let newStatus = entry?.status;
       const isMVVehicle = ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry?.category || "");
       const isSecondWeighForMV = isMVVehicle && weighCount === 1;
@@ -1387,12 +1417,10 @@ Please process payment in Cashier section first.`,
                   )}
                 </div>
                 <WeightCaptureButtons
-                  onCaptureGross={(w) => setWeighData({ ...weighData, gross_weight: w })}
-                  onCaptureTare={(w) => setWeighData({ ...weighData, tare_weight: w })}
-                  onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w })}
-                  onCaptureGTM={(w) => setWeighData({ ...weighData, gtm: w })}
-                  onCaptureTrailer={(w) => setWeighData({ ...weighData, trailer_weight: w })}
-                  showGVMFields={isJVCategory || entry?.category === "Transit"}
+                  onWeightCaptured={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
+                  onGtmCaptured={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
+                  onTrailerCaptured={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
+                  showGVMFields={isJVCategory || entry?.category === "Transit" || isPullingType}
                   disabled={isSubmitting}
                   vehicleNo={entry.vehicle_no}
                   entryId={id}
@@ -1456,20 +1484,25 @@ Please process payment in Cashier section first.`,
             {netWeight && (
               <div className="p-3 border rounded-md bg-primary/5">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Net Weight:</span>
+                  <span className="font-medium">{isPullingType ? "Final Product (Combination Net):" : "Net Weight:"}</span>
                   <span className="text-2xl font-bold text-primary">{netWeight} kg</span>
                 </div>
-                {isMVCategory && (
+                {isMVCategory && !isPullingType && (
                   <p className="text-xs text-muted-foreground mt-1">
                     Cargo weight calculated: Gross - Tare
+                  </p>
+                )}
+                {isPullingType && weighCount > 0 && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 font-medium">
+                    Calculated via Combination Math: (Loaded Gross+GTM) - (Empty Gross+GTM)
                   </p>
                 )}
               </div>
             )}
 
             {/* GVM/GTM/Trailer Fields - Only for JV-Payment, JV-Free, and Transit vehicles */}
-            {(isJVCategory || entry?.category === "Transit") && (
-              <div className="space-y-4 p-4 border rounded-md bg-muted/30">
+            {(isJVCategory || entry?.category === "Transit" || isPullingType) && (
+              <div className="space-y-4 p-4 border rounded-md bg-muted/30 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
                 <p className="text-sm font-medium text-muted-foreground">
                   Optional: Vehicle Mass Information (for specific vehicles only)
                 </p>
@@ -1490,7 +1523,9 @@ Please process payment in Cashier section first.`,
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gtm">GTM (Gross Trailer Mass) kg</Label>
+                    <Label htmlFor="gtm" className={isPullingType && !isFirstWeigh ? "text-blue-600 dark:text-blue-400 font-bold" : ""}>
+                      GTM (Gross Trailer Mass) kg {isPullingType && !isFirstWeigh ? "*" : ""}
+                    </Label>
                     <Input
                       id="gtm"
                       type="number"
@@ -1501,7 +1536,8 @@ Please process payment in Cashier section first.`,
                         setWeighData({ ...weighData, gtm: e.target.value })
                       }
                       readOnly={automaticMode}
-                      className={automaticMode ? "bg-muted" : ""}
+                      className={`${automaticMode ? "bg-muted" : ""} ${isPullingType && !isFirstWeigh ? "border-blue-500 ring-blue-500" : ""}`}
+                      required={isPullingType && !isFirstWeigh}
                     />
                   </div>
                   <div className="space-y-2">

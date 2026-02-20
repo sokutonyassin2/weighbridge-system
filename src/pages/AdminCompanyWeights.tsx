@@ -31,6 +31,8 @@ interface WeighRecord {
   gross_weight: number | null;
   tare_weight: number | null;
   net_weight: number | null;
+  gtm: number | null;
+  trailer_weight: number | null;
   weigh_time: string | null;
 }
 
@@ -84,7 +86,7 @@ export default function AdminCompanyWeights() {
           entry_time,
           completed,
           vehicle_types (type_name, category),
-          weigh_records (weigh_number, gross_weight, tare_weight, net_weight, weigh_time)
+          weigh_records (weigh_number, gross_weight, tare_weight, net_weight, gtm, trailer_weight, weigh_time)
         `)
         .in("category", ["MV-Company", "MV-PublicSeller", "MV-Supplier"])
         .gte("entry_time", startOfDay(new Date(startDate)).toISOString())
@@ -114,11 +116,17 @@ export default function AdminCompanyWeights() {
   };
 
   // Get first weigh data - show the actual weight captured
-  const getFirstWeighData = (records: WeighRecord[]) => {
+  const getFirstWeighData = (records: WeighRecord[], isPulling: boolean = false) => {
     const sorted = getSortedRecords(records);
     const first = sorted[0]; // First chronological record
 
     if (!first) return { weight: null, type: null };
+
+    // For pulling vehicles, we show the "Combination GVM" (Gross + GTM)
+    if (isPulling) {
+      const combo = (Number(first.gross_weight) || 0) + (Number(first.gtm) || 0);
+      return { weight: combo, type: "Combo" };
+    }
 
     // First weigh captures either Gross (if loaded) or Tare (if empty)
     if (first.gross_weight !== null && first.gross_weight > 0) {
@@ -131,11 +139,17 @@ export default function AdminCompanyWeights() {
   };
 
   // Get second weigh data - the opposite of first weigh
-  const getSecondWeighData = (records: WeighRecord[]) => {
+  const getSecondWeighData = (records: WeighRecord[], isPulling: boolean = false) => {
     const sorted = getSortedRecords(records);
     if (sorted.length < 2) return { weight: null, type: null };
 
     const second = sorted[sorted.length - 1]; // Last chronological record
+
+    // For pulling vehicles, we show the "Combination GVM" (Gross + GTM)
+    if (isPulling) {
+      const combo = (Number(second.gross_weight) || 0) + (Number(second.gtm) || 0);
+      return { weight: combo, type: "Combo" };
+    }
 
     // Second weigh captures the opposite
     if (second.gross_weight !== null && second.gross_weight > 0) {
@@ -147,13 +161,28 @@ export default function AdminCompanyWeights() {
     return { weight: null, type: null };
   };
 
-  const calculateNetWeight = (records: WeighRecord[]) => {
+  const calculateNetWeight = (entry: VehicleEntry) => {
+    const records = entry.weigh_records;
     const sorted = getSortedRecords(records);
     if (sorted.length < 2) return null;
 
+    // SMART DETECTION: It is a "Pulling" vehicle if:
+    // 1. The name says "Pull"
+    // 2. OR it actually has GTM data recorded (> 0) on ANY of its weigh records
+    const isPulling = entry.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+      records.some((r: any) => Number(r.gtm) > 0);
+
     // Use first and last records
     const first = sorted[0];
-    const second = sorted[sorted.length - 1];
+    const last = sorted[sorted.length - 1];
+
+    if (isPulling) {
+      // Combination math: (Gross + GTM) loaded - (Gross + GTM) empty
+      // Using Number() for safety against string data from Supabase
+      const combo1 = (Number(first.gross_weight) || 0) + (Number(first.gtm) || 0);
+      const combo2 = (Number(last.gross_weight) || 0) + (Number(last.gtm) || 0);
+      return Math.abs(combo1 - combo2);
+    }
 
     // Helper to get the actual weight value from a record
     const getWeightVal = (r: WeighRecord) => {
@@ -163,7 +192,7 @@ export default function AdminCompanyWeights() {
     };
 
     const w1 = getWeightVal(first);
-    const w2 = getWeightVal(second);
+    const w2 = getWeightVal(last);
 
     // Calculate difference if both have values
     if (w1 > 0 && w2 > 0) {
@@ -171,6 +200,10 @@ export default function AdminCompanyWeights() {
     }
     return null;
   };
+
+  // Helper helpers for GTM access in records
+  const getFirstRecordGtm = (record: any) => record.gtm || 0;
+  const getLastRecordGtm = (record: any) => record.gtm || 0;
 
 
   // Summary calculations
@@ -180,7 +213,7 @@ export default function AdminCompanyWeights() {
   const pendingVehicles = totalVehicles - completedVehicles;
   const totalNetWeight =
     filteredEntries?.reduce((sum, entry) => {
-      const net = calculateNetWeight(entry.weigh_records);
+      const net = calculateNetWeight(entry);
       return sum + (net || 0);
     }, 0) || 0;
 
@@ -381,9 +414,11 @@ export default function AdminCompanyWeights() {
                   </TableHeader>
                   <TableBody>
                     {filteredEntries.map((entry) => {
-                      const firstWeighData = getFirstWeighData(entry.weigh_records);
-                      const secondWeighData = getSecondWeighData(entry.weigh_records);
-                      const netWeight = calculateNetWeight(entry.weigh_records);
+                      const isPulling = entry.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+                        entry.weigh_records.some((r: any) => Number(r.gtm) > 0);
+                      const firstWeighData = getFirstWeighData(entry.weigh_records, isPulling);
+                      const secondWeighData = getSecondWeighData(entry.weigh_records, isPulling);
+                      const netWeight = calculateNetWeight(entry);
                       const shift = getShiftFromTime(entry.entry_time);
 
                       return (

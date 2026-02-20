@@ -154,7 +154,15 @@ export default function VehicleHistory() {
       if (completedEntries.length === 0) return 0;
 
       const totalNetWeight = completedEntries.reduce((sum, e) => {
-        // Use the net weight from the latest record of the entry
+        const isPulling = e.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+          e.weigh_records?.some(r => (r.gtm || 0) > 0);
+        if (isPulling && e.weigh_records && e.weigh_records.length >= 2) {
+          const first = e.weigh_records[0];
+          const last = e.weigh_records[e.weigh_records.length - 1];
+          const combo1 = (first.gross_weight || 0) + (first.gtm || 0);
+          const combo2 = (last.gross_weight || 0) + (last.gtm || 0);
+          return sum + Math.abs(combo1 - combo2);
+        }
         const net = e.weigh_records?.[e.weigh_records.length - 1]?.net_weight || 0;
         return sum + parseFloat(net.toString());
       }, 0);
@@ -423,19 +431,40 @@ export default function VehicleHistory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vehicleData.entries.flatMap((entry) =>
-                    (entry.weigh_records || []).map((weigh: any, idx: number) => (
+                  {vehicleData.entries.flatMap((entry) => {
+                    const isPulling = entry.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+                      entry.weigh_records?.some((r: any) => (r.gtm || 0) > 0);
+
+                    return (entry.weigh_records || []).map((weigh: any, idx: number) => (
                       <tr key={weigh.id}>
                         <td className="border border-black p-2 font-mono">WB-{entry.wb_number}</td>
                         <td className="border border-black p-2">{idx + 1}</td>
                         <td className="border border-black p-2">{format(new Date(weigh.weigh_time), "HH:mm")}</td>
-                        <td className="border border-black p-2">{weigh.gross_weight || '-'}</td>
-                        <td className="border border-black p-2">{weigh.tare_weight || '-'}</td>
-                        <td className="border border-black p-2 font-bold">{weigh.net_weight || '-'}</td>
+                        <td className="border border-black p-2 text-right">
+                          {isPulling
+                            ? ((weigh.gross_weight || 0) + (weigh.gtm || 0)).toLocaleString()
+                            : (weigh.gross_weight || "-").toLocaleString()}
+                        </td>
+                        <td className="border border-black p-2 text-right">
+                          {isPulling
+                            ? (weigh.gross_weight || weigh.tare_weight || "-").toLocaleString()
+                            : (weigh.tare_weight || "-").toLocaleString()}
+                        </td>
+                        <td className="border border-black p-2 font-bold text-right">
+                          {(() => {
+                            if (isPulling && idx > 0 && entry.weigh_records?.[0]) {
+                              const first = entry.weigh_records[0];
+                              const combo1 = (first.gross_weight || 0) + (first.gtm || 0);
+                              const combo2 = (weigh.gross_weight || 0) + (weigh.gtm || 0);
+                              return Math.abs(combo1 - combo2).toLocaleString();
+                            }
+                            return (weigh.net_weight || "-").toLocaleString();
+                          })()}
+                        </td>
                         <td className="border border-black p-2">{weigh.weighed_by || '-'}</td>
                       </tr>
-                    ))
-                  )}
+                    ));
+                  })}
                 </tbody>
               </table>
             </div>
@@ -571,44 +600,67 @@ export default function VehicleHistory() {
                         Weigh Records
                       </h4>
                       <div className="space-y-2">
-                        {entry.weigh_records.map((weigh: any, idx: number) => (
-                          <div key={weigh.id} className="bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                              <div>
-                                <p className="text-muted-foreground">Weigh #{idx + 1}</p>
-                                <p className="font-medium">{format(new Date(weigh.weigh_time), "HH:mm")}</p>
+                        {entry.weigh_records.map((weigh: any, idx: number) => {
+                          const isPulling = (entry.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
+                            entry.weigh_records?.some(r => (Number(r.gtm) || 0) > 0));
+
+                          return (
+                            <div key={weigh.id} className="bg-blue-50 dark:bg-blue-950 p-3 rounded-md">
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                                <div>
+                                  <p className="text-muted-foreground">Weigh #{idx + 1}</p>
+                                  <p className="font-medium">{format(new Date(weigh.weigh_time), "HH:mm")}</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">{isPulling ? "Gross + GTM" : "Gross"}</p>
+                                  <p className="font-medium">
+                                    {isPulling
+                                      ? ((Number(weigh.gross_weight) || 0) + (Number(weigh.gtm) || 0)).toLocaleString()
+                                      : (weigh.gross_weight || "-").toLocaleString()
+                                    } kg
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">{isPulling ? "Empty Weights" : "Tare"}</p>
+                                  <p className="font-medium">
+                                    {isPulling
+                                      ? (weigh.gross_weight || weigh.tare_weight || "-").toLocaleString()
+                                      : (weigh.tare_weight || "-").toLocaleString()
+                                    } kg
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">Net</p>
+                                  <p className="font-bold text-blue-600">
+                                    {(() => {
+                                      if (isPulling && idx > 0 && entry.weigh_records?.[0]) {
+                                        const first = entry.weigh_records[0];
+                                        const combo1 = (Number(first.gross_weight) || 0) + (Number(first.gtm) || 0);
+                                        const combo2 = (Number(weigh.gross_weight) || 0) + (Number(weigh.gtm) || 0);
+                                        return `${Math.abs(combo1 - combo2).toFixed(2)} kg`;
+                                      }
+                                      return weigh.net_weight !== undefined && weigh.net_weight !== null
+                                        ? `${weigh.net_weight} kg`
+                                        : (weigh.gross_weight && weigh.tare_weight
+                                          ? `${(parseFloat(weigh.gross_weight) - parseFloat(weigh.tare_weight)).toFixed(2)} kg`
+                                          : "Pending");
+                                    })()}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground">By</p>
+                                  <p className="font-medium">{weigh.weighed_by || "N/A"}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="text-muted-foreground">Gross</p>
-                                <p className="font-medium">{weigh.gross_weight || "-"} kg</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Tare</p>
-                                <p className="font-medium">{weigh.tare_weight || "-"} kg</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Net</p>
-                                <p className="font-bold text-blue-600">
-                                  {weigh.net_weight !== undefined && weigh.net_weight !== null
-                                    ? `${weigh.net_weight} kg`
-                                    : (weigh.gross_weight && weigh.tare_weight
-                                      ? `${(parseFloat(weigh.gross_weight) - parseFloat(weigh.tare_weight)).toFixed(2)} kg`
-                                      : "Pending")}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">By</p>
-                                <p className="font-medium">{weigh.weighed_by || "N/A"}</p>
-                              </div>
+                              {weigh.warning_flag && (
+                                <Badge variant="destructive" className="mt-2">Warning: Weight Exceeds</Badge>
+                              )}
+                              {weigh.exceedence_notes && (
+                                <p className="mt-2 text-sm text-muted-foreground">{weigh.exceedence_notes}</p>
+                              )}
                             </div>
-                            {weigh.warning_flag && (
-                              <Badge variant="destructive" className="mt-2">Warning: Weight Exceeds</Badge>
-                            )}
-                            {weigh.exceedence_notes && (
-                              <p className="mt-2 text-sm text-muted-foreground">{weigh.exceedence_notes}</p>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

@@ -1417,9 +1417,11 @@ Please process payment in Cashier section first.`,
                   )}
                 </div>
                 <WeightCaptureButtons
-                  onWeightCaptured={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
-                  onGtmCaptured={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
-                  onTrailerCaptured={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
+                  onCaptureGross={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
+                  onCaptureTare={(w) => setWeighData({ ...weighData, tare_weight: w.toString() })}
+                  onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString() })}
+                  onCaptureGTM={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
+                  onCaptureTrailer={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
                   showGVMFields={isJVCategory || entry?.category === "Transit" || isPullingType}
                   disabled={isSubmitting}
                   vehicleNo={entry.vehicle_no}

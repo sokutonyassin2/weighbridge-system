@@ -149,9 +149,21 @@ export default function SuperadminDashboard() {
         return Array.from(dayMap.values());
     }, [revenueData, timeRange]);
 
-    const totalRevenue = useMemo(() =>
-        revenueData?.reduce((sum, r) => sum + (r.amount || 0), 0) || 0,
-        [revenueData]);
+    const { todayRevenue, todayTransactions } = useMemo(() => {
+        const now = new Date();
+        const startOfBusinessDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0);
+
+        // If it's before 6 AM, current business day started yesterday at 6 AM
+        if (now < startOfBusinessDay) {
+            startOfBusinessDay.setDate(startOfBusinessDay.getDate() - 1);
+        }
+
+        const filtered = revenueData?.filter(r => new Date(r.paid_at) >= startOfBusinessDay) || [];
+        return {
+            todayRevenue: filtered.reduce((sum, r) => sum + (r.amount || 0), 0),
+            todayTransactions: filtered.length
+        };
+    }, [revenueData]);
 
     return (
         <div className="p-6 space-y-8 bg-[#F8FAFC] min-h-screen font-inter">
@@ -179,17 +191,17 @@ export default function SuperadminDashboard() {
             {/* KPI Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard
-                    title="Total Revenue (7d)"
-                    value={`TZS ${totalRevenue.toLocaleString()}`}
-                    subValue="+12.5% from last week"
+                    title="Total Revenue (Today)"
+                    value={`TZS ${todayRevenue.toLocaleString()}`}
+                    subValue="Both Day & Night shifts"
                     icon={DollarSign}
                     trend="up"
                     color="bg-primary"
                 />
                 <StatCard
-                    title="Total Transactions"
-                    value={`${chartData.reduce((s, d) => s + d.count, 0)} Posts`}
-                    subValue="Total successful payments"
+                    title="Total Transactions (Today)"
+                    value={`${todayTransactions} Posts`}
+                    subValue="Successful payments today"
                     icon={ShieldCheck}
                     trend="up"
                     color="bg-purple"

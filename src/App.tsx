@@ -46,6 +46,7 @@ import FinanceDashboard from "./pages/FinanceDashboard";
 import ManagementApprovals from "./pages/procurement/ManagementApprovals";
 import CashierPaymentPortal from "./pages/procurement/CashierPaymentPortal";
 import ProcurementReports from "./pages/procurement/ProcurementReports";
+import GuardianEye from "./pages/GuardianEye";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -250,6 +251,16 @@ const App = () => {
               }
             />
             <Route
+              path="/guardian-eye"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                  <Layout>
+                    <GuardianEye />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/shift-reports"
               element={
                 <ProtectedRoute allowedRoles={['admin', 'finance']}>
@@ -259,6 +270,7 @@ const App = () => {
                 </ProtectedRoute>
               }
             />
+            <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
             <Route
               path="/admin/dashboard"
               element={

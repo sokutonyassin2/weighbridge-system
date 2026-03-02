@@ -603,7 +603,7 @@ Please process payment in Cashier section first.`,
       }
 
       const isThirdWeigh = weighCount === 2;
-      const hasExhaustedAttempts = !isMVCategory && isThirdWeigh && !weighData.complete_vehicle;
+      const hasExhaustedAttempts = !isMVCategory && weighCount >= 3 && !entry?.penalty_paid_entry && !weighData.complete_vehicle;
 
       // 3. Resolve Shift ID (or create if missing)
       const { data: shiftData, error: shiftFetchError } = await shiftPromise;

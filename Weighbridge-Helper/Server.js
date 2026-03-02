@@ -37,8 +37,11 @@ let manualCapturePerformed = false;
 let lastStableWeight = 0;
 let stabilityCounter = 0;
 let lastCaptureTime = 0; // Debounce timestamp
+let sessionStartTime = null; // Timestamp when vehicle first detected > 500kg
+let sessionEndTime = null;   // Timestamp when vehicle leaves scale
+let ghostCapturedThisSession = false; // Prevent multiple ghost shots per vehicle
 const CAPTURE_COOLDOWN_MS = 60000; // 60 Seconds between auto-captures for same truck
-const STABILITY_THRESHOLD = 5; // ~3 seconds of consistent readings (depending on data frequency)
+const STABILITY_THRESHOLD = 60; // ~1 minute of consistent readings at ~1 reading/sec
 const WEIGHT_SENSITIVITY = 100; // KG difference to consider a "new" position
 
 /* ===============================
@@ -60,9 +63,16 @@ const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 /* ===============================
    CAMERA CONFIG (WORKING)
 ================================ */
+// === MANUAL CAMERA (Operator-triggered, low-level, captures plate clearly) ===
 const CAMERA_URL = "http://192.168.1.160/cgi-bin/snapshot.cgi?action=snap";
 const CAMERA_USER = "admin";
 const CAMERA_PASS = "sood12345";
+
+// === GHOST CAMERA (Elevated, auto-triggered, aerial view for fraud detection) ===
+const GHOST_CAMERA_URL = "http://192.168.1.146/cgi-bin/snapshot.cgi?action=snap";
+const GHOST_CAMERA_USER = "admin";
+const GHOST_CAMERA_PASS = "sood123456";
+const CENTRAL_SERVER_URL = "http://192.168.1.216:5000";
 
 const PHOTO_DIR = isMac
   ? "/Users/Shared/WeighbridgePhotos"
@@ -107,52 +117,48 @@ serialPort.on("data", (data) => {
       if (!sessionActive) {
         console.log("🚛 Vehicle Session Started");
         sessionActive = true;
+        sessionStartTime = new Date().toISOString(); // Track when session BEGAN
+        sessionEndTime = null;
         stableWeightCount = 0;
         manualCapturePerformed = false;
+        ghostCapturedThisSession = false;
         lastStableWeight = 0;
+        stabilityCounter = 0;
       }
 
       // Check for stability
-      if (Math.abs(cleanNumber - lastStableWeight) < 20) { // If weight is relatively steady
+      if (Math.abs(cleanNumber - lastStableWeight) < 20) { // Weight is steady
         stabilityCounter++;
-        if (stabilityCounter === STABILITY_THRESHOLD) {
-          stableWeightCount++;
-          console.log(`⚖️ Stable Weight #${stableWeightCount} Detected: ${cleanNumber}kg`);
-          lastStableWeight = cleanNumber;
 
-          // TRIGGER AUTO-CAPTURE (GHOST DETECTION)
-          // Rules:
-          // 1. Must be stable at least twice (confirm it's not a fly-by)
-          // 2. Must NOT have been manually captured (honest operator)
-          // 3. Must NOT have been auto-captured recently (debounce)
-          const now = Date.now();
-          if (
-            stableWeightCount >= 2 &&
-            !manualCapturePerformed &&
-            (now - lastCaptureTime > CAPTURE_COOLDOWN_MS)
-          ) {
-            console.log("🚨 GHOST WEIGHING DETECTED! Triggering Auto-Capture...");
-            lastCaptureTime = now; // Update timestamp
-            processCapture({ query: { entryID: "AUTO", plate: "GHOST" } }, {
-              json: () => { },
-              send: () => { },
-              status: () => ({ send: () => { } })
-            });
-          }
+        // --- GHOST TRIGGER: Stable for ~1 minute (STABILITY_THRESHOLD readings) ---
+        if (stabilityCounter >= STABILITY_THRESHOLD && !ghostCapturedThisSession) {
+          ghostCapturedThisSession = true; // Lock: only ONE ghost photo per session
+          console.log(`🚨 GHOST DETECTION: Vehicle stable for 1 min at ${cleanNumber}kg — Triggering Ghost Camera...`);
+          processGhostCapture(cleanNumber, sessionStartTime);
         }
       } else {
-        // Weight is moving
+        // Weight is moving — reset stability counter but keep session open
         stabilityCounter = 0;
         lastStableWeight = cleanNumber;
       }
     } else {
       if (sessionActive && cleanNumber < 100) { // Truck left the scale
-        console.log("🏁 Vehicle Session Ended");
+        sessionEndTime = new Date().toISOString();
+        console.log(`🏁 Vehicle Session Ended. Start: ${sessionStartTime} | End: ${sessionEndTime}`);
+
+        // Update the last ghost log with the session end time
+        if (ghostCapturedThisSession) {
+          updateLastGhostSessionEnd(sessionStartTime, sessionEndTime);
+        }
+
         sessionActive = false;
         stableWeightCount = 0;
         manualCapturePerformed = false;
+        ghostCapturedThisSession = false;
         stabilityCounter = 0;
-        lastCaptureTime = 0; // Reset cooldown
+        lastCaptureTime = 0;
+        sessionStartTime = null;
+        sessionEndTime = null;
       }
     }
 
@@ -283,6 +289,101 @@ function syncToSupabase(logData) {
 }
 
 /* ===============================
+   UPDATE GHOST LOG WITH SESSION END
+================================ */
+function updateLastGhostSessionEnd(sessionStart, sessionEnd) {
+  // PATCH the camera_audit_logs record that has matching session_start
+  const patchData = JSON.stringify({ session_end: sessionEnd });
+  const query = encodeURIComponent(`session_start.eq.${sessionStart}`);
+  const options = {
+    hostname: SUPABASE_URL,
+    path: `/rest/v1/camera_audit_logs?session_start=eq.${encodeURIComponent(sessionStart)}`,
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer': 'return=minimal'
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    console.log(`📡 Session End Sync: ${res.statusCode}`);
+  });
+  req.on('error', (err) => console.error('❌ Session End Sync Error:', err.message));
+  req.write(patchData);
+  req.end();
+}
+
+/* ===============================
+   GHOST CAMERA CAPTURE (Elevated Camera)
+================================ */
+function processGhostCapture(detectedWeight, sessionStart) {
+  try {
+    const now = new Date();
+    const monthName = now.toLocaleString('default', { month: 'long' });
+    const year = now.getFullYear();
+    const day = now.getDate().toString().padStart(2, '0');
+    const weekNo = Math.ceil(now.getDate() / 7);
+    const hour = now.getHours();
+    const shift = (hour >= 7 && hour < 18) ? "Day_Shift" : "Night_Shift";
+
+    const fullDir = path.join(
+      PHOTO_DIR,
+      `${monthName}-${year}`,
+      `Week_${weekNo}`,
+      `Day_${day}`,
+      shift,
+      "Ghost"
+    );
+
+    if (!fs.existsSync(fullDir)) fs.mkdirSync(fullDir, { recursive: true });
+
+    const ts = now.toISOString().replace(/[:.]/g, "_");
+    const filename = `GHOST_${ts}_${Math.round(detectedWeight)}kg.jpg`;
+    const photoPath = path.join(fullDir, filename);
+
+    console.log(`👻 Ghost Camera Firing: ${filename}`);
+
+    const cmd = `curl --digest --max-time 15 -u ${GHOST_CAMERA_USER}:${GHOST_CAMERA_PASS} "${GHOST_CAMERA_URL}" -o "${photoPath}"`;
+
+    exec(cmd, (error) => {
+      if (error) {
+        console.error("❌ Ghost Camera Error:", error.message);
+        return;
+      }
+
+      console.log(`✅ Ghost Photo Saved: ${filename}`);
+
+      // SYNC TO CENTRAL SERVER
+      uploadToCentralServer(photoPath, {
+        monthYear: `${monthName}-${year}`,
+        week: `Week_${weekNo}`,
+        day: `Day_${day}`,
+        shift: shift,
+        type: "Ghost"
+      });
+
+      // Save to Supabase with session_start (session_end added later when vehicle leaves)
+      syncToSupabase({
+        timestamp: now.toISOString(),
+        detected_weight: detectedWeight,
+        photo_filename: filename,
+        type: 'ghost',
+        shift: shift,
+        status: 'unmatched', // Will be updated to 'matched' by the audit page
+        vehicle_no: 'GHOST',
+        vehicle_type: 'Unknown',
+        session_start: sessionStart,
+        session_end: null  // Filled in when vehicle leaves
+      });
+    });
+  } catch (err) {
+    console.error("Ghost Capture Error:", err.message);
+  }
+}
+
+/* ===============================
    CAPTURE CAMERA IMAGE (NON-BLOCKING)
 ================================ */
 function processCapture(req, res) {
@@ -338,6 +439,15 @@ function processCapture(req, res) {
 
       console.log(`✅ Photo saved: ${filename}`);
 
+      // SYNC TO CENTRAL SERVER
+      uploadToCentralServer(photoPath, {
+        monthYear: monthName + "-" + year,
+        week: "Week_" + weekNo,
+        day: "Day_" + day,
+        shift: shift,
+        type: "" // Manual photos go directly into shift folder
+      });
+
       // SYNC TO DATABASE
       syncToSupabase({
         timestamp: now.toISOString(),
@@ -359,6 +469,34 @@ function processCapture(req, res) {
   } catch (err) {
     console.error("Critical process error:", err.message);
     res.status(500).json({ error: "Process error", message: err.message });
+  }
+}
+
+async function uploadToCentralServer(filePath, metadata) {
+  try {
+    const fileContent = fs.readFileSync(filePath);
+    const blob = new Blob([fileContent], { type: 'image/jpeg' });
+    const formData = new FormData();
+    formData.append('photo', blob, path.basename(filePath));
+
+    // Add metadata for folder structure
+    Object.keys(metadata).forEach(key => {
+      formData.append(key, metadata[key]);
+    });
+
+    const response = await fetch(`${CENTRAL_SERVER_URL}/api/photos/upload`, {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = await response.json();
+    if (result.success) {
+      console.log(`🌐 Central Sync Success: ${path.basename(filePath)}`);
+    } else {
+      console.error(`🌐 Central Sync Failed: ${result.error}`);
+    }
+  } catch (err) {
+    console.error(`🌐 Central Sync Error: ${err.message}`);
   }
 }
 

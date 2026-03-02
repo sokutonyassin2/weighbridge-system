@@ -8,6 +8,30 @@ const app = express();
 const server = http.createServer(app);
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
+
+// Ensure photos directory exists
+const PHOTOS_DIR = path.join(__dirname, 'photos');
+if (!fs.existsSync(PHOTOS_DIR)) {
+  fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+}
+
+// Multer storage configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const { monthYear, week, day, shift, type } = req.body;
+    const targetDir = path.join(PHOTOS_DIR, monthYear, week, day, shift, type || '');
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    cb(null, targetDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+
+const upload = multer({ storage: storage });
 
 // Enable CORS for all routes
 app.use(cors({
@@ -16,6 +40,21 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Serve photos statically
+app.use('/photos', express.static(PHOTOS_DIR));
+
+// Photo upload endpoint
+app.post('/api/photos/upload', upload.single('photo'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: 'No file uploaded' });
+  }
+  res.json({
+    success: true,
+    message: 'Photo uploaded successfully',
+    path: req.file.path
+  });
+});
 
 // Configuration for connecting to your existing helper program
 let helperHost = 'localhost';

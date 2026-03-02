@@ -72,26 +72,7 @@ export function ExhaustedVehiclePaymentDialog({
 
       if (paymentError) throw paymentError;
 
-      // 2. Mark old entry as completed
-      const { error: updateError } = await supabase
-        .from("vehicle_entries")
-        .update({ completed: true, status: "Completed" })
-        .eq("id", entryId);
-
-      if (updateError) throw updateError;
-
-      // 3. Remove from pending_weighs
-      const { error: deleteError, count } = await supabase
-        .from("pending_weighs")
-        .delete()
-        .eq("entry_id", entryId);
-
-      if (deleteError) {
-        console.error("Failed to delete pending_weighs:", deleteError);
-        throw new Error(`Failed to remove from pending queue: ${deleteError.message}`);
-      }
-
-      console.log(`Deleted ${count} pending_weighs records for entry ${entryId}`);
+      // 3. Mark old entry as completed (MOVED/INTEGRATED into update step below)
 
       // 4. Get or create current active shift (don't use old entry's shift)
       const today = format(new Date(), "yyyy-MM-dd");
@@ -179,31 +160,31 @@ export function ExhaustedVehiclePaymentDialog({
         return;
       }
 
-      // 5. Create fresh new vehicle entry with penalty_paid_entry flag and CURRENT shift
-      const { data: newEntry, error: newEntryError } = await supabase
+      // 5. Update EXISTING vehicle entry with penalty_paid_entry flag to ALLOW continuing weighing
+      const { error: updateEntryError } = await supabase
         .from("vehicle_entries")
-        .insert({
-          vehicle_no: vehicleNo,
-          vehicle_type_id: vehicleData?.vehicle_type_id,
-          category: vehicleData?.category,
-          driver_name: vehicleData?.driver_name,
-          driver_contact: vehicleData?.driver_contact,
-          customer_farmer_name: vehicleData?.customer_farmer_name,
-          item_name: vehicleData?.item_name,
-          source_destination: vehicleData?.source_destination,
-          cargo_description: vehicleData?.cargo_description,
-          operator_id: user?.id,
-          entered_by: operatorName,
-          shift_id: currentShift.id, // Use CURRENT shift, not old entry's shift
-          status: "AwaitingFirstWeigh",
-          completed: false,
-          sent_for_weighing: false,
+        .update({
           penalty_paid_entry: true, // Flag to skip all payments
+          status: "AwaitingFirstWeigh", // Change status from Exhausted back to Awaiting
+          completed: false,
+          shift_id: currentShift.id, // Update to CURRENT shift
         })
-        .select()
-        .single();
+        .eq("id", entryId);
 
-      if (newEntryError) throw newEntryError;
+      if (updateEntryError) throw updateEntryError;
+
+      // Reset attempts in pending_weighs
+      const { error: updatePendingError } = await supabase
+        .from("pending_weighs")
+        .update({
+          payment_required: false,
+          weigh_attempts: 0,
+          payment_required_reason: null,
+          payment_status: "Paid",
+        })
+        .eq("entry_id", entryId);
+
+      if (updatePendingError) throw updatePendingError;
 
       // 6. Log activity
       await supabase.from("activity_logs").insert({
@@ -211,7 +192,7 @@ export function ExhaustedVehiclePaymentDialog({
         user_name: operatorName,
         user_role: "operator",
         action: "Penalty Payment Processed",
-        details: `Penalty paid for ${vehicleNo} (${getShortEntryId(entryId, vehicleData?.wb_number)}). Reason: ${paymentReason}. New entry ${getShortEntryId(newEntry.id, newEntry.wb_number)} created with fresh 0/3 attempts.`,
+        details: `Penalty paid for ${vehicleNo} (${getShortEntryId(entryId, vehicleData?.wb_number)}). Reason: ${paymentReason}. Entry unlocked for fresh weighing attempts.`,
       });
 
       // 7. Invalidate queries to sync both Dashboard and Cashier
@@ -221,10 +202,9 @@ export function ExhaustedVehiclePaymentDialog({
       queryClient.invalidateQueries({ queryKey: ["shift-stats"] });
       queryClient.invalidateQueries({ queryKey: ["penalties"] });
 
-      // 8. Show success message
       toast({
         title: "✅ Payment Recorded",
-        description: `Penalty payment for ${vehicleNo} recorded. New entry ${getShortEntryId(newEntry.id, newEntry.wb_number)} created.`,
+        description: `Penalty payment for ${vehicleNo} recorded. Vehicle has been unlocked for weighing.`,
         duration: 5000,
       });
 

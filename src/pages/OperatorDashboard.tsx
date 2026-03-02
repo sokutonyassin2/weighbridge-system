@@ -579,7 +579,7 @@ export default function OperatorDashboard() {
                     const weighCount = dbWeighCount + pendingOfflineCount;
 
                     const isMVCategory = entry.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
-                    const isExhausted = !isMVCategory && weighCount >= 3;
+                    const isExhausted = !isMVCategory && weighCount >= 3 && !entry.penalty_paid_entry;
                     const pendingWeigh = pendingWeighsMap?.[entry.id];
                     const isTimeOverdue = pendingWeigh?.expected_return_time &&
                       new Date(pendingWeigh.expected_return_time) < new Date();

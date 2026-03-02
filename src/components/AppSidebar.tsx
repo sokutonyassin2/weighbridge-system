@@ -1,4 +1,4 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck } from "lucide-react";
+import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ const weighbridgeItems = [
   { title: "Receipt Settings", url: "/admin/receipt-settings", icon: Settings, roles: ["super_admin"] },
   { title: "Weight Settings", url: "/admin/weight-settings", icon: Scale, roles: ["super_admin"] },
   { title: "All Entries", url: "/all-entries", icon: List, roles: ["super_admin"] },
-  { title: "Guardian Eye", url: "/observer", icon: Activity, roles: ["admin", "super_admin", "observer"] },
+  { title: "Guardian Eye", url: "/guardian-eye", icon: Eye, roles: ["admin", "super_admin", "observer"] },
 ];
 
 const logisticsItems = [

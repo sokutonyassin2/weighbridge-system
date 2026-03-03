@@ -355,28 +355,30 @@ function processGhostCapture(detectedWeight, sessionStart) {
 
       console.log(`✅ Ghost Photo Saved: ${filename}`);
 
-      // SYNC TO CENTRAL SERVER
-      uploadToCentralServer(photoPath, {
-        monthYear: `${monthName}-${year}`,
-        week: `Week_${weekNo}`,
-        day: `Day_${day}`,
-        shift: shift,
-        type: "Ghost"
-      });
+      // SYNC TO CENTRAL SERVER (with small delay to prioritize overall stability)
+      setTimeout(() => {
+        uploadToCentralServer(photoPath, {
+          monthYear: `${monthName}-${year}`,
+          week: `Week_${weekNo}`,
+          day: `Day_${day}`,
+          shift: shift,
+          type: "Ghost"
+        });
 
-      // Save to Supabase with session_start (session_end added later when vehicle leaves)
-      syncToSupabase({
-        timestamp: now.toISOString(),
-        detected_weight: detectedWeight,
-        photo_filename: filename,
-        type: 'ghost',
-        shift: shift,
-        status: 'unmatched', // Will be updated to 'matched' by the audit page
-        vehicle_no: 'GHOST',
-        vehicle_type: 'Unknown',
-        session_start: sessionStart,
-        session_end: null  // Filled in when vehicle leaves
-      });
+        // Save to Supabase with session_start (session_end added later when vehicle leaves)
+        syncToSupabase({
+          timestamp: now.toISOString(),
+          detected_weight: detectedWeight,
+          photo_filename: filename,
+          type: 'ghost',
+          shift: shift,
+          status: 'unmatched', // Will be updated to 'matched' by the audit page
+          vehicle_no: 'GHOST',
+          vehicle_type: 'Unknown',
+          session_start: sessionStartTime,
+          session_end: null  // Filled in when vehicle leaves
+        });
+      }, 1000); // 1s delay for ghost sync
     });
   } catch (err) {
     console.error("Ghost Capture Error:", err.message);
@@ -439,32 +441,36 @@ function processCapture(req, res) {
 
       console.log(`✅ Photo saved: ${filename}`);
 
-      // SYNC TO CENTRAL SERVER
-      uploadToCentralServer(photoPath, {
-        monthYear: monthName + "-" + year,
-        week: "Week_" + weekNo,
-        day: "Day_" + day,
-        shift: shift,
-        type: "" // Manual photos go directly into shift folder
-      });
-
-      // SYNC TO DATABASE
-      syncToSupabase({
-        timestamp: now.toISOString(),
-        detected_weight: parseFloat(latestWeight),
-        photo_filename: filename,
-        type: isAuto ? 'auto' : 'manual',
-        shift: shift,
-        status: isAuto ? 'suspicious' : 'verified',
-        vehicle_no: rawPlate,
-        vehicle_type: vehicleType
-      });
-
+      // 1. INSTANT RESPONSE TO USER
       res.json({
         photoPath: photoPath,
         photoUrl: `file://${photoPath}`,
         success: true
       });
+
+      // 2. BACKGROUND SYNC (with 500ms delay to clear network for response)
+      setTimeout(() => {
+        // SYNC TO CENTRAL SERVER
+        uploadToCentralServer(photoPath, {
+          monthYear: monthName + "-" + year,
+          week: "Week_" + weekNo,
+          day: "Day_" + day,
+          shift: shift,
+          type: "" // Manual photos go directly into shift folder
+        });
+
+        // SYNC TO DATABASE
+        syncToSupabase({
+          timestamp: now.toISOString(),
+          detected_weight: parseFloat(latestWeight),
+          photo_filename: filename,
+          type: isAuto ? 'auto' : 'manual',
+          shift: shift,
+          status: isAuto ? 'suspicious' : 'verified',
+          vehicle_no: rawPlate,
+          vehicle_type: vehicleType
+        });
+      }, 500);
     });
   } catch (err) {
     console.error("Critical process error:", err.message);
@@ -474,7 +480,8 @@ function processCapture(req, res) {
 
 async function uploadToCentralServer(filePath, metadata) {
   try {
-    const fileContent = fs.readFileSync(filePath);
+    // ASYNC READ (Does not block the server)
+    const fileContent = await fs.promises.readFile(filePath);
     const blob = new Blob([fileContent], { type: 'image/jpeg' });
     const formData = new FormData();
     formData.append('photo', blob, path.basename(filePath));

@@ -1757,16 +1757,16 @@ Please process payment in Cashier section first.`,
                         <div className="grid grid-cols-2 gap-2">
                           <div className="bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-100/50">
                             <p className="text-[10px] items-center gap-1 font-bold text-slate-400 flex uppercase tracking-tighter">Gross</p>
-                            <p className="text-sm font-bold tabular-nums">{record.gross_weight.toLocaleString()} kg</p>
+                            <p className="text-sm font-bold tabular-nums">{(record.gross_weight || 0).toLocaleString()} kg</p>
                           </div>
                           <div className="bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-100/50">
                             <p className="text-[10px] items-center gap-1 font-bold text-slate-400 flex uppercase tracking-tighter">Tare</p>
-                            <p className="text-sm font-bold tabular-nums">{record.tare_weight.toLocaleString()} kg</p>
+                            <p className="text-sm font-bold tabular-nums">{(record.tare_weight || 0).toLocaleString()} kg</p>
                           </div>
                         </div>
                         <div className="mt-2 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2 rounded-lg border border-emerald-100/50 flex justify-between items-center">
                           <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-tighter">Net cargo</p>
-                          <p className="text-sm font-bold text-emerald-700 tabular-nums">{record.net_weight.toLocaleString()} kg</p>
+                          <p className="text-sm font-bold text-emerald-700 tabular-nums">{(record.net_weight || 0).toLocaleString()} kg</p>
                         </div>
                         {/* GVM / GTM / Trailer — only if they were captured */}
                         {(record.gvm || record.gtm || record.trailer_weight) && (

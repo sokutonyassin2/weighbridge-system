@@ -53,7 +53,7 @@ interface VehicleEntry {
     operator_id?: string;
 }
 
-const MACBOOK_HELPER_IP = "192.168.1.105";
+const MACBOOK_HELPER_IP = "192.168.1.230";
 
 export default function ObserverDashboard() {
     const { toast } = useToast();

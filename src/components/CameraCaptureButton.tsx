@@ -83,11 +83,10 @@ export function CameraCaptureButton({
 
       if (data.photoPath) {
         setCapturedPath(data.photoPath);
-        // Set the captured image if it's returned from the API
-        if (data.photoUrl) {
-          setCapturedImage(data.photoUrl);
-        }
-        onPhotoCapture?.(data.photoPath);
+        // Build a full URL so the browser can actually load the image
+        const fullUrl = data.photoUrl || `${settings.cameraUrl}${data.photoPath}`;
+        setCapturedImage(fullUrl);
+        onPhotoCapture?.(fullUrl);
         toast({
           title: "Photo Captured Successfully",
           description: `Vehicle ${vehicleNo} photo captured and saved. You can now proceed with weighing.`,

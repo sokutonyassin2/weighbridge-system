@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Scale as ScaleIcon, Printer, Camera, AlertTriangle, CheckCircle, Wifi, WifiOff } from "lucide-react";
+import { ArrowLeft, Scale as ScaleIcon, Printer, Camera, AlertTriangle, CheckCircle, Wifi, WifiOff, LayoutDashboard, History, Info, Truck, Monitor, RefreshCw } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { getCurrentShiftDate, getCurrentShiftName } from "@/lib/shiftUtils";
 import { getShortEntryId } from "@/lib/utils";
@@ -26,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import offlineDataManager from "@/lib/offlineDataManager";
 import useOffline from "@/hooks/useOffline";
 
@@ -1265,444 +1267,555 @@ Please process payment in Cashier section first.`,
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900 min-h-screen">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 to-slate-900 min-h-screen">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border shadow-sm border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold text-slate-800 dark:text-white tracking-tight">Enter Weight Data</h1>
+              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 font-medium px-2 py-0 text-[10px]">
+                {isFirstWeigh ? "FIRST WEIGH" : "SECOND WEIGH"}
+              </Badge>
+            </div>
+            <p className="text-slate-500 text-sm font-medium flex items-center gap-2">
+              <Truck className="h-3 w-3" /> {entry.vehicle_no} <span className="opacity-30">•</span> {entry.vehicle_types?.type_name}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
           {isOffline ? (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-destructive text-destructive-foreground text-xs">
-              <WifiOff className="h-3 w-3" />
-              OFFLINE
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400 text-xs font-bold border border-red-200 dark:border-red-900">
+              <WifiOff className="h-3.5 w-3.5" /> OFFLINE MODE
             </div>
           ) : (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-success text-success-foreground text-xs">
-              <Wifi className="h-3 w-3" />
-              ONLINE
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 text-xs font-bold border border-emerald-200 dark:border-emerald-900">
+              <Wifi className="h-3.5 w-3.5" /> SYSTEMS ONLINE
             </div>
           )}
           {pendingItems > 0 && (
-            <div className="px-2 py-1 rounded-md bg-warning text-warning-foreground text-xs">
-              {pendingItems} pending
+            <div className="px-3 py-1.5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold border border-amber-200">
+              {pendingItems} PENDING SYNC
             </div>
           )}
           {isSyncing && (
-            <div className="px-2 py-1 rounded-md bg-blue-500 text-white text-xs">
-              Syncing...
+            <div className="px-3 py-1.5 rounded-full bg-blue-500 text-white text-xs font-bold animate-pulse">
+              SYNCING...
             </div>
           )}
         </div>
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold">Enter Weight Data</h1>
-          <p className="text-muted-foreground">
-            {isFirstWeigh ? "First" : "Second"} weighing for {entry.vehicle_no}
-          </p>
-        </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80">
-          <CardHeader>
-            <CardTitle>Vehicle Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Vehicle No:</span>
-              <span className="font-medium">{entry.vehicle_no}</span>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* LEFT COLUMN: Main Weghing Actions (8 cols on lg) */}
+        <div className="lg:col-span-8 space-y-6">
+          <Tabs defaultValue="weighing" className="w-full">
+            <div className="flex items-center justify-between mb-2">
+              <TabsList className="bg-slate-200/50 dark:bg-slate-800/50 p-1">
+                <TabsTrigger value="weighing" className="gap-2 font-bold px-4">
+                  <ScaleIcon className="h-4 w-4" /> Weighing
+                </TabsTrigger>
+                <TabsTrigger value="camera" className="gap-2 font-bold px-4">
+                  <Camera className="h-4 w-4" /> Camera inspection
+                </TabsTrigger>
+              </TabsList>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Type:</span>
-              <span className="font-medium">{entry.vehicle_types?.type_name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Category:</span>
-              <span className="font-medium">{entry.category}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Status:</span>
-              <StatusBadge status={entry.status} category={entry.category} />
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Entry Time:</span>
-              <span className="font-medium">
-                {format(new Date(entry.entry_time), "MMM dd, HH:mm")}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
 
-        {entry.weigh_records && entry.weigh_records.length > 0 && (
-          <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80">
-            <CardHeader>
-              <CardTitle>Previous Weighs</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {entry.weigh_records.map((record: any, index: number) => (
-                <div key={record.id} className="border-b pb-3 last:border-0">
-                  <p className="font-medium mb-2">Weigh #{index + 1}</p>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Gross:</span>
-                      <span>{record.gross_weight} kg</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Tare:</span>
-                      <span>{record.tare_weight} kg</span>
-                    </div>
-                    <div className="flex justify-between font-medium">
-                      <span className="text-muted-foreground">Net:</span>
-                      <span>{record.net_weight} kg</span>
+            <TabsContent value="weighing" className="mt-0 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              <Card className="border-none shadow-xl shadow-slate-200/50 dark:shadow-none bg-white dark:bg-slate-900 overflow-hidden ring-1 ring-slate-200 dark:ring-slate-800">
+                <CardHeader className="border-b bg-slate-50/50 dark:bg-slate-800/20 py-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <ScaleIcon className="h-5 w-5 text-primary" />
+                        Capture weight measurements
+                      </CardTitle>
+                      <CardDescription>Use the hardware buttons to capture live weight records.</CardDescription>
                     </div>
                   </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
-      </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6">
+                  <form id="weigh-form" onSubmit={handlePreSubmit} className="space-y-6">
+                    {/* MV Vehicle Info Banner */}
+                    {isMVCategory && (
+                      <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-start gap-3">
+                        <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                        <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 leading-relaxed">
+                          {isFirstWeigh ? (
+                            cameLoaded
+                              ? "📦 First Weigh: Recording Gross Weight (Loaded). Vehicle will return empty for Tare Weight."
+                              : "📦 First Weigh: Recording Tare Weight (Empty). Vehicle will return loaded for Gross Weight."
+                          ) : (
+                            cameLoaded
+                              ? `✅ Second Weigh: First weigh recorded ${firstWeighRecord?.gross_weight} kg (Loaded). Now recording Tare Weight (Empty).`
+                              : `✅ Second Weigh: First weigh recorded ${firstWeighRecord?.tare_weight} kg (Empty). Now recording Gross Weight (Loaded).`
+                          )}
+                        </p>
+                      </div>
+                    )}
 
-      <Card className="border-none shadow-xl bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-800">
-        <CardHeader>
-          <CardTitle>
-            <ScaleIcon className="inline mr-2 h-5 w-5" />
-            {isFirstWeigh ? "First" : "Second"} Weight Entry
-          </CardTitle>
-          <CardDescription>
-            Enter the weight measurements from the weighbridge
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handlePreSubmit} className="space-y-4">
-            {/* MV Vehicle Info Banner */}
-            {isMVCategory && (
-              <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
-                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  {isFirstWeigh ? (
-                    cameLoaded
-                      ? "📦 First Weigh: Recording Gross Weight (Loaded). Vehicle will return empty for Tare Weight."
-                      : "📦 First Weigh: Recording Tare Weight (Empty). Vehicle will return loaded for Gross Weight."
-                  ) : (
-                    cameLoaded
-                      ? `✅ Second Weigh: First weigh recorded ${firstWeighRecord?.gross_weight} kg (Loaded). Now recording Tare Weight (Empty).`
-                      : `✅ Second Weigh: First weigh recorded ${firstWeighRecord?.tare_weight} kg (Empty). Now recording Gross Weight (Loaded).`
-                  )}
-                </p>
-              </div>
-            )}
+                    {/* Weight Capture Integration Section */}
+                    <div className="grid grid-cols-1 gap-6 p-6 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 group transition-all">
+                      <div className="flex flex-col md:flex-row gap-6">
+                        <div className="flex-1 space-y-4">
+                          <div className="flex justify-between items-center">
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Hardware integration</p>
+                            {hardwareIntegrationEnabled && (
+                              <div className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 border shadow-sm">
+                                <div className={`h-2 w-2 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : hardwareStatus === 'error' ? 'bg-red-500' : 'bg-amber-500'}`} />
+                                <span className="text-[10px] font-bold uppercase">
+                                  {hardwareStatus === 'connected' ? 'CONNECTED' : hardwareStatus === 'error' ? 'ERROR' : 'OFFLINE'}
+                                </span>
+                              </div>
+                            )}
+                          </div>
 
-            {/* Camera Capture and Weight Capture Section */}
-            <div className="grid md:grid-cols-2 gap-4 p-4 border rounded-md bg-muted/30">
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">📷 Vehicle Photo</p>
-                <CameraCaptureButton
-                  entryId={entry.wb_number ? getShortEntryId(entry.id, entry.wb_number) : id || ""}
-                  vehicleNo={entry.vehicle_no}
-                  vehicleType={entry.vehicle_types?.type_name}
-                  weighNumber={weighCount + 1}
-                  onPhotoCapture={(url) => setCapturedPhotoUrl(url)}
-                  disabled={isSubmitting}
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <p className="text-sm font-medium text-muted-foreground">⚖️ Weight Capture</p>
-                  {hardwareIntegrationEnabled && (
-                    <div className="flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full ${hardwareStatus === 'connected' ? 'bg-green-500' : hardwareStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'}`} />
-                      <span className="text-xs text-muted-foreground">
-                        {hardwareStatus === 'connected' ? 'Connected' : hardwareStatus === 'error' ? 'Error' : 'Disconnected'}
-                      </span>
+                          <WeightCaptureButtons
+                            onCaptureGross={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
+                            onCaptureTare={(w) => setWeighData({ ...weighData, tare_weight: w.toString() })}
+                            onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString() })}
+                            onCaptureGTM={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
+                            onCaptureTrailer={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
+                            showGVMFields={isJVCategory || entry?.category === "Transit" || isPullingType}
+                            disabled={isSubmitting}
+                            vehicleNo={entry.vehicle_no}
+                            entryId={id}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-                <WeightCaptureButtons
-                  onCaptureGross={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
-                  onCaptureTare={(w) => setWeighData({ ...weighData, tare_weight: w.toString() })}
-                  onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString() })}
-                  onCaptureGTM={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
-                  onCaptureTrailer={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
-                  showGVMFields={isJVCategory || entry?.category === "Transit" || isPullingType}
-                  disabled={isSubmitting}
-                  vehicleNo={entry.vehicle_no}
-                  entryId={id}
-                />
-              </div>
-            </div>
 
-            {automaticMode && (
-              <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                  🔒 Automatic Mode Enabled - Use Capture buttons above to enter weights. Manual entry is disabled.
-                </p>
-              </div>
-            )}
+                    {automaticMode && (
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        <p className="text-xs font-bold text-amber-900 dark:text-amber-100">
+                          Automatic mode active - manual typing is disabled.
+                        </p>
+                      </div>
+                    )}
 
-            <div className="grid md:grid-cols-2 gap-4">
-              {/* Show single field for MV first weigh, or both fields for normal workflow */}
-              {(!isMVCategory || !isFirstWeigh || showGrossOnly) && (
-                <div className="space-y-2">
-                  <Label htmlFor="gross_weight">
-                    Gross Weight (kg) {isMVCategory && !isFirstWeigh && cameLoaded ? "(Pre-filled from 1st Weigh)" : ""} *
-                  </Label>
-                  <Input
-                    id="gross_weight"
-                    type="number"
-                    step="0.01"
-                    placeholder={automaticMode ? "Use Capture button" : "0.00"}
-                    value={weighData.gross_weight || (showPrefilledGross ? String(firstWeighRecord.gross_weight) : "")}
-                    onChange={(e) =>
-                      setWeighData({ ...weighData, gross_weight: e.target.value })
-                    }
-                    readOnly={showPrefilledGross || automaticMode}
-                    className={showPrefilledGross || automaticMode ? "bg-muted" : ""}
-                    required
-                  />
-                </div>
-              )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Show single field for MV first weigh, or both fields for normal workflow */}
+                      {(!isMVCategory || !isFirstWeigh || showGrossOnly) && (
+                        <div className="space-y-2">
+                          <Label htmlFor="gross_weight" className="text-xs font-bold text-slate-500 uppercase">
+                            Gross weight (kg) {isMVCategory && !isFirstWeigh && cameLoaded ? "(PRE-FILLED)" : ""}
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              id="gross_weight"
+                              type="number"
+                              step="0.01"
+                              placeholder={automaticMode ? "Waiting for capture..." : "0.00"}
+                              value={weighData.gross_weight || (showPrefilledGross ? String(firstWeighRecord.gross_weight) : "")}
+                              onChange={(e) => setWeighData({ ...weighData, gross_weight: e.target.value })}
+                              readOnly={showPrefilledGross || automaticMode}
+                              className={`h-14 text-2xl font-bold rounded-xl border-2 transition-all ${showPrefilledGross || automaticMode ? "bg-slate-50 dark:bg-slate-800 border-slate-200" : "border-slate-200 focus:border-primary"}`}
+                              required
+                            />
+                            {showPrefilledGross && <CheckCircle className="absolute right-4 top-4 text-emerald-500 h-6 w-6" />}
+                          </div>
+                        </div>
+                      )}
 
-              {(!isMVCategory || !isFirstWeigh || showTareOnly) && (
-                <div className="space-y-2">
-                  <Label htmlFor="tare_weight">
-                    Tare Weight (kg) {isMVCategory && !isFirstWeigh && !cameLoaded ? "(Pre-filled from 1st Weigh)" : ""} *
-                  </Label>
-                  <Input
-                    id="tare_weight"
-                    type="number"
-                    step="0.01"
-                    placeholder={automaticMode ? "Use Capture button" : "0.00"}
-                    value={weighData.tare_weight || (showPrefilledTare ? String(firstWeighRecord.tare_weight) : "")}
-                    onChange={(e) =>
-                      setWeighData({ ...weighData, tare_weight: e.target.value })
-                    }
-                    readOnly={showPrefilledTare || automaticMode}
-                    className={showPrefilledTare || automaticMode ? "bg-muted" : ""}
-                    required
-                  />
-                </div>
-              )}
-            </div>
+                      {(!isMVCategory || !isFirstWeigh || showTareOnly) && (
+                        <div className="space-y-2">
+                          <Label htmlFor="tare_weight" className="text-xs font-bold text-slate-500 uppercase">
+                            Tare weight (kg) {isMVCategory && !isFirstWeigh && !cameLoaded ? "(PRE-FILLED)" : ""}
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              id="tare_weight"
+                              type="number"
+                              step="0.01"
+                              placeholder={automaticMode ? "Waiting for capture..." : "0.00"}
+                              value={weighData.tare_weight || (showPrefilledTare ? String(firstWeighRecord.tare_weight) : "")}
+                              onChange={(e) => setWeighData({ ...weighData, tare_weight: e.target.value })}
+                              readOnly={showPrefilledTare || automaticMode}
+                              className={`h-14 text-2xl font-bold rounded-xl border-2 transition-all ${showPrefilledTare || automaticMode ? "bg-slate-50 dark:bg-slate-800 border-slate-200" : "border-slate-200 focus:border-primary"}`}
+                              required
+                            />
+                            {showPrefilledTare && <CheckCircle className="absolute right-4 top-4 text-emerald-500 h-6 w-6" />}
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
-            {netWeight && (
-              <div className="p-3 border rounded-md bg-primary/5">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium">{isPullingType ? "Final Product (Combination Net):" : "Net Weight:"}</span>
-                  <span className="text-2xl font-bold text-primary">{netWeight} kg</span>
-                </div>
-                {isMVCategory && !isPullingType && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Cargo weight calculated: Gross - Tare
-                  </p>
-                )}
-                {isPullingType && weighCount > 0 && (
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 font-medium">
-                    Calculated via Combination Math: (Loaded Gross+GTM) - (Empty Gross+GTM)
-                  </p>
-                )}
-              </div>
-            )}
+                    {netWeight && (
+                      <div className="p-6 rounded-2xl bg-primary/5 dark:bg-primary/10 border-2 border-primary/20 animate-in zoom-in-95">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <span className="text-xs font-bold text-primary uppercase tracking-wider block mb-1">
+                              {isPullingType ? "COMBINATION NET PRODUCT" : "NET CARGO WEIGHT"}
+                            </span>
+                            <span className="text-4xl font-bold text-primary tracking-tighter tabular-nums">{netWeight.toLocaleString()} <span className="text-xl font-bold">kg</span></span>
+                          </div>
+                          <div className="bg-primary/10 p-4 rounded-full">
+                            <ScaleIcon className="h-10 w-10 text-primary" />
+                          </div>
+                        </div>
+                        {isMVCategory && !isPullingType && (
+                          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-primary/10">
+                            <Info className="h-3.5 w-3.5 text-primary/60" />
+                            <p className="text-xs text-primary/70 font-medium italic">Calculated: Gross ({weighData.gross_weight || (showPrefilledGross ? firstWeighRecord.gross_weight : "0")}) - Tare ({weighData.tare_weight || (showPrefilledTare ? firstWeighRecord.tare_weight : "0")})</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-            {/* GVM/GTM/Trailer Fields - Only for JV-Payment, JV-Free, and Transit vehicles */}
-            {(isJVCategory || entry?.category === "Transit" || isPullingType) && (
-              <div className="space-y-4 p-4 border rounded-md bg-muted/30 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
-                <p className="text-sm font-medium text-muted-foreground">
-                  Optional: Vehicle Mass Information (for specific vehicles only)
-                </p>
-                <div className="grid md:grid-cols-3 gap-4">
+                    <div className="pt-6 border-t flex flex-col md:flex-row gap-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => navigate("/")}
+                        className="h-12 flex-1 rounded-xl font-bold text-slate-600 border-slate-200"
+                        disabled={isSubmitting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={isSubmitting || (requireImageCapture && !capturedPhotoUrl)}
+                        className="h-12 flex-[2] rounded-xl font-bold text-lg shadow-lg shadow-primary/20"
+                      >
+                        {isSubmitting ? (
+                          <span className="flex items-center gap-2">
+                            <RefreshCw className="h-5 w-5 animate-spin" /> SAVING DATA...
+                          </span>
+                        ) : "SAVE WEIGHT RECORD"}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="camera" className="mt-0 animate-in fade-in slide-in-from-right-4 duration-200">
+              <Card className="border-none shadow-xl bg-white dark:bg-slate-900 overflow-hidden ring-1 ring-slate-200 dark:ring-slate-800 min-h-[500px]">
+                <CardHeader className="border-b bg-slate-50/50 dark:bg-slate-800/20 py-4">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Camera className="h-5 w-5 text-primary" />
+                    Visual inspection & capture
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-8 flex flex-col items-center justify-center space-y-8">
+                  <div className="w-full max-w-2xl bg-slate-100 dark:bg-slate-800 rounded-3xl aspect-video relative flex items-center justify-center border-4 border-white dark:border-slate-700 shadow-2xl overflow-hidden group">
+                    {capturedPhotoUrl ? (
+                      <>
+                        <img src={capturedPhotoUrl} className="w-full h-full object-cover" alt="Captured" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                          <Button variant="secondary" onClick={() => setCapturedPhotoUrl(null)} className="font-bold">Retake photo</Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center space-y-4">
+                        <div className="bg-white/10 p-6 rounded-full inline-block backdrop-blur-sm">
+                          <Camera className="h-12 w-12 text-slate-400" />
+                        </div>
+                        <div>
+                          <p className="text-slate-500 font-bold uppercase tracking-wider text-xs">Ready for capture</p>
+                          <p className="text-slate-400 text-xs mt-1">Camera will fire and save automatically</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-full max-w-lg">
+                    <div className="mb-4 text-center">
+                      <p className="text-sm font-bold text-slate-500">Manual inspection trigger</p>
+                    </div>
+                    <CameraCaptureButton
+                      entryId={entry.wb_number ? getShortEntryId(entry.id, entry.wb_number) : id || ""}
+                      vehicleNo={entry.vehicle_no}
+                      vehicleType={entry.vehicle_types?.type_name}
+                      weighNumber={weighCount + 1}
+                      onPhotoCapture={(url) => {
+                        setCapturedPhotoUrl(url);
+                        toast({ title: "Photo captured!", description: "The image has been saved to the server." });
+                      }}
+                      disabled={isSubmitting}
+                    />
+                    {requireImageCapture && !capturedPhotoUrl && (
+                      <div className="mt-4 flex justify-center">
+                        <Badge variant="destructive" className="py-1 px-4 animate-bounce font-bold text-[10px] uppercase tracking-tighter">
+                          * Photo capture required before saving
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          {/* Advanced Mass Fields - Only for specific categories */}
+          {(isJVCategory || entry?.category === "Transit" || isPullingType) && (
+            <Card className="border-none shadow-lg bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-800">
+              <CardHeader className="py-4 border-b">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Monitor className="h-4 w-4 text-amber-500" />
+                  Detailed vehicle mass analysis
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="gvm">GVM (Gross Vehicle Mass) kg</Label>
+                    <Label htmlFor="gvm" className="text-[10px] font-bold text-slate-400 uppercase">GVM (kg)</Label>
                     <Input
                       id="gvm"
                       type="number"
                       step="0.01"
-                      placeholder={automaticMode ? "Use Capture button" : "0.00"}
+                      placeholder="0.00"
                       value={weighData.gvm}
-                      onChange={(e) =>
-                        setWeighData({ ...weighData, gvm: e.target.value })
-                      }
+                      onChange={(e) => setWeighData({ ...weighData, gvm: e.target.value })}
                       readOnly={automaticMode}
-                      className={automaticMode ? "bg-muted" : ""}
+                      className="h-12 font-bold bg-slate-50/50"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gtm" className={isPullingType && !isFirstWeigh ? "text-blue-600 dark:text-blue-400 font-bold" : ""}>
-                      GTM (Gross Trailer Mass) kg {isPullingType && !isFirstWeigh ? "*" : ""}
+                    <Label htmlFor="gtm" className={`text-[10px] font-bold uppercase ${isPullingType && !isFirstWeigh ? "text-blue-600" : "text-slate-400"}`}>
+                      GTM (kg) {isPullingType && !isFirstWeigh ? "*" : ""}
                     </Label>
                     <Input
                       id="gtm"
                       type="number"
                       step="0.01"
-                      placeholder={automaticMode ? "Use Capture button" : "0.00"}
+                      placeholder="0.00"
                       value={weighData.gtm}
-                      onChange={(e) =>
-                        setWeighData({ ...weighData, gtm: e.target.value })
-                      }
+                      onChange={(e) => setWeighData({ ...weighData, gtm: e.target.value })}
                       readOnly={automaticMode}
-                      className={`${automaticMode ? "bg-muted" : ""} ${isPullingType && !isFirstWeigh ? "border-blue-500 ring-blue-500" : ""}`}
+                      className={`h-12 font-bold ${isPullingType && !isFirstWeigh ? "border-blue-500 bg-blue-50/30" : "bg-slate-50/50"}`}
                       required={isPullingType && !isFirstWeigh}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="trailer_weight">Trailer Weight (kg)</Label>
+                    <Label htmlFor="trailer_weight" className="text-[10px] font-bold text-slate-400 uppercase">Trailer weight (kg)</Label>
                     <Input
                       id="trailer_weight"
                       type="number"
                       step="0.01"
-                      placeholder={automaticMode ? "Use Capture button" : "0.00"}
+                      placeholder="0.00"
                       value={weighData.trailer_weight}
-                      onChange={(e) =>
-                        setWeighData({ ...weighData, trailer_weight: e.target.value })
-                      }
+                      onChange={(e) => setWeighData({ ...weighData, trailer_weight: e.target.value })}
                       readOnly={automaticMode}
-                      className={automaticMode ? "bg-muted" : ""}
+                      className="h-12 font-bold bg-slate-50/50"
                     />
                   </div>
                 </div>
+
                 {(payload || pullingGVM) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                     {payload && (
-                      <div className="flex justify-between items-center p-3 bg-primary/5 rounded border border-primary/10">
-                        <span className="font-medium text-sm">Payload (GTM - Trailer):</span>
-                        <span className="text-xl font-bold text-primary">{payload} kg</span>
+                      <div className="flex justify-between items-center p-4 bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800">
+                        <span className="font-bold text-xs text-amber-700 uppercase">Calculated Payload</span>
+                        <span className="text-xl font-bold text-amber-900 dark:text-amber-100">{payload.toLocaleString()} kg</span>
                       </div>
                     )}
                     {pullingGVM && (
-                      <div className="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800/50">
-                        <span className="font-medium text-sm">Pulling GVM (Gross + GTM):</span>
-                        <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{pullingGVM} kg</span>
+                      <div className="flex justify-between items-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                        <span className="font-bold text-xs text-blue-700 uppercase">Pulling GVM</span>
+                        <span className="text-xl font-bold text-blue-900 dark:text-blue-100">{pullingGVM.toLocaleString()} kg</span>
                       </div>
                     )}
                   </div>
                 )}
-              </div>
-            )}
+              </CardContent>
+            </Card>
+          )}
 
-            {/* Modern Status Selection Cards - Hidden for MV categories since they follow a fixed cycle */}
-            {!isMVCategory && (
-              <div className="grid md:grid-cols-2 gap-4 pt-2">
-                <div
-                  onClick={() => {
-                    const newState = !weighData.warning_flag;
-                    setWeighData({
-                      ...weighData,
-                      warning_flag: newState,
-                      complete_vehicle: newState ? false : weighData.complete_vehicle
-                    });
-                  }}
-                  className={`
-                    relative p-4 rounded-xl border-2 transition-all duration-200 cursor-pointer hover:shadow-md flex items-start gap-4 select-none
-                    ${weighData.warning_flag
-                      ? 'border-red-500 bg-red-50 dark:bg-red-950/30'
-                      : 'border-muted hover:border-red-200 dark:hover:border-red-800 bg-card'}
-                  `}
-                >
-                  <div className={`
-                    p-3 rounded-full shrink-0 transition-colors
-                    ${weighData.warning_flag ? 'bg-red-500 text-white' : 'bg-muted text-muted-foreground'}
-                  `}>
-                    <AlertTriangle className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className={`font-bold text-lg mb-1 ${weighData.warning_flag ? 'text-red-600 dark:text-red-400' : ''}`}>
-                      Over Weight
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      Flag this vehicle for weight limits exceedance.
-                    </p>
-                  </div>
-                  {weighData.warning_flag && (
-                    <div className="absolute top-4 right-4 text-red-500">
-                      <CheckCircle className="h-6 w-6 fill-current" />
-                    </div>
-                  )}
-                </div>
-
-                <div
-                  onClick={() => {
-                    if (weighData.warning_flag) return;
-                    const newState = !weighData.complete_vehicle;
-                    setWeighData({
-                      ...weighData,
-                      complete_vehicle: newState,
-                      warning_flag: newState ? false : weighData.warning_flag
-                    });
-                  }}
-                  className={`
-                    relative p-4 rounded-xl border-2 transition-all duration-200 flex items-start gap-4 select-none
-                    ${weighData.warning_flag ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
-                    ${weighData.complete_vehicle
-                      ? 'border-green-500 bg-green-50 dark:bg-green-950/30'
-                      : 'border-muted hover:border-green-200 dark:hover:border-green-800 bg-card'}
-                  `}
-                >
-                  <div className={`
-                    p-3 rounded-full shrink-0 transition-colors
-                    ${weighData.complete_vehicle ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}
-                  `}>
-                    <CheckCircle className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className={`font-bold text-lg mb-1 ${weighData.complete_vehicle ? 'text-green-600 dark:text-green-400' : ''}`}>
-                      Mark Complete
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      Vehicle weight is within limits.
-                    </p>
-                  </div>
-                  {weighData.complete_vehicle && (
-                    <div className="absolute top-4 right-4 text-green-500">
-                      <CheckCircle className="h-6 w-6 fill-current" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Exceedence notes hidden as per user request
-            {weighData.warning_flag && (
-              <div className="space-y-2">
-                <Label htmlFor="exceedence_notes">Exceedence Notes</Label>
-                <Textarea
-                  id="exceedence_notes"
-                  placeholder="Describe the weight exceedence..."
-                  value={weighData.exceedence_notes}
-                  onChange={(e) =>
-                    setWeighData({ ...weighData, exceedence_notes: e.target.value })
-                  }
-                  rows={3}
-                />
-              </div>
-            )}
-            */}
-
-            {requireImageCapture && !capturedPhotoUrl && (
-              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800">
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  📷 Photo capture is REQUIRED before saving. Please capture a vehicle photo.
-                </p>
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate("/")}
-                className="flex-1"
+          {/* Status Selection Cards */}
+          {!isMVCategory && (
+            <div className="grid md:grid-cols-2 gap-4">
+              <div
+                onClick={() => {
+                  const newState = !weighData.warning_flag;
+                  setWeighData({
+                    ...weighData,
+                    warning_flag: newState,
+                    complete_vehicle: newState ? false : weighData.complete_vehicle
+                  });
+                }}
+                className={`
+                  relative p-5 rounded-2xl border-2 transition-all duration-300 cursor-pointer flex items-start gap-4 select-none
+                  ${weighData.warning_flag
+                    ? 'border-red-500 bg-red-50 shadow-lg shadow-red-100 dark:bg-red-950/20 dark:shadow-none'
+                    : 'border-slate-200 hover:border-red-200 bg-white dark:bg-slate-900 dark:border-slate-800 dark:hover:border-red-900'}
+                `}
               >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isSubmitting || (requireImageCapture && !capturedPhotoUrl)}
-                className="flex-1"
+                <div className={`
+                  p-3 rounded-xl shrink-0 transition-colors
+                  ${weighData.warning_flag ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-red-50'}
+                `}>
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`font-bold text-sm uppercase ${weighData.warning_flag ? 'text-red-700' : 'text-slate-700'}`}>
+                    Flag for exceedence
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-snug mt-1 font-medium italic">
+                    Mark if vehicle exceeds normal limits.
+                  </p>
+                </div>
+                {weighData.warning_flag && <CheckCircle className="h-6 w-6 text-red-500 absolute top-4 right-4 animate-in zoom-in-50" />}
+              </div>
+
+              <div
+                onClick={() => {
+                  const newState = !weighData.complete_vehicle;
+                  setWeighData({
+                    ...weighData,
+                    complete_vehicle: newState,
+                    warning_flag: newState ? false : weighData.warning_flag
+                  });
+                }}
+                className={`
+                  relative p-5 rounded-2xl border-2 transition-all duration-300 cursor-pointer flex items-start gap-4 select-none
+                  ${weighData.complete_vehicle
+                    ? 'border-emerald-500 bg-emerald-50 shadow-lg shadow-emerald-100 dark:bg-emerald-950/20 dark:shadow-none'
+                    : 'border-slate-200 hover:border-emerald-200 bg-white dark:bg-slate-900 dark:border-slate-800 dark:hover:border-emerald-900'}
+                `}
               >
-                {isSubmitting ? "Saving..." : "Save Weight Record"}
-              </Button>
+                <div className={`
+                  p-3 rounded-xl shrink-0 transition-colors
+                  ${weighData.complete_vehicle ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400 group-hover:bg-emerald-50'}
+                `}>
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`font-bold text-sm uppercase ${weighData.complete_vehicle ? 'text-emerald-700' : 'text-slate-700'}`}>
+                    Finalize & Complete
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-snug mt-1 font-medium italic">
+                    Mark as finished. No further weighs required.
+                  </p>
+                </div>
+                {weighData.complete_vehicle && <CheckCircle className="h-6 w-6 text-emerald-500 absolute top-4 right-4 animate-in zoom-in-50" />}
+              </div>
             </div>
-          </form>
-        </CardContent>
-      </Card>
+          )}
+        </div>
+
+        {/* RIGHT COLUMN: Sidebar Info (4 cols on lg) */}
+        <div className="lg:col-span-4 space-y-6">
+          {/* Vehicle Context Card */}
+          <Card className="border-none shadow-lg bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-800 overflow-hidden">
+            <CardHeader className="bg-slate-50/50 dark:bg-slate-800/20 border-b py-4">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Info className="h-4 w-4 text-blue-500" /> Vehicle Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-4">
+              <div className="flex flex-col gap-4">
+                <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200/50">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Vehicle plate</span>
+                  <span className="text-lg font-bold text-slate-900 dark:text-white tracking-widest">{entry.vehicle_no}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-300 uppercase leading-none mb-1">Entry category</p>
+                    <p className="text-xs font-bold text-slate-600 truncate">{entry.category}</p>
+                  </div>
+                  <div className="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-300 uppercase leading-none mb-1">Current status</p>
+                    <StatusBadge status={entry.status} category={entry.category} />
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-300 uppercase leading-none mb-1">Initial entry time</p>
+                  <p className="text-xs font-bold text-slate-600 flex items-center gap-2 mt-1">
+                    <History className="h-3 w-3 opacity-40" /> {format(new Date(entry.entry_time), "MMM dd, HH:mm:ss")}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Weighing History Card */}
+          {entry.weigh_records && entry.weigh_records.length > 0 && (
+            <Card className="border-none shadow-lg bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-800 overflow-hidden">
+              <CardHeader className="bg-slate-50/50 dark:bg-slate-800/20 border-b py-4">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <History className="h-4 w-4 text-amber-500" /> Weighing history
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-5">
+                <div className="space-y-4">
+                  {entry.weigh_records.map((record: any, index: number) => (
+                    <div key={record.id} className="relative pl-6 pb-4 border-l-2 border-slate-100 last:border-0 last:pb-0">
+                      <div className="absolute -left-[9px] top-1 w-4 h-4 rounded-full bg-slate-200 border-4 border-white dark:border-slate-800" />
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <p className="text-xs font-bold text-slate-400 uppercase tracking-tight">Record #{index + 1}</p>
+                          <p className="text-[10px] font-bold text-slate-400">{format(new Date(record.created_at), 'HH:mm')}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-100/50">
+                            <p className="text-[10px] items-center gap-1 font-bold text-slate-400 flex uppercase tracking-tighter">Gross</p>
+                            <p className="text-sm font-bold tabular-nums">{record.gross_weight.toLocaleString()} kg</p>
+                          </div>
+                          <div className="bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-100/50">
+                            <p className="text-[10px] items-center gap-1 font-bold text-slate-400 flex uppercase tracking-tighter">Tare</p>
+                            <p className="text-sm font-bold tabular-nums">{record.tare_weight.toLocaleString()} kg</p>
+                          </div>
+                        </div>
+                        <div className="mt-2 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2 rounded-lg border border-emerald-100/50 flex justify-between items-center">
+                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-tighter">Net cargo</p>
+                          <p className="text-sm font-bold text-emerald-700 tabular-nums">{record.net_weight.toLocaleString()} kg</p>
+                        </div>
+                        {/* GVM / GTM / Trailer — only if they were captured */}
+                        {(record.gvm || record.gtm || record.trailer_weight) && (
+                          <div className="mt-2 grid grid-cols-3 gap-1.5">
+                            {record.gvm ? (
+                              <div className="bg-amber-50 dark:bg-amber-950/20 px-2 py-1.5 rounded-lg border border-amber-100/50 text-center">
+                                <p className="text-[10px] font-bold text-amber-500 uppercase">GVM</p>
+                                <p className="text-xs font-bold tabular-nums">{record.gvm.toLocaleString()} kg</p>
+                              </div>
+                            ) : null}
+                            {record.gtm ? (
+                              <div className="bg-blue-50 dark:bg-blue-950/20 px-2 py-1.5 rounded-lg border border-blue-100/50 text-center">
+                                <p className="text-[10px] font-bold text-blue-500 uppercase">GTM</p>
+                                <p className="text-xs font-bold tabular-nums">{record.gtm.toLocaleString()} kg</p>
+                              </div>
+                            ) : null}
+                            {record.trailer_weight ? (
+                              <div className="bg-slate-50 dark:bg-slate-800 px-2 py-1.5 rounded-lg border border-slate-100/50 text-center">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Trailer</p>
+                                <p className="text-xs font-bold tabular-nums">{record.trailer_weight.toLocaleString()} kg</p>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Print / Receipt shortcut */}
+          <button
+            onClick={() => navigate("/receipt-history")}
+            className="w-full p-6 rounded-2xl bg-gradient-to-br from-primary/10 to-transparent border border-primary/20 flex flex-col items-center text-center gap-4 hover:from-primary/20 transition-all cursor-pointer group"
+          >
+            <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-xl shadow-primary/5 group-hover:shadow-primary/20 transition-shadow">
+              <Printer className="h-10 w-10 text-primary" />
+            </div>
+            <div>
+              <h4 className="font-bold text-sm uppercase text-slate-800 dark:text-slate-100 tracking-tight">Receipt processing</h4>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1 italic opacity-80">
+                Click to open receipt history and print.
+              </p>
+            </div>
+          </button>
+        </div>
+      </div>
 
       {/* JV/Transit Completion Confirmation Modal */}
       <Dialog open={showCompletionModal} onOpenChange={setShowCompletionModal}>

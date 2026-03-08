@@ -40,6 +40,27 @@ export default function OperatorDashboard() {
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [isEndingShift, setIsEndingShift] = useState(false);
   const shiftAlertShownRef = useRef(false);
+  const [isProcessingRepair, setIsProcessingRepair] = useState(false);
+
+  // Fetch paid penalties to help identify vehicles that paid at cashier but didn't reset
+  const { data: paidPenaltiesMap } = useQuery({
+    queryKey: ["paid-penalties-map"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("payments")
+        .select("entry_id")
+        .eq("payment_type", "Exhausted Attempts Penalty")
+        .eq("payment_status", "Paid");
+
+      if (error) throw error;
+      return data?.reduce((acc: Record<string, boolean>, p) => ({
+        ...acc,
+        [p.entry_id as string]: true
+      }), {}) || {};
+    },
+    refetchInterval: 30000,
+    staleTime: 10000,
+  });
 
   // Redirect users to their specific modules if they land on root dashboard
   useEffect(() => {
@@ -195,6 +216,67 @@ export default function OperatorDashboard() {
     }
   };
 
+  const handleResetAfterPenalty = async (entry: any) => {
+    try {
+      setIsProcessingRepair(true);
+      const operatorName = userProfile?.full_name || userProfile?.username || "Unknown";
+
+      // 1. Mark current entry as completed
+      await supabase.from("vehicle_entries")
+        .update({ completed: true, status: "Completed" })
+        .eq("id", entry.id);
+
+      // 2. Create NEW entry
+      const { data: newEntry, error: createError } = await supabase
+        .from("vehicle_entries")
+        .insert({
+          vehicle_no: entry.vehicle_no,
+          driver_name: entry.driver_name,
+          vehicle_type_id: entry.vehicle_type_id,
+          customer_farmer_name: entry.customer_farmer_name,
+          item_name: entry.item_name,
+          source_destination: entry.source_destination,
+          cargo_description: entry.cargo_description,
+          operator_id: user?.id,
+          shift_id: entry.shift_id,
+          category: entry.category,
+          status: "AwaitingFirstWeigh",
+          entered_by: entry.entered_by,
+          penalty_paid_entry: true,
+          completed: false,
+        })
+        .select()
+        .single();
+
+      if (createError) throw createError;
+
+      // 3. Log activity
+      await supabase.from("activity_logs").insert({
+        user_id: user?.id || "",
+        user_name: operatorName,
+        user_role: userRole as any,
+        action: "Manual Penalty Sync",
+        details: `Vehicle ${entry.vehicle_no} manually reset after detecting paid penalty. New entry WB-${newEntry.wb_number} created.`,
+      });
+
+      toast({
+        title: "Vehicle Reset Successful",
+        description: `Vehicle ${entry.vehicle_no} is now unblocked (New WB-${newEntry.wb_number}).`,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["paid-penalties-map"] });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Reset Failed",
+        description: error.message,
+      });
+    } finally {
+      setIsProcessingRepair(false);
+    }
+  };
+
   // Helper to format shift badge with aging info
   const formatShiftBadge = (shifts: { shift_name: string; shift_date: string } | null) => {
     if (!shifts) return null;
@@ -291,7 +373,7 @@ export default function OperatorDashboard() {
         // Continue even if signature upload fails - still end the shift
       }
 
-      // Update shift end_time with signature
+
       const { error } = await supabase
         .from("shifts")
         .update({
@@ -588,6 +670,7 @@ export default function OperatorDashboard() {
                     // Time-based overdue vehicles just need to be moved to history (no payment)
                     const requiresPayment = isExhausted; // All exhausted vehicles require payment
                     const requiresMoveToHistory = isTimeOverdue && !isExhausted;
+                    const hasPaidPenalty = paidPenaltiesMap?.[entry.id];
 
                     const paymentReason = isExhausted
                       ? "Exhausted all 3 weigh attempts"
@@ -650,7 +733,7 @@ export default function OperatorDashboard() {
                               weighCount === 0 ? "1st Weigh" : "2nd Weigh"
                             ) : (
                               <>
-                                {weighCount}/3 {isExhausted && "- EXHAUSTED"}
+                                {`${weighCount}/3`} {isExhausted && "- EXHAUSTED"}
                                 {!isExhausted && isTimeOverdue && "- OVERDUE"}
                               </>
                             )}
@@ -682,7 +765,21 @@ export default function OperatorDashboard() {
                                 Payment Required
                               </Button>
 
+                              {hasPaidPenalty && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="w-full border-green-500 text-green-600 hover:bg-green-50 mt-1"
+                                  onClick={() => handleResetAfterPenalty(entry)}
+                                  disabled={isProcessingRepair}
+                                >
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Apply Paid Penalty
+                                </Button>
+                              )}
+
                               {shiftInfo && shiftInfo.daysDiff >= 2 && (
+
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -856,6 +953,6 @@ export default function OperatorDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </div >
   );
 }

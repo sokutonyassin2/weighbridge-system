@@ -291,9 +291,19 @@ export default function CashierDashboard() {
 
     setProcessingId(paymentId);
     try {
+      // 1. Fetch current payment details to get entry_id and type
+      const { data: payment, error: fetchPaymentError } = await supabase
+        .from("payments")
+        .select("*, vehicle_entries(*)")
+        .eq("id", paymentId)
+        .single();
+
+      if (fetchPaymentError) throw fetchPaymentError;
+
       const receiptNumber = `RCP-${Date.now()}`;
 
-      const { error } = await supabase
+      // 2. Update payment status
+      const { error: updatePaymentError } = await supabase
         .from("payments")
         .update({
           payment_status: "Paid",
@@ -304,25 +314,84 @@ export default function CashierDashboard() {
         })
         .eq("id", paymentId);
 
-      if (error) throw error;
+      if (updatePaymentError) throw updatePaymentError;
 
-      // Log activity
-      await supabase.from("activity_logs").insert({
-        user_id: user.id,
-        user_name: userProfile.full_name,
-        user_role: "operator",
-        action: "Payment Processed",
-        details: `Payment of TShs ${amount.toLocaleString()} marked as paid. Receipt: ${receiptNumber}`,
-      });
+      // 3. Update pending_weighs (Unlock the vehicle)
+      if (payment.entry_id) {
+        await supabase
+          .from("pending_weighs")
+          .update({
+            payment_required: false,
+            payment_status: "Paid",
+            // Reset attempts if it's a penalty
+            ...(payment.payment_type === "Exhausted Attempts Penalty" ? { weigh_attempts: 0 } : {})
+          })
+          .eq("entry_id", payment.entry_id);
+      }
+
+      // 4. If it's a penalty, trigger the "New Entry" flow
+      if (payment.payment_type === "Exhausted Attempts Penalty" && payment.entry_id && payment.vehicle_entries) {
+        const oldEntry = payment.vehicle_entries;
+
+        // Mark old entry as completed
+        await supabase
+          .from("vehicle_entries")
+          .update({ completed: true, status: "Completed" })
+          .eq("id", payment.entry_id);
+
+        // Create NEW entry
+        const { data: newEntry } = await supabase
+          .from("vehicle_entries")
+          .insert({
+            vehicle_no: oldEntry.vehicle_no,
+            driver_name: oldEntry.driver_name,
+            vehicle_type_id: oldEntry.vehicle_type_id,
+            customer_farmer_name: oldEntry.customer_farmer_name,
+            item_name: oldEntry.item_name,
+            source_destination: oldEntry.source_destination,
+            cargo_description: oldEntry.cargo_description,
+            operator_id: oldEntry.operator_id,
+            shift_id: oldEntry.shift_id,
+            category: oldEntry.category,
+            status: "AwaitingFirstWeigh",
+            entered_by: oldEntry.entered_by,
+            penalty_paid_entry: true,
+            completed: false,
+          })
+          .select()
+          .single();
+
+        if (newEntry) {
+          // Log penalty reset
+          await supabase.from("activity_logs").insert({
+            user_id: user.id,
+            user_name: userProfile.full_name,
+            user_role: userRole as any,
+            action: "Penalty Reset (Cashier)",
+            details: `Penalty paid for ${payment.vehicle_no}. Old entry closed, new WB-${newEntry.wb_number} created.`,
+          });
+        }
+      } else {
+        // Standard payment log
+        await supabase.from("activity_logs").insert({
+          user_id: user.id,
+          user_name: userProfile.full_name,
+          user_role: userRole as any,
+          action: "Payment Processed",
+          details: `Payment of TShs ${amount.toLocaleString()} marked as paid. Receipt: ${receiptNumber}`,
+        });
+      }
 
       toast({
         title: "Payment Processed",
-        description: `Payment of ${amount.toLocaleString()} TShs marked as paid`,
+        description: `Payment of ${amount.toLocaleString()} TShs marked as paid. ${payment.payment_type === "Exhausted Attempts Penalty" ? "New entry created." : ""}`,
       });
 
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["shift-collections"] });
       queryClient.invalidateQueries({ queryKey: ["shift-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-weighs-map"] });
       refetchPayments();
     } catch (error: any) {
       toast({

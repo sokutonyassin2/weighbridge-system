@@ -173,33 +173,50 @@ export function ExhaustedVehiclePaymentDialog({
         onClose();
         setIsProcessing(false);
         return;
-      }
+      }      // 5. REDESIGN: Close old entry and spawn NEW entry
+      // First, fetch the full details of the old entry to clone it
+      const { data: oldEntry, error: fetchOldError } = await supabase
+        .from("vehicle_entries")
+        .select("*")
+        .eq("id", entryId)
+        .single();
 
-      // 5. Update EXISTING vehicle entry with penalty_paid_entry flag to ALLOW continuing weighing
-      const { error: updateEntryError } = await supabase
+      if (fetchOldError) throw fetchOldError;
+
+      // 5a. Mark OLD entry as completed
+      const { error: closeOldError } = await supabase
         .from("vehicle_entries")
         .update({
-          penalty_paid_entry: true, // Flag to skip all payments
-          completed: false,
-          shift_id: currentShift.id, // Update to CURRENT shift
-          // DON'T change status if they already finished 1st weigh
+          completed: true,
+          status: "Completed",
         })
         .eq("id", entryId);
 
-      if (updateEntryError) throw updateEntryError;
+      if (closeOldError) throw closeOldError;
 
-      // Reset attempts in pending_weighs
-      const { error: updatePendingError } = await supabase
-        .from("pending_weighs")
-        .update({
-          payment_required: false,
-          weigh_attempts: 0,
-          payment_required_reason: null,
-          payment_status: "Paid",
+      // 5b. Create NEW entry with cloned details
+      const { data: newEntry, error: createNewError } = await supabase
+        .from("vehicle_entries")
+        .insert({
+          vehicle_no: oldEntry.vehicle_no,
+          driver_name: oldEntry.driver_name,
+          vehicle_type_id: oldEntry.vehicle_type_id,
+          customer_farmer_name: oldEntry.customer_farmer_name,
+          item_name: oldEntry.item_name,
+          source_destination: oldEntry.source_destination,
+          cargo_description: oldEntry.cargo_description,
+          operator_id: user?.id,
+          shift_id: currentShift.id,
+          category: oldEntry.category,
+          status: "AwaitingFirstWeigh",
+          entered_by: operatorName,
+          penalty_paid_entry: true, // Mark this as a penalty reset entry
+          completed: false,
         })
-        .eq("entry_id", entryId);
+        .select()
+        .single();
 
-      if (updatePendingError) throw updatePendingError;
+      if (createNewError) throw createNewError;
 
       // 6. Log activity
       await supabase.from("activity_logs").insert({
@@ -207,7 +224,7 @@ export function ExhaustedVehiclePaymentDialog({
         user_name: operatorName,
         user_role: "operator",
         action: "Penalty Payment Processed",
-        details: `Penalty paid for ${vehicleNo} (${getShortEntryId(entryId, vehicleData?.wb_number)}). Reason: ${paymentReason}. Entry unlocked for fresh weighing attempts.`,
+        details: `Penalty paid for ${vehicleNo}. Old entry ${getShortEntryId(entryId, vehicleData?.wb_number)} completed and fresh entry ${getShortEntryId(newEntry.id, newEntry.wb_number)} created.`,
       });
 
       // 7. Invalidate queries to sync both Dashboard and Cashier
@@ -218,8 +235,8 @@ export function ExhaustedVehiclePaymentDialog({
       queryClient.invalidateQueries({ queryKey: ["penalties"] });
 
       toast({
-        title: "✅ Payment Recorded",
-        description: `Penalty payment for ${vehicleNo} recorded. Vehicle has been unlocked for weighing.`,
+        title: "✅ Penalty Processed",
+        description: `Penalty for ${vehicleNo} recorded. A fresh entry (WB-${newEntry.wb_number}) has been created with 0/3 attempts.`,
         duration: 5000,
       });
 

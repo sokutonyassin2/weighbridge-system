@@ -314,7 +314,7 @@ export default function WeighEntry() {
 
     // Check if vehicle has exhausted weigh attempts (non-MV vehicles only)
     const MAX_WEIGH_ATTEMPTS = 3;
-    if (!isMVCategory && weighCount >= MAX_WEIGH_ATTEMPTS) {
+    if (!isMVCategory && weighCount >= MAX_WEIGH_ATTEMPTS && !entry?.penalty_paid_entry) {
       toast({
         variant: "destructive",
         title: "⚠️ Maximum Weigh Attempts Reached",
@@ -355,6 +355,8 @@ Please process payment in Cashier section first.`,
 
     // Validation: Ensure at least one weight is present and non-zero
     const isWeightZeroOrEmpty = (w: string) => !w || parseFloat(w) <= 0;
+
+
 
     // For MV vehicles, check the relevant field based on arrive status
     if (isMVCategory) {

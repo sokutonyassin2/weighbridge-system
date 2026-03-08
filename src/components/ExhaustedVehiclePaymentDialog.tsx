@@ -70,7 +70,9 @@ export function ExhaustedVehiclePaymentDialog({
         notes: `Penalty: ${paymentReason}`,
       });
 
-      if (paymentError) throw paymentError;
+      // If it's a duplicate key error (23505), it means payment was already recorded
+      // in a previous attempt, so we should just proceed to update the entry.
+      if (paymentError && paymentError.code !== '23505') throw paymentError;
 
       // 3. Mark old entry as completed (MOVED/INTEGRATED into update step below)
 
@@ -127,11 +129,23 @@ export function ExhaustedVehiclePaymentDialog({
         .select("id")
         .eq("vehicle_no", vehicleNo)
         .eq("completed", false)
+        .neq("id", entryId) // CRITICAL: Exclude the current entry we are trying to unlock
         .maybeSingle();
 
       if (existingActive) {
         // If entry already exists, use it instead of creating new
         console.log("Active entry already exists found, skipping creation:", existingActive.id);
+
+        // Still update the CURRENT entry's pending_weighs so it resets nicely for this specific UI view
+        await supabase
+          .from("pending_weighs")
+          .update({
+            payment_required: false,
+            weigh_attempts: 0,
+            payment_required_reason: null,
+            payment_status: "Paid",
+          })
+          .eq("entry_id", entryId);
 
         // Log activity
         await supabase.from("activity_logs").insert({
@@ -165,9 +179,9 @@ export function ExhaustedVehiclePaymentDialog({
         .from("vehicle_entries")
         .update({
           penalty_paid_entry: true, // Flag to skip all payments
-          status: "AwaitingFirstWeigh", // Change status from Exhausted back to Awaiting
           completed: false,
           shift_id: currentShift.id, // Update to CURRENT shift
+          // DON'T change status if they already finished 1st weigh
         })
         .eq("id", entryId);
 

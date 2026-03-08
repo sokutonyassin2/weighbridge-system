@@ -79,7 +79,7 @@ const PHOTO_DIR = isMac
   : "C:\\CameraPhotos";
 
 console.log(`🚀 Starting Helper on ${isMac ? "macOS" : "Windows"}`);
-console.log(`🔌 Serial Port: ${COM_PORT}`);
+console.log(`🔌 Initial Serial Port: ${COM_PORT}`);
 console.log(`📂 Photo Path: ${PHOTO_DIR}`);
 
 /* ===============================
@@ -95,114 +95,153 @@ if (!fs.existsSync(PHOTO_DIR)) {
 }
 
 /* ===============================
-   START COM PORT LISTENER
+   DYNAMIC SERIAL PORT HANDLER
 ================================ */
-const serialPort = new SerialPort({
-  path: COM_PORT,
-  baudRate: BAUD_RATE,
-  autoOpen: true,
-});
+let serialPort = null;
+let isReconnecting = false;
 
-serialPort.on("data", (data) => {
-  const rawData = data.toString();
-  // console.log("RAW DATA FROM SCALE:", JSON.stringify(rawData));
+async function connectToScale() {
+  if (isReconnecting) return;
+  if (serialPort && serialPort.isOpen) return;
 
-  const match = rawData.match(/[+-](\d{6})/);
-  if (match) {
-    const cleanNumber = parseInt(match[1], 10);
-    latestWeight = cleanNumber.toString();
+  isReconnecting = true;
 
-    // --- GHOST DETECTION LOGIC ---
-    if (cleanNumber > 500) {
-      if (!sessionActive) {
-        console.log("🚛 Vehicle Session Started");
-        sessionActive = true;
-        sessionStartTime = new Date().toISOString(); // Track when session BEGAN
-        sessionEndTime = null;
-        stableWeightCount = 0;
-        manualCapturePerformed = false;
-        ghostCapturedThisSession = false;
-        lastStableWeight = 0;
-        stabilityCounter = 0;
+  try {
+    const ports = await SerialPort.list();
+    console.log("🔍 Scanning for Weigh Scale...");
+
+    // Priority 1: Use the previous port or hardcoded port if it exists and is connected
+    let targetPort = ports.find(p => p.path === COM_PORT);
+
+    // Priority 2: Auto-detect any USB-to-Serial adapter
+    if (!targetPort) {
+      targetPort = ports.find(p =>
+        (p.vendorId && p.vendorId !== "") ||
+        (p.productId && p.productId !== "") ||
+        p.path.includes("usbserial") ||
+        p.path.includes("USB") ||
+        p.pnpId?.includes("USB")
+      );
+    }
+
+    if (!targetPort) {
+      console.warn("⚠️ No serial ports found. Retrying in 10s...");
+      isReconnecting = false;
+      setTimeout(connectToScale, 10000);
+      return;
+    }
+
+    console.log(`🔌 Attempting to open port: ${targetPort.path}`);
+
+    serialPort = new SerialPort({
+      path: targetPort.path,
+      baudRate: BAUD_RATE,
+      autoOpen: false,
+    });
+
+    serialPort.open((err) => {
+      if (err) {
+        console.error(`❌ Error opening port ${targetPort.path}:`, err.message);
+        isReconnecting = false;
+        setTimeout(connectToScale, 10000);
+        return;
       }
 
-      // Check for stability
-      if (Math.abs(cleanNumber - lastStableWeight) < 20) { // Weight is steady
-        stabilityCounter++;
+      console.log(`✅ Connection established on ${targetPort.path}`);
+      isReconnecting = false;
+      setupSerialHandlers();
+    });
 
-        // --- GHOST TRIGGER: Stable for ~1 minute (STABILITY_THRESHOLD readings) ---
-        if (stabilityCounter >= STABILITY_THRESHOLD && !ghostCapturedThisSession) {
-          ghostCapturedThisSession = true; // Lock: only ONE ghost photo per session
-          console.log(`🚨 GHOST DETECTION: Vehicle stable for 1 min at ${cleanNumber}kg — Triggering Ghost Camera...`);
-          processGhostCapture(cleanNumber, sessionStartTime);
+  } catch (err) {
+    console.error("❌ Port scanning error:", err.message);
+    isReconnecting = false;
+    setTimeout(connectToScale, 10000);
+  }
+}
+
+function setupSerialHandlers() {
+  if (!serialPort) return;
+
+  serialPort.on("data", (data) => {
+    const rawData = data.toString();
+    const match = rawData.match(/[+-](\d{6})/);
+
+    if (match) {
+      const cleanNumber = parseInt(match[1], 10);
+      latestWeight = cleanNumber.toString();
+
+      // --- GHOST DETECTION LOGIC ---
+      if (cleanNumber > 500) {
+        if (!sessionActive) {
+          console.log("🚛 Vehicle Session Started");
+          sessionActive = true;
+          sessionStartTime = new Date().toISOString();
+          sessionEndTime = null;
+          stableWeightCount = 0;
+          manualCapturePerformed = false;
+          ghostCapturedThisSession = false;
+          lastStableWeight = 0;
+          stabilityCounter = 0;
+        }
+
+        if (Math.abs(cleanNumber - lastStableWeight) < 20) {
+          stabilityCounter++;
+          if (stabilityCounter >= STABILITY_THRESHOLD && !ghostCapturedThisSession) {
+            ghostCapturedThisSession = true;
+            console.log(`🚨 GHOST DETECTION: Vehicle stable for 1 min at ${cleanNumber}kg — Triggering Ghost Camera...`);
+            processGhostCapture(cleanNumber, sessionStartTime);
+          }
+        } else {
+          stabilityCounter = 0;
+          lastStableWeight = cleanNumber;
         }
       } else {
-        // Weight is moving — reset stability counter but keep session open
-        stabilityCounter = 0;
-        lastStableWeight = cleanNumber;
-      }
-    } else {
-      if (sessionActive && cleanNumber < 100) { // Truck left the scale
-        sessionEndTime = new Date().toISOString();
-        console.log(`🏁 Vehicle Session Ended. Start: ${sessionStartTime} | End: ${sessionEndTime}`);
-
-        // Update the last ghost log with the session end time
-        if (ghostCapturedThisSession) {
-          updateLastGhostSessionEnd(sessionStartTime, sessionEndTime);
+        if (sessionActive && cleanNumber < 100) {
+          sessionEndTime = new Date().toISOString();
+          console.log(`🏁 Vehicle Session Ended. Start: ${sessionStartTime} | End: ${sessionEndTime}`);
+          if (ghostCapturedThisSession) {
+            updateLastGhostSessionEnd(sessionStartTime, sessionEndTime);
+          }
+          sessionActive = false;
+          stableWeightCount = 0;
+          manualCapturePerformed = false;
+          ghostCapturedThisSession = false;
+          stabilityCounter = 0;
+          lastCaptureTime = 0;
+          sessionStartTime = null;
+          sessionEndTime = null;
         }
-
-        sessionActive = false;
-        stableWeightCount = 0;
-        manualCapturePerformed = false;
-        ghostCapturedThisSession = false;
-        stabilityCounter = 0;
-        lastCaptureTime = 0;
-        sessionStartTime = null;
-        sessionEndTime = null;
       }
+      io.emit("liveWeightUpdate", { weight: latestWeight });
     }
+  });
 
-    // Stream live weight to all connected clients
-    io.emit("liveWeightUpdate", { weight: latestWeight });
-  }
-});
+  serialPort.on("close", () => {
+    console.warn('⚠️ Serial port closed. Reconnecting...');
+    latestWeight = "0";
+    io.emit("liveWeightUpdate", { weight: "OFFLINE" });
+    setTimeout(connectToScale, 2000);
+  });
 
-serialPort.on("open", () => {
-  console.log(`✅ COM Port ${COM_PORT} opened`);
-});
+  serialPort.on("error", (err) => {
+    console.error("❌ COM Port error:", err.message);
+  });
+}
 
-// KEEPALIVE: Prevent serial port from sleeping
+// HEARTBEAT / WATCHDOG: Force reconnect if stuck
 setInterval(() => {
-  if (serialPort.isOpen) {
+  if (!serialPort || !serialPort.isOpen) {
+    console.log("⏱️ Watchdog: Scale disconnected. Scanning...");
+    connectToScale();
+  } else {
     try {
-      serialPort.write(Buffer.from([0x00])); // Send null byte to keep connection alive
-    } catch (err) {
-      console.error('⚠️ Keepalive error:', err.message);
-    }
+      serialPort.write(Buffer.from([0x00]));
+    } catch (e) { }
   }
-}, 30000); // Every 30 seconds
+}, 10000); // Check every 10 seconds for robustness
 
-serialPort.on("error", (err) => {
-  console.error("❌ COM Port error:", err.message);
-});
-
-// AUTO-RECONNECT: Reopen serial port if it closes unexpectedly
-serialPort.on("close", () => {
-  console.warn('⚠️ Serial port closed. Attempting reconnect in 5s...');
-  setTimeout(() => {
-    try {
-      serialPort.open((err) => {
-        if (err) {
-          console.error('❌ Reconnect failed:', err.message);
-        } else {
-          console.log('✅ Serial port reconnected');
-        }
-      });
-    } catch (err) {
-      console.error('❌ Reconnect attempt failed:', err.message);
-    }
-  }, 5000);
-});
+// Start initial connection
+connectToScale();
 
 /* ===============================
    SOCKET.IO CONNECTION
@@ -223,7 +262,6 @@ app.get("/", (req, res) => {
   res.send("Helper running with Socket.io ✅ (Ghost Detection Active)");
 });
 
-// NETWORK PHOTO SERVER (For Camera Observer)
 app.get("/photo-stream/:monthYear/:week/:day/:shift/:filename", (req, res) => {
   const { monthYear, week, day, shift, filename } = req.params;
   const filePath = path.join(PHOTO_DIR, monthYear, week, day, shift, filename);
@@ -292,9 +330,7 @@ function syncToSupabase(logData) {
    UPDATE GHOST LOG WITH SESSION END
 ================================ */
 function updateLastGhostSessionEnd(sessionStart, sessionEnd) {
-  // PATCH the camera_audit_logs record that has matching session_start
   const patchData = JSON.stringify({ session_end: sessionEnd });
-  const query = encodeURIComponent(`session_start.eq.${sessionStart}`);
   const options = {
     hostname: SUPABASE_URL,
     path: `/rest/v1/camera_audit_logs?session_start=eq.${encodeURIComponent(sessionStart)}`,
@@ -355,7 +391,6 @@ function processGhostCapture(detectedWeight, sessionStart) {
 
       console.log(`✅ Ghost Photo Saved: ${filename}`);
 
-      // SYNC TO CENTRAL SERVER (with small delay to prioritize overall stability)
       setTimeout(() => {
         uploadToCentralServer(photoPath, {
           monthYear: `${monthName}-${year}`,
@@ -365,20 +400,19 @@ function processGhostCapture(detectedWeight, sessionStart) {
           type: "Ghost"
         });
 
-        // Save to Supabase with session_start (session_end added later when vehicle leaves)
         syncToSupabase({
           timestamp: now.toISOString(),
           detected_weight: detectedWeight,
           photo_filename: filename,
           type: 'ghost',
           shift: shift,
-          status: 'unmatched', // Will be updated to 'matched' by the audit page
+          status: 'unmatched',
           vehicle_no: 'GHOST',
           vehicle_type: 'Unknown',
-          session_start: sessionStartTime,
-          session_end: null  // Filled in when vehicle leaves
+          session_start: sessionStart,
+          session_end: null
         });
-      }, 1000); // 1s delay for ghost sync
+      }, 1000);
     });
   } catch (err) {
     console.error("Ghost Capture Error:", err.message);
@@ -392,7 +426,6 @@ function processCapture(req, res) {
   try {
     const isAuto = req.query?.entryID === "AUTO";
 
-    // Flag this session as "Honest" if the request came from the app
     if (req.body?.entryId || (req.query?.entryID && !isAuto)) {
       manualCapturePerformed = true;
       console.log("✅ Manual Capture Registered (Honest Operator)");
@@ -416,9 +449,7 @@ function processCapture(req, res) {
     const dayFolder = `Day_${day}`;
     const fullDir = path.join(PHOTO_DIR, monthlyFolder, weekFolder, dayFolder, shift);
 
-    if (!fs.existsSync(fullDir)) {
-      fs.mkdirSync(fullDir, { recursive: true });
-    }
+    if (!fs.existsSync(fullDir)) fs.mkdirSync(fullDir, { recursive: true });
 
     const ts = now.toISOString().replace(/[:.]/g, "_");
     const filename = `Entry_${entryID}_Plate_${plate}_${ts}.jpg`;
@@ -426,40 +457,31 @@ function processCapture(req, res) {
 
     console.log(`📸 Starting capture: ${filename}`);
 
-    // Use --max-time to prevent long hangs if camera is offline
     const cmd = `curl --digest --max-time 15 -u ${CAMERA_USER}:${CAMERA_PASS} "${CAMERA_URL}" -o "${photoPath}"`;
 
-    exec(cmd, (error, stdout, stderr) => {
+    exec(cmd, (error) => {
       if (error) {
         console.error("❌ Camera capture error:", error.message);
-        return res.status(500).json({
-          error: "Camera capture failed",
-          message: error.message,
-          hint: "Check if camera is powered on and reachable at " + CAMERA_URL
-        });
+        return res.status(500).json({ error: "Camera capture failed", message: error.message });
       }
 
       console.log(`✅ Photo saved: ${filename}`);
 
-      // 1. INSTANT RESPONSE TO USER
       res.json({
         photoPath: photoPath,
         photoUrl: `file://${photoPath}`,
         success: true
       });
 
-      // 2. BACKGROUND SYNC (with 500ms delay to clear network for response)
       setTimeout(() => {
-        // SYNC TO CENTRAL SERVER
         uploadToCentralServer(photoPath, {
           monthYear: monthName + "-" + year,
           week: "Week_" + weekNo,
           day: "Day_" + day,
           shift: shift,
-          type: "" // Manual photos go directly into shift folder
+          type: ""
         });
 
-        // SYNC TO DATABASE
         syncToSupabase({
           timestamp: now.toISOString(),
           detected_weight: parseFloat(latestWeight),
@@ -480,13 +502,11 @@ function processCapture(req, res) {
 
 async function uploadToCentralServer(filePath, metadata) {
   try {
-    // ASYNC READ (Does not block the server)
     const fileContent = await fs.promises.readFile(filePath);
     const blob = new Blob([fileContent], { type: 'image/jpeg' });
     const formData = new FormData();
     formData.append('photo', blob, path.basename(filePath));
 
-    // Add metadata for folder structure
     Object.keys(metadata).forEach(key => {
       formData.append(key, metadata[key]);
     });

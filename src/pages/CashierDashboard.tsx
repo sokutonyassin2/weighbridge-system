@@ -102,9 +102,10 @@ export default function CashierDashboard() {
         .order("created_at", { ascending: false })
         .limit(100);
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return data;
+      const { data: shiftPayments, error: shiftError } = await query;
+      if (shiftError) throw shiftError;
+
+      return shiftPayments || [];
     },
     staleTime: 5000,
     refetchInterval: 30000, // Optimized refresh

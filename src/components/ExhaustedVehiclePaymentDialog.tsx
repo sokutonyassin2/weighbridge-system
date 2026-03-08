@@ -74,18 +74,19 @@ export function ExhaustedVehiclePaymentDialog({
       // in a previous attempt, so we should just proceed to update the entry.
       if (paymentError && paymentError.code !== '23505') throw paymentError;
 
-      // 3. Mark old entry as completed (MOVED/INTEGRATED into update step below)
-
       // 4. Get or create current active shift (don't use old entry's shift)
       const today = format(new Date(), "yyyy-MM-dd");
       const currentHour = new Date().getHours();
       const shiftName = currentHour >= 7 && currentHour < 18 ? "Day" : "Night";
 
+      // CRITICAL FIX: Order by start_time and limit 1 to handle duplicate shift rows
       let { data: currentShift, error: selectShiftError } = await supabase
         .from("shifts")
         .select("id")
         .eq("shift_date", today)
         .eq("shift_name", shiftName)
+        .order("start_time", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (selectShiftError) {

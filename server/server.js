@@ -16,22 +16,8 @@ if (!fs.existsSync(PHOTOS_DIR)) {
   fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 }
 
-// Multer storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const { monthYear, week, day, shift, type } = req.body;
-    const targetDir = path.join(PHOTOS_DIR, monthYear, week, day, shift, type || '');
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
-    }
-    cb(null, targetDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
-  }
-});
-
-const upload = multer({ storage: storage });
+// Multer storage configuration — use memoryStorage so req.body is available in the route handler
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Enable CORS for all routes
 app.use(cors({
@@ -47,12 +33,39 @@ app.use('/photos', express.static(PHOTOS_DIR));
 // Photo upload endpoint
 app.post('/api/photos/upload', upload.single('photo'), (req, res) => {
   if (!req.file) {
+    console.error('❌ Upload Failed: No file provided in request.');
     return res.status(400).json({ success: false, error: 'No file uploaded' });
   }
-  res.json({
-    success: true,
-    message: 'Photo uploaded successfully',
-    path: req.file.path
+
+  const { monthYear, week, day, shift, type } = req.body;
+
+  // Guard against missing metadata
+  if (!monthYear || !week || !day || !shift) {
+    console.error('❌ Upload Failed: Missing folder metadata in request body.', req.body);
+    return res.status(400).json({ success: false, error: 'Missing folder metadata (monthYear, week, day, shift)' });
+  }
+
+  const targetDir = path.join(PHOTOS_DIR, monthYear, week, day, shift, type || '');
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  const filePath = path.join(targetDir, req.file.originalname);
+  fs.writeFile(filePath, req.file.buffer, (err) => {
+    if (err) {
+      console.error('❌ Failed to write photo to disk:', err.message);
+      return res.status(500).json({ success: false, error: 'Failed to save photo' });
+    }
+
+    console.log(`📸 Photo Received: ${req.file.originalname}`);
+    console.log(`   Destination: ${monthYear}/${week}/${day}/${shift}`);
+    console.log(`   Saved to: ${filePath}`);
+
+    res.json({
+      success: true,
+      message: 'Photo uploaded successfully',
+      path: filePath
+    });
   });
 });
 

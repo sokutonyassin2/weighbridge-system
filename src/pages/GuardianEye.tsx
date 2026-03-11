@@ -8,6 +8,8 @@ import {
     CheckCircle,
     Clock,
     Camera,
+    CameraOff,
+    View,
     RefreshCw,
     History as HistoryIcon,
     Truck,
@@ -79,8 +81,8 @@ export default function GuardianEye() {
                 .from("camera_audit_logs")
                 .select("*")
                 .eq("type", "ghost")
-                .gte("timestamp", startOfDay(selectedDate).toISOString())
-                .lte("timestamp", endOfDay(selectedDate).toISOString());
+                .gte("timestamp", format(startOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss"))
+                .lte("timestamp", format(endOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss"));
 
             if (selectedShift !== "all") {
                 query = query.eq("shift", selectedShift === "day" ? "Day_Shift" : "Night_Shift");
@@ -90,15 +92,15 @@ export default function GuardianEye() {
             if (error) throw error;
             return data as AuditLog[];
         },
-        refetchInterval: 10000,
+        refetchInterval: 30000, // Stabilized to 30s to prevent UI flicker
     });
 
     // --- Fetch Verified Entries ---
     const { data: verifiedEntries = [], isLoading: isLoadingVerified, refetch: refetchVerified } = useQuery({
         queryKey: ["guardian-verified", selectedDate, selectedShift],
         queryFn: async () => {
-            const dayStart = startOfDay(selectedDate).toISOString();
-            const dayEnd = endOfDay(selectedDate).toISOString();
+            const dayStart = format(startOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss");
+            const dayEnd = format(endOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss");
 
             let query = (supabase as any)
                 .from("vehicle_entries")
@@ -129,7 +131,7 @@ export default function GuardianEye() {
                 entered_by: entry.entered_by || "Unknown"
             })) as VehicleEntry[];
         },
-        refetchInterval: 10000,
+        refetchInterval: 30000, // Stabilized to 30s
     });
 
     const refetchAll = () => {
@@ -137,10 +139,17 @@ export default function GuardianEye() {
         refetchVerified();
     };
 
-    // --- Match ghost logs to verified entries ---
-    const auditRows = useMemo(() => {
-        return ghostLogs.map((ghost): { ghost: AuditLog, match: VehicleEntry | null, status: 'matched' | 'missing' | 'dismissed' } => {
-            if (ghost.dismissed) return { ghost, match: null, status: "dismissed" };
+    // --- Create Unified Event Feed ---
+    const unifiedEvents = useMemo(() => {
+        const events: { id: string, timestamp: string, entry: VehicleEntry | null, ghost: AuditLog | null, status: 'matched' | 'missing_manual' | 'missing_ghost' | 'dismissed' }[] = [];
+        const matchedEntryIds = new Set<string>();
+
+        // 1. Process all Hardware Ghost Logs
+        ghostLogs.forEach(ghost => {
+            if (ghost.dismissed) {
+                events.push({ id: `ghost-${ghost.id}`, timestamp: ghost.timestamp, entry: null, ghost, status: "dismissed" });
+                return;
+            }
 
             const sessionStart = ghost.session_start ? new Date(ghost.session_start) : null;
             const sessionEnd = ghost.session_end ? new Date(ghost.session_end) : null;
@@ -155,8 +164,26 @@ export default function GuardianEye() {
                 return diffMs <= 10 * 60 * 1000;
             });
 
-            return { ghost, match: match || null, status: match ? "matched" : "missing" };
+            if (match) {
+                matchedEntryIds.add(match.id);
+                events.push({ id: `match-${ghost.id}-${match.id}`, timestamp: ghost.timestamp, entry: match, ghost, status: "matched" });
+            } else {
+                events.push({ id: `ghost-${ghost.id}`, timestamp: ghost.timestamp, entry: null, ghost, status: "missing_manual" });
+            }
         });
+
+        // 2. Process all Operator Entries
+        verifiedEntries.forEach(entry => {
+            if (!matchedEntryIds.has(entry.id)) {
+                // Determine timestamp prioritizing ghost but falling back to entry_time
+                events.push({ id: `entry-${entry.id}`, timestamp: entry.entry_time, entry, ghost: null, status: "missing_ghost" });
+            }
+        });
+
+        // Sort by timestamp descending
+        events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        return events;
     }, [ghostLogs, verifiedEntries]);
 
     // --- Dismiss mutation ---
@@ -232,7 +259,7 @@ export default function GuardianEye() {
         return hour >= 7 && hour < 18 ? "Day Shift" : "Night Shift";
     };
 
-    const ghostDetections = auditRows.filter(r => r.status === 'missing').length;
+    const ghostDetections = unifiedEvents.filter(r => r.status === 'missing_manual').length;
 
     return (
         <div className="flex flex-col gap-6 p-6 bg-slate-50/50 min-h-screen">
@@ -334,171 +361,169 @@ export default function GuardianEye() {
                 </Card>
             </div>
 
-            {/* Split Feed Area */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 h-[calc(100vh-320px)] min-h-[600px]">
-
-                {/* LEFT: Official Manual Feed (Verified) */}
-                <Card className="flex flex-col overflow-hidden border-blue-100 shadow-sm">
-                    <CardHeader className="bg-blue-50/50 border-b">
-                        <div className="flex justify-between items-center">
+            {/* Unified Feed Area */}
+            <div className="h-[calc(100vh-320px)] min-h-[600px] mt-2 xl:px-4">
+                <Card className="flex flex-col overflow-hidden border-slate-200 shadow-sm h-full max-w-[1200px] mx-auto">
+                    <CardHeader className="bg-slate-50/50 border-b shrink-0 py-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                             <div>
-                                <CardTitle className="text-blue-900 flex items-center gap-2">
-                                    <Truck className="w-5 h-5" /> Official Weighing Records
+                                <CardTitle className="text-slate-800 flex items-center gap-2 mb-1">
+                                    <View className="w-5 h-5 text-blue-500" /> Dual-Photo Audit Feed
                                 </CardTitle>
-                                <CardDescription>Verified vehicle entries with operator input.</CardDescription>
+                                <CardDescription>Correlating manual operator captures with automated hardware captures side-by-side.</CardDescription>
                             </div>
-                            <Badge variant="outline" className="bg-white text-blue-700">LIVE FEED</Badge>
+                            <div className="flex gap-2">
+                                <Badge variant="outline" className="bg-white text-slate-700 font-bold border-slate-200">LIVE SYNC</Badge>
+                                <Badge variant="destructive" className="animate-pulse shadow-sm shadow-red-500/50 bg-red-600 font-bold border-red-700">HAWKEYE ACTIVE</Badge>
+                            </div>
                         </div>
                     </CardHeader>
                     <ScrollArea className="flex-1">
-                        <CardContent className="p-4 space-y-4">
-                            {isLoadingVerified ? (
-                                Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)
-                            ) : verifiedEntries.length === 0 ? (
-                                <div className="text-center py-20 text-slate-400">
-                                    <HistoryIcon className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                                    <p>No verified entries today.</p>
+                        <CardContent className="p-4 sm:p-6 space-y-6 bg-slate-50/30">
+                            {isLoadingGhost || isLoadingVerified ? (
+                                Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-48 w-full rounded-xl" />)
+                            ) : unifiedEvents.length === 0 ? (
+                                <div className="text-center py-24 text-slate-400">
+                                    <ShieldCheck className="w-16 h-16 mx-auto mb-4 opacity-20 text-green-500" />
+                                    <p className="text-lg font-medium">No scale activity recorded today.</p>
+                                    <p className="text-sm mt-1 opacity-60">All vehicles detected by the hardware or operator will appear here.</p>
                                 </div>
                             ) : (
-                                verifiedEntries.map((entry) => (
-                                    <div key={entry.id} className="group flex gap-4 p-4 rounded-xl border bg-white hover:border-blue-300 transition-all hover:shadow-md">
-                                        <div className="relative w-32 h-24 rounded-lg overflow-hidden bg-slate-100 border">
-                                            <img
-                                                src={getManualPhotoUrl(entry)}
-                                                alt="Vehicle"
-                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform cursor-pointer"
-                                                onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
-                                                onClick={() => setSelectedZoomImage(getManualPhotoUrl(entry))}
-                                            />
-                                            <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1 rounded">
-                                                <Camera className="w-2 h-2 inline mr-0.5" /> Manual
-                                            </div>
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-900">{entry.vehicle_no || "N/A"}</p>
-                                                    <p className="text-[11px] text-slate-500 font-medium">{entry.vehicle_type || "Unknown Type"}</p>
-                                                    <p className="text-[11px] text-slate-400 mt-0.5">{format(new Date(entry.entry_time), 'HH:mm:ss aa')}</p>
-                                                </div>
-                                                <Badge variant="outline" className={getShiftColor(getShiftFromDate(entry.entry_time))}>
-                                                    {getShiftFromDate(entry.entry_time)}
-                                                </Badge>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2 mt-2">
-                                                <div className="bg-slate-50 p-2 rounded border">
-                                                    <p className="text-[10px] text-slate-400 uppercase font-bold">Gross weight</p>
-                                                    <p className="text-sm font-bold text-slate-700">{entry.gross_weight?.toLocaleString() || "—"} kg</p>
-                                                </div>
-                                                <div className="flex flex-col items-center justify-center p-2">
-                                                    <Badge className="bg-green-100 text-green-700 border border-green-200 hover:bg-green-100 mb-1">
-                                                        <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                                unifiedEvents.map((event) => (
+                                    <div key={event.id} className={`relative p-5 rounded-2xl border-2 transition-all hover:shadow-lg bg-white 
+                                        ${event.status === 'missing_manual' ? 'border-red-200 shadow-md shadow-red-100/50' :
+                                            event.status === 'missing_ghost' ? 'border-amber-200 shadow-sm shadow-amber-100/50' :
+                                                event.status === 'dismissed' ? 'border-slate-200 opacity-60' : 'border-green-100 hover:border-green-300'}`}>
+
+                                        {/* Status Header */}
+                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 pb-4 border-b border-slate-100 border-dashed gap-4">
+                                            <div className="flex items-center gap-3">
+                                                {event.status === 'missing_manual' ? (
+                                                    <Badge variant="destructive" className="bg-red-600 py-1.5 px-3 flex items-center gap-1.5 shadow-sm shadow-red-200"><AlertTriangle className="w-3.5 h-3.5" /> GHOST VEHICLE</Badge>
+                                                ) : event.status === 'missing_ghost' ? (
+                                                    <Badge variant="outline" className="text-amber-700 border-amber-300 py-1.5 px-3 bg-amber-50 flex items-center gap-1.5"><CameraOff className="w-3.5 h-3.5" /> NO HARDWARE TRIGGER</Badge>
+                                                ) : event.status === 'dismissed' ? (
+                                                    <Badge variant="secondary" className="py-1.5 px-3 bg-slate-100 text-slate-500">DISMISSED GHOST</Badge>
+                                                ) : (
+                                                    <Badge variant="outline" className="text-green-700 border-green-300 py-1.5 px-3 bg-green-50 flex items-center gap-1.5 shadow-sm shadow-green-100">
+                                                        <CheckCircle className="w-3.5 h-3.5" /> VERIFIED MATCH
                                                     </Badge>
-                                                    <div className="flex items-center gap-1 text-[9px] text-slate-400 font-medium">
-                                                        <User className="w-2.5 h-2.5" />
-                                                        <span>By {entry.entered_by || "System"}</span>
-                                                    </div>
+                                                )}
+                                                <div className="flex items-center gap-1.5 text-sm font-bold text-slate-500 bg-slate-100/80 px-2.5 py-1 rounded-md border border-slate-200">
+                                                    <Clock className="w-3.5 h-3.5" />
+                                                    {format(new Date(event.timestamp), 'HH:mm:ss aa')}
                                                 </div>
                                             </div>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </CardContent>
-                    </ScrollArea>
-                </Card>
 
-                {/* RIGHT: Automated Scale Audit (Ghost Hunter) */}
-                <Card className="flex flex-col overflow-hidden border-red-100 shadow-lg shadow-red-50/50">
-                    <CardHeader className="bg-red-50/50 border-b relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-full opacity-10 flex items-center justify-end">
-                            <Activity className="w-24 h-24 text-red-900" />
-                        </div>
-                        <div className="flex justify-between items-center relative z-10">
-                            <div>
-                                <CardTitle className="text-red-900 flex items-center gap-2">
-                                    <Activity className="w-5 h-5" /> Independent Scale Audit
-                                </CardTitle>
-                                <CardDescription>Automated detections of unrecorded vehicle movements.</CardDescription>
-                            </div>
-                            <Badge variant="destructive" className="animate-pulse shadow-sm shadow-red-500/50 bg-red-600 hover:bg-red-600 items-center justify-center translate-y-[-8px]">HAWKEYE ACTIVE</Badge>
-                        </div>
-                    </CardHeader>
-                    <ScrollArea className="flex-1">
-                        <CardContent className="p-4 space-y-4 bg-slate-50/30">
-                            {isLoadingGhost ? (
-                                Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-40 w-full rounded-xl" />)
-                            ) : ghostLogs.length === 0 ? (
-                                <div className="text-center py-20 text-slate-400">
-                                    <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-20 text-green-500" />
-                                    <p>No ghost weighings detected today.</p>
-                                </div>
-                            ) : (
-                                auditRows.map((row) => (
-                                    <div key={row.ghost.id} className={`group relative flex flex-col gap-4 p-4 rounded-xl border-2 transition-all hover:shadow-xl hover:-translate-y-1 bg-white
-                                        ${row.status === 'missing' ? 'border-red-100 hover:border-red-400' :
-                                            row.status === 'matched' ? 'border-green-100 opacity-60' : 'border-slate-200 opacity-50'}`}>
-                                        <div className="flex justify-between items-start">
-                                            <div className="flex gap-4">
-                                                <div className="relative w-40 h-28 rounded-lg overflow-hidden bg-slate-100 border-2 border-slate-200 shrink-0">
-                                                    <img
-                                                        src={getGhostPhotoUrl(row.ghost)}
-                                                        alt="Ghost Vehicle"
-                                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform cursor-zoom-in"
-                                                        onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
-                                                        onClick={() => setSelectedZoomImage(getGhostPhotoUrl(row.ghost))}
-                                                    />
-                                                    <div className="absolute top-1 left-1 bg-red-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-lg">
-                                                        GHOST DETECTED
+                                            {/* Contextual Stats */}
+                                            {event.entry && (
+                                                <div className="flex items-center gap-4">
+                                                    <div className="text-right">
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{event.entry.vehicle_type}</p>
+                                                        <p className="text-base font-black text-slate-800 tracking-tight leading-none mt-0.5">{event.entry.vehicle_no}</p>
+                                                    </div>
+                                                    <div className="h-10 w-px bg-slate-200" />
+                                                    <div className="text-left min-w-[90px]">
+                                                        <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Gross WT</p>
+                                                        <p className="text-sm font-black text-slate-700 leading-none mt-1">{event.entry.gross_weight?.toLocaleString() || "—"} kg</p>
                                                     </div>
                                                 </div>
-                                                <div className="space-y-1">
-                                                    <div className="flex items-center gap-2">
-                                                        <Clock className="w-3 h-3 text-slate-400" />
-                                                        <p className="text-sm font-bold text-slate-700">{format(new Date(row.ghost.timestamp), 'HH:mm:ss aa')}</p>
-                                                    </div>
-                                                    <Badge variant="outline" className={getShiftColor(row.ghost.shift)}>{row.ghost.shift.replace('_', ' ')}</Badge>
-                                                    <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-100 w-fit">
-                                                        <p className="text-[10px] text-red-400 uppercase font-black">Detected scale weight</p>
-                                                        <p className="text-2xl font-black text-red-600 tracking-tighter">{row.ghost.detected_weight?.toLocaleString() || "—"} kg</p>
-                                                    </div>
+                                            )}
+                                        </div>
+
+                                        {/* Dual Image Grid */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* LEFT: MANUAL */}
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between px-1">
+                                                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
+                                                        <User className="w-4 h-4 text-blue-500" /> Operator Entry
+                                                    </p>
+                                                    {event.entry && <span className="text-slate-400 font-medium capitalize text-[10px] bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">By {event.entry.entered_by}</span>}
+                                                </div>
+                                                <div className={`relative w-full aspect-[4/3] rounded-xl overflow-hidden border-2 ${!event.entry ? 'bg-red-50/50 border-red-200 border-dashed flex flex-col items-center justify-center text-red-500' : 'bg-slate-100 border-slate-200 shadow-inner'}`}>
+                                                    {event.entry ? (
+                                                        <>
+                                                            <img
+                                                                src={getManualPhotoUrl(event.entry)}
+                                                                className="w-full h-full object-cover cursor-zoom-in hover:scale-[1.02] transition-transform duration-300"
+                                                                onClick={() => setSelectedZoomImage(getManualPhotoUrl(event.entry))}
+                                                                alt="Manual Capture"
+                                                                onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
+                                                            />
+                                                            <div className="absolute bottom-2 left-2 bg-black/70 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded font-medium shadow-lg flex items-center gap-1.5 border border-white/10">
+                                                                <Camera className="w-3.5 h-3.5 text-blue-400" /> Official Record
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="text-center p-6 bg-red-50/50 w-full h-full flex flex-col items-center justify-center">
+                                                            <div className="bg-red-100 p-3 rounded-full mb-3">
+                                                                <XCircle className="w-8 h-8 opacity-60 text-red-600" />
+                                                            </div>
+                                                            <span className="text-sm font-bold uppercase tracking-wider text-red-800">Missing Record</span>
+                                                            <p className="text-xs text-red-500 font-medium mt-1 leading-snug max-w-[200px]">Operator did not save a matching weight ticket.</p>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <div className="text-right flex flex-col items-end gap-2 max-w-[140px]">
-                                                {row.status === 'missing' && (
-                                                    <>
-                                                        <div className="bg-red-600 text-white p-2 rounded-lg mb-2 shadow-sm shadow-red-200">
-                                                            <AlertTriangle className="w-6 h-6" />
+
+                                            {/* RIGHT: AUTO */}
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between px-1">
+                                                    <p className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
+                                                        <Activity className="w-4 h-4 text-red-500" /> Hardware Capture
+                                                    </p>
+                                                    {event.ghost && <span className="text-slate-400 font-bold text-[10px] bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">Scale: {event.ghost.detected_weight?.toLocaleString() || "—"} kg</span>}
+                                                </div>
+                                                <div className={`relative w-full aspect-[4/3] rounded-xl overflow-hidden border-2 ${!event.ghost ? 'bg-amber-50/50 border-amber-200 border-dashed flex flex-col items-center justify-center text-amber-600' : 'bg-slate-100 border-slate-200 shadow-inner'}`}>
+                                                    {event.ghost ? (
+                                                        <>
+                                                            <img
+                                                                src={getGhostPhotoUrl(event.ghost)}
+                                                                className="w-full h-full object-cover cursor-zoom-in hover:scale-[1.02] transition-transform duration-300"
+                                                                onClick={() => setSelectedZoomImage(getGhostPhotoUrl(event.ghost))}
+                                                                alt="Auto Capture"
+                                                                onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
+                                                            />
+                                                            <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded font-medium shadow-lg flex items-center gap-1.5 border border-white/10">
+                                                                <Activity className="w-3.5 h-3.5 text-red-400" /> AI Detection
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="text-center p-6 bg-amber-50/50 w-full h-full flex flex-col items-center justify-center">
+                                                            <div className="bg-amber-100 p-3 rounded-full mb-3">
+                                                                <CameraOff className="w-8 h-8 opacity-60 text-amber-600" />
+                                                            </div>
+                                                            <span className="text-sm font-bold uppercase tracking-wider text-amber-800">No Hardware Image</span>
+                                                            <p className="text-xs text-amber-600 font-medium mt-1 leading-snug max-w-[200px]">Camera did not automatically fire for this entry.</p>
                                                         </div>
-                                                        <p className="text-[10px] italic text-slate-400 max-w-[120px]">This weight was stabilized twice without a digital entry being saved.</p>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-7 text-xs mt-1 border-red-200 text-red-600 hover:bg-red-50"
-                                                            onClick={() => setDismissTarget(row.ghost)}
-                                                        >
-                                                            Dismiss
-                                                        </Button>
-                                                    </>
-                                                )}
-                                                {row.status === 'matched' && (
-                                                    <>
-                                                        <div className="bg-green-100 text-green-700 p-2 rounded-lg mb-2">
-                                                            <CheckCircle className="w-6 h-6" />
-                                                        </div>
-                                                        <p className="text-[10px] font-medium text-green-700 leading-tight">Entry Matched: <br />{row.match?.vehicle_no}</p>
-                                                    </>
-                                                )}
-                                                {row.status === 'dismissed' && (
-                                                    <>
-                                                        <div className="bg-slate-100 text-slate-500 p-2 rounded-lg mb-2">
-                                                            <XCircle className="w-6 h-6" />
-                                                        </div>
-                                                        <p className="text-[10px] italic text-slate-500 leading-tight">Dismissed: <br />{row.ghost.dismiss_reason}</p>
-                                                    </>
-                                                )}
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
+
+                                        {/* Action buttons if it's a ghost */}
+                                        {event.status === 'missing_manual' && (
+                                            <div className="mt-5 pt-4 border-t border-red-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-red-50/30 p-3 rounded-xl">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="bg-red-100 text-red-600 p-2 rounded-lg mt-0.5">
+                                                        <AlertTriangle className="w-5 h-5 shadow-sm" />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-sm font-bold text-red-800">Unrecorded Vehicle Detected</p>
+                                                        <p className="text-xs text-red-600/80 font-medium mt-0.5">A vehicle was stable on the scale ({event.ghost?.detected_weight} kg) without a digital entry being saved by the operator.</p>
+                                                    </div>
+                                                </div>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="w-full sm:w-auto border-red-200 text-red-700 bg-white hover:bg-red-60 hover:text-red-800 text-xs font-bold shadow-sm"
+                                                    onClick={() => setDismissTarget(event.ghost!)}
+                                                >
+                                                    Dismiss False Alarm
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))
                             )}

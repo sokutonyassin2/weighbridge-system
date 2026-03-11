@@ -228,17 +228,23 @@ function setupSerialHandlers() {
   });
 }
 
-// HEARTBEAT / WATCHDOG: Force reconnect if stuck
+// HEARTBEAT / WATCHDOG: Force reconnect if stuck & keep scale hardware active
 setInterval(() => {
   if (!serialPort || !serialPort.isOpen) {
-    console.log("⏱️ Watchdog: Scale disconnected. Scanning...");
-    connectToScale();
+    if (!isReconnecting) {
+      console.log("⏱️ Watchdog: Scale disconnected or port not open. Attempting reconnection...");
+      connectToScale();
+    }
   } else {
     try {
-      serialPort.write(Buffer.from([0x00]));
-    } catch (e) { }
+      // Send a small pulse (Carriage Return) to keep the scale's serial buffer alive
+      // Many scales go to sleep if they don't see activity or if the buffer overflows
+      serialPort.write("\r");
+    } catch (e) {
+      console.error("❌ Watchdog pulse failed:", e.message);
+    }
   }
-}, 10000); // Check every 10 seconds for robustness
+}, 3000); // 3 seconds for a tighter keep-alive loop
 
 // Start initial connection
 connectToScale();
@@ -261,6 +267,28 @@ io.on("connection", (socket) => {
 app.get("/", (req, res) => {
   res.send("Helper running with Socket.io ✅ (Ghost Detection Active)");
 });
+
+// --- CAMERA PULSE / HEARTBEAT ---
+// Keeps the hardware primed so it doesn't go to "sleep" or cold-start on the first capture
+setInterval(async () => {
+  const cameras = [
+    { name: "Manual Camera", url: CAMERA_URL, user: CAMERA_USER, pass: CAMERA_PASS },
+    { name: "Ghost Camera", url: GHOST_CAMERA_URL, user: GHOST_CAMERA_USER, pass: GHOST_CAMERA_PASS }
+  ];
+
+  for (const cam of cameras) {
+    try {
+      // Small timeout, we just want to "poke" it
+      const cmd = `curl --digest --max-time 5 -u ${cam.user}:${cam.pass} "${cam.url}" -o NUL 2>&1`; // Windows 'NUL' is like /dev/null
+      exec(cmd, (err) => {
+        if (err) {
+          // Log only on persistent failure to avoid noise
+          // console.warn(`📸 Heartbeat failed for ${cam.name}`);
+        }
+      });
+    } catch (e) { }
+  }
+}, 30000); // Pulse every 30 seconds
 
 app.get("/photo-stream/:monthYear/:week/:day/:shift/:filename", (req, res) => {
   const { monthYear, week, day, shift, filename } = req.params;
@@ -315,11 +343,17 @@ function syncToSupabase(logData) {
   };
 
   const req = https.request(options, (res) => {
-    console.log(`📡 Supabase Sync Status: ${res.statusCode}`);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      console.log(`📡 Supabase Sync Success: ${res.statusCode}`);
+    } else {
+      console.error(`📡 Supabase Sync Warning: Received status ${res.statusCode}`);
+      // Log some of the response if possible for debugging
+    }
   });
 
   req.on('error', (error) => {
-    console.error('❌ Supabase Sync Error:', error.message);
+    console.error('❌ Supabase Sync ERROR (Network/DNS):', error.message);
+    console.error('   Verify internet connection and Supabase URL availability.');
   });
 
   req.write(data);
@@ -513,17 +547,24 @@ async function uploadToCentralServer(filePath, metadata) {
 
     const response = await fetch(`${CENTRAL_SERVER_URL}/api/photos/upload`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal: AbortSignal.timeout(30000) // 30s timeout for upload
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+    }
 
     const result = await response.json();
     if (result.success) {
       console.log(`🌐 Central Sync Success: ${path.basename(filePath)}`);
     } else {
-      console.error(`🌐 Central Sync Failed: ${result.error}`);
+      console.error(`🌐 Central Sync REJECTED: ${result.error || 'Unknown error'}`);
     }
   } catch (err) {
-    console.error(`🌐 Central Sync Error: ${err.message}`);
+    console.error(`🌐 Central Sync ERROR [${path.basename(filePath)}]:`, err.message);
+    console.error(`   Ensure Central Server (192.168.1.216) is reachable.`);
   }
 }
 

@@ -105,15 +105,19 @@ export default function GuardianEye() {
             let query = (supabase as any)
                 .from("vehicle_entries")
                 .select(`
-                  id, vehicle_no, entry_time, wb_number, gross_weight, vehicle_type, entered_by,
-                  weigh_records (photo_url)
+                  id, vehicle_no, entry_time, wb_number, gross_weight, entered_by,
+                  weigh_records (photo_url),
+                  vehicle_types (type_name)
                 `)
                 .gte("entry_time", dayStart)
                 .lte("entry_time", dayEnd);
 
             const { data, error } = await query.order("entry_time", { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.error("Supabase Query Error (Verified Entries):", error);
+                throw error;
+            }
 
             // Apply shift filter locally since we don't have a shift column
             let filteredData = data;
@@ -127,6 +131,7 @@ export default function GuardianEye() {
 
             return (filteredData as any[]).map(entry => ({
                 ...entry,
+                vehicle_type: entry.vehicle_types?.type_name || "Unknown",
                 operator_photo_url: entry.weigh_records?.[0]?.photo_url || null,
                 entered_by: entry.entered_by || "Unknown"
             })) as VehicleEntry[];
@@ -273,14 +278,16 @@ export default function GuardianEye() {
                     <p className="text-slate-500 text-sm mt-1">Auditing scale activity & ghost vehicle detection in real-time.</p>
                 </div>
                 <div className="flex items-center gap-4">
-                    <div className="flex bg-white items-center p-1 rounded-lg border shadow-sm px-2">
-                        <span className="text-sm font-medium text-slate-600 mr-2">{format(selectedDate, 'MM/dd/yyyy')}</span>
+                    <div className="flex bg-white items-center p-1 rounded-lg border shadow-sm px-2 relative hover:bg-slate-50 transition-colors cursor-pointer">
+                        <span className="text-sm font-bold text-slate-700 mr-2 flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-blue-500" />
+                            {format(selectedDate, 'MMM dd, yyyy')}
+                        </span>
                         <Input
                             type="date"
                             value={format(selectedDate, 'yyyy-MM-dd')}
                             onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                            className="w-8 h-8 p-1 opacity-0 absolute"
-                            style={{ position: 'relative' }} // hack for date picker icon
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                         />
                     </div>
                     <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">

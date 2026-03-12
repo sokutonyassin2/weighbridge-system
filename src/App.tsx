@@ -444,6 +444,16 @@ const App = () => {
               }
             />
             <Route
+              path="/garage/deleted"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/garage/attendance"
               element={
                 <ProtectedRoute>

@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -129,6 +129,7 @@ const ProcurementDashboard = () => {
                     vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number),
                     garage_suppliers(name)
                 `)
+                .eq("is_deleted", false)
                 .order("created_at", { ascending: false })
                 .limit(100);
 
@@ -285,6 +286,27 @@ const ProcurementDashboard = () => {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
             toast({ title: "Supplier Deleted", description: "Vendor removed from directory." });
+        }
+    });
+
+    const deleteRequisitionMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_requisitions").update({
+                is_deleted: true,
+                deleted_at: new Date().toISOString()
+            }).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            toast({ title: "Requisition Deleted", description: "The request has been removed." });
+        },
+        onError: (error: any) => {
+            toast({
+                variant: "destructive",
+                title: "Deletion Failed",
+                description: error.message || "Could not delete requisition."
+            });
         }
     });
 
@@ -972,6 +994,23 @@ const ProcurementDashboard = () => {
                                                                     >
                                                                         <Printer className="w-3 h-3 mr-1" />
                                                                         Print PO
+                                                                    </Button>
+                                                                )}
+
+                                                                {/* OWNERSHIP BASED DELETION */}
+                                                                {(req.requested_by === profile?.id && req.status === 'Pending') && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                                                                        onClick={() => {
+                                                                            if (window.confirm("Are you sure you want to delete your pending requisition?")) {
+                                                                                deleteRequisitionMutation.mutate(req.id);
+                                                                            }
+                                                                        }}
+                                                                        title="Delete My Requisition"
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4" />
                                                                     </Button>
                                                                 )}
                                                             </div>

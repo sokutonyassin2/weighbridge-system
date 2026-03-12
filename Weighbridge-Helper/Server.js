@@ -568,6 +568,83 @@ async function uploadToCentralServer(filePath, metadata) {
   }
 }
 
+
+// API endpoint to list local photos for a specific date
+app.get('/api/photos/list-local', (req, res) => {
+  const { date } = req.query; // date in format YYYY-MM-DD
+  if (!date) {
+    return res.status(400).json({ success: false, error: 'Missing date parameter' });
+  }
+
+  try {
+    const targetDate = new Date(date);
+    const monthName = targetDate.toLocaleString('default', { month: 'long' });
+    const year = targetDate.getFullYear();
+    const day = targetDate.getDate().toString().padStart(2, '0');
+    const weekNo = Math.ceil(targetDate.getDate() / 7);
+
+    const dateFolder = `${monthName}-${year}`;
+    const weekFolder = `Week_${weekNo}`;
+    const dayFolder = `Day_${day}`;
+
+    // Path structure: PHOTO_DIR/MonthYear/Week/Day/Shift/Type
+    const datePath = path.join(PHOTO_DIR, dateFolder, weekFolder, dayFolder);
+
+    console.log(`🔍 Scanning for photos in: ${datePath}`);
+
+    if (!fs.existsSync(datePath)) {
+      console.log("⚠️ Date folder not found on disk.");
+      return res.json({ success: true, photos: [] });
+    }
+
+    const photos = [];
+
+    // Recursive function to scan for JPG files
+    function scanDir(currentPath, type, shift) {
+      if (!fs.existsSync(currentPath)) return;
+
+      const items = fs.readdirSync(currentPath);
+      items.forEach(item => {
+        const itemPath = path.join(currentPath, item);
+        const stats = fs.statSync(itemPath);
+
+        if (stats.isDirectory()) {
+          let nextType = type;
+          let nextShift = shift;
+
+          if (item === 'Ghost') nextType = 'ghost';
+          else if (item === 'Manual') nextType = 'manual';
+          else if (item.includes('Shift')) nextShift = item;
+
+          scanDir(itemPath, nextType, nextShift);
+        } else if (item.toLowerCase().endsWith('.jpg') || item.toLowerCase().endsWith('.jpeg')) {
+          let timestamp = stats.mtime.toISOString();
+          const tsMatch = item.match(/(\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}_\d{3}Z)/);
+          if (tsMatch) {
+            timestamp = tsMatch[1].replace(/_/g, ':');
+          }
+
+          photos.push({
+            filename: item,
+            path: itemPath.replace(PHOTO_DIR, '').replace(/\\/g, '/'),
+            timestamp: timestamp,
+            type: type || (item.startsWith('GHOST') ? 'ghost' : 'manual'),
+            shift: shift || (currentPath.includes('Day_Shift') ? 'Day_Shift' : 'Night_Shift')
+          });
+        }
+      });
+    }
+
+    scanDir(datePath);
+    console.log(`✅ Found ${photos.length} local photos`);
+    res.json({ success: true, photos: photos.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)) });
+
+  } catch (error) {
+    console.error('❌ Error listing local photos:', error.message);
+    res.status(500).json({ success: false, error: 'Failed to list local photos' });
+  }
+});
+
 /* ===============================
    START SERVER
 ================================ */

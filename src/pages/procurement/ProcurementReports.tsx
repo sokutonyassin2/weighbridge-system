@@ -33,6 +33,7 @@ const ProcurementReports = () => {
                     *,
                     garage_suppliers(name)
                 `)
+                .eq("is_deleted", false)
                 .gte("created_at", start.toISOString())
                 .lte("created_at", end.toISOString());
 

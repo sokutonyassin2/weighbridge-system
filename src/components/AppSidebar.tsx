@@ -1,4 +1,4 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye } from "lucide-react";
+import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye, Trash2 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ const garageItems = [
   { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
   { title: "Parts & Store", url: "/garage/store", icon: Package, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
   { title: "Requisition Logs", url: "/garage/logs", icon: History, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
+  { title: "Archived / Dustbin", url: "/garage/deleted", icon: Trash2, roles: ["admin", "super_admin", "garage_manager"] },
   { title: "Inventory Reports", url: "/garage/inventory-reports", icon: BarChart3, roles: ["admin", "super_admin", "garage_manager", "finance", "storekeeper"] },
   { title: "Staff Attendance", url: "/garage/attendance", icon: UserCheck, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
 ];

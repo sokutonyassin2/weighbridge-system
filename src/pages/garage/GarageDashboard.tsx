@@ -1,3 +1,7 @@
+import { useState, useMemo, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck } from "lucide-react";
+import { Search, Wrench, Plus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,9 +41,10 @@ const GarageDashboard = () => {
     const [qualityCheckAnswers, setQualityCheckAnswers] = useState<Record<string, boolean>>({});
 
     // Initial state based on URL
-    const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs">(
+    const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted">(
         location.pathname === "/garage/store" ? "inventory" :
-            location.pathname === "/garage/logs" ? "logs" : "jobs"
+            location.pathname === "/garage/logs" ? "logs" :
+                location.pathname === "/garage/deleted" ? "deleted" : "jobs"
     );
 
     // Sync tab with URL changes
@@ -48,6 +53,8 @@ const GarageDashboard = () => {
             setActiveTab("inventory");
         } else if (location.pathname === "/garage/logs") {
             setActiveTab("logs");
+        } else if (location.pathname === "/garage/deleted") {
+            setActiveTab("deleted");
         } else if (location.pathname === "/garage") {
             setActiveTab("jobs");
         }
@@ -170,6 +177,7 @@ const GarageDashboard = () => {
                     vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type), 
                     fault_list:garage_job_faults(id, fault_type_id, status, mechanic_notes, mechanic_id, fault_type:garage_fault_types(fault_name, category))
                 `)
+                .eq("is_deleted", false)
                 .order("opened_at", { ascending: false });
             if (error) throw error;
             return data?.map((job: any) => {
@@ -221,7 +229,10 @@ const GarageDashboard = () => {
     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_requisitions").select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)").order("created_at", { ascending: false });
+            const { data, error } = await sb.from("garage_requisitions")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)")
+                .eq("is_deleted", false)
+                .order("created_at", { ascending: false });
             if (error) throw error;
             return data;
         },
@@ -293,7 +304,10 @@ const GarageDashboard = () => {
     const { data: usageLogs } = useQuery({
         queryKey: ["garage-usage"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_inventory_usage").select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name)").order("created_at", { ascending: false });
+            const { data, error } = await sb.from("garage_inventory_usage")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name)")
+                .eq("is_deleted", false)
+                .order("created_at", { ascending: false });
             if (error) throw error;
             return data;
         },
@@ -466,16 +480,111 @@ const GarageDashboard = () => {
 
     const deleteJobMutation = useMutation({
         mutationFn: async ({ jobId, vehicleId }: { jobId: string, vehicleId: string }) => {
-            const { error: de } = await sb.from("garage_job_cards").delete().eq("id", jobId);
+            // 0. Check for approved requisitions - cannot delete if procurement has started
+            const { data: linkedReqs, error: checkError } = await sb
+                .from("garage_requisitions")
+                .select("status")
+                .eq("job_id", jobId)
+                .in("status", ["Approved", "Paid", "Purchased", "Delivered"]);
+
+            if (checkError) throw checkError;
+            if (linkedReqs && linkedReqs.length > 0) {
+                throw new Error("Cannot delete job card: Associated requisitions have already been approved or paid.");
+            }
+
+            const now = new Date().toISOString();
+            // 1. Soft delete the job card
+            const { error: de } = await sb.from("garage_job_cards").update({
+                is_deleted: true,
+                deleted_at: now
+            }).eq("id", jobId);
             if (de) throw de;
+
+            // 2. Soft delete associated faults
+            const { error: fe } = await sb.from("garage_job_faults").update({
+                is_deleted: true,
+                deleted_at: now
+            }).eq("job_id", jobId);
+            if (fe) console.warn("Some faults could not be soft-deleted", fe);
+
+            // 3. Soft delete associated requisitions
+            const { error: re } = await sb.from("garage_requisitions").update({
+                is_deleted: true,
+                deleted_at: now
+            }).eq("job_id", jobId);
+            if (re) console.warn("Some requisitions could not be soft-deleted", re);
+
+            // 4. Soft delete associated inventory usage
+            const { error: ue } = await sb.from("garage_inventory_usage").update({
+                is_deleted: true,
+                deleted_at: now
+            }).eq("vehicle_id", vehicleId).gte("created_at", now.split('T')[0]); // Fallback matching if job_id missing
+            if (ue) console.warn("Some inventory logs could not be soft-deleted", ue);
+
+            // 5. Reset vehicle status to Active
             const { error: ve } = await sb.from("logistics_fleet").update({ asset_status: 'Active' }).eq("id", vehicleId);
             if (ve) throw ve;
         },
         onSuccess: () => {
-            toast({ title: "Job Deleted", description: "Maintenance record removed and vehicle status reset." });
+            toast({ title: "Job Moved to Dustbin", description: "Maintenance record hidden and vehicle status reset." });
             queryClient.invalidateQueries({ queryKey: ["garage-job-cards"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-job-cards-deleted"] });
             queryClient.invalidateQueries({ queryKey: ["garage-vehicles"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-usage"] });
+        },
+        onError: (error: any) => {
+            toast({
+                variant: "destructive",
+                title: "Action Blocked",
+                description: error.message || "Failed to move job to Dustbin."
+            });
         }
+    });
+
+    const restoreJobMutation = useMutation({
+        mutationFn: async ({ jobId, vehicleId }: { jobId: string, vehicleId: string }) => {
+            // 1. Restore the job card
+            const { error: re } = await sb.from("garage_job_cards").update({
+                is_deleted: false,
+                deleted_at: null
+            }).eq("id", jobId);
+            if (re) throw re;
+
+            // 2. Restore associated faults
+            await sb.from("garage_job_faults").update({ is_deleted: false, deleted_at: null }).eq("job_id", jobId);
+
+            // 3. Restore associated requisitions
+            await sb.from("garage_requisitions").update({ is_deleted: false, deleted_at: null }).eq("job_id", jobId);
+
+            // 4. Update vehicle status back to Maintenance
+            await sb.from("logistics_fleet").update({ asset_status: 'Maintenance' }).eq("id", vehicleId);
+        },
+        onSuccess: () => {
+            toast({ title: "Job Restored", description: "Maintenance record has been recovered." });
+            queryClient.invalidateQueries({ queryKey: ["garage-job-cards"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-job-cards-deleted"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-vehicles"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+        }
+    });
+
+    const { data: deletedJobCards, isLoading: isLoadingDeletedJobs } = useQuery({
+        queryKey: ["garage-job-cards-deleted"],
+        queryFn: async () => {
+            const { data, error } = await sb
+                .from("garage_job_cards")
+                .select(`
+                    *, 
+                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type), 
+                    fault_list:garage_job_faults(id, fault_type_id, status, mechanic_notes, mechanic_id, fault_type:garage_fault_types(fault_name, category))
+                `)
+                .eq("is_deleted", true)
+                .order("deleted_at", { ascending: false });
+            if (error) throw error;
+            return data;
+        },
+        enabled: activeTab === 'deleted'
     });
 
     const updateJobStatusMutation = useMutation({
@@ -860,7 +969,13 @@ const GarageDashboard = () => {
                                 <Truck className="h-4 w-4 text-indigo-500" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">{jobCards?.filter(j => j.status !== 'Closed').length || 0}</div>
+                                <div className="text-2xl font-bold text-slate-900">
+                                    {(() => {
+                                        const activeJobs = jobCards?.filter(j => j.status !== 'Closed') || [];
+                                        const uniqueVehicles = new Set(activeJobs.map(j => j.vehicle_id));
+                                        return uniqueVehicles.size;
+                                    })()}
+                                </div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white">
@@ -869,7 +984,13 @@ const GarageDashboard = () => {
                                 <AlertTriangle className="h-4 w-4 text-red-500" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">{jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed').length || 0}</div>
+                                <div className="text-2xl font-bold text-slate-900">
+                                    {(() => {
+                                        const criticalJobs = jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed') || [];
+                                        const uniqueVehicles = new Set(criticalJobs.map(j => j.vehicle_id));
+                                        return uniqueVehicles.size;
+                                    })()}
+                                </div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white">
@@ -1124,6 +1245,21 @@ const GarageDashboard = () => {
                                                             >
                                                                 <Printer className="h-4 w-4" />
                                                             </Button>
+                                                            {(userRole === 'admin' || userRole === 'garage_manager' || userRole === 'super_admin') && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                                                                    onClick={() => {
+                                                                        if (window.confirm(`Are you sure you want to move Job ${job.job_number} to the Dustbin? This will reset the vehicle status to Active.`)) {
+                                                                            deleteJobMutation.mutate({ jobId: job.id, vehicleId: job.vehicle_id });
+                                                                        }
+                                                                    }}
+                                                                    title="Move to Dustbin"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
@@ -1576,6 +1712,78 @@ const GarageDashboard = () => {
                         </TabsContent>
                     </Tabs >
                 </div >
+            ) : activeTab === 'deleted' ? (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                                <Trash2 className="w-6 h-6 text-rose-500" />
+                                Garage Dustbin
+                            </h1>
+                            <p className="text-sm text-slate-500 font-medium">Archived Maintenance Records & Job Cards</p>
+                        </div>
+                    </div>
+
+                    <Card className="border-none shadow-lg bg-white overflow-hidden">
+                        <CardHeader className="bg-slate-50/50 border-b">
+                            <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                <HistoryIcon className="w-4 h-4 text-slate-400" />
+                                Soft-Deleted Job Cards
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-slate-50/30">
+                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Deleted Date</TableHead>
+                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Vehicle</TableHead>
+                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Original Faults</TableHead>
+                                        <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Actions</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {deletedJobCards && deletedJobCards.length > 0 ? (
+                                        deletedJobCards.map((job: any) => (
+                                            <TableRow key={job.id} className="hover:bg-slate-50/50 border-b border-slate-100 last:border-0 transition-colors">
+                                                <TableCell className="text-xs text-slate-500 font-medium">
+                                                    <div className="flex flex-col">
+                                                        <span>{job.deleted_at ? new Date(job.deleted_at).toLocaleDateString() : 'N/A'}</span>
+                                                        <span className="font-mono text-[11px] text-slate-400">{job.deleted_at ? new Date(job.deleted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="font-bold text-slate-700">{job.vehicle?.vehicle_no || job.vehicle?.plate_number}</TableCell>
+                                                <TableCell className="text-sm text-slate-600">
+                                                    {(job.fault_list || []).map((f: any) => f.mechanic_notes || f.fault_type?.fault_name).join(", ") || "No notes"}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 text-[10px] font-bold uppercase tracking-wider text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                                        onClick={() => restoreJobMutation.mutate({ jobId: job.id, vehicleId: job.vehicle_id })}
+                                                        disabled={restoreJobMutation.isPending}
+                                                    >
+                                                        {restoreJobMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : (
+                                                            <>
+                                                                <RefreshCw className="w-3 h-3 mr-1" /> Restore Record
+                                                            </>
+                                                        )}
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="h-24 text-center text-sm text-slate-400 italic">
+                                                No deleted records in the dustbin.
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </div>
             ) : null
             }
 

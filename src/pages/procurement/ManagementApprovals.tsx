@@ -61,6 +61,7 @@ const ManagementApprovals = () => {
                     profiles!requested_by(full_name)
                 `)
                 .eq("status", "Awaiting Approval")
+                .eq("is_deleted", false)
                 .order("created_at", { ascending: true });
 
             if (error) throw error;

@@ -73,40 +73,43 @@ export default function GuardianEye() {
     const [dismissTarget, setDismissTarget] = useState<AuditLog | null>(null);
     const [dismissReason, setDismissReason] = useState("");
 
-    // --- Fetch Ghost Photos ---
-    const { data: ghostLogs = [], isLoading: isLoadingGhost, refetch: refetchGhost } = useQuery({
-        queryKey: ["guardian-ghost", selectedDate, selectedShift],
+    // --- Fetch Local Photos from Central Server ---
+    const { data: localPhotos = [], isLoading: isLoadingLocal, refetch: refetchLocal } = useQuery({
+        queryKey: ["guardian-local-photos", selectedDate],
         queryFn: async () => {
-            let query = (supabase as any)
-                .from("camera_audit_logs")
-                .select("*")
-                .eq("type", "ghost")
-                .gte("timestamp", format(startOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss"))
-                .lte("timestamp", format(endOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss"));
+            const dateStr = format(selectedDate, 'yyyy-MM-dd');
+            console.log("🔍 Fetching Local Photos for:", dateStr);
 
-            if (selectedShift !== "all") {
-                query = query.eq("shift", selectedShift === "day" ? "Day_Shift" : "Night_Shift");
+            try {
+                const response = await fetch(`${SERVER_URL}/api/photos/list-local?date=${dateStr}`);
+                const result = await response.json();
+
+                if (!result.success) throw new Error(result.error);
+
+                console.log(`✅ Local Photos Found: ${result.photos?.length || 0} items`);
+                return (result.photos || []) as any[];
+            } catch (err) {
+                console.error("❌ Local Photo Fetch Error:", err);
+                return [];
             }
-
-            const { data, error } = await query.order("timestamp", { ascending: false });
-            if (error) throw error;
-            return data as AuditLog[];
         },
-        refetchInterval: 30000, // Stabilized to 30s to prevent UI flicker
+        refetchInterval: 30000,
     });
 
     // --- Fetch Verified Entries ---
     const { data: verifiedEntries = [], isLoading: isLoadingVerified, refetch: refetchVerified } = useQuery({
         queryKey: ["guardian-verified", selectedDate, selectedShift],
         queryFn: async () => {
-            const dayStart = format(startOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss");
-            const dayEnd = format(endOfDay(selectedDate), "yyyy-MM-dd'T'HH:mm:ss");
+            const dayStart = startOfDay(selectedDate).toISOString();
+            const dayEnd = endOfDay(selectedDate).toISOString();
+
+            console.log("🔍 Fetching Verified Entries:", { dayStart, dayEnd, shift: selectedShift });
 
             let query = (supabase as any)
                 .from("vehicle_entries")
                 .select(`
-                  id, vehicle_no, entry_time, wb_number, gross_weight, entered_by,
-                  weigh_records (photo_url)
+                  id, vehicle_no, entry_time, wb_number, entered_by,
+                  weigh_records (gross_weight, photo_url)
                 `)
                 .gte("entry_time", dayStart)
                 .lte("entry_time", dayEnd);
@@ -114,9 +117,10 @@ export default function GuardianEye() {
             const { data, error } = await query.order("entry_time", { ascending: false });
 
             if (error) {
-                console.error("Supabase Query Error (Verified Entries):", error);
+                console.error("❌ Verified Entries Query Error:", error);
                 throw error;
             }
+            console.log(`✅ Verified Entries Received: ${data?.length || 0} items`);
 
             // Apply shift filter locally since we don't have a shift column
             let filteredData = data;
@@ -130,6 +134,7 @@ export default function GuardianEye() {
 
             return (filteredData as any[]).map(entry => ({
                 ...entry,
+                gross_weight: entry.weigh_records?.[0]?.gross_weight || 0,
                 vehicle_type: "Vehicle", // Simplified to restore functionality
                 operator_photo_url: entry.weigh_records?.[0]?.photo_url || null,
                 entered_by: entry.entered_by || "Unknown"
@@ -139,7 +144,7 @@ export default function GuardianEye() {
     });
 
     const refetchAll = () => {
-        refetchGhost();
+        refetchLocal();
         refetchVerified();
     };
 
@@ -148,38 +153,42 @@ export default function GuardianEye() {
         const events: { id: string, timestamp: string, entry: VehicleEntry | null, ghost: AuditLog | null, status: 'matched' | 'missing_manual' | 'missing_ghost' | 'dismissed' }[] = [];
         const matchedEntryIds = new Set<string>();
 
-        // 1. Process all Hardware Ghost Logs
-        ghostLogs.forEach(ghost => {
-            if (ghost.dismissed) {
-                events.push({ id: `ghost-${ghost.id}`, timestamp: ghost.timestamp, entry: null, ghost, status: "dismissed" });
-                return;
-            }
+        // 1. Process all Local Ghost Photos discovered on the server
+        const ghostPhotos = localPhotos.filter(p => p.type === 'ghost');
 
-            const sessionStart = ghost.session_start ? new Date(ghost.session_start) : null;
-            const sessionEnd = ghost.session_end ? new Date(ghost.session_end) : null;
+        ghostPhotos.forEach(ghost => {
+            // Check if there's a match in verified entries (within 10 mins)
+            const ghostTime = new Date(ghost.timestamp);
 
             const match = verifiedEntries.find(entry => {
                 const entryTime = new Date(entry.entry_time);
-                if (sessionStart && sessionEnd) {
-                    return entryTime >= sessionStart && entryTime <= sessionEnd;
-                }
-                const ghostTime = new Date(ghost.timestamp);
                 const diffMs = Math.abs(entryTime.getTime() - ghostTime.getTime());
                 return diffMs <= 10 * 60 * 1000;
             });
 
             if (match) {
                 matchedEntryIds.add(match.id);
-                events.push({ id: `match-${ghost.id}-${match.id}`, timestamp: ghost.timestamp, entry: match, ghost, status: "matched" });
+                events.push({
+                    id: `match-${ghost.filename}-${match.id}`,
+                    timestamp: ghost.timestamp,
+                    entry: match,
+                    ghost: { ...ghost, photo_filename: ghost.filename } as any,
+                    status: "matched"
+                });
             } else {
-                events.push({ id: `ghost-${ghost.id}`, timestamp: ghost.timestamp, entry: null, ghost, status: "missing_manual" });
+                events.push({
+                    id: `ghost-${ghost.filename}`,
+                    timestamp: ghost.timestamp,
+                    entry: null,
+                    ghost: { ...ghost, photo_filename: ghost.filename } as any,
+                    status: "missing_manual"
+                });
             }
         });
 
-        // 2. Process all Operator Entries
+        // 2. Process all Operator Entries from Supabase
         verifiedEntries.forEach(entry => {
             if (!matchedEntryIds.has(entry.id)) {
-                // Determine timestamp prioritizing ghost but falling back to entry_time
                 events.push({ id: `entry-${entry.id}`, timestamp: entry.entry_time, entry, ghost: null, status: "missing_ghost" });
             }
         });
@@ -188,7 +197,7 @@ export default function GuardianEye() {
         events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
         return events;
-    }, [ghostLogs, verifiedEntries]);
+    }, [localPhotos, verifiedEntries]);
 
     // --- Dismiss mutation ---
     const dismissMutation = useMutation({
@@ -209,7 +218,7 @@ export default function GuardianEye() {
             toast({ title: "Dismissed", description: "Ghost entry has been dismissed and logged." });
             setDismissTarget(null);
             setDismissReason("");
-            refetchGhost();
+            refetchLocal();
         },
         onError: () => {
             toast({ title: "Error", description: "Could not dismiss entry.", variant: "destructive" });
@@ -222,12 +231,9 @@ export default function GuardianEye() {
         dismissMutation.mutate({ id: dismissTarget.id, reason: dismissReason });
     };
 
-    const getGhostPhotoUrl = (log: AuditLog) => {
-        if (!log.photo_filename) return "/placeholder-image.jpg";
-        const dateStr = new Date(log.timestamp).toLocaleString('default', { month: 'long' }) + "-" + new Date(log.timestamp).getFullYear();
-        const weekNo = Math.ceil(new Date(log.timestamp).getDate() / 7);
-        const day = new Date(log.timestamp).getDate().toString().padStart(2, '0');
-        return `${SERVER_URL}/photos/${dateStr}/Week_${weekNo}/Day_${day}/${log.shift}/Ghost/${log.photo_filename}`;
+    const getGhostPhotoUrl = (log: any) => {
+        if (!log.path) return "/placeholder-image.jpg";
+        return `${SERVER_URL}/photos${log.path.startsWith('/') ? '' : '/'}${log.path}`;
     };
 
     const getManualPhotoUrl = (entry: VehicleEntry) => {
@@ -283,8 +289,13 @@ export default function GuardianEye() {
                             type="date"
                             value={format(selectedDate, 'yyyy-MM-dd')}
                             onChange={(e) => {
-                                const newDate = new Date(e.target.value);
-                                if (!isNaN(newDate.getTime())) {
+                                const [y, m, d] = e.target.value.split('-').map(Number);
+                                if (y && m && d) {
+                                    const newDate = new Date();
+                                    newDate.setFullYear(y);
+                                    newDate.setMonth(m - 1);
+                                    newDate.setDate(d);
+                                    newDate.setHours(0, 0, 0, 0);
                                     setSelectedDate(newDate);
                                 }
                             }}
@@ -388,7 +399,7 @@ export default function GuardianEye() {
                     </CardHeader>
                     <ScrollArea className="flex-1">
                         <CardContent className="p-4 sm:p-6 space-y-6 bg-slate-50/30">
-                            {isLoadingGhost || isLoadingVerified ? (
+                            {isLoadingLocal || isLoadingVerified ? (
                                 Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-48 w-full rounded-xl" />)
                             ) : unifiedEvents.length === 0 ? (
                                 <div className="text-center py-24 text-slate-400">

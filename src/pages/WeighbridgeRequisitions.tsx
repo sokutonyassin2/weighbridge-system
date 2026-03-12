@@ -32,6 +32,7 @@ export default function WeighbridgeRequisitions() {
             const { data, error } = await sb
                 .from("garage_requisitions")
                 .select("*, profiles!requested_by(full_name)")
+                .eq("is_deleted", false)
                 .eq("target_company", "Energy Feeds Weighbridge")
                 .order("created_at", { ascending: false });
             if (error) throw error;

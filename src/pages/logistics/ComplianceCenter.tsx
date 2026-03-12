@@ -143,6 +143,7 @@ const ComplianceCenter = () => {
             const { count } = await supabase
                 .from("garage_requisitions" as any)
                 .select("id", { count: 'exact', head: true })
+                .eq("is_deleted", false)
                 .gte("created_at", today.toISOString().split('T')[0]);
             const serial = (count || 0) + 1;
             const poNumber = `PO-${dateStr}-${serial.toString().padStart(4, '0')}`;

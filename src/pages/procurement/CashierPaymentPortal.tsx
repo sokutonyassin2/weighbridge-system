@@ -46,6 +46,7 @@ const CashierPaymentPortal = () => {
                     profiles!requested_by(full_name)
                 `)
                 .eq("status", "Approved")
+                .eq("is_deleted", false)
                 .order("status_updated_at", { ascending: true });
 
             if (error) throw error;
@@ -67,6 +68,7 @@ const CashierPaymentPortal = () => {
                     profiles!requested_by(full_name)
                 `)
                 .eq("status", "Paid")
+                .eq("is_deleted", false)
                 .order("status_updated_at", { ascending: true });
 
             if (error) throw error;
@@ -88,6 +90,7 @@ const CashierPaymentPortal = () => {
                     profiles!requested_by(full_name)
                 `)
                 .or("status.eq.Paid,status.eq.Closed")
+                .eq("is_deleted", false)
                 .order("status_updated_at", { ascending: false });
 
             if (error) throw error;

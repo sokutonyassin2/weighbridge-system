@@ -65,6 +65,7 @@ export default function FinanceDashboard() {
             const { data: requisitions } = await (supabase as any)
                 .from("garage_requisitions")
                 .select("total_price, created_at, status")
+                .eq("is_deleted", false)
                 .in("status", ["Purchased", "Received", "Paid"])
                 .gte("created_at", monthStart.toISOString())
                 .lte("created_at", monthEnd.toISOString());
@@ -116,6 +117,7 @@ export default function FinanceDashboard() {
             const { data: purchases } = await (supabase as any)
                 .from("garage_requisitions")
                 .select("total_price, item_name, created_at, status")
+                .eq("is_deleted", false)
                 .in("status", ["Purchased", "Paid"])
                 .order("total_price", { ascending: false })
                 .limit(5);

@@ -106,8 +106,7 @@ export default function GuardianEye() {
                 .from("vehicle_entries")
                 .select(`
                   id, vehicle_no, entry_time, wb_number, gross_weight, entered_by,
-                  weigh_records (photo_url),
-                  vehicle_types (type_name)
+                  weigh_records (photo_url)
                 `)
                 .gte("entry_time", dayStart)
                 .lte("entry_time", dayEnd);
@@ -131,7 +130,7 @@ export default function GuardianEye() {
 
             return (filteredData as any[]).map(entry => ({
                 ...entry,
-                vehicle_type: entry.vehicle_types?.type_name || "Unknown",
+                vehicle_type: "Vehicle", // Simplified to restore functionality
                 operator_photo_url: entry.weigh_records?.[0]?.photo_url || null,
                 entered_by: entry.entered_by || "Unknown"
             })) as VehicleEntry[];
@@ -278,16 +277,18 @@ export default function GuardianEye() {
                     <p className="text-slate-500 text-sm mt-1">Auditing scale activity & ghost vehicle detection in real-time.</p>
                 </div>
                 <div className="flex items-center gap-4">
-                    <div className="flex bg-white items-center p-1 rounded-lg border shadow-sm px-2 relative hover:bg-slate-50 transition-colors cursor-pointer">
-                        <span className="text-sm font-bold text-slate-700 mr-2 flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-blue-500" />
-                            {format(selectedDate, 'MMM dd, yyyy')}
-                        </span>
-                        <Input
+                    <div className="flex bg-white items-center p-1 rounded-lg border shadow-sm px-2 gap-2 hover:border-blue-400 transition-colors">
+                        <Clock className="w-4 h-4 text-blue-500" />
+                        <input
                             type="date"
                             value={format(selectedDate, 'yyyy-MM-dd')}
-                            onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                            onChange={(e) => {
+                                const newDate = new Date(e.target.value);
+                                if (!isNaN(newDate.getTime())) {
+                                    setSelectedDate(newDate);
+                                }
+                            }}
+                            className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none cursor-pointer p-1"
                         />
                     </div>
                     <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">

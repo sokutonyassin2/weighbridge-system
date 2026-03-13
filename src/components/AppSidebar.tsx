@@ -41,7 +41,6 @@ const weighbridgeItems = [
   { title: "Receipt Settings", url: "/admin/receipt-settings", icon: Settings, roles: ["super_admin"] },
   { title: "Weight Settings", url: "/admin/weight-settings", icon: Scale, roles: ["super_admin"] },
   { title: "All Entries", url: "/all-entries", icon: List, roles: ["super_admin"] },
-  { title: "Guardian Eye", url: "/guardian-eye", icon: Eye, roles: ["admin", "super_admin", "observer"] },
 ];
 
 const logisticsItems = [
@@ -449,7 +448,7 @@ export function AppSidebar() {
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild tooltip="Guardian Eye">
                       <NavLink
-                        to="/observer"
+                        to="/guardian-eye"
                         className={({ isActive }) =>
                           `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
                             ? "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-[1.02]"

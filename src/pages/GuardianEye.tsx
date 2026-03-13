@@ -14,9 +14,10 @@ import {
     History as HistoryIcon,
     Truck,
     Monitor,
-    ShieldCheck,
     User,
-    XCircle
+    XCircle,
+    ChevronLeft,
+    ChevronRight
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +73,7 @@ export default function GuardianEye() {
     const [selectedZoomImage, setSelectedZoomImage] = useState<string | null>(null);
     const [dismissTarget, setDismissTarget] = useState<AuditLog | null>(null);
     const [dismissReason, setDismissReason] = useState("");
+    const [activeGhostIndex, setActiveGhostIndex] = useState<Record<string, number>>({});
 
     // --- Fetch Local Photos from Central Server ---
     const { data: localPhotos = [], isLoading: isLoadingLocal, refetch: refetchLocal } = useQuery({
@@ -118,24 +120,26 @@ export default function GuardianEye() {
 
             if (error) {
                 console.error("❌ Verified Entries Query Error:", error);
-                throw error;
+                return [];
             }
+
             console.log(`✅ Verified Entries Received: ${data?.length || 0} items`);
 
-            // Apply shift filter locally since we don't have a shift column
-            let filteredData = data;
+            // Apply shift filter safely
+            let filteredData = data || [];
             if (selectedShift !== "all") {
-                filteredData = data.filter(entry => {
-                    const hour = new Date(entry.entry_time).getHours();
+                filteredData = (data as any[] || []).filter(entry => {
+                    const entryTime = entry.entry_time ? new Date(entry.entry_time) : new Date();
+                    const hour = entryTime.getHours();
                     const isDay = hour >= 7 && hour < 18;
                     return selectedShift === 'day' ? isDay : !isDay;
                 });
             }
 
-            return (filteredData as any[]).map(entry => ({
+            return (filteredData as any[] || []).map(entry => ({
                 ...entry,
                 gross_weight: entry.weigh_records?.[0]?.gross_weight || 0,
-                vehicle_type: "Vehicle", // Simplified to restore functionality
+                vehicle_type: "Vehicle",
                 operator_photo_url: entry.weigh_records?.[0]?.photo_url || null,
                 entered_by: entry.entered_by || "Unknown"
             })) as VehicleEntry[];
@@ -150,54 +154,101 @@ export default function GuardianEye() {
 
     // --- Create Unified Event Feed ---
     const unifiedEvents = useMemo(() => {
-        const events: { id: string, timestamp: string, entry: VehicleEntry | null, ghost: AuditLog | null, status: 'matched' | 'missing_manual' | 'missing_ghost' | 'dismissed' }[] = [];
-        const matchedEntryIds = new Set<string>();
+        const events: { id: string, timestamp: string, entry: VehicleEntry | null, ghosts: AuditLog[], status: 'matched' | 'missing_manual' | 'missing_ghost' | 'dismissed' }[] = [];
+        const matchedGhostIds = new Set<string>();
+
+        // Fix invalid ISO strings with colon before milliseconds (e.g. 2026-03-12T10:45:30:123Z -> 2026-03-12T10:45:30.123Z)
+        const parseGhostTime = (ts: string) => {
+            const cleanTs = ts.replace(/:(\d{3}Z)$/, '.$1');
+            const date = new Date(cleanTs);
+            return isNaN(date.getTime()) ? new Date() : date;
+        };
 
         // 1. Process all Local Ghost Photos discovered on the server
-        const ghostPhotos = localPhotos.filter(p => p.type === 'ghost');
+        let ghostPhotos = localPhotos.filter(p => p.type === 'ghost');
 
-        ghostPhotos.forEach(ghost => {
-            // Check if there's a match in verified entries (within 10 mins)
-            const ghostTime = new Date(ghost.timestamp);
+        // Match the selected shift if not "all"
+        if (selectedShift !== "all") {
+            const shiftName = selectedShift === "day" ? "Day_Shift" : "Night_Shift";
+            ghostPhotos = ghostPhotos.filter(p => p.shift === shiftName);
+        }
 
-            const match = verifiedEntries.find(entry => {
-                const entryTime = new Date(entry.entry_time);
-                const diffMs = Math.abs(entryTime.getTime() - ghostTime.getTime());
-                return diffMs <= 10 * 60 * 1000;
+        // We want to match Verified Entries to the CLOSEST Ghost Photos
+        (verifiedEntries || []).forEach(entry => {
+            const entryTime = new Date(entry.entry_time).getTime();
+
+            // Find all ghost photos within 30 minutes
+            const matchedGhosts = ghostPhotos.filter(ghost => {
+                const ghostTime = parseGhostTime(ghost.timestamp).getTime();
+                return Math.abs(entryTime - ghostTime) <= 30 * 60 * 1000;
+            }).sort((a, b) => {
+                const diffA = Math.abs(parseGhostTime(a.timestamp).getTime() - entryTime);
+                const diffB = Math.abs(parseGhostTime(b.timestamp).getTime() - entryTime);
+                return diffA - diffB;
             });
 
-            if (match) {
-                matchedEntryIds.add(match.id);
+            if (matchedGhosts.length > 0) {
+                // We have one or more matches! Form a single block.
+                matchedGhosts.forEach(g => matchedGhostIds.add(g.filename));
+
                 events.push({
-                    id: `match-${ghost.filename}-${match.id}`,
-                    timestamp: ghost.timestamp,
-                    entry: match,
-                    ghost: { ...ghost, photo_filename: ghost.filename } as any,
+                    id: `match-entry-${entry.id}`,
+                    timestamp: matchedGhosts[0].timestamp, // use the closest ghost timestamp
+                    entry: entry,
+                    ghosts: matchedGhosts.map(g => ({ ...g, photo_filename: g.filename } as any)),
                     status: "matched"
                 });
             } else {
                 events.push({
-                    id: `ghost-${ghost.filename}`,
-                    timestamp: ghost.timestamp,
-                    entry: null,
-                    ghost: { ...ghost, photo_filename: ghost.filename } as any,
-                    status: "missing_manual"
+                    id: `entry-${entry.id}`,
+                    timestamp: entry.entry_time,
+                    entry: entry,
+                    ghosts: [],
+                    status: "missing_ghost"
                 });
             }
         });
 
-        // 2. Process all Operator Entries from Supabase
-        verifiedEntries.forEach(entry => {
-            if (!matchedEntryIds.has(entry.id)) {
-                events.push({ id: `entry-${entry.id}`, timestamp: entry.entry_time, entry, ghost: null, status: "missing_ghost" });
+        // 2. Any ghost photos that didn't get matched to an entry are missing an operator entry
+        const unmatchedGhosts = ghostPhotos.filter(g => !matchedGhostIds.has(g.filename));
+
+        // Group them by proximity (within 5 minutes of each other) to avoid double blocks
+        const groupedUnmatched: any[][] = [];
+        unmatchedGhosts.forEach(ghost => {
+            let foundGroup = false;
+            for (const group of groupedUnmatched) {
+                const groupTime = parseGhostTime(group[0].timestamp).getTime();
+                const thisTime = parseGhostTime(ghost.timestamp).getTime();
+                if (Math.abs(groupTime - thisTime) <= 5 * 60 * 1000) {
+                    group.push(ghost);
+                    foundGroup = true;
+                    break;
+                }
+            }
+            if (!foundGroup) {
+                groupedUnmatched.push([ghost]);
             }
         });
 
-        // Sort by timestamp descending
-        events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        groupedUnmatched.forEach(group => {
+            events.push({
+                id: `ghost-${group[0].filename}`,
+                timestamp: group[0].timestamp,
+                entry: null,
+                ghosts: group.map((g: any) => ({ ...g, photo_filename: g.filename } as any)),
+                status: "missing_manual"
+            });
+        });
+
+        // Sort by timestamp descending - safely
+        events.sort((a, b) => {
+            const timeA = a.timestamp ? parseGhostTime(a.timestamp).getTime() : 0;
+            const timeB = b.timestamp ? parseGhostTime(b.timestamp).getTime() : 0;
+            return timeB - timeA;
+        });
 
         return events;
-    }, [localPhotos, verifiedEntries]);
+    }, [localPhotos, verifiedEntries, selectedShift]);
 
     // --- Dismiss mutation ---
     const dismissMutation = useMutation({
@@ -241,12 +292,17 @@ export default function GuardianEye() {
         // If it's already a full URL, return it
         if (entry.operator_photo_url.startsWith('http')) return entry.operator_photo_url;
 
-        // If it starts with file://, it's a local MacBook path - we need to convert to Central Server path
-        // MacBook paths look like: /Users/Shared/WeighbridgePhotos/Month-Year/Week_N/Day_DD/Shift/filename.jpg
-        // We want: http://192.168.1.216:5000/photos/Month-Year/Week_N/Day_DD/Shift/filename.jpg
-
+        // Covert macOS paths to central server URL
         if (entry.operator_photo_url.includes('WeighbridgePhotos')) {
             const parts = entry.operator_photo_url.split('WeighbridgePhotos');
+            if (parts.length > 1) {
+                return `${SERVER_URL}/photos${parts[1].replace(/\\/g, '/')}`;
+            }
+        }
+
+        // Convert Windows paths to central server URL
+        if (entry.operator_photo_url.includes('CameraPhotos')) {
+            const parts = entry.operator_photo_url.split('CameraPhotos');
             if (parts.length > 1) {
                 return `${SERVER_URL}/photos${parts[1].replace(/\\/g, '/')}`;
             }
@@ -265,8 +321,19 @@ export default function GuardianEye() {
     };
 
     const getShiftFromDate = (dateString: string) => {
-        const hour = new Date(dateString).getHours();
+        if (!dateString) return "Unknown Shift";
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return "Unknown Shift";
+        const hour = date.getHours();
         return hour >= 7 && hour < 18 ? "Day Shift" : "Night Shift";
+    };
+
+    const safeFormat = (dateString: string | undefined | null, formatStr: string) => {
+        if (!dateString) return "—";
+        const cleanTs = dateString.replace(/:(\d{3}Z)$/, '.$1');
+        const date = new Date(cleanTs);
+        if (isNaN(date.getTime())) return "—";
+        return format(date, formatStr);
     };
 
     const ghostDetections = unifiedEvents.filter(r => r.status === 'missing_manual').length;
@@ -430,7 +497,7 @@ export default function GuardianEye() {
                                                 )}
                                                 <div className="flex items-center gap-1.5 text-sm font-bold text-slate-500 bg-slate-100/80 px-2.5 py-1 rounded-md border border-slate-200">
                                                     <Clock className="w-3.5 h-3.5" />
-                                                    {format(new Date(event.timestamp), 'HH:mm:ss aa')}
+                                                    {safeFormat(event.timestamp, 'HH:mm:ss aa')}
                                                 </div>
                                             </div>
 
@@ -492,21 +559,56 @@ export default function GuardianEye() {
                                                     <p className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
                                                         <Activity className="w-4 h-4 text-red-500" /> Hardware Capture
                                                     </p>
-                                                    {event.ghost && <span className="text-slate-400 font-bold text-[10px] bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">Scale: {event.ghost.detected_weight?.toLocaleString() || "—"} kg</span>}
+                                                    {event.ghosts && event.ghosts.length > 0 && <span className="text-slate-400 font-bold text-[10px] bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">Scale: {event.ghosts[activeGhostIndex[event.id] || 0]?.detected_weight?.toLocaleString() || "—"} kg</span>}
                                                 </div>
-                                                <div className={`relative w-full aspect-[4/3] rounded-xl overflow-hidden border-2 ${!event.ghost ? 'bg-amber-50/50 border-amber-200 border-dashed flex flex-col items-center justify-center text-amber-600' : 'bg-slate-100 border-slate-200 shadow-inner'}`}>
-                                                    {event.ghost ? (
+                                                <div className={`relative w-full aspect-[4/3] rounded-xl overflow-hidden border-2 ${!event.ghosts || event.ghosts.length === 0 ? 'bg-amber-50/50 border-amber-200 border-dashed flex flex-col items-center justify-center text-amber-600' : 'bg-slate-100 border-slate-200 shadow-inner group'}`}>
+                                                    {event.ghosts && event.ghosts.length > 0 ? (
                                                         <>
                                                             <img
-                                                                src={getGhostPhotoUrl(event.ghost)}
+                                                                src={getGhostPhotoUrl(event.ghosts[activeGhostIndex[event.id] || 0])}
                                                                 className="w-full h-full object-cover cursor-zoom-in hover:scale-[1.02] transition-transform duration-300"
-                                                                onClick={() => setSelectedZoomImage(getGhostPhotoUrl(event.ghost))}
+                                                                onClick={() => setSelectedZoomImage(getGhostPhotoUrl(event.ghosts[activeGhostIndex[event.id] || 0]))}
                                                                 alt="Auto Capture"
                                                                 onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
                                                             />
                                                             <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded font-medium shadow-lg flex items-center gap-1.5 border border-white/10">
                                                                 <Activity className="w-3.5 h-3.5 text-red-400" /> AI Detection
                                                             </div>
+
+                                                            {/* Image Slider Controls */}
+                                                            {event.ghosts.length > 1 && (
+                                                                <>
+                                                                    <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold shadow-lg flex items-center gap-1.5 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        Image {(activeGhostIndex[event.id] || 0) + 1} of {event.ghosts.length}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setActiveGhostIndex(prev => ({
+                                                                                ...prev,
+                                                                                [event.id]: Math.max(0, (prev[event.id] || 0) - 1)
+                                                                            }));
+                                                                        }}
+                                                                        disabled={(activeGhostIndex[event.id] || 0) === 0}
+                                                                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white p-1.5 rounded-full disabled:opacity-30 disabled:hover:bg-black/50 transition-all opacity-0 group-hover:opacity-100"
+                                                                    >
+                                                                        <ChevronLeft className="w-4 h-4" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setActiveGhostIndex(prev => ({
+                                                                                ...prev,
+                                                                                [event.id]: Math.min(event.ghosts.length - 1, (prev[event.id] || 0) + 1)
+                                                                            }));
+                                                                        }}
+                                                                        disabled={(activeGhostIndex[event.id] || 0) === event.ghosts.length - 1}
+                                                                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-white p-1.5 rounded-full disabled:opacity-30 disabled:hover:bg-black/50 transition-all opacity-0 group-hover:opacity-100"
+                                                                    >
+                                                                        <ChevronRight className="w-4 h-4" />
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                         </>
                                                     ) : (
                                                         <div className="text-center p-6 bg-amber-50/50 w-full h-full flex flex-col items-center justify-center">
@@ -530,14 +632,14 @@ export default function GuardianEye() {
                                                     </div>
                                                     <div>
                                                         <p className="text-sm font-bold text-red-800">Unrecorded Vehicle Detected</p>
-                                                        <p className="text-xs text-red-600/80 font-medium mt-0.5">A vehicle was stable on the scale ({event.ghost?.detected_weight} kg) without a digital entry being saved by the operator.</p>
+                                                        <p className="text-xs text-red-600/80 font-medium mt-0.5">A vehicle was stable on the scale ({event.ghosts[0]?.detected_weight} kg) without a digital entry being saved by the operator.</p>
                                                     </div>
                                                 </div>
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="w-full sm:w-auto border-red-200 text-red-700 bg-white hover:bg-red-60 hover:text-red-800 text-xs font-bold shadow-sm"
-                                                    onClick={() => setDismissTarget(event.ghost!)}
+                                                    className="w-full sm:w-auto border-red-200 text-red-700 bg-white hover:bg-red-600 hover:text-white text-xs font-bold shadow-sm"
+                                                    onClick={() => setDismissTarget(event.ghosts[0]!)}
                                                 >
                                                     Dismiss False Alarm
                                                 </Button>

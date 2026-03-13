@@ -40,6 +40,7 @@ let lastCaptureTime = 0; // Debounce timestamp
 let sessionStartTime = null; // Timestamp when vehicle first detected > 500kg
 let sessionEndTime = null;   // Timestamp when vehicle leaves scale
 let ghostCapturedThisSession = false; // Prevent multiple ghost shots per vehicle
+let sessionEndTimeout = null; // Prevent "bounce" closures
 const CAPTURE_COOLDOWN_MS = 60000; // 60 Seconds between auto-captures for same truck
 const STABILITY_THRESHOLD = 60; // ~1 minute of consistent readings at ~1 reading/sec
 const WEIGHT_SENSITIVITY = 100; // KG difference to consider a "new" position
@@ -184,6 +185,13 @@ function setupSerialHandlers() {
           stabilityCounter = 0;
         }
 
+        // The truck is on the scale, clear any pending session closure if they bounced earlier
+        if (sessionEndTimeout) {
+          clearTimeout(sessionEndTimeout);
+          sessionEndTimeout = null;
+          console.log("🚛 Truck bounced but recovered, keeping session active");
+        }
+
         if (Math.abs(cleanNumber - lastStableWeight) < 20) {
           stabilityCounter++;
           if (stabilityCounter >= STABILITY_THRESHOLD && !ghostCapturedThisSession) {
@@ -197,19 +205,25 @@ function setupSerialHandlers() {
         }
       } else {
         if (sessionActive && cleanNumber < 100) {
-          sessionEndTime = new Date().toISOString();
-          console.log(`🏁 Vehicle Session Ended. Start: ${sessionStartTime} | End: ${sessionEndTime}`);
-          if (ghostCapturedThisSession) {
-            updateLastGhostSessionEnd(sessionStartTime, sessionEndTime);
+          if (!sessionEndTimeout) {
+            console.log("⏱️ Weight dropped below 100kg. Starting 15s debounce...");
+            sessionEndTimeout = setTimeout(() => {
+              sessionEndTime = new Date().toISOString();
+              console.log(`🏁 Vehicle Session Ended. Start: ${sessionStartTime} | End: ${sessionEndTime}`);
+              if (ghostCapturedThisSession) {
+                updateLastGhostSessionEnd(sessionStartTime, sessionEndTime);
+              }
+              sessionActive = false;
+              stableWeightCount = 0;
+              manualCapturePerformed = false;
+              ghostCapturedThisSession = false;
+              stabilityCounter = 0;
+              lastCaptureTime = 0;
+              sessionStartTime = null;
+              sessionEndTime = null;
+              sessionEndTimeout = null;
+            }, 15000); // Wait 15 seconds to ensure truck actually left
           }
-          sessionActive = false;
-          stableWeightCount = 0;
-          manualCapturePerformed = false;
-          ghostCapturedThisSession = false;
-          stabilityCounter = 0;
-          lastCaptureTime = 0;
-          sessionStartTime = null;
-          sessionEndTime = null;
         }
       }
       io.emit("liveWeightUpdate", { weight: latestWeight });

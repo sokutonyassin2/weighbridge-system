@@ -1137,9 +1137,9 @@ Please process payment in Cashier section first.`,
                       </div>
                     )}
                     {printData.pulling_gvm && (
-                      <div className="flex justify-between items-center bg-primary/5 p-1 rounded">
-                        <span className="font-bold">Pulling GVM (Gross + GTM):</span>
-                        <span className="font-black text-primary">{printData.pulling_gvm} kg</span>
+                      <div className="flex justify-between items-center bg-blue-50/50 p-2 rounded border border-blue-100 dark:bg-blue-900/10 dark:border-blue-800">
+                        <span className="font-bold text-sm">Pulling GVM (Gross + GTM):</span>
+                        <span className="font-black text-xl text-primary">{Number(printData.pulling_gvm).toLocaleString()} kg</span>
                       </div>
                     )}
                   </div>
@@ -1383,7 +1383,7 @@ Please process payment in Cashier section first.`,
                           <WeightCaptureButtons
                             onCaptureGross={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
                             onCaptureTare={(w) => setWeighData({ ...weighData, tare_weight: w.toString() })}
-                            onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString(), gross_weight: w.toString() })}
+                            onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString() })}
                             onCaptureGTM={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
                             onCaptureTrailer={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
                             showGVMFields={isJVCategory || entry?.category === "Transit" || isPullingType}

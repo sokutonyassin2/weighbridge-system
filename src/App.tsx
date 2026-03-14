@@ -47,6 +47,7 @@ import ManagementApprovals from "./pages/procurement/ManagementApprovals";
 import CashierPaymentPortal from "./pages/procurement/CashierPaymentPortal";
 import ProcurementReports from "./pages/procurement/ProcurementReports";
 import GuardianEye from "./pages/GuardianEye";
+import TripSheets from "./pages/logistics/TripSheets";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -388,6 +389,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <TripManagement />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/tripsheets"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TripSheets />
                   </Layout>
                 </ProtectedRoute>
               }

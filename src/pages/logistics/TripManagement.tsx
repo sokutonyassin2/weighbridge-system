@@ -15,12 +15,13 @@ import {
     MapPin, Calendar, Truck, User, Package, Plus, Search,
     ArrowRight, Clock, CheckCircle2, AlertTriangle, FileText,
     Navigation, RefreshCw, Filter, Printer, Check, ChevronsUpDown,
-    Pencil, Trash2
+    Pencil, Trash2, DollarSign, Map
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { TripSheet } from "@/components/logistics/TripSheet";
 
 // Types
 type TripStatus = 'Planned' | 'Dispatched' | 'In Transit' | 'At Destination' | 'Returning' | 'Completed' | 'Cancelled';
@@ -44,6 +45,8 @@ const TripManagement = () => {
     const [podFile, setPodFile] = useState<File | null>(null);
     const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
     const [isTrailerPopoverOpen, setIsTrailerPopoverOpen] = useState(false);
+    const [isTripSheetOpen, setIsTripSheetOpen] = useState(false);
+    const [selectedTripForSheet, setSelectedTripForSheet] = useState<any>(null);
 
     // De-cluttering State
     const [dateRange, setDateRange] = useState<"Today" | "Yesterday" | "7Days" | "All">("All");
@@ -499,6 +502,18 @@ const TripManagement = () => {
                                                 }}
                                             >
                                                 <Printer className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-slate-400 hover:text-emerald-600"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedTripForSheet(trip);
+                                                    setIsTripSheetOpen(true);
+                                                }}
+                                            >
+                                                <DollarSign className="h-4 w-4" />
                                             </Button>
                                         </div>
                                     </div>
@@ -1159,6 +1174,38 @@ const TripManagement = () => {
                             Confirm Completion
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Trip Financials (Trip Sheet) Dialog */}
+            <Dialog open={isTripSheetOpen} onOpenChange={setIsTripSheetOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-none bg-slate-50/50 backdrop-blur-xl">
+                    <DialogHeader className="p-6 pb-2 sticky top-0 bg-white/80 backdrop-blur-md z-10 border-b">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+                                    <Map className="text-primary" />
+                                    Trip Sheet: {selectedTripForSheet?.trip_number}
+                                </DialogTitle>
+                                <p className="text-sm text-muted-foreground">
+                                    {selectedTripForSheet?.vehicle?.vehicle_no} • {selectedTripForSheet?.driver?.full_name} • {selectedTripForSheet?.origin} to {selectedTripForSheet?.destination}
+                                </p>
+                            </div>
+                            <Badge variant="outline" className="h-fit px-3 py-1 bg-white font-bold border-primary/20 text-primary">
+                                {selectedTripForSheet?.status}
+                            </Badge>
+                        </div>
+                    </DialogHeader>
+                    <div className="p-6">
+                        {selectedTripForSheet && (
+                            <TripSheet
+                                tripId={selectedTripForSheet.id}
+                                onSaveSuccess={() => {
+                                    queryClient.invalidateQueries({ queryKey: ["logistics_trips"] });
+                                }}
+                            />
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
 

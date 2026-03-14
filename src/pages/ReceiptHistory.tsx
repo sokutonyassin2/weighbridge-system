@@ -261,7 +261,8 @@ export default function ReceiptHistory() {
                                             {/* Calculate net from weigh records if possible, basically logic duplication but safe */}
                                             {(() => {
                                                 const records = receipt.weigh_records || [];
-                                                if (records.length < 2) return "0";
+                                                if (records.length === 0) return "0";
+
                                                 const sorted = [...records].sort((a: any, b: any) =>
                                                     new Date(a.weigh_time || 0).getTime() - new Date(b.weigh_time || 0).getTime()
                                                 );
@@ -269,6 +270,15 @@ export default function ReceiptHistory() {
                                                 const last = sorted[sorted.length - 1];
                                                 const isPulling = receipt.vehicle_types?.type_name?.toLowerCase().includes("pull") ||
                                                     records.some((r: any) => Number(r.gtm) > 0);
+
+                                                if (records.length === 1) {
+                                                    // For single records, show whatever weight we have
+                                                    const single = records[0];
+                                                    const g = Number(single.gross_weight) || 0;
+                                                    const t = Number(single.tare_weight) || 0;
+                                                    const n = Number(single.net_weight) || Math.abs(g - t);
+                                                    return n > 0 ? n.toLocaleString() : g.toLocaleString();
+                                                }
 
                                                 if (isPulling) {
                                                     const combo1 = (Number(first.gross_weight) || 0) + (Number(first.gtm) || 0);
@@ -467,9 +477,9 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                 </div>
                             )}
                             {data.pulling_gvm && !data.isPulling && (
-                                <div className="flex justify-between items-center text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
-                                    <span className="text-blue-600 dark:text-blue-400">Pulling GVM (Gross + GTM):</span>
-                                    <span className="font-bold text-blue-600 dark:text-blue-400 text-lg">{Number(data.pulling_gvm).toLocaleString()} kg</span>
+                                <div className="flex justify-between items-center text-sm bg-blue-50/50 dark:bg-blue-900/10 p-2 rounded border border-blue-100 dark:border-blue-800">
+                                    <span className="text-gray-900 font-bold">Pulling GVM (Gross + GTM):</span>
+                                    <span className="font-black text-blue-700 dark:text-blue-400 text-xl">{Number(data.pulling_gvm).toLocaleString()} kg</span>
                                 </div>
                             )}
                             {data.payload && (

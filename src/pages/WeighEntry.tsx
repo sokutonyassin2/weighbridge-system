@@ -354,7 +354,11 @@ Please process payment in Cashier section first.`,
     }
 
     // Validation: Ensure at least one weight is present and non-zero
-    const isWeightZeroOrEmpty = (w: string) => !w || parseFloat(w) <= 0;
+    const isWeightZeroOrEmpty = (w: string) => {
+      if (!w) return true;
+      const num = parseFloat(w.trim());
+      return isNaN(num) || num <= 0;
+    };
 
 
 
@@ -1379,7 +1383,7 @@ Please process payment in Cashier section first.`,
                           <WeightCaptureButtons
                             onCaptureGross={(w) => setWeighData({ ...weighData, gross_weight: w.toString() })}
                             onCaptureTare={(w) => setWeighData({ ...weighData, tare_weight: w.toString() })}
-                            onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString() })}
+                            onCaptureGVM={(w) => setWeighData({ ...weighData, gvm: w.toString(), gross_weight: w.toString() })}
                             onCaptureGTM={(w) => setWeighData({ ...weighData, gtm: w.toString() })}
                             onCaptureTrailer={(w) => setWeighData({ ...weighData, trailer_weight: w.toString() })}
                             showGVMFields={isJVCategory || entry?.category === "Transit" || isPullingType}

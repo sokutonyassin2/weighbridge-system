@@ -98,6 +98,52 @@ export default function GuardianEye() {
         refetchInterval: 30000,
     });
 
+    // --- Fetch Verified Entries ---
+    const { data: verifiedEntries = [], isLoading: isLoadingVerified, refetch: refetchVerified } = useQuery({
+        queryKey: ["guardian-verified", selectedDate, selectedShift],
+        queryFn: async () => {
+            const dayStart = startOfDay(selectedDate).toISOString();
+            const dayEnd = endOfDay(selectedDate).toISOString();
+
+            let query = (supabase as any)
+                .from("vehicle_entries")
+                .select(`
+                  id, vehicle_no, entry_time, wb_number, entered_by,
+                  weigh_records (gross_weight, photo_url)
+                `)
+                .gte("entry_time", dayStart)
+                .lte("entry_time", dayEnd);
+
+            const { data, error } = await query.order("entry_time", { ascending: false });
+
+            if (error) {
+                console.error("❌ Verified Entries Query Error:", error);
+                return [];
+            }
+
+            console.log(`✅ Verified Entries Received: ${data?.length || 0} items`);
+
+            let filteredData = data || [];
+            if (selectedShift !== "all") {
+                filteredData = (data as any[] || []).filter(entry => {
+                    const entryTime = entry.entry_time ? new Date(entry.entry_time) : new Date();
+                    const hour = entryTime.getHours();
+                    const isDay = hour >= 7 && hour < 18;
+                    return selectedShift === 'day' ? isDay : !isDay;
+                });
+            }
+
+            return (filteredData as any[] || []).map(entry => ({
+                ...entry,
+                gross_weight: entry.weigh_records?.[0]?.gross_weight || 0,
+                vehicle_type: "Vehicle",
+                operator_photo_url: entry.weigh_records?.[0]?.photo_url || null,
+                entered_by: entry.entered_by || "Unknown"
+            })) as VehicleEntry[];
+        },
+        refetchInterval: 30000,
+    });
+
     // --- Fetch Audit Logs from Supabase ---
     const { data: dbAuditLogs = [], refetch: refetchAuditLogs } = useQuery({
         queryKey: ["camera-audit-logs", selectedDate],
@@ -128,6 +174,7 @@ export default function GuardianEye() {
         refetchVerified();
         refetchAuditLogs();
     };
+
 
     // --- Create Unified Event Feed ---
     const unifiedEvents = useMemo(() => {

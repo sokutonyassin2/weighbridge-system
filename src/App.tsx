@@ -64,13 +64,34 @@ const App = () => {
   // Service Worker registration removed to fix Auth issues
   // It is now handled (disabled) in main.tsx
 
-  // Helper component to redirect Cashiers away from Operator Dashboard
+  // Helper component to redirect users to their specific landing pages
   const SafeHome = () => {
     const { userRole } = useAuth();
-    if (userRole === 'procurement_cashier') {
-      return <Navigate to="/procurement/cashier-portal" replace />;
+
+    switch (userRole) {
+      case 'super_admin':
+      case 'admin':
+        return <Navigate to="/admin/dashboard" replace />;
+      case 'finance':
+        return <Navigate to="/finance-dashboard" replace />;
+      case 'logistics_admin':
+      case 'logistics_manager':
+        return <Navigate to="/logistics" replace />;
+      case 'garage_manager':
+      case 'mechanic':
+      case 'storekeeper':
+        return <Navigate to="/garage" replace />;
+      case 'procurement_officer':
+        return <Navigate to="/procurement" replace />;
+      case 'procurement_cashier':
+        return <Navigate to="/procurement/cashier-portal" replace />;
+      case 'observer':
+        return <Navigate to="/guardian-eye" replace />;
+      case 'operator':
+        return <OperatorDashboard />;
+      default:
+        return <OperatorDashboard />;
     }
-    return <OperatorDashboard />;
   };
 
   return (
@@ -244,7 +265,7 @@ const App = () => {
             <Route
               path="/audit-trail"
               element={
-                <ProtectedRoute requireSuperAdmin>
+                <ProtectedRoute allowedRoles={['super_admin', 'observer']}>
                   <Layout>
                     <AuditTrail />
                   </Layout>
@@ -254,7 +275,7 @@ const App = () => {
             <Route
               path="/guardian-eye"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                <ProtectedRoute allowedRoles={['admin', 'super_admin', 'observer']}>
                   <Layout>
                     <GuardianEye />
                   </Layout>

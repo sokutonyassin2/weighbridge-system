@@ -34,14 +34,13 @@ const TripSheets = () => {
         queryFn: async () => {
             try {
                 const { data, error } = await supabase
-                    .from("logistics_trip_sheets" as any)
+                    .from("logistics_trip_sheets")
                     .select(`
                         *,
-                        vehicle:logistics_fleet(vehicle_no, fleet_category),
-                        driver:logistics_drivers(full_name),
+                        vehicle:vehicle_id(vehicle_no, fleet_category),
+                        driver:driver_id(full_name),
                         expenses:logistics_trip_expenses(*)
                     `)
-                    .eq('vehicle.fleet_category', 'Transit')
                     .order("created_at", { ascending: false });
 
                 if (error) throw error;
@@ -61,10 +60,41 @@ const TripSheets = () => {
     );
 
     const stats = {
-        totalRevenue: tripSheets?.reduce((sum, t) => sum + (t.revenue_amount || 0), 0) || 0,
-        totalExpenses: tripSheets?.reduce((sum, t) => sum + (t.total_expenses || 0), 0) || 0,
-        totalProfit: tripSheets?.reduce((sum, t) => sum + (t.net_profit || 0), 0) || 0
+        totalRevenueUSD: tripSheets?.reduce((sum, t) => sum + (t.revenue_currency === 'USD' ? (t.revenue_amount || 0) : 0), 0) || 0,
+        totalRevenueTZS: tripSheets?.reduce((sum, t) => sum + (t.revenue_currency === 'TZS' ? (t.revenue_amount || 0) : 0), 0) || 0,
+        totalExpensesUSD: tripSheets?.reduce((sum, t) => sum + (t.total_expenses_usd || 0), 0) || 0,
+        totalExpensesTZS: tripSheets?.reduce((sum, t) => sum + (t.total_expenses_tzs || 0), 0) || 0,
+        totalProfitUSD: tripSheets?.reduce((sum, t) => sum + (t.net_profit_usd || 0), 0) || 0
     };
+
+    if (isSheetOpen) {
+        return (
+            <div className="p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">
+                            {selectedTrip ? `Edit Trip Sheet: ${selectedTrip.trip_number}` : "New Trip Sheet Plan"}
+                        </h1>
+                        <p className="text-muted-foreground">
+                            {selectedTrip ? `Managing financials for ${selectedTrip.vehicle?.vehicle_no}` : "Configure assets and financials for a new transit trip."}
+                        </p>
+                    </div>
+                    <Button variant="ghost" onClick={() => setIsSheetOpen(false)} className="gap-2">
+                        Back to Trip Sheets
+                    </Button>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border p-1">
+                    <TripSheet
+                        tripId={selectedTrip?.id}
+                        onSaveSuccess={() => {
+                            setIsSheetOpen(false);
+                        }}
+                    />
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="p-6 space-y-6 animate-fade-in">
@@ -97,10 +127,11 @@ const TripSheets = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="bg-gradient-to-br from-indigo-50 to-white border-indigo-100">
                     <CardHeader className="py-4">
-                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-indigo-600">Accumulated Revenue</CardTitle>
+                        <CardTitle className="text-xs font-bold uppercase tracking-wider text-indigo-600">Total Revenue</CardTitle>
                     </CardHeader>
                     <CardContent className="pb-4">
-                        <div className="text-2xl font-bold">${stats.totalRevenue.toLocaleString()}</div>
+                        <div className="text-xl font-bold font-mono text-indigo-700">${stats.totalRevenueUSD.toLocaleString()}</div>
+                        <div className="text-sm font-medium text-indigo-400">TSh {stats.totalRevenueTZS.toLocaleString()}</div>
                     </CardContent>
                 </Card>
                 <Card className="bg-gradient-to-br from-orange-50 to-white border-orange-100">
@@ -108,16 +139,17 @@ const TripSheets = () => {
                         <CardTitle className="text-xs font-bold uppercase tracking-wider text-orange-600">Total Operational Cost</CardTitle>
                     </CardHeader>
                     <CardContent className="pb-4">
-                        <div className="text-2xl font-bold">${stats.totalExpenses.toLocaleString()}</div>
+                        <div className="text-xl font-bold font-mono text-orange-700">${stats.totalExpensesUSD.toLocaleString()}</div>
+                        <div className="text-sm font-medium text-orange-400">TSh {stats.totalExpensesTZS.toLocaleString()}</div>
                     </CardContent>
                 </Card>
-                <Card className={`bg-gradient-to-br ${stats.totalProfit >= 0 ? 'from-emerald-50 to-white border-emerald-100' : 'from-red-50 to-white border-red-100'}`}>
+                <Card className={`bg-gradient-to-br ${stats.totalProfitUSD >= 0 ? 'from-emerald-50 to-white border-emerald-100' : 'from-red-50 to-white border-red-100'}`}>
                     <CardHeader className="py-4">
-                        <CardTitle className={`text-xs font-bold uppercase tracking-wider ${stats.totalProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>Cumulative Net Profit</CardTitle>
+                        <CardTitle className={`text-xs font-bold uppercase tracking-wider ${stats.totalProfitUSD >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>Expected Net Profit (USD)</CardTitle>
                     </CardHeader>
                     <CardContent className="pb-4">
-                        <div className={`text-2xl font-bold ${stats.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                            ${stats.totalProfit.toLocaleString()}
+                        <div className={`text-2xl font-bold ${stats.totalProfitUSD >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                            ${stats.totalProfitUSD.toLocaleString()}
                         </div>
                     </CardContent>
                 </Card>
@@ -204,14 +236,20 @@ const TripSheets = () => {
                                         )}
                                     </TableCell>
                                     <TableCell className="text-right font-medium">
-                                        {trip.revenue_amount ? `$${trip.revenue_amount.toLocaleString()}` : '—'}
+                                        <div className="flex flex-col items-end">
+                                            <span className="font-bold">{trip.revenue_currency === 'USD' ? '$' : 'TSh '}{trip.revenue_amount?.toLocaleString() || '—'}</span>
+                                            <span className="text-[10px] text-muted-foreground uppercase">{trip.revenue_type}</span>
+                                        </div>
                                     </TableCell>
-                                    <TableCell className="text-right font-medium text-orange-600">
-                                        {trip.total_expenses ? `$${trip.total_expenses.toLocaleString()}` : '—'}
+                                    <TableCell className="text-right font-medium">
+                                        <div className="flex flex-col items-end text-orange-600">
+                                            <span>${trip.total_expenses_usd?.toLocaleString() || '0'}</span>
+                                            <span className="text-[10px]">TSh {trip.total_expenses_tzs?.toLocaleString() || '0'}</span>
+                                        </div>
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className={`flex flex-col items-end ${isProfit ? 'text-emerald-600' : 'text-red-600'}`}>
-                                            <span className="font-bold">${(trip.net_profit || 0).toLocaleString()}</span>
+                                            <span className="font-bold">${(trip.net_profit_usd || 0).toLocaleString()}</span>
                                             <span className="text-[10px] flex items-center gap-0.5 uppercase tracking-tighter">
                                                 {isProfit ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                                                 {isProfit ? 'Profit' : 'Loss'}
@@ -238,36 +276,6 @@ const TripSheets = () => {
                     </TableBody>
                 </Table>
             </Card>
-
-            <Dialog open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0 border-none bg-slate-50/50 backdrop-blur-xl">
-                    <DialogHeader className="p-6 pb-2 sticky top-0 bg-white/80 backdrop-blur-md z-10 border-b">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-                                    <Map className="text-primary" />
-                                    Trip Sheet: {selectedTrip?.trip_number || "New Transit Plan"}
-                                </DialogTitle>
-                                <p className="text-sm text-muted-foreground">
-                                    {selectedTrip ? (
-                                        `${selectedTrip.vehicle?.vehicle_no} • ${selectedTrip.driver?.full_name} • ${selectedTrip.origin} to ${selectedTrip.destination}`
-                                    ) : (
-                                        "Plan your transit trip financials and routing before official creation."
-                                    )}
-                                </p>
-                            </div>
-                        </div>
-                    </DialogHeader>
-                    <div className="p-6">
-                        <TripSheet
-                            tripId={selectedTrip?.id}
-                            onSaveSuccess={() => {
-                                setIsSheetOpen(false);
-                            }}
-                        />
-                    </div>
-                </DialogContent>
-            </Dialog>
         </div >
     );
 };

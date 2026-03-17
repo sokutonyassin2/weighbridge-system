@@ -33,7 +33,7 @@ const weighbridgeItems = [
   { title: "Vehicle Types", url: "/vehicle-types", icon: Settings, roles: ["super_admin"] },
 
   // Management & Settings items
-  { title: "Audit Trail", url: "/audit-trail", icon: FileText, roles: ["super_admin"] },
+  { title: "Audit Trail", url: "/audit-trail", icon: FileText, roles: ["super_admin", "observer"] },
   { title: "Shift Reports", url: "/shift-reports", icon: BarChart3, roles: ["admin", "super_admin", "finance"] },
   { title: "Analytics", url: "/analytics", icon: TrendingUp, roles: ["admin", "super_admin", "finance"] },
   { title: "Penalties History", url: "/admin/penalties", icon: AlertTriangle, roles: ["admin", "super_admin", "finance"] },
@@ -459,6 +459,22 @@ export function AppSidebar() {
                       >
                         <Activity className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
                         <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">Guardian Eye</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild tooltip="Audit Trail">
+                      <NavLink
+                        to="/audit-trail"
+                        className={({ isActive }) =>
+                          `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                            ? "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg scale-[1.02]"
+                            : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                          }`
+                        }
+                      >
+                        <FileText className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                        <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">Audit Trail</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

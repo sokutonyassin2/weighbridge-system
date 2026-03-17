@@ -98,58 +98,35 @@ export default function GuardianEye() {
         refetchInterval: 30000,
     });
 
-    // --- Fetch Verified Entries ---
-    const { data: verifiedEntries = [], isLoading: isLoadingVerified, refetch: refetchVerified } = useQuery({
-        queryKey: ["guardian-verified", selectedDate, selectedShift],
+    // --- Fetch Audit Logs from Supabase ---
+    const { data: dbAuditLogs = [], refetch: refetchAuditLogs } = useQuery({
+        queryKey: ["camera-audit-logs", selectedDate],
         queryFn: async () => {
             const dayStart = startOfDay(selectedDate).toISOString();
             const dayEnd = endOfDay(selectedDate).toISOString();
 
-            console.log("🔍 Fetching Verified Entries:", { dayStart, dayEnd, shift: selectedShift });
+            console.log("🔍 Fetching Supabase Audit Logs:", { dayStart, dayEnd });
 
-            let query = (supabase as any)
-                .from("vehicle_entries")
-                .select(`
-                  id, vehicle_no, entry_time, wb_number, entered_by,
-                  weigh_records (gross_weight, photo_url)
-                `)
-                .gte("entry_time", dayStart)
-                .lte("entry_time", dayEnd);
-
-            const { data, error } = await query.order("entry_time", { ascending: false });
+            const { data, error } = await supabase
+                .from("camera_audit_logs")
+                .select("*")
+                .gte("timestamp", dayStart)
+                .lte("timestamp", dayEnd)
+                .order("timestamp", { ascending: false });
 
             if (error) {
-                console.error("❌ Verified Entries Query Error:", error);
+                console.error("❌ Audit Logs Query Error:", error);
                 return [];
             }
-
-            console.log(`✅ Verified Entries Received: ${data?.length || 0} items`);
-
-            // Apply shift filter safely
-            let filteredData = data || [];
-            if (selectedShift !== "all") {
-                filteredData = (data as any[] || []).filter(entry => {
-                    const entryTime = entry.entry_time ? new Date(entry.entry_time) : new Date();
-                    const hour = entryTime.getHours();
-                    const isDay = hour >= 7 && hour < 18;
-                    return selectedShift === 'day' ? isDay : !isDay;
-                });
-            }
-
-            return (filteredData as any[] || []).map(entry => ({
-                ...entry,
-                gross_weight: entry.weigh_records?.[0]?.gross_weight || 0,
-                vehicle_type: "Vehicle",
-                operator_photo_url: entry.weigh_records?.[0]?.photo_url || null,
-                entered_by: entry.entered_by || "Unknown"
-            })) as VehicleEntry[];
+            return data;
         },
-        refetchInterval: 30000, // Stabilized to 30s
+        refetchInterval: 30000,
     });
 
     const refetchAll = () => {
         refetchLocal();
         refetchVerified();
+        refetchAuditLogs();
     };
 
     // --- Create Unified Event Feed ---
@@ -164,8 +141,19 @@ export default function GuardianEye() {
             return isNaN(date.getTime()) ? new Date() : date;
         };
 
-        // 1. Process all Local Ghost Photos discovered on the server
-        let ghostPhotos = localPhotos.filter(p => p.type === 'ghost');
+        // 1. Process and enrich Local Ghost Photos discovered on the server
+        let ghostPhotos = localPhotos
+            .filter(p => p.type === 'ghost')
+            .map(p => {
+                // Find matching record in Supabase to get the correct UUID ID and dismissal status
+                const dbMatch = dbAuditLogs.find(log => log.photo_filename === p.filename);
+                return {
+                    ...p,
+                    id: dbMatch?.id, // This is crucial for dismissal!
+                    dismissed: dbMatch?.dismissed || false,
+                    dismiss_reason: dbMatch?.dismiss_reason
+                };
+            });
 
         // Match the selected shift if not "all"
         if (selectedShift !== "all") {
@@ -231,12 +219,15 @@ export default function GuardianEye() {
         });
 
         groupedUnmatched.forEach(group => {
+            // Check if any in group were already dismissed in DB
+            const isDismissed = group.some(g => g.dismissed);
+
             events.push({
                 id: `ghost-${group[0].filename}`,
                 timestamp: group[0].timestamp,
                 entry: null,
                 ghosts: group.map((g: any) => ({ ...g, photo_filename: g.filename } as any)),
-                status: "missing_manual"
+                status: isDismissed ? "dismissed" : "missing_manual"
             });
         });
 
@@ -248,7 +239,7 @@ export default function GuardianEye() {
         });
 
         return events;
-    }, [localPhotos, verifiedEntries, selectedShift]);
+    }, [localPhotos, verifiedEntries, dbAuditLogs, selectedShift]);
 
     // --- Dismiss mutation ---
     const dismissMutation = useMutation({
@@ -279,6 +270,17 @@ export default function GuardianEye() {
     const handleDismiss = () => {
         if (!dismissReason.trim()) return;
         if (!dismissTarget) return;
+
+        if (!dismissTarget.id) {
+            console.error("❌ Dismiss Error: No database ID found for photo", dismissTarget.photo_filename);
+            toast({
+                title: "Error",
+                description: "This photo hasn't been synced to the database yet. Wait a moment and try again.",
+                variant: "destructive"
+            });
+            return;
+        }
+
         dismissMutation.mutate({ id: dismissTarget.id, reason: dismissReason });
     };
 

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS public.logistics_fleet (
     fleet_category TEXT NOT NULL CHECK (fleet_category IN ('Transit', 'Local')),
     asset_status TEXT DEFAULT 'Active', -- e.g., 'Active', 'Maintenance', 'Breakdown'
     is_active BOOLEAN DEFAULT true,
+    primary_trailer_id UUID REFERENCES public.logistics_fleet(id) ON DELETE SET NULL, -- Default trailer for Trucks
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -42,14 +43,19 @@ CREATE TABLE IF NOT EXISTS public.logistics_trip_sheets (
     trailer_id UUID REFERENCES public.logistics_fleet(id) ON DELETE SET NULL,
     origin TEXT DEFAULT 'Headquarters',
     destination TEXT NOT NULL,
+    journey_type TEXT DEFAULT 'Go & Return' CHECK (journey_type IN ('Go Only', 'Go & Return', 'One Way')),
     cargo_outbound TEXT,
     cargo_returning TEXT,
     
-    -- Financials
+    -- Financials (Multi-Currency)
     revenue_type TEXT CHECK (revenue_type IN ('With Fuel', 'Without Fuel')),
     revenue_amount NUMERIC DEFAULT 0,
-    total_expenses NUMERIC DEFAULT 0,
-    net_profit NUMERIC DEFAULT 0,
+    revenue_currency TEXT DEFAULT 'USD' CHECK (revenue_currency IN ('USD', 'TZS')),
+    exchange_rate NUMERIC DEFAULT 2700, -- Rate for USD to TZS conversion
+    fuel_amount NUMERIC DEFAULT 0, -- Static Fuel Cost in USD
+    total_expenses_tzs NUMERIC DEFAULT 0,
+    total_expenses_usd NUMERIC DEFAULT 0,
+    net_profit_usd NUMERIC DEFAULT 0, -- Calculated in base currency
     
     -- Status
     status TEXT DEFAULT 'Planned' CHECK (status IN ('Planned', 'Active', 'Completed', 'Cancelled')),

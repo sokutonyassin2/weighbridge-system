@@ -152,7 +152,7 @@ const TripManagement = () => {
         queryFn: async () => {
             const { data } = await supabase
                 .from("logistics_drivers" as any)
-                .select("id, full_name, compliance_flagged")
+                .select("id, full_name, compliance_flagged, license_expiry")
                 .eq("is_active", true)
                 .eq("compliance_flagged", false);
             return (data || []) as any[];
@@ -217,7 +217,12 @@ const TripManagement = () => {
         };
     }).filter(v => v.isTrailer) || [];
 
-    const availableDrivers = (drivers as any[])?.map(d => ({
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const availableDrivers = (drivers as any[])?.filter(d =>
+        !d.license_expiry || new Date(d.license_expiry) >= today
+    ).map(d => ({
         ...d,
         isBusy: (activeTripResources as any[])?.some(tr => tr.driver_id === d.id)
     })) || [];

@@ -101,21 +101,27 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
 
                 const { data: driverData } = await supabase
                     .from('logistics_drivers' as any)
-                    .select('*')
+                    .select('id, full_name, license_expiry, classification')
                     .eq('classification', 'Transit')
                     .eq('is_active', true);
 
                 if (fleetData) setFleet(fleetData);
 
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+
+                const filterExpired = (list: any[]) =>
+                    list.filter(d => !d.license_expiry || new Date(d.license_expiry) >= today);
+
                 if (driverData && driverData.length > 0) {
-                    setDrivers(driverData);
+                    setDrivers(filterExpired(driverData));
                 } else {
                     // Fallback: Fetch all active drivers if no Transit classified drivers exist yet
                     const { data: allDrivers } = await supabase
                         .from('logistics_drivers' as any)
-                        .select('*')
+                        .select('id, full_name, license_expiry')
                         .eq('is_active', true);
-                    if (allDrivers) setDrivers(allDrivers || []);
+                    if (allDrivers) setDrivers(filterExpired(allDrivers));
                 }
 
                 if (!tripId) {

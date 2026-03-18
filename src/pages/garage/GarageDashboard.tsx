@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +26,7 @@ const GarageDashboard = () => {
     const { userRole } = useAuth();
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
+    const [partNumberSearch, setPartNumberSearch] = useState("");
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [isLogFaultOpen, setIsLogFaultOpen] = useState(false);
@@ -39,6 +40,11 @@ const GarageDashboard = () => {
     const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
     const [isQualityCheckOpen, setIsQualityCheckOpen] = useState(false);
     const [qualityCheckAnswers, setQualityCheckAnswers] = useState<Record<string, boolean>>({});
+    const [isRejectionDialogOpen, setIsRejectionDialogOpen] = useState(false);
+    const [rejectionNotes, setRejectionNotes] = useState("");
+    const [isAdjustQtyOpen, setIsAdjustQtyOpen] = useState(false);
+    const [adjustedQty, setAdjustedQty] = useState(1);
+    const [selectedUsageToApprove, setSelectedUsageToApprove] = useState<any>(null);
 
     // Initial state based on URL
     const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted">(
@@ -84,6 +90,7 @@ const GarageDashboard = () => {
     // New Product State
     const [newProduct, setNewProduct] = useState({
         item_name: "",
+        part_number: "",
         category: "Parts",
         quantity: 0,
         unit_measure: "pcs",
@@ -251,6 +258,7 @@ const GarageDashboard = () => {
             setIsAddProductDialogOpen(false);
             setNewProduct({
                 item_name: "",
+                part_number: "",
                 category: "Parts",
                 quantity: 0,
                 unit_measure: "pcs",
@@ -315,14 +323,18 @@ const GarageDashboard = () => {
     });
 
     const approveIssuanceMutation = useMutation({
-        mutationFn: async ({ id, status }: { id: string, status: 'Approved' | 'Rejected' }) => {
+        mutationFn: async ({ id, status, notes, quantity }: { id: string, status: 'Approved' | 'Rejected', notes?: string, quantity?: number }) => {
             const { data: { user } } = await supabase.auth.getUser();
+            const updates: any = {
+                status,
+                approved_by: user?.id,
+                approved_at: new Date().toISOString()
+            };
+            if (notes) updates.notes = notes;
+            if (quantity !== undefined) updates.quantity_used = quantity;
+
             const { error } = await sb.from("garage_inventory_usage")
-                .update({
-                    status,
-                    approved_by: user?.id,
-                    approved_at: new Date().toISOString()
-                })
+                .update(updates)
                 .eq("id", id);
             if (error) throw error;
         },
@@ -476,6 +488,14 @@ const GarageDashboard = () => {
         setRequisitionItems([{ item_name: "", quantity: 1 }]);
         setSelectedPackageId(null);
         setQualityCheckAnswers({});
+        setNewProduct({
+            item_name: "",
+            part_number: "",
+            category: "Parts",
+            quantity: 0,
+            unit_measure: "pcs",
+            min_threshold: 5
+        });
     };
 
     const deleteJobMutation = useMutation({
@@ -1013,6 +1033,33 @@ const GarageDashboard = () => {
                             </CardContent>
                         </Card>
 
+                        {/* NEW: Manager Issuance Approvals Notification */}
+                        {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) && (
+                            <Card
+                                className={`border-none shadow-sm transition-all cursor-pointer hover:shadow-md ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0)
+                                    ? "bg-indigo-600 text-white"
+                                    : "bg-white text-slate-900"
+                                    }`}
+                                onClick={() => {
+                                    setActiveTab('logs');
+                                    setActiveStoreTab('approvals');
+                                }}
+                            >
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className={`text-[11px] font-bold uppercase tracking-widest ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>Issuance Approvals</CardTitle>
+                                    <ClipboardCheck className={`h-4 w-4 ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-white" : "text-indigo-500"}`} />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold">
+                                        {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
+                                    </div>
+                                    <p className={`text-[11px] mt-1 font-medium italic ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100/80" : "text-slate-400"}`}>
+                                        Requires manager review
+                                    </p>
+                                </CardContent>
+                            </Card>
+                        )}
+
                         {/* Recent Activity Feed for Accountability */}
                         <Card className="border-none shadow-sm bg-white md:row-span-2 lg:row-span-1">
                             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
@@ -1292,14 +1339,25 @@ const GarageDashboard = () => {
                         </Button>
                     </div>
 
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input
-                            placeholder="Search store by product name or category..."
-                            value={inventorySearch}
-                            onChange={(e) => setInventorySearch(e.target.value)}
-                            className="pl-10 h-11 bg-white border-slate-200 shadow-sm focus:border-indigo-400 transition-all rounded-xl"
-                        />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <Input
+                                placeholder="Search by name or category..."
+                                value={inventorySearch}
+                                onChange={(e) => setInventorySearch(e.target.value)}
+                                className="pl-10 h-11 bg-white border-slate-200 shadow-sm focus:border-indigo-400 transition-all rounded-xl"
+                            />
+                        </div>
+                        <div className="relative">
+                            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <Input
+                                placeholder="Search by Part Number (PN)..."
+                                value={partNumberSearch}
+                                onChange={(e) => setPartNumberSearch(e.target.value)}
+                                className="pl-10 h-11 bg-white border-slate-200 shadow-sm focus:border-indigo-400 transition-all rounded-xl font-mono text-sm"
+                            />
+                        </div>
                     </div>
 
                     <div className="grid gap-6 md:grid-cols-2">
@@ -1333,10 +1391,14 @@ const GarageDashboard = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {(inventory || [])
-                            .filter((item: any) =>
-                                item.item_name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-                                item.category.toLowerCase().includes(inventorySearch.toLowerCase())
-                            )
+                            .filter((item: any) => {
+                                const matchesNamCat = item.item_name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+                                    item.category.toLowerCase().includes(inventorySearch.toLowerCase());
+                                const matchesPN = (item.part_number || "").toLowerCase().includes(partNumberSearch.toLowerCase());
+
+                                if (inventorySearch && partNumberSearch) return matchesNamCat && matchesPN;
+                                return matchesNamCat && matchesPN; // This logic handles empty search terms correctly
+                            })
                             .map((item: any) => {
                                 const isLow = (item.quantity || 0) <= (item.min_threshold || 0);
                                 return (
@@ -1346,6 +1408,9 @@ const GarageDashboard = () => {
                                                 <h4 className="font-medium text-slate-700 text-lg leading-tight tracking-tight">{item.item_name}</h4>
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-xs text-slate-400 font-medium uppercase tracking-widest bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded">{item.category}</span>
+                                                    {item.part_number && (
+                                                        <span className="text-[10px] font-mono text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">PN: {item.part_number}</span>
+                                                    )}
                                                 </div>
                                             </div>
                                             <Badge className={`px-2.5 py-1 text-xs font-semibold ${isLow ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-500 hover:bg-green-600'}`}>
@@ -1484,7 +1549,7 @@ const GarageDashboard = () => {
                             <TabsTrigger value="issued" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
                                 <ShoppingCart className="w-4 h-4 mr-2" /> Issued Items Report
                             </TabsTrigger>
-                            {(userRole === 'admin' || userRole === 'garage_manager') && (
+                            {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) && (
                                 <TabsTrigger value="approvals" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider relative">
                                     <ClipboardCheck className="w-4 h-4 mr-2" /> Issuance Approvals
                                     {(usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0 && (
@@ -1670,29 +1735,57 @@ const GarageDashboard = () => {
                                                             </TableCell>
                                                             <TableCell className="font-bold text-slate-900 text-xs uppercase">{log.issued_to}</TableCell>
                                                             <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{log.item_name}</TableCell>
-                                                            <TableCell className="text-center font-mono font-bold text-indigo-600 bg-indigo-50/30 text-lg">{log.quantity_used}</TableCell>
+                                                            <TableCell className="text-center">
+                                                                {userRole === 'garage_manager' ? (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        className="h-9 w-20 p-0 font-mono font-bold text-indigo-600 bg-indigo-50/30 text-lg hover:bg-indigo-100/50 flex flex-col items-center justify-center leading-none group"
+                                                                        onClick={() => {
+                                                                            setSelectedUsageToApprove(log);
+                                                                            setAdjustedQty(log.quantity_used);
+                                                                            setIsAdjustQtyOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        {log.quantity_used}
+                                                                        <span className="text-[8px] uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 text-indigo-400">Edit Qty</span>
+                                                                    </Button>
+                                                                ) : (
+                                                                    <div className="h-9 w-20 flex items-center justify-center font-mono font-bold text-indigo-600 bg-indigo-50/30 text-lg rounded-md border border-indigo-100/50">
+                                                                        {log.quantity_used}
+                                                                    </div>
+                                                                )}
+                                                            </TableCell>
                                                             <TableCell className="text-xs font-semibold text-slate-500">
                                                                 {log.vehicle?.vehicle_no || log.vehicle?.horse_number || log.vehicle?.trailer_number || "-"}
                                                             </TableCell>
                                                             <TableCell className="text-right">
-                                                                <div className="flex items-center justify-end gap-2">
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="h-8 text-[10px] font-bold uppercase tracking-wider text-rose-500 border-rose-200 hover:bg-rose-50"
-                                                                        onClick={() => approveIssuanceMutation.mutate({ id: log.id, status: 'Rejected' })}
-                                                                        disabled={approveIssuanceMutation.isPending}
-                                                                    >
-                                                                        Reject
-                                                                    </Button>
-                                                                    <Button
-                                                                        className="h-8 text-[10px] font-bold uppercase tracking-wider bg-green-600 hover:bg-green-700 text-white shadow-sm"
-                                                                        onClick={() => approveIssuanceMutation.mutate({ id: log.id, status: 'Approved' })}
-                                                                        disabled={approveIssuanceMutation.isPending}
-                                                                    >
-                                                                        {approveIssuanceMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve Stock Exit"}
-                                                                    </Button>
-                                                                </div>
+                                                                {userRole === 'garage_manager' ? (
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            className="h-8 text-[10px] font-bold uppercase tracking-wider text-rose-500 border-rose-200 hover:bg-rose-50"
+                                                                            onClick={() => {
+                                                                                setSelectedUsageToApprove(log);
+                                                                                setIsRejectionDialogOpen(true);
+                                                                            }}
+                                                                            disabled={approveIssuanceMutation.isPending}
+                                                                        >
+                                                                            Reject
+                                                                        </Button>
+                                                                        <Button
+                                                                            className="h-8 text-[10px] font-bold uppercase tracking-wider bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                                                                            onClick={() => approveIssuanceMutation.mutate({ id: log.id, status: 'Approved' })}
+                                                                            disabled={approveIssuanceMutation.isPending}
+                                                                        >
+                                                                            {approveIssuanceMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve Stock Exit"}
+                                                                        </Button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <Badge variant="outline" className="text-[10px] uppercase font-bold text-slate-400 border-slate-200">
+                                                                        View Only
+                                                                    </Badge>
+                                                                )}
                                                             </TableCell>
                                                         </TableRow>
                                                     );
@@ -1978,6 +2071,17 @@ const GarageDashboard = () => {
                                     className="h-10"
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-bold text-slate-500 uppercase">Part Number (PN)</Label>
+                                <Input
+                                    placeholder="e.g. 12345-PN"
+                                    value={newProduct.part_number}
+                                    onChange={(e) => setNewProduct({ ...newProduct, part_number: e.target.value })}
+                                    className="h-10 font-mono"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label className="text-sm font-bold text-slate-500 uppercase">Category</Label>
                                 <Select value={newProduct.category} onValueChange={(val) => setNewProduct({ ...newProduct, category: val })}>
@@ -2335,15 +2439,15 @@ const GarageDashboard = () => {
             </Dialog>
             {/* Manage Tasks Dialog */}
             <Dialog open={isManageTasksOpen} onOpenChange={setIsManageTasksOpen}>
-                <DialogContent className={`${maintenanceDebt && maintenanceDebt.length > 0 ? 'sm:max-w-[1000px]' : 'sm:max-w-[600px]'} w-[95vw] transition-all duration-300`}>
-                    <DialogHeader>
+                <DialogContent className={`${maintenanceDebt && maintenanceDebt.length > 0 ? 'sm:max-w-[1000px]' : 'sm:max-w-[600px]'} w-[95vw] transition-all duration-300 flex flex-col max-h-[90vh]`}>
+                    <DialogHeader className="flex-shrink-0">
                         <DialogTitle className="flex items-center gap-2 text-lg">
                             <Wrench className="w-6 h-6 text-indigo-600" />
                             Manage Tasks: <span className="text-slate-800 border-b border-slate-100 px-1 font-medium">{selectedJobForTasks?.vehicle?.plate_number}</span>
                         </DialogTitle>
                     </DialogHeader>
 
-                    <div className="py-2 space-y-4">
+                    <div className="flex-1 overflow-y-auto py-2 space-y-4 min-h-0">
                         <div className="grid grid-cols-2 gap-4 text-xs">
                             <div className="p-3 bg-slate-50 rounded-lg border">
                                 <span className="text-slate-500 block mb-1 uppercase tracking-wider font-bold">Opened On</span>
@@ -2366,7 +2470,7 @@ const GarageDashboard = () => {
                         </div>
 
                         {/* Conditional 2-Column Workspace */}
-                        <div className={`grid ${maintenanceDebt && maintenanceDebt.length > 0 ? 'md:grid-cols-2 gap-6' : 'grid-cols-1'} h-[500px]`}>
+                        <div className={`grid ${maintenanceDebt && maintenanceDebt.length > 0 ? 'md:grid-cols-2 gap-6' : 'grid-cols-1'} h-[400px]`}>
                             {/* Left Column: Current Job Faults */}
                             <div className="flex flex-col gap-3">
                                 <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 px-1">
@@ -2538,7 +2642,7 @@ const GarageDashboard = () => {
                         </div>
                     </div>
 
-                    <DialogFooter className="bg-slate-50 -mx-6 -mb-6 p-6 rounded-b-lg border-t gap-2 sm:justify-between items-center">
+                    <DialogFooter className="flex-shrink-0 bg-slate-50 -mx-6 -mb-6 p-6 rounded-b-lg border-t gap-2 sm:justify-between items-center">
                         <div className="flex items-center gap-2">
                             {allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) ? (
                                 <span className="text-xs font-bold text-green-600 flex items-center gap-1">
@@ -2563,6 +2667,7 @@ const GarageDashboard = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
 
             {/* Approval Dialog for Partial Releases */}
             <Dialog open={isApprovalDialogOpen} onOpenChange={setIsApprovalDialogOpen}>
@@ -2675,10 +2780,10 @@ const GarageDashboard = () => {
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
             {/* NEW: Digital Quality Check Dialog */}
-            <Dialog open={isQualityCheckOpen} onOpenChange={setIsQualityCheckOpen}>
+            < Dialog open={isQualityCheckOpen} onOpenChange={setIsQualityCheckOpen} >
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-green-700">
@@ -2740,7 +2845,125 @@ const GarageDashboard = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div >
+
+            {/* NEW: Rejection Reason Dialog */}
+            <Dialog open={isRejectionDialogOpen} onOpenChange={setIsRejectionDialogOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-rose-600 flex items-center gap-2">
+                            <XCircle className="w-5 h-5" />
+                            Reject Issuance
+                        </DialogTitle>
+                        <DialogDescription>
+                            Please provide a reason for rejecting this issuance request.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-4">
+                        <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Item Details</div>
+                            <div className="text-sm font-semibold text-slate-700">{selectedUsageToApprove?.item_name}</div>
+                            <div className="text-xs text-slate-500">Requested Qty: {selectedUsageToApprove?.quantity_used}</div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold text-slate-500 uppercase">Rejection Reason</Label>
+                            <Textarea
+                                placeholder="e.g. Wrong part selected, Excess quantity requested..."
+                                value={rejectionNotes}
+                                onChange={(e) => setRejectionNotes(e.target.value)}
+                                className="min-h-[100px]"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsRejectionDialogOpen(false)}>Cancel</Button>
+                        <Button
+                            className="bg-rose-600 hover:bg-rose-700 text-white"
+                            disabled={!rejectionNotes.trim() || approveIssuanceMutation.isPending}
+                            onClick={() => {
+                                approveIssuanceMutation.mutate({
+                                    id: selectedUsageToApprove.id,
+                                    status: 'Rejected',
+                                    notes: rejectionNotes
+                                }, {
+                                    onSuccess: () => {
+                                        setIsRejectionDialogOpen(false);
+                                        setRejectionNotes("");
+                                        setSelectedUsageToApprove(null);
+                                    }
+                                });
+                            }}
+                        >
+                            {approveIssuanceMutation.isPending ? "Rejecting..." : "Confirm Rejection"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* NEW: Adjust Quantity Dialog */}
+            <Dialog open={isAdjustQtyOpen} onOpenChange={setIsAdjustQtyOpen}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-indigo-600 flex items-center gap-2">
+                            <Wrench className="w-5 h-5" />
+                            Adjust Issuance Quantity
+                        </DialogTitle>
+                        <DialogDescription>
+                            Review or reduce the quantity before final approval.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-6 space-y-6">
+                        <div className="flex flex-col items-center justify-center p-8 bg-indigo-50/30 rounded-2xl border-2 border-dashed border-indigo-100">
+                            <Label className="text-xs font-bold text-indigo-400 uppercase mb-4 tracking-widest">Approved Quantity</Label>
+                            <div className="flex items-center gap-6">
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-12 w-12 rounded-full border-indigo-200 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                                    onClick={() => setAdjustedQty(Math.max(1, adjustedQty - 1))}
+                                >
+                                    <Minus className="w-6 h-6" />
+                                </Button>
+                                <div className="text-5xl font-black text-indigo-600 font-mono tracking-tighter w-20 text-center">
+                                    {adjustedQty}
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-12 w-12 rounded-full border-indigo-200 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
+                                    onClick={() => setAdjustedQty(adjustedQty + 1)}
+                                >
+                                    <Plus className="w-6 h-6" />
+                                </Button>
+                            </div>
+                            <div className="mt-4 text-[10px] font-medium text-indigo-400 italic">
+                                Original Request: {selectedUsageToApprove?.quantity_used} units
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAdjustQtyOpen(false)}>Cancel</Button>
+                        <Button
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg"
+                            disabled={approveIssuanceMutation.isPending}
+                            onClick={() => {
+                                approveIssuanceMutation.mutate({
+                                    id: selectedUsageToApprove.id,
+                                    status: 'Approved',
+                                    quantity: adjustedQty
+                                }, {
+                                    onSuccess: () => {
+                                        setIsAdjustQtyOpen(false);
+                                        setSelectedUsageToApprove(null);
+                                    }
+                                });
+                            }}
+                        >
+                            {approveIssuanceMutation.isPending ? "Approving..." : "Approve & Adjust Stock"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
     );
 };
 

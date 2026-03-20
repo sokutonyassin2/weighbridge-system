@@ -205,9 +205,12 @@ const ProcurementDashboard = () => {
             const subtotal = unitPrice * qty;
             const vat = details.includes_vat ? subtotal * 0.18 : 0;
 
+            // Fetch the current requisition to check original quantity
+            const { data: currentReq } = await sb.from("garage_requisitions").select("*").eq("id", reqId).single();
+            if (!currentReq) throw new Error("Requisition not found");
+
             const updateData: any = {
                 status: nextStatus,
-                quantity_approved: qty,
                 unit_price: unitPrice,
                 total_price: subtotal + vat,
                 supplier_id: details.supplier_id,
@@ -220,12 +223,44 @@ const ProcurementDashboard = () => {
                 received_by: nextStatus === 'Arrived' ? (await sb.auth.getUser()).data.user?.id : undefined
             };
 
+            // Maintain correct quantity fields based on transition
+            if (nextStatus === 'Arrived') {
+                // When receiving, don't overwrite quantity_approved, but set quantity_received
+                updateData.quantity_received = qty;
+            } else {
+                updateData.quantity_approved = qty;
+            }
+
             if (nextStatus === 'Revoked') {
                 updateData.revoke_reason = revokeReason;
             }
 
             const { error: reqError } = await sb.from("garage_requisitions").update(updateData).eq("id", reqId);
             if (reqError) throw reqError;
+
+            // Split Logic for Partial Fulfillment/Receipt
+            const thresholdQty = nextStatus === 'Arrived' ? currentReq.quantity_approved : currentReq.quantity_requested;
+            if (['Awaiting Approval', 'Approved', 'Arrived'].includes(nextStatus) && qty < thresholdQty) {
+                const remaining = thresholdQty - qty;
+                const { error: splitError } = await sb.from("garage_requisitions").insert({
+                    ...currentReq,
+                    id: undefined, // Let DB generate
+                    quantity_requested: remaining,
+                    original_quantity: currentReq.original_quantity || thresholdQty,
+                    parent_id: currentReq.id,
+                    status: 'Pending',
+                    created_at: new Date().toISOString(),
+                    po_number: null,
+                    unit_price: 0,
+                    total_price: 0,
+                    quantity_approved: 0,
+                    quantity_received: 0,
+                    received_at: null,
+                    received_by: null
+                });
+                if (splitError) console.error("Split Error:", splitError);
+                else toast({ title: "Requisition Split", description: `Created new request for remaining ${remaining} units.` });
+            }
 
             // Reduce Stock ONLY when fully approved by Management
             if (nextStatus === 'Approved' && itemId && item) {
@@ -1498,28 +1533,8 @@ const ProcurementDashboard = () => {
                                     qty: qtyApproving,
                                     itemId: selectedReq?.item_id,
                                     details: approvalDetails,
-                                    nextStatus: selectedReq?.status === 'Pending' ? 'Awaiting Approval' : 'Approved'
+                                    nextStatus: selectedReq?.status === 'Pending' ? 'Awaiting Approval' : 'Approved',
                                 });
-
-                                // Partial Fulfillment: Create split for remaining
-                                if (qtyApproving < qtyRequested) {
-                                    const remaining = qtyRequested - qtyApproving;
-                                    sb.from("garage_requisitions").insert({
-                                        ...selectedReq,
-                                        id: undefined, // Let DB generate
-                                        quantity_requested: remaining,
-                                        original_quantity: selectedReq?.original_quantity || selectedReq?.quantity_requested,
-                                        parent_id: selectedReq?.id,
-                                        status: 'Pending',
-                                        created_at: new Date().toISOString(),
-                                        po_number: null,
-                                        unit_price: 0,
-                                        total_price: 0
-                                    }).then(({ error }: any) => {
-                                        if (error) console.error("Split Error:", error);
-                                        else toast({ title: "Requisition Split", description: `Created new request for remaining ${remaining} units.` });
-                                    });
-                                }
                             }}
                         >
                             {workflowMutation.isPending ? "Saving..." : (selectedReq?.status === 'Pending' ? "Send for Approval" : "Approve & Issue PO")}

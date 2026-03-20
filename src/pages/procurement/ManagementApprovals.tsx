@@ -419,7 +419,7 @@ const ManagementApprovals = () => {
                             disabled={!approvalDetails.payment_method_id || !approvalDetails.temp_price}
                             onClick={() => workflowMutation.mutate({
                                 reqId: selectedReq?.id,
-                                qty: selectedReq?.quantity_requested,
+                                qty: approvalDetails.quantity_approving,
                                 itemId: selectedReq?.item_id,
                                 details: approvalDetails,
                                 nextStatus: 'Approved'

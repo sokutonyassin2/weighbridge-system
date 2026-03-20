@@ -3,19 +3,90 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+
+const translations = {
+    en: {
+        garage_title: "Garage & Maintenance Command Center",
+        garage_subtitle: "Real-time fleet health, active repairs, and inventory management",
+        repairs: "Repairs",
+        inventory: "Inventory",
+        store_logs: "Store Logs",
+        deleted: "Deleted",
+        dashboard_overview: "Dashboard Overview",
+        active_jobs: "Active Repair Jobs",
+        critical_faults: "Critical Faults",
+        pending_issues: "Pending Issues",
+        issuance_approvals: "Issuance Approvals",
+        log_new_fault: "Log New Fault",
+        refresh: "Refresh Data",
+        search_vehicles: "Search vehicles...",
+        search_inventory: "Search inventory...",
+        search_pn: "Search PN...",
+        add_product: "Add Product",
+        requisitions: "Requisitions",
+        issued_items: "Issued Items",
+        approvals: "Approvals",
+        approve: "Approve",
+        reject: "Reject",
+        edit_qty: "Edit Qty",
+        view_only: "View Only",
+        available_stock: "Available Stock",
+        item_usage: "Item Usage",
+        mechanic: "Mechanic",
+        driver: "Driver",
+        vehicle: "Vehicle",
+        actions: "Actions"
+    },
+    sw: {
+        garage_title: "Kituo cha Amri ya Karakana na Matengenezo",
+        garage_subtitle: "Hali ya magari, matengenezo yanayoendelea, na usimamizi wa stoo",
+        repairs: "Matengenezo",
+        inventory: "Stoo/Vifaa",
+        store_logs: "Kumbukumbu za Stoo",
+        deleted: "Vilivyofutwa",
+        dashboard_overview: "Muhtasari wa Dashibodi",
+        active_jobs: "Kazi za Matengenezo",
+        critical_faults: "Hitilafu Muhimu",
+        pending_issues: "Masuala Yanayosubiri",
+        issuance_approvals: "Idhini za Kutolewa",
+        log_new_fault: "Sajili Hitilafu Mpya",
+        refresh: "Sasisha Data",
+        search_vehicles: "Tafuta magari...",
+        search_inventory: "Tafuta vifaa...",
+        search_pn: "Tafuta PN...",
+        add_product: "Ongeza Kifaa",
+        requisitions: "Maombi ya Vifaa",
+        issued_items: "Vifaa Vilivyotolewa",
+        approvals: "Idhini",
+        approve: "Idhinisha",
+        reject: "Kataa",
+        edit_qty: "Badili Idadi",
+        view_only: "Angalia tu",
+        available_stock: "Vifaa Vilivyopo",
+        item_usage: "Matumizi ya Vifaa",
+        mechanic: "Mekanika",
+        driver: "Dereva",
+        vehicle: "Gari",
+        actions: "Vitendo"
+    }
+};
 
 const GarageDashboard = () => {
     const sb = supabase as any;
@@ -45,6 +116,11 @@ const GarageDashboard = () => {
     const [isAdjustQtyOpen, setIsAdjustQtyOpen] = useState(false);
     const [adjustedQty, setAdjustedQty] = useState(1);
     const [selectedUsageToApprove, setSelectedUsageToApprove] = useState<any>(null);
+    const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
+    const [language, setLanguage] = useState<'en' | 'sw'>('en');
+
+
+    const t = (key: keyof typeof translations.en) => translations[language][key] || key;
 
     // Initial state based on URL
     const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted">(
@@ -961,50 +1037,76 @@ const GarageDashboard = () => {
     ] : [];
 
     return (
-        <div className="space-y-6 p-6 animate-fade-in">
+        <div className="space-y-6 p-6 animate-fade-in text-slate-900">
             {/* Conditional Header: Only show for Repairs tab */}
             {activeTab === 'jobs' && (
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between border-b pb-6 border-slate-100">
                     <div>
-                        <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
-                            <span className="text-red-600">SudEnergy</span> <span className="text-blue-900">Logistics</span>
+                        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+                            <Wrench className="w-8 h-8 text-indigo-600" />
+                            <div className="flex flex-col">
+                                <span className="text-slate-900">{t('garage_title')}</span>
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{t('garage_subtitle')}</span>
+                            </div>
                         </h1>
-                        <p className="text-muted-foreground mt-1">Garage & Maintenance Division - Manage repairs, log faults, and track vehicle health.</p>
+
+
                     </div>
-                    <Button onClick={() => setIsLogFaultOpen(true)} className="bg-indigo-600 hover:bg-indigo-700">
-                        <Wrench className="w-4 h-4 mr-2" />
-                        Log New Fault
-                    </Button>
+                    <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full border border-slate-100 shadow-sm">
+                            <Label htmlFor="language-toggle" className="text-[10px] font-semibold uppercase tracking-tighter text-slate-500">English</Label>
+                            <Switch
+                                id="language-toggle"
+                                checked={language === 'sw'}
+                                onCheckedChange={(checked) => setLanguage(checked ? 'sw' : 'en')}
+                                className="data-[state=checked]:bg-indigo-600"
+                            />
+                            <Label htmlFor="language-toggle" className="text-[10px] font-semibold uppercase tracking-tighter text-slate-500">Swahili</Label>
+                        </div>
+                        <Button onClick={() => setIsLogFaultOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-semibold uppercase tracking-wider text-xs h-11 px-6">
+                            <Plus className="w-4 h-4 mr-2" />
+                            {t('log_new_fault')}
+                        </Button>
+
+                    </div>
                 </div>
             )}
 
-            {/* Content Area Rendering based on state (controlled by URL in useEffect) */}
-
+            {/* Dashboard Stats */}
             {activeTab === 'jobs' ? (
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <Card className="border-none shadow-sm bg-white">
+                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Vehicles In Garage</CardTitle>
-                                <Truck className="h-4 w-4 text-indigo-500" />
+                                <CardTitle className="text-[10px] font-medium text-slate-400 uppercase tracking-widest leading-none">{t('active_jobs')}</CardTitle>
+                                <div className="p-2 bg-indigo-50 rounded-lg">
+                                    <Truck className="h-4 w-4 text-indigo-500" />
+                                </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">
+                                <div className="text-3xl font-semibold text-slate-900">
+
                                     {(() => {
                                         const activeJobs = jobCards?.filter(j => j.status !== 'Closed') || [];
                                         const uniqueVehicles = new Set(activeJobs.map(j => j.vehicle_id));
                                         return uniqueVehicles.size;
                                     })()}
                                 </div>
+                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Live on the floor' : 'Gerezani sasa'}</p>
+
                             </CardContent>
                         </Card>
-                        <Card className="border-none shadow-sm bg-white">
+                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all border-l-4 border-l-red-500">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Critical Jobs</CardTitle>
-                                <AlertTriangle className="h-4 w-4 text-red-500" />
+                                <CardTitle className="text-[10px] font-medium text-red-500 uppercase tracking-widest leading-none">{t('critical_faults')}</CardTitle>
+                                <div className="p-2 bg-red-50 rounded-lg">
+                                    <AlertTriangle className="h-4 w-4 text-red-500" />
+                                </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">
+                                <div className="text-3xl font-semibold text-red-600">
+
+
                                     {(() => {
                                         const criticalJobs = jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed') || [];
                                         const uniqueVehicles = new Set(criticalJobs.map(j => j.vehicle_id));
@@ -1013,13 +1115,16 @@ const GarageDashboard = () => {
                                 </div>
                             </CardContent>
                         </Card>
-                        <Card className="border-none shadow-sm bg-white">
+                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Pending Issues</CardTitle>
-                                <Clock className="h-4 w-4 text-amber-500" />
+                                <CardTitle className="text-[10px] font-medium text-slate-400 uppercase tracking-widest leading-none">{t('pending_issues')}</CardTitle>
+                                <div className="p-2 bg-amber-50 rounded-lg">
+                                    <Clock className="h-4 w-4 text-amber-500" />
+                                </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-slate-900">
+                                <div className="text-3xl font-semibold text-slate-900">
+
                                     {(() => {
                                         const pendingJobs = jobCards?.filter(j =>
                                             j.status === 'Closed' &&
@@ -1029,7 +1134,8 @@ const GarageDashboard = () => {
                                         return uniqueVehicles.size;
                                     })()}
                                 </div>
-                                <p className="text-[11px] text-slate-400 mt-1 font-medium italic">Vehicles need follow-up</p>
+                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Needs follow-up' : 'Yanahitaji ufuatiliaji'}</p>
+
                             </CardContent>
                         </Card>
 
@@ -1045,30 +1151,34 @@ const GarageDashboard = () => {
                                     setActiveStoreTab('approvals');
                                 }}
                             >
-                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <CardTitle className={`text-[11px] font-bold uppercase tracking-widest ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>Issuance Approvals</CardTitle>
+                                <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
+                                    <CardTitle className={`text-[11px] font-semibold uppercase tracking-widest ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>{language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}</CardTitle>
                                     <ClipboardCheck className={`h-4 w-4 ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-white" : "text-indigo-500"}`} />
                                 </CardHeader>
+
                                 <CardContent>
-                                    <div className="text-2xl font-bold">
+                                    <div className="text-2xl font-semibold">
                                         {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
                                     </div>
+
                                     <p className={`text-[11px] mt-1 font-medium italic ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100/80" : "text-slate-400"}`}>
-                                        Requires manager review
+                                        {language === 'en' ? 'Requires manager review' : 'Inahitaji uhakiki wa meneja'}
                                     </p>
                                 </CardContent>
                             </Card>
+
                         )}
 
                         {/* Recent Activity Feed for Accountability */}
                         <Card className="border-none shadow-sm bg-white md:row-span-2 lg:row-span-1">
                             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
-                                <CardTitle className="text-[11px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                                <CardTitle className="text-[11px] font-semibold text-slate-700 uppercase tracking-widest flex items-center gap-2">
                                     <HistoryIcon className="h-3.5 w-3.5 text-indigo-500" />
-                                    Accountability Feed
+                                    {language === 'en' ? 'Accountability Feed' : 'Mlisho wa Uwajibikaji'}
                                 </CardTitle>
-                                <Badge variant="outline" className="text-[9px] bg-white">Live</Badge>
+                                <Badge variant="outline" className="text-[9px] bg-white font-semibold">{language === 'en' ? 'Live' : 'Mubashara'}</Badge>
                             </CardHeader>
+
                             <CardContent className="p-0">
                                 <ScrollArea className="h-[120px] px-4 py-2">
                                     <div className="space-y-3">
@@ -1076,20 +1186,22 @@ const GarageDashboard = () => {
                                             <div key={log.id} className="flex gap-3 items-start border-l-2 border-indigo-100 pl-3 py-0.5">
                                                 <div className="flex flex-col flex-1">
                                                     <div className="flex justify-between items-center">
-                                                        <span className="text-[11px] font-bold text-slate-700">{log.issued_to || "Staff"}</span>
+                                                        <span className="text-[11px] font-semibold text-slate-700">{log.issued_to || (language === 'en' ? "Staff" : "Mfanyakazi")}</span>
                                                         <span className="text-[9px] text-slate-400">
                                                             {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
                                                     <p className="text-[10px] text-slate-500 leading-tight">
-                                                        Took <span className="text-indigo-600 font-medium">{log.quantity_used} {log.item_name}</span> for <span className="text-slate-700 font-medium">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || "General"}</span>
+                                                        {language === 'en' ? 'Took' : 'Alichukua'} <span className="text-indigo-600 font-medium">{log.quantity_used} {log.item_name}</span> {language === 'en' ? 'for' : 'kwa'} <span className="text-slate-700 font-semibold">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || (language === 'en' ? "General" : "Jumla")}</span>
                                                     </p>
                                                 </div>
                                             </div>
                                         ))}
+
                                         {(!usageLogs || usageLogs.length === 0) && (
-                                            <p className="text-[10px] text-slate-400 italic text-center py-4">No recent activity logged</p>
+                                            <p className="text-[10px] text-slate-400 italic text-center py-4">{language === 'en' ? 'No recent activity logged' : 'Hakuna shughuli ya karibuni'}</p>
                                         )}
+
                                     </div>
                                 </ScrollArea>
                             </CardContent>
@@ -1105,18 +1217,20 @@ const GarageDashboard = () => {
                             return (
                                 <Card className="border-indigo-200 shadow-sm bg-indigo-50/30 md:col-span-2 lg:col-span-4">
                                     <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
-                                        <CardTitle className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-2">
-                                            <AlertTriangle className="h-3 w-3" /> Status Recovery Needed
+                                        <CardTitle className="text-[11px] font-medium text-indigo-700 uppercase tracking-widest flex items-center gap-2">
+                                            <AlertTriangle className="h-3 w-3" /> {language === 'en' ? 'Status Recovery Needed' : 'Urejeshaji wa Hali Unahitajika'}
                                         </CardTitle>
                                     </CardHeader>
+
                                     <CardContent className="px-4 pb-4">
                                         <div className="space-y-2">
                                             {stuckVehicles.map(v => (
                                                 <div key={v.id} className="flex items-center justify-between p-2 bg-white border border-indigo-100 rounded-lg">
                                                     <div className="flex flex-col">
-                                                        <span className="text-[11px] font-bold text-slate-800">{v.plate_number}</span>
-                                                        <span className="text-[11px] text-slate-500">Stuck in 'Maintenance' with no job card</span>
+                                                        <span className="text-[11px] font-semibold text-slate-800">{v.plate_number}</span>
+                                                        <span className="text-[11px] text-slate-500 font-medium">{language === 'en' ? "Stuck in 'Maintenance' with no job card" : "Ikwama kwenye 'Matengenezo' bila kadi ya kazi"}</span>
                                                     </div>
+
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
@@ -1124,8 +1238,9 @@ const GarageDashboard = () => {
                                                         onClick={() => forceReleaseMutation.mutate(v.id)}
                                                         disabled={forceReleaseMutation.isPending}
                                                     >
-                                                        {forceReleaseMutation.isPending ? "Fixing..." : "Unlock Unit"}
+                                                        {forceReleaseMutation.isPending ? (language === 'en' ? "Fixing..." : "Kurekebisha...") : (language === 'en' ? "Unlock Unit" : "Fungua Kitengo")}
                                                     </Button>
+
                                                 </div>
                                             ))}
                                         </div>
@@ -1138,10 +1253,11 @@ const GarageDashboard = () => {
                     <Card className="border-none shadow-lg bg-white">
                         <CardHeader>
                             <div className="flex items-center justify-between">
-                                <CardTitle className="text-sm font-bold text-slate-700 uppercase tracking-widest flex items-center gap-2">Active Job Cards</CardTitle>
+                                <CardTitle className="text-sm font-semibold text-slate-700 uppercase tracking-widest flex items-center gap-2">{language === 'en' ? 'Active Job Cards' : 'Kadi za Kazi Amilifu'}</CardTitle>
+
                                 <div className="flex w-full max-w-sm items-center space-x-2">
                                     <Input
-                                        placeholder="Search jobs..."
+                                        placeholder={language === 'en' ? "Search jobs..." : "Tafuta kazi..."}
                                         className="h-8 w-[150px] lg:w-[250px]"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -1149,20 +1265,22 @@ const GarageDashboard = () => {
                                 </div>
                             </div>
                         </CardHeader>
+
                         <CardContent>
                             <Table>
                                 <TableHeader>
-                                    <TableRow className="bg-slate-50 hover:bg-slate-50">
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Job ID</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Vehicle</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Fault</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Status Breakdown</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Priority</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Status</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Opened</TableHead>
-                                        <TableHead className="text-right text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4">Action</TableHead>
+                                    <TableRow className="bg-slate-50/50">
+                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Job No' : 'Namba ya Kazi'}</TableHead>
+                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('vehicle')}</TableHead>
+                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('mechanic')}</TableHead>
+                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400 text-center">{language === 'en' ? 'Open Date' : 'Tarehe iliyofunguliwa'}</TableHead>
+                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Primary Issue' : 'Tatizo Kuu'}</TableHead>
+                                        <TableHead className="text-[11px] font-medium text-slate-400 uppercase tracking-widest text-center">Status</TableHead>
+                                        <TableHead className="text-right text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('actions')}</TableHead>
                                     </TableRow>
+
                                 </TableHeader>
+
                                 <TableBody>
                                     {jobCards && jobCards.length > 0 ? (
                                         (() => {
@@ -1225,13 +1343,14 @@ const GarageDashboard = () => {
                                                                     <span className="text-[13px] text-slate-600">
                                                                         {job._displayFaults[0].mechanic_notes || job._displayFaults[0].fault_type?.fault_name}
                                                                         {job._displayFaults.length > 1 && (
-                                                                            <span className="text-indigo-600 ml-1 font-medium">+{job._displayFaults.length - 1} more</span>
+                                                                            <span className="text-indigo-600 ml-1 font-medium">+{job._displayFaults.length - 1} {language === 'en' ? 'more' : 'zaidi'}</span>
                                                                         )}
                                                                     </span>
                                                                 </>
                                                             ) : (
-                                                                <span className="text-[11px] text-slate-400 italic">No tasks logged</span>
+                                                                <span className="text-[11px] text-slate-400 italic">{language === 'en' ? 'No tasks logged' : 'Hakuna kazi zilizoandikwa'}</span>
                                                             )}
+
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>
@@ -1263,10 +1382,14 @@ const GarageDashboard = () => {
                                                         )}
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge variant="outline" className={job._displayPriority === 'Critical' ? 'bg-red-50 text-red-600 border-red-200' : job._displayPriority === 'Urgent' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-200'}>{job._displayPriority}</Badge>
+                                                        <Badge variant="outline" className={job._displayPriority === 'Critical' ? 'bg-red-50 text-red-600 border-red-200' : job._displayPriority === 'Urgent' ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-blue-50 text-blue-600 border-blue-200'}>
+                                                            {language === 'en' ? job._displayPriority : (job._displayPriority === 'Critical' ? 'Hatari' : job._displayPriority === 'Urgent' ? 'Haraka' : 'Kawaida')}
+                                                        </Badge>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge className={job._displayStatus === 'Open' ? 'bg-slate-100 text-slate-600' : job._displayStatus === 'In Progress' ? 'bg-indigo-100 text-indigo-600' : 'bg-green-100 text-green-600'}>{job._displayStatus}</Badge>
+                                                        <Badge className={job._displayStatus === 'Open' ? 'bg-slate-100 text-slate-600' : job._displayStatus === 'In Progress' ? 'bg-indigo-100 text-indigo-600' : 'bg-green-100 text-green-600'}>
+                                                            {language === 'en' ? job._displayStatus : (job._displayStatus === 'Open' ? 'Wazi' : job._displayStatus === 'In Progress' ? 'Inaendelea' : 'Imefungwa')}
+                                                        </Badge>
                                                     </TableCell>
                                                     <TableCell className="text-slate-500 text-xs">{new Date(job.opened_at).toLocaleDateString()}</TableCell>
                                                     <TableCell className="text-right">
@@ -1279,7 +1402,7 @@ const GarageDashboard = () => {
                                                                     setSelectedJobForTasks(job);
                                                                     setIsManageTasksOpen(true);
                                                                 }}
-                                                                title="Manage Tasks"
+                                                                title={language === 'en' ? "Manage Tasks" : "Simamia Kazi"}
                                                             >
                                                                 <FileText className="h-4 w-4" />
                                                             </Button>
@@ -1288,7 +1411,7 @@ const GarageDashboard = () => {
                                                                 size="sm"
                                                                 className="h-8 w-8 p-0 text-slate-600 hover:text-indigo-600"
                                                                 onClick={() => handlePrintJob(job)}
-                                                                title="Print Job Card"
+                                                                title={language === 'en' ? "Print Job Card" : "Chapisha Kadi"}
                                                             >
                                                                 <Printer className="h-4 w-4" />
                                                             </Button>
@@ -1298,11 +1421,11 @@ const GarageDashboard = () => {
                                                                     size="sm"
                                                                     className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
                                                                     onClick={() => {
-                                                                        if (window.confirm(`Are you sure you want to move Job ${job.job_number} to the Dustbin? This will reset the vehicle status to Active.`)) {
+                                                                        if (window.confirm(language === 'en' ? `Are you sure you want to move Job ${job.job_number} to the Dustbin? This will reset the vehicle status to Active.` : `Una uhakika unataka kuhamishia Kazi ${job.job_number} kwenye Pipa? Hii itarudisha hali ya gari kuwa Inafanya kazi.`)) {
                                                                             deleteJobMutation.mutate({ jobId: job.id, vehicleId: job.vehicle_id });
                                                                         }
                                                                     }}
-                                                                    title="Move to Dustbin"
+                                                                    title={language === 'en' ? "Move to Dustbin" : "Hamisha kwenye Pipa"}
                                                                 >
                                                                     <Trash2 className="h-4 w-4" />
                                                                 </Button>
@@ -1313,8 +1436,9 @@ const GarageDashboard = () => {
                                             ));
                                         })()
                                     ) : (
-                                        <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No active maintenance jobs found.</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">{language === 'en' ? "No active maintenance jobs found." : "Hakuna kazi za matengenezo zilizopatikana."}</TableCell></TableRow>
                                     )}
+
                                 </TableBody>
                             </Table>
                         </CardContent>
@@ -1324,18 +1448,22 @@ const GarageDashboard = () => {
                 <div className="space-y-6">
                     <div className="flex items-center justify-between">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
+                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2 uppercase">
                                 <Package className="w-6 h-6 text-indigo-500" />
-                                Garage Inventory Store
+                                {t('inventory')}
                             </h1>
-                            <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Manage stock levels and request part restocks</p>
+
+                            <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight italic">
+                                {language === 'en' ? 'Manage stock levels and request part restocks' : 'Simamia kiwango cha vifaa na agiza vipya'}
+                            </p>
                         </div>
                         <Button
-                            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-medium"
+                            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-semibold uppercase tracking-wider text-xs h-11 px-6"
+
                             onClick={() => setIsAddProductDialogOpen(true)}
                         >
                             <Plus className="w-4 h-4 mr-2" />
-                            Add New Product
+                            {t('add_product')}
                         </Button>
                     </div>
 
@@ -1343,16 +1471,16 @@ const GarageDashboard = () => {
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input
-                                placeholder="Search by name or category..."
+                                placeholder={t('search_inventory')}
                                 value={inventorySearch}
                                 onChange={(e) => setInventorySearch(e.target.value)}
-                                className="pl-10 h-11 bg-white border-slate-200 shadow-sm focus:border-indigo-400 transition-all rounded-xl"
+                                className="pl-10 h-11 bg-white border-slate-200 shadow-sm focus:border-indigo-400 transition-all rounded-xl text-sm"
                             />
                         </div>
                         <div className="relative">
                             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                             <Input
-                                placeholder="Search by Part Number (PN)..."
+                                placeholder={t('search_pn')}
                                 value={partNumberSearch}
                                 onChange={(e) => setPartNumberSearch(e.target.value)}
                                 className="pl-10 h-11 bg-white border-slate-200 shadow-sm focus:border-indigo-400 transition-all rounded-xl font-mono text-sm"
@@ -1363,30 +1491,38 @@ const GarageDashboard = () => {
                     <div className="grid gap-6 md:grid-cols-2">
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Catalog Items</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-slate-400 uppercase tracking-widest leading-none">{language === 'en' ? 'Catalog Items' : 'Orodha ya Vifaa'}</CardTitle>
+
+
                                 <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
                                     <Package className="h-4 w-4" />
                                 </div>
                             </CardHeader>
                             <CardContent>
                                 <div className="text-3xl font-semibold text-slate-900">{inventory?.length || 0}</div>
-                                <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Unique products registered</p>
+
+                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Unique products registered' : 'Aina za vifaa vilivyosajiliwa'}</p>
                             </CardContent>
                         </Card>
+
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow border-l-4 border-l-red-400">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-red-500 uppercase tracking-widest">Low Stock Alerts</CardTitle>
+                                <CardTitle className="text-[11px] font-medium text-red-500 uppercase tracking-widest leading-none">{language === 'en' ? 'Low Stock Alerts' : 'Tahadhari ya Akiba Chini'}</CardTitle>
+
+
                                 <div className="p-2 bg-red-50 rounded-lg text-red-600">
                                     <AlertTriangle className="h-4 w-4" />
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-3xl font-semibold text-slate-900">
+                                <div className="text-3xl font-semibold text-red-600">
+
                                     {(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}
                                 </div>
-                                <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Items below threshold</p>
+                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Items below threshold' : 'Vifaa vilivyopungua akiba'}</p>
                             </CardContent>
                         </Card>
+
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1436,8 +1572,9 @@ const GarageDashboard = () => {
                                                 }}
                                             >
                                                 <ShoppingCart className="w-3 h-3 mr-1" />
-                                                Issue
+                                                {language === 'en' ? 'Issue' : 'Toa'}
                                             </Button>
+
 
                                             <Button
                                                 size="sm"
@@ -1453,8 +1590,9 @@ const GarageDashboard = () => {
                                                 }}
                                             >
                                                 <TrendingUp className="w-3 h-3 mr-1" />
-                                                Restock
+                                                {language === 'en' ? 'Restock' : 'Agiza'}
                                             </Button>
+
 
                                             <Button
                                                 size="sm"
@@ -1466,8 +1604,9 @@ const GarageDashboard = () => {
                                                     setIsUpdateQtyOpen(true);
                                                 }}
                                             >
-                                                Update Physical count
+                                                {language === 'en' ? 'Update Physical count' : 'Sasisha idadi halisi'}
                                             </Button>
+
                                         </div>
                                     </div>
                                 );
@@ -1478,27 +1617,28 @@ const GarageDashboard = () => {
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2 font-medium">
+                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
                                 <HistoryIcon className="w-6 h-6 text-indigo-500" />
                                 Store Hub Activity
                             </h1>
                             <p className="text-sm text-slate-500 font-medium tracking-tight">Accountability & Stock Consumption Monitoring</p>
                         </div>
 
+
                         <div className="flex items-center gap-3">
                             <Select value={selectedMonth.toString()} onValueChange={(val) => setSelectedMonth(parseInt(val))}>
                                 <SelectTrigger className="w-[140px] h-10 bg-white border-slate-200">
-                                    <SelectValue placeholder="Month" />
+                                    <SelectValue placeholder={language === 'en' ? "Month" : "Mwezi"} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, i) => (
+                                    {(language === 'en' ? ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] : ["Januari", "Februari", "Machi", "Aprili", "Mei", "Juni", "Julai", "Agosti", "Septemba", "Oktoba", "Novemba", "Desemba"]).map((m, i) => (
                                         <SelectItem key={i} value={i.toString()}>{m}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <Select value={selectedYear.toString()} onValueChange={(val) => setSelectedYear(parseInt(val))}>
                                 <SelectTrigger className="w-[100px] h-10 bg-white border-slate-200">
-                                    <SelectValue placeholder="Year" />
+                                    <SelectValue placeholder={language === 'en' ? "Year" : "Mwaka"} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {[2024, 2025, 2026].map(y => (
@@ -1507,13 +1647,14 @@ const GarageDashboard = () => {
                                 </SelectContent>
                             </Select>
                         </div>
+
                     </div>
 
                     {/* Monthly Summary Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <Card className="border-none shadow-sm bg-indigo-600 text-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-xs font-medium uppercase tracking-widest opacity-80">Monthly Items Issued</CardTitle>
+                                <CardTitle className="text-xs font-medium uppercase tracking-widest opacity-80">{language === 'en' ? 'Monthly Items Issued' : 'Matokeo ya Vifaa kwa Mwezi'}</CardTitle>
                                 <ShoppingCart className="h-4 w-4 opacity-80" />
                             </CardHeader>
                             <CardContent>
@@ -1523,20 +1664,22 @@ const GarageDashboard = () => {
                                         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
                                     }).reduce((sum: number, l: any) => sum + (l.quantity_used || 0), 0)}
                                 </div>
-                                <p className="text-xs opacity-70 mt-1">Total physical units moved this month</p>
+                                <p className="text-xs opacity-70 mt-1">{language === 'en' ? 'Total physical units moved this month' : 'Jumla ya vifaa vilivyotolewa mwezi huu'}</p>
+
                             </CardContent>
                         </Card>
 
                         <Card className="border-none shadow-sm bg-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-widest">Active Requests</CardTitle>
+                                <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Active Requests' : 'Maombi Amilifu'}</CardTitle>
                                 <ClipboardCheck className="h-4 w-4 text-indigo-400" />
                             </CardHeader>
                             <CardContent>
                                 <div className="text-3xl font-semibold text-slate-900">
                                     {(requisitions || []).filter((r: any) => r.status === 'Pending').length}
                                 </div>
-                                <p className="text-xs text-slate-400 mt-1 italic">Pending Store Room restocks</p>
+                                <p className="text-xs text-slate-400 mt-1 italic">{language === 'en' ? 'Pending Store Room restocks' : 'Maombi ya vifaa yanayosubiri'}</p>
+
                             </CardContent>
                         </Card>
                     </div>
@@ -1544,14 +1687,14 @@ const GarageDashboard = () => {
                     <Tabs value={activeStoreTab} onValueChange={setActiveStoreTab} className="w-full">
                         <TabsList className="bg-slate-100/50 p-1 mb-6">
                             <TabsTrigger value="requisitions" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
-                                <HistoryIcon className="w-4 h-4 mr-2" /> Requisitions History
+                                <HistoryIcon className="w-4 h-4 mr-2" /> {t('requisitions')}
                             </TabsTrigger>
                             <TabsTrigger value="issued" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
-                                <ShoppingCart className="w-4 h-4 mr-2" /> Issued Items Report
+                                <ShoppingCart className="w-4 h-4 mr-2" /> {t('issued_items')}
                             </TabsTrigger>
                             {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) && (
                                 <TabsTrigger value="approvals" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider relative">
-                                    <ClipboardCheck className="w-4 h-4 mr-2" /> Issuance Approvals
+                                    <ClipboardCheck className="w-4 h-4 mr-2" /> {t('approvals')}
                                     {(usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0 && (
                                         <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
                                             {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
@@ -1566,8 +1709,9 @@ const GarageDashboard = () => {
                                 <CardHeader className="bg-slate-50/50 border-b">
                                     <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
                                         <HistoryIcon className="w-4 h-4 text-slate-400" />
-                                        Part Requisitions History
+                                        {language === 'en' ? 'Part Requisitions History' : 'Historia ya Maombi ya Vifaa'}
                                     </CardTitle>
+
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <Table>
@@ -1597,13 +1741,23 @@ const GarageDashboard = () => {
                                                             </div>
                                                         </TableCell>
                                                         <TableCell><Badge variant="outline" className="text-[10px] uppercase font-medium py-0 h-5 border-slate-200 text-slate-400 tracking-tighter">{req.request_type}</Badge></TableCell>
-                                                        <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{req.item_name}</TableCell>
+                                                        <TableCell className="font-medium text-slate-700 text-sm tracking-tight">
+                                                            <div className="flex flex-col gap-1">
+                                                                <span>{req.item_name}</span>
+                                                                {req.original_quantity && req.original_quantity !== req.quantity_requested && (
+                                                                    <Badge variant="outline" className="w-fit text-[9px] border-amber-200 text-amber-600 bg-amber-50 py-0 h-4">
+                                                                        Partial of {req.original_quantity}
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
                                                         <TableCell className="text-sm font-mono font-semibold text-slate-600">{req.quantity_requested}</TableCell>
                                                         <TableCell className="text-sm font-medium text-slate-400 italic">
-                                                            {['Stocked', 'Approved', 'Rejected'].includes(req.status) ? (
-                                                                <span className="text-slate-500 font-semibold not-italic">Closed</span>
+                                                            {['Stocked', 'Approved', 'Rejected', 'Paid'].includes(req.status) ? (
+                                                                <span className="text-slate-500 font-semibold not-italic">{language === 'en' ? 'Closed' : 'Imefungwa'}</span>
                                                             ) : `${hours}h ${minutes}m`}
                                                         </TableCell>
+
                                                         <TableCell className="text-right">
                                                             <div className="flex flex-col items-end gap-1">
                                                                 <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${req.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
@@ -1640,22 +1794,23 @@ const GarageDashboard = () => {
                                 <CardContent className="p-0">
                                     <Table>
                                         <TableHeader>
-                                            <TableRow className="bg-slate-50/20">
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Date & Time</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Issued To</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item Taken</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">Qty</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Vehicle</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Manager</TableHead>
-                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Status</TableHead>
+                                            <TableRow className="bg-slate-50/50">
+                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Date & Time' : 'Tarehe na Muda'}</TableHead>
+                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Issued To' : 'Ametolewa'}</TableHead>
+                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Item Taken' : 'Kifaa Kilichotolewa'}</TableHead>
+                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400 text-center">{language === 'en' ? 'Qty' : 'Idadi'}</TableHead>
+                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('vehicle')}</TableHead>
+                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Manager' : 'Msimamizi'}</TableHead>
+                                                <TableHead className="text-right text-[10px] font-medium uppercase tracking-widest text-slate-400">Status</TableHead>
                                             </TableRow>
+
                                         </TableHeader>
+
                                         <TableBody>
-                                            {(usageLogs || [])
-                                                .filter((log: any) => {
-                                                    const d = new Date(log.created_at);
-                                                    return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
-                                                })
+                                            {(usageLogs || []).filter((log: any) => {
+                                                const d = new Date(log.created_at);
+                                                return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+                                            })
                                                 .map((log: any) => {
                                                     const created = new Date(log.created_at);
                                                     return (
@@ -1668,7 +1823,8 @@ const GarageDashboard = () => {
                                                             </TableCell>
                                                             <TableCell className="font-semibold text-slate-900 font-mono italic text-sm">{log.issued_to}</TableCell>
                                                             <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{log.item_name}</TableCell>
-                                                            <TableCell className="text-center font-mono font-bold text-slate-600 border-x border-slate-50">{log.quantity_used}</TableCell>
+                                                            <TableCell className="text-center font-mono font-semibold text-slate-600 border-x border-slate-50">{log.quantity_used}</TableCell>
+
                                                             <TableCell className="text-xs font-semibold text-indigo-600 italic">
                                                                 {log.vehicle?.vehicle_no || log.vehicle?.horse_number || log.vehicle?.trailer_number || "-"}
                                                             </TableCell>
@@ -1691,8 +1847,9 @@ const GarageDashboard = () => {
                                                 return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
                                             }).length === 0 && (
                                                     <TableRow>
-                                                        <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-400 italic">No usage recorded for this period.</TableCell>
+                                                        <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-400 italic">{language === 'en' ? 'No usage recorded for this period.' : 'Hakuna matumizi yaliyoandikwa kwa kipindi hiki.'}</TableCell>
                                                     </TableRow>
+
                                                 )}
                                         </TableBody>
                                     </Table>
@@ -1703,22 +1860,24 @@ const GarageDashboard = () => {
                         <TabsContent value="approvals" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
                                 <CardHeader className="bg-indigo-50/50 border-b">
-                                    <CardTitle className="text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                                    <CardTitle className="text-xs font-semibold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+
                                         <ClipboardCheck className="w-4 h-4 text-indigo-500" />
-                                        Pending Issuance Approvals
+                                        {language === 'en' ? 'Pending Issuance Approvals' : 'Idhini za Matoleo Yanayosubiri'}
                                     </CardTitle>
-                                    <p className="text-[11px] text-slate-500 mt-1 font-medium tracking-tight">Review item issuances before they deduct from stock</p>
+                                    <p className="text-[11px] text-slate-500 mt-1 font-medium tracking-tight">{language === 'en' ? 'Review item issuances before they deduct from stock' : 'Hukiki matoleo ya vifaa kabla ya kupunguzwa kutoka stoo'}</p>
+
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50/20">
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Requested</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Recipient</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">Qty</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Target Vehicle</TableHead>
-                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Actions</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Requested' : 'Imeombwa'}</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Recipient' : 'Mpokeaji'}</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Item' : 'Kifaa'}</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">{t('edit_qty')}</TableHead>
+                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Target Vehicle' : 'Gari Linalokusudiwa'}</TableHead>
+                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">{t('actions')}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -1733,13 +1892,15 @@ const GarageDashboard = () => {
                                                                     <span className="font-mono text-[10px] text-indigo-400">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                                 </div>
                                                             </TableCell>
-                                                            <TableCell className="font-bold text-slate-900 text-xs uppercase">{log.issued_to}</TableCell>
+                                                            <TableCell className="font-semibold text-slate-900 text-xs uppercase">{log.issued_to}</TableCell>
+
                                                             <TableCell className="font-medium text-slate-700 text-sm tracking-tight">{log.item_name}</TableCell>
                                                             <TableCell className="text-center">
                                                                 {userRole === 'garage_manager' ? (
                                                                     <Button
                                                                         variant="ghost"
-                                                                        className="h-9 w-20 p-0 font-mono font-bold text-indigo-600 bg-indigo-50/30 text-lg hover:bg-indigo-100/50 flex flex-col items-center justify-center leading-none group"
+                                                                        className="h-9 w-20 p-0 font-mono font-semibold text-indigo-600 bg-indigo-50/30 text-lg hover:bg-indigo-100/50 flex flex-col items-center justify-center leading-none group"
+
                                                                         onClick={() => {
                                                                             setSelectedUsageToApprove(log);
                                                                             setAdjustedQty(log.quantity_used);
@@ -1750,7 +1911,8 @@ const GarageDashboard = () => {
                                                                         <span className="text-[8px] uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 text-indigo-400">Edit Qty</span>
                                                                     </Button>
                                                                 ) : (
-                                                                    <div className="h-9 w-20 flex items-center justify-center font-mono font-bold text-indigo-600 bg-indigo-50/30 text-lg rounded-md border border-indigo-100/50">
+                                                                    <div className="h-9 w-20 flex items-center justify-center font-mono font-semibold text-indigo-600 bg-indigo-50/30 text-lg rounded-md border border-indigo-100/50">
+
                                                                         {log.quantity_used}
                                                                     </div>
                                                                 )}
@@ -1764,25 +1926,30 @@ const GarageDashboard = () => {
                                                                         <Button
                                                                             variant="outline"
                                                                             size="sm"
-                                                                            className="h-8 text-[10px] font-bold uppercase tracking-wider text-rose-500 border-rose-200 hover:bg-rose-50"
+                                                                            className="h-8 text-[10px] font-semibold uppercase tracking-wider text-rose-500 border-rose-200 hover:bg-rose-50"
+
                                                                             onClick={() => {
                                                                                 setSelectedUsageToApprove(log);
                                                                                 setIsRejectionDialogOpen(true);
                                                                             }}
                                                                             disabled={approveIssuanceMutation.isPending}
                                                                         >
-                                                                            Reject
+                                                                            {t('reject')}
                                                                         </Button>
+
                                                                         <Button
-                                                                            className="h-8 text-[10px] font-bold uppercase tracking-wider bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                                                                            className="h-8 text-[10px] font-semibold uppercase tracking-wider bg-green-600 hover:bg-green-700 text-white shadow-sm"
+
                                                                             onClick={() => approveIssuanceMutation.mutate({ id: log.id, status: 'Approved' })}
                                                                             disabled={approveIssuanceMutation.isPending}
                                                                         >
-                                                                            {approveIssuanceMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve Stock Exit"}
+                                                                            {approveIssuanceMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : (language === 'en' ? 'Approve Stock Exit' : 'Idhinisha Kutoka Stoo')}
                                                                         </Button>
+
                                                                     </div>
                                                                 ) : (
-                                                                    <Badge variant="outline" className="text-[10px] uppercase font-bold text-slate-400 border-slate-200">
+                                                                    <Badge variant="outline" className="text-[10px] uppercase font-semibold text-slate-400 border-slate-200">
+
                                                                         View Only
                                                                     </Badge>
                                                                 )}
@@ -1794,9 +1961,10 @@ const GarageDashboard = () => {
                                                 <TableRow>
                                                     <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic text-sm">
                                                         <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                                                        No pending issuance requests found
+                                                        {language === 'en' ? 'No pending issuance requests found' : 'Hakuna maombi yanayosubiri kutolewa yaliyopatikana'}
                                                     </TableCell>
                                                 </TableRow>
+
                                             )}
                                         </TableBody>
                                     </Table>
@@ -1809,11 +1977,13 @@ const GarageDashboard = () => {
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
+
                                 <Trash2 className="w-6 h-6 text-rose-500" />
-                                Garage Dustbin
+                                {language === 'en' ? 'Garage Dustbin' : 'Pipa la Taka la Karakana'}
                             </h1>
-                            <p className="text-sm text-slate-500 font-medium">Archived Maintenance Records & Job Cards</p>
+                            <p className="text-sm text-slate-500 font-medium">{language === 'en' ? 'Archived Maintenance Records & Job Cards' : 'Rekodi za Matengenezo na Kadi za Kazi Zilizohifadhiwa'}</p>
+
                         </div>
                     </div>
 
@@ -1821,18 +1991,20 @@ const GarageDashboard = () => {
                         <CardHeader className="bg-slate-50/50 border-b">
                             <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
                                 <HistoryIcon className="w-4 h-4 text-slate-400" />
-                                Soft-Deleted Job Cards
+                                {language === 'en' ? 'Soft-Deleted Job Cards' : 'Kadi za Kazi Zilizofutwa kwa Muda'}
                             </CardTitle>
+
                         </CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/30">
-                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Deleted Date</TableHead>
-                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Vehicle</TableHead>
-                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Original Faults</TableHead>
-                                        <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Actions</TableHead>
+                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Deleted Date' : 'Tarehe ya Kufutwa'}</TableHead>
+                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Vehicle' : 'Gari'}</TableHead>
+                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Original Faults' : 'Hitilafu za Awali'}</TableHead>
+                                        <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Actions' : 'Vitendo'}</TableHead>
                                     </TableRow>
+
                                 </TableHeader>
                                 <TableBody>
                                     {deletedJobCards && deletedJobCards.length > 0 ? (
@@ -1844,7 +2016,8 @@ const GarageDashboard = () => {
                                                         <span className="font-mono text-[11px] text-slate-400">{job.deleted_at ? new Date(job.deleted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="font-bold text-slate-700">{job.vehicle?.vehicle_no || job.vehicle?.plate_number}</TableCell>
+                                                <TableCell className="font-semibold text-slate-700">{job.vehicle?.vehicle_no || job.vehicle?.plate_number}</TableCell>
+
                                                 <TableCell className="text-sm text-slate-600">
                                                     {(job.fault_list || []).map((f: any) => f.mechanic_notes || f.fault_type?.fault_name).join(", ") || "No notes"}
                                                 </TableCell>
@@ -1852,7 +2025,8 @@ const GarageDashboard = () => {
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        className="h-8 text-[10px] font-bold uppercase tracking-wider text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                                        className="h-8 text-[10px] font-semibold uppercase tracking-wider text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+
                                                         onClick={() => restoreJobMutation.mutate({ jobId: job.id, vehicleId: job.vehicle_id })}
                                                         disabled={restoreJobMutation.isPending}
                                                     >
@@ -1868,8 +2042,9 @@ const GarageDashboard = () => {
                                     ) : (
                                         <TableRow>
                                             <TableCell colSpan={4} className="h-24 text-center text-sm text-slate-400 italic">
-                                                No deleted records in the dustbin.
+                                                {language === 'en' ? 'No deleted records in the dustbin.' : 'Hakuna rekodi zilizofutwa kwenye pipa la taka.'}
                                             </TableCell>
+
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -1877,8 +2052,8 @@ const GarageDashboard = () => {
                         </CardContent>
                     </Card>
                 </div>
-            ) : null
-            }
+            ) : null}
+
 
             {/* Requisition Dialog */}
             <Dialog open={isRequisitionDialogOpen} onOpenChange={setIsRequisitionDialogOpen}>
@@ -1886,16 +2061,17 @@ const GarageDashboard = () => {
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 font-semibold text-slate-700">
                             <Plus className="w-5 h-5 text-indigo-500" />
-                            {isSingleRestock ? "Request Part Restock" : "Create Batch Requisition"}
+                            {isSingleRestock ? (language === 'en' ? "Request Part Restock" : "Omba Kipuri") : (language === 'en' ? "Create Batch Requisition" : "Tengeneza Ombi la Vipuri")}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         {requisitionItems.map((item, idx) => (
                             <div key={idx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
                                 <div className="space-y-2">
-                                    <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Item ${idx + 1}</Label>
+                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{language === 'en' ? 'Item' : 'Kipuri'} {idx + 1}</Label>
+
                                     <Input
-                                        placeholder="What is needed? (e.g. Brake Pads)"
+                                        placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Ni nini kinahitajika? (mfano: Break Pads)"}
                                         value={item.item_name}
                                         onChange={(e) => {
                                             const newItems = [...requisitionItems];
@@ -1906,7 +2082,8 @@ const GarageDashboard = () => {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quantity</Label>
+                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
+
                                     <Input
                                         type="number"
                                         min={1}
@@ -1939,25 +2116,25 @@ const GarageDashboard = () => {
                                 className="w-full border-dashed border-slate-300 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 h-9"
                                 onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1 }])}
                             >
-                                <Plus className="w-3 h-3 mr-1.5" /> Add Another Item
+                                <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Another Item' : 'Ongeza Kipuri Kingine'}
                             </Button>
                         )}
 
                         {reqType === 'Job' && (
                             <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-xs flex items-center gap-2">
                                 <Truck className="w-4 h-4 text-indigo-500" />
-                                <span className="text-slate-600">Requisition linked to: <strong className="text-indigo-900">{reqTargetVehicleId ? (vehicles as any[])?.find(v => v.id === reqTargetVehicleId)?.plate_number : "Loading..."}</strong></span>
+                                <span className="text-slate-600">{language === 'en' ? 'Requisition linked to:' : 'Ombi limeunganishwa na:'} <strong className="text-indigo-900">{reqTargetVehicleId ? (vehicles as any[])?.find(v => v.id === reqTargetVehicleId)?.plate_number : "Loading..."}</strong></span>
                             </div>
                         )}
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsRequisitionDialogOpen(false)} className="h-10">Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsRequisitionDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
                         <Button
                             className="bg-indigo-600 hover:bg-indigo-700 h-10"
                             onClick={() => {
                                 const validItems = requisitionItems.filter(i => i.item_name.trim());
                                 if (validItems.length === 0) {
-                                    toast({ variant: "destructive", title: "Missing Items", description: "Please enter at least one item name." });
+                                    toast({ variant: "destructive", title: language === 'en' ? "Missing Items" : "Vipuri Havipo", description: language === 'en' ? "Please enter at least one item name." : "Tafadhali weka jina la angalau kipuri kimoja." });
                                     return;
                                 }
 
@@ -1975,37 +2152,39 @@ const GarageDashboard = () => {
                             }}
                             disabled={createRequisitionMutation.isPending}
                         >
-                            {createRequisitionMutation.isPending ? "Sending..." : `Submit ${requisitionItems.length > 1 ? requisitionItems.length + ' ' : ''}Requisition${requisitionItems.length > 1 ? 's' : ''}`}
+                            {createRequisitionMutation.isPending ? (language === 'en' ? "Sending..." : "Inatuma...") : `${language === 'en' ? 'Submit' : 'Tuma'} ${requisitionItems.length > 1 ? requisitionItems.length + ' ' : ''}${language === 'en' ? (requisitionItems.length > 1 ? 'Requisitions' : 'Requisition') : (requisitionItems.length > 1 ? 'Maombi' : 'Ombi')}`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
             {/* Daily Usage / Issuance Dialog */}
             <Dialog open={isUsageDialogOpen} onOpenChange={setIsUsageDialogOpen}>
                 <DialogContent className="sm:max-w-[420px]">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 font-semibold text-slate-700">
                             <ShoppingCart className="w-5 h-5 text-amber-500" />
-                            Issue Stock: {usageForm.item_name}
+                            {language === 'en' ? 'Issue Stock' : 'Toa Kipuri'}: {usageForm.item_name}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-500 uppercase">Quantity To Issue</Label>
+                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Quantity To Issue' : 'Idadi ya Kutolewa'}</Label>
                             <Input
                                 type="number"
                                 min={1}
                                 value={usageForm.quantity}
                                 onChange={(e) => setUsageForm({ ...usageForm, quantity: parseInt(e.target.value) || 1 })}
-                                className="h-10 text-lg font-mono font-bold text-red-500"
+                                className="h-10 text-lg font-mono font-semibold text-red-500"
                             />
-                            <p className="text-xs text-amber-600 italic font-bold">This issuance will be sent to the Garage Manager for approval before stock is reduced.</p>
+                            <p className="text-xs text-amber-600 italic font-medium">{language === 'en' ? "This issuance will be sent to the Garage Manager for approval before stock is reduced." : "Ombi hili litatumwa kwa Meneja wa Gereji kwa idhini kabla ya idadi kupunguzwa."}</p>
                         </div>
 
+
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-500 uppercase">Issued To (Personnel)</Label>
+                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Issued To (Personnel)' : 'Kimetolewa kwa (Mfanyakazi)'}</Label>
                             <Input
-                                placeholder="Who is taking this item? (e.g. Mechanic Juma)"
+                                placeholder={language === 'en' ? "Who is taking this item? (e.g. Mechanic Juma)" : "Ni nani anachukua kipuri hiki? (mfano: Fundi Juma)"}
                                 value={usageForm.issued_to}
                                 onChange={(e) => setUsageForm({ ...usageForm, issued_to: e.target.value })}
                                 className="h-10"
@@ -2013,25 +2192,73 @@ const GarageDashboard = () => {
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-500 uppercase">Target Vehicle (Optional)</Label>
-                            <Select value={usageForm.vehicle_id} onValueChange={(val) => setUsageForm({ ...usageForm, vehicle_id: val })}>
-                                <SelectTrigger className="h-10">
-                                    <SelectValue placeholder="Select vehicle if applicable" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(vehicles || []).map((v: any) => (
-                                        <SelectItem key={v.id} value={v.id} className="text-xs font-mono">
-                                            {v.plate_number}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Target Vehicle (Optional)' : 'Gari Linalolengwa (Si lazima)'}</Label>
+                            <Popover open={isVehiclePopoverOpen} onOpenChange={setIsVehiclePopoverOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={isVehiclePopoverOpen}
+                                        className="w-full h-10 justify-between font-normal"
+                                    >
+                                        <span className="truncate">
+                                            {usageForm.vehicle_id
+                                                ? (vehicles || []).find((v: any) => v.id === usageForm.vehicle_id)?.plate_number || (language === 'en' ? "Select vehicle..." : "Chagua gari...")
+                                                : (language === 'en' ? "Select vehicle if applicable" : "Chagua gari kama linahusika")}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[400px] p-0" align="start">
+                                    <Command>
+                                        <CommandInput
+                                            placeholder={language === 'en' ? "Search plate number..." : "Tafuta namba ya usajili..."}
+                                            className="h-9"
+                                        />
+                                        <CommandList className="max-h-[300px]">
+                                            <CommandEmpty>{language === 'en' ? "No vehicle found." : "Gari halikupatikana."}</CommandEmpty>
+                                            <CommandGroup>
+                                                <CommandItem
+                                                    value="none"
+                                                    onSelect={() => {
+                                                        setUsageForm({ ...usageForm, vehicle_id: "" });
+                                                        setIsVehiclePopoverOpen(false);
+                                                    }}
+                                                    className="text-xs italic text-slate-500"
+                                                >
+                                                    <Check
+                                                        className={`mr-2 h-4 w-4 ${usageForm.vehicle_id === "" ? "opacity-100" : "opacity-0"}`}
+                                                    />
+                                                    {language === 'en' ? "None (Not vehicle specific)" : "Hakuna (Haitaunganishwa na gari)"}
+                                                </CommandItem>
+                                                {(vehicles || []).map((v: any) => (
+                                                    <CommandItem
+                                                        key={v.id}
+                                                        value={v.plate_number}
+                                                        onSelect={() => {
+                                                            setUsageForm({ ...usageForm, vehicle_id: v.id });
+                                                            setIsVehiclePopoverOpen(false);
+                                                        }}
+                                                        className="text-xs font-mono"
+                                                    >
+                                                        <Check
+                                                            className={`mr-2 h-4 w-4 ${usageForm.vehicle_id === v.id ? "opacity-100" : "opacity-0"}`}
+                                                        />
+                                                        {v.plate_number}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
                         </div>
 
+
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-500 uppercase">Usage Notes</Label>
+                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Usage Notes' : 'Maelezo ya Matumizi'}</Label>
                             <Textarea
-                                placeholder="Brief reason or task details..."
+                                placeholder={language === 'en' ? "Brief reason or task details..." : "Sababu fupi au maelezo ya kazi..."}
                                 value={usageForm.notes}
                                 onChange={(e) => setUsageForm({ ...usageForm, notes: e.target.value })}
                                 className="min-h-[80px]"
@@ -2039,31 +2266,33 @@ const GarageDashboard = () => {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsUsageDialogOpen(false)} className="h-10">Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsUsageDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
                         <Button
-                            className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-10"
+                            className="bg-amber-600 hover:bg-amber-700 text-white font-semibold h-10"
                             disabled={!usageForm.issued_to.trim() || recordUsageMutation.isPending}
                             onClick={() => recordUsageMutation.mutate(usageForm)}
                         >
-                            {recordUsageMutation.isPending ? "Recording..." : "Confirm & Record Usage"}
+                            {recordUsageMutation.isPending ? (language === 'en' ? "Recording..." : "Inasajili...") : (language === 'en' ? "Confirm & Record Usage" : "Thibitisha & Sajili Matumizi")}
                         </Button>
+
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
 
             {/* Add Product Dialog */}
             <Dialog open={isAddProductDialogOpen} onOpenChange={setIsAddProductDialogOpen}>
                 <DialogContent className="sm:max-w-[450px]">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
+                        <DialogTitle className="flex items-center gap-2 font-semibold">
                             <Plus className="w-5 h-5 text-indigo-500" />
-                            Add New Product to Store
+                            {language === 'en' ? 'Add New Product' : 'Ongeza Kipuri Kipya'}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-sm font-bold text-slate-500 uppercase">Product Name</Label>
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Product Name' : 'Jina la Kipuri'}</Label>
                                 <Input
                                     placeholder="e.g. Engine Oil"
                                     value={newProduct.item_name}
@@ -2072,7 +2301,7 @@ const GarageDashboard = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-sm font-bold text-slate-500 uppercase">Part Number (PN)</Label>
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Part Number' : 'Namba ya Kipuri'}</Label>
                                 <Input
                                     placeholder="e.g. 12345-PN"
                                     value={newProduct.part_number}
@@ -2083,14 +2312,14 @@ const GarageDashboard = () => {
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-sm font-bold text-slate-500 uppercase">Category</Label>
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Category' : 'Kundi'}</Label>
                                 <Select value={newProduct.category} onValueChange={(val) => setNewProduct({ ...newProduct, category: val })}>
                                     <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="Parts">Parts</SelectItem>
-                                        <SelectItem value="Fluids">Fluids</SelectItem>
-                                        <SelectItem value="Tools">Tools</SelectItem>
-                                        <SelectItem value="General">General</SelectItem>
+                                        <SelectItem value="Parts">{language === 'en' ? 'Parts' : 'Vipuri'}</SelectItem>
+                                        <SelectItem value="Fluids">{language === 'en' ? 'Fluids' : 'Maji/Mafuta'}</SelectItem>
+                                        <SelectItem value="Tools">{language === 'en' ? 'Tools' : 'Zana'}</SelectItem>
+                                        <SelectItem value="General">{language === 'en' ? 'General' : 'Jumla'}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -2098,7 +2327,7 @@ const GarageDashboard = () => {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-sm font-bold text-slate-500 uppercase">Initial Stock</Label>
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Initial Stock' : 'Idadi ya Awali'}</Label>
                                 <Input
                                     type="number"
                                     value={newProduct.quantity}
@@ -2107,7 +2336,7 @@ const GarageDashboard = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-sm font-bold text-slate-500 uppercase">Unit measure</Label>
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Unit measure' : 'Kipimo'}</Label>
                                 <Input
                                     placeholder="pcs, Liters, Sets..."
                                     value={newProduct.unit_measure}
@@ -2119,7 +2348,7 @@ const GarageDashboard = () => {
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-sm font-bold text-slate-500 uppercase">Min Threshold (Alarm)</Label>
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Min Threshold' : "Kiwango cha Chini"}</Label>
                                 <div className="relative">
                                     <AlertTriangle className="absolute left-3 top-3 h-4 w-4 text-amber-500" />
                                     <Input
@@ -2133,105 +2362,128 @@ const GarageDashboard = () => {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddProductDialogOpen(false)} className="h-10">Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsAddProductDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
                         <Button
-                            className="bg-indigo-600 hover:bg-indigo-700 h-10 font-bold"
+                            className="bg-indigo-600 hover:bg-indigo-700 h-10 font-semibold"
                             disabled={!newProduct.item_name || addProductMutation.isPending}
                             onClick={() => addProductMutation.mutate(newProduct)}
                         >
-                            {addProductMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Registry Product"}
+                            {addProductMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (language === 'en' ? "Registry Product" : "Sajili Kipuri")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
+
+
             {/* Update Quantity Dialog */}
             <Dialog open={isUpdateQtyOpen} onOpenChange={setIsUpdateQtyOpen}>
                 <DialogContent className="sm:max-w-[400px]">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
+                        <DialogTitle className="flex items-center gap-2 font-semibold">
                             <Package className="w-5 h-5 text-indigo-500" />
-                            Update Physical Stock
+                            {language === 'en' ? 'Update Physical Stock' : 'Sasisha Idadi Halisi'}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="p-3 bg-slate-50 rounded border text-center">
-                            <Label className="text-xs uppercase font-bold text-slate-500">Selected Item</Label>
-                            <p className="font-bold text-slate-900">{selectedInventoryItem?.item_name}</p>
+                            <Label className="text-xs uppercase font-semibold text-slate-500">{language === 'en' ? 'Selected Item' : 'Kipuri Kilichochaguliwa'}</Label>
+                            <p className="font-semibold text-slate-900">{selectedInventoryItem?.item_name}</p>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-500 uppercase">New Physical Quantity</Label>
+                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'New Physical Quantity' : 'Idadi Mpya Halisi'}</Label>
                             <Input
                                 type="number"
                                 value={updateQtyDetails.quantity}
                                 onChange={(e) => setUpdateQtyDetails({ quantity: parseInt(e.target.value) || 0 })}
-                                className="h-12 text-2xl font-mono font-bold text-indigo-600"
+                                className="h-12 text-2xl font-mono font-semibold text-indigo-600"
                             />
-                            <p className="text-[10px] text-slate-400 italic">Enter the actual count from the physical store.</p>
+                            <p className="text-[10px] text-slate-400 italic font-medium">{language === 'en' ? 'Enter the actual count from the physical store.' : 'Weka idadi halisi kutoka ghalani.'}</p>
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsUpdateQtyOpen(false)} className="h-10">Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsUpdateQtyOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
                         <Button
-                            className="bg-indigo-600 hover:bg-indigo-700 h-10 font-bold"
+                            className="bg-indigo-600 hover:bg-indigo-700 h-10 font-semibold"
                             disabled={updateQuantityMutation.isPending}
                             onClick={() => updateQuantityMutation.mutate({
                                 id: selectedInventoryItem?.id,
                                 qty: updateQtyDetails.quantity
                             })}
                         >
-                            {updateQuantityMutation.isPending ? "Saving..." : "Save Count"}
+                            {updateQuantityMutation.isPending ? (language === 'en' ? "Saving..." : "Inahifadhi...") : (language === 'en' ? "Save Count" : "Hifadhi Idadi")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
+
+
             <Dialog open={isLogFaultOpen} onOpenChange={setIsLogFaultOpen}>
                 <DialogContent className={affectedUnit === 'Both' && isCoupled ? "sm:max-w-[900px] duration-300" : "sm:max-w-[500px] duration-300"}>
-                    <DialogHeader><DialogTitle>Log New Fault</DialogTitle></DialogHeader>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-xl font-semibold text-slate-900 uppercase tracking-tight">
+
+                            <Wrench className="w-6 h-6 text-indigo-500" />
+                            {t('log_new_fault')}
+                        </DialogTitle>
+                        <DialogDescription className="text-xs font-semibold text-slate-500 italic pb-2 border-b">
+                            {language === 'en' ? 'Record mechanical issues and assign responsibility' : 'Sajili hitilafu za kiufundi na mteule msimamizi'}
+                        </DialogDescription>
+                    </DialogHeader>
+
                     <div className="max-h-[75vh] overflow-y-auto pr-2 px-1 py-4 -mr-1">
                         <div className="space-y-6">
-                            <Label>Select Vehicle</Label>
-                            <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId}>
-                                <SelectTrigger><SelectValue placeholder="Search plate number..." /></SelectTrigger>
-                                <SelectContent>
-                                    <div className="p-2"><Input placeholder="Filter..." className="h-8" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={(e) => e.stopPropagation()} /></div>
-                                    <ScrollArea className="h-[200px]">
-                                        {filteredVehicles.length > 0 ? (
-                                            filteredVehicles.map((v: any) => {
-                                                const pair = (couplings || []).find((c: any) => c.horse_id === v.id || c.trailer_id === v.id);
-                                                let pPlate = null;
-                                                if (pair) {
-                                                    const pId = pair.horse_id === v.id ? pair.trailer_id : pair.horse_id;
-                                                    pPlate = (vehicles as any[])?.find(x => x.id === pId)?.vehicle_no;
-                                                }
-                                                return (
-                                                    <SelectItem key={v.id} value={v.id}>
-                                                        <div className="flex flex-col py-1">
-                                                            <span className="font-normal text-slate-900 text-[11px]">{v.plate_number}</span>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-[11px] text-slate-400 font-normal">{v.asset_type}</span>
-                                                                {pPlate && (
-                                                                    <span className="text-[10px] text-indigo-600 font-normal">
-                                                                        Linked: {v.asset_type === 'Horse' ? `${v.plate_number} + ${pPlate}` : `${pPlate} + ${v.plate_number}`} 🔗
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </SelectItem>
-                                                );
-                                            })
-                                        ) : (<div className="p-2 text-sm text-center text-muted-foreground italic">No vehicles found.</div>)}
-                                    </ScrollArea>
-                                </SelectContent>
-                            </Select>
-
-                            {/* NEW: Service Package Selector (PPM) */}
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-2">
-                                    <HistoryIcon className="w-3 h-3 text-indigo-500" />
-                                    Service Package (Preventative Maintenance)
+                                <Label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+
+                                    <Truck className="w-3.5 h-3.5" />
+                                    {language === 'en' ? 'Select Vehicle' : 'Chagua Gari'}
                                 </Label>
+
+                                <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId}>
+                                    <SelectTrigger className="h-11 bg-slate-50 border-slate-200">
+                                        <SelectValue placeholder={language === 'en' ? 'Search plate number...' : 'Tafuta namba ya gari...'} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <div className="p-2"><Input placeholder={language === 'en' ? 'Filter...' : 'Chuja...'} className="h-8" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={(e) => e.stopPropagation()} /></div>
+                                        <ScrollArea className="h-[200px]">
+                                            {filteredVehicles.length > 0 ? (
+                                                filteredVehicles.map((v: any) => {
+                                                    const pair = (couplings || []).find((c: any) => c.horse_id === v.id || c.trailer_id === v.id);
+                                                    let pPlate = null;
+                                                    if (pair) {
+                                                        const pId = pair.horse_id === v.id ? pair.trailer_id : pair.horse_id;
+                                                        pPlate = (vehicles as any[])?.find(x => x.id === pId)?.vehicle_no;
+                                                    }
+                                                    return (
+                                                        <SelectItem key={v.id} value={v.id}>
+                                                            <div className="flex flex-col py-1">
+                                                                <span className="font-normal text-slate-900 text-[11px]">{v.plate_number}</span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[11px] text-slate-400 font-normal">{v.asset_type}</span>
+                                                                    {pPlate && (
+                                                                        <span className="text-[10px] text-indigo-600 font-normal">
+                                                                            Linked: {v.asset_type === 'Horse' ? `${v.plate_number} + ${pPlate}` : `${pPlate} + ${v.plate_number}`} 🔗
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </SelectItem>
+                                                    );
+                                                })
+                                            ) : (<div className="p-2 text-sm text-center text-muted-foreground italic">{language === 'en' ? 'No vehicles found.' : 'Hakuna magari yaliyopatikana.'}</div>)}
+                                        </ScrollArea>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase flex items-center gap-2">
+                                    <HistoryIcon className="w-3 h-3 text-indigo-500" />
+                                    {language === 'en' ? 'Service Package (Preventative Maintenance)' : 'Kifurushi cha Huduma (Matengenezo ya Kinga)'}
+                                </Label>
+
                                 <Select
                                     value={selectedPackageId || "none"}
                                     onValueChange={(val) => {
@@ -2251,10 +2503,10 @@ const GarageDashboard = () => {
                                     }}
                                 >
                                     <SelectTrigger className="h-10 border-indigo-100 bg-indigo-50/10">
-                                        <SelectValue placeholder="Select a maintenance package..." />
+                                        <SelectValue placeholder={language === 'en' ? "Select a maintenance package..." : "Chagua kifurushi cha matengenezo..."} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="none" className="text-slate-400 italic">No Package (Custom Repair)</SelectItem>
+                                        <SelectItem value="none" className="text-slate-400 italic">{language === 'en' ? 'No Package (Custom Repair)' : 'Hakuna Kifurushi (Ukarabati Maalum)'}</SelectItem>
                                         {(servicePackages || []).map((pkg: any) => (
                                             <SelectItem key={pkg.id} value={pkg.id}>
                                                 <div className="flex flex-col">
@@ -2269,28 +2521,25 @@ const GarageDashboard = () => {
 
                             {isCoupled && (
                                 <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl">
-                                    <Label className="text-indigo-900 font-bold flex items-center gap-2 mb-3 text-sm"><Link className="w-4 h-4 text-indigo-500" />Unit Isolation (Coupled Vehicle)</Label>
+                                    <Label className="text-indigo-900 font-semibold flex items-center gap-2 mb-3 text-sm">
+                                        <Link className="w-4 h-4 text-indigo-500" />
+                                        {language === 'en' ? 'Unit Isolation (Coupled Vehicle)' : 'Mgawanyo wa Unit (Gari lililounganishwa)'}
+                                    </Label>
+
                                     {(() => {
                                         const vList = (vehicles || []) as any[];
                                         const pair = (couplings || []).find(c => c.horse_id === selectedVehicleId || c.trailer_id === selectedVehicleId);
-
-                                        // Specific lookup based on Fleet Registry's Source of Truth
                                         const horse = vList.find(v => v.id === pair?.horse_id);
                                         const trailer = vList.find(v => v.id === pair?.trailer_id);
-
-                                        // Horse: vehicle_no OR horse_number
-                                        // Trailer: trailer_number
                                         const hPlate = horse?.vehicle_no || horse?.horse_number || "Horse Plate";
                                         const tPlate = trailer?.trailer_number || trailer?.vehicle_no || "Trailer Plate";
-
-                                        // Dynamic Type Label
                                         const tType = trailer?.asset_type?.toUpperCase() || "UNIT";
 
                                         return (
                                             <div className="grid grid-cols-3 gap-3">
                                                 <label className={`flex flex-col items-center gap-1 p-3 rounded-lg border cursor-pointer transition-all ${affectedUnit === 'Horse' ? 'bg-white border-indigo-400 shadow-sm' : 'bg-white/50 border-slate-200 hover:bg-white'}`}>
                                                     <input type="radio" className="sr-only" name="affectedUnit" checked={affectedUnit === 'Horse'} onChange={() => setAffectedUnit('Horse')} />
-                                                    <span className="text-sm uppercase font-normal text-slate-500 tracking-tight">HORSE UNIT</span>
+                                                    <span className="text-sm uppercase font-normal text-slate-500 tracking-tight">{language === 'en' ? 'HORSE UNIT' : 'UNIT YA MBELE'}</span>
                                                     <span className="text-sm font-normal text-slate-900">{hPlate}</span>
                                                 </label>
                                                 <label className={`flex flex-col items-center gap-1 p-3 rounded-lg border cursor-pointer transition-all ${affectedUnit === 'Trailer' ? 'bg-white border-indigo-400 shadow-sm' : 'bg-white/50 border-slate-200 hover:bg-white'}`}>
@@ -2300,7 +2549,7 @@ const GarageDashboard = () => {
                                                 </label>
                                                 <label className={`flex flex-col items-center gap-1 p-3 rounded-lg border cursor-pointer transition-all ${affectedUnit === 'Both' ? 'bg-white border-indigo-400 shadow-sm' : 'bg-white/50 border-slate-200 hover:bg-white'}`}>
                                                     <input type="radio" className="sr-only" name="affectedUnit" checked={affectedUnit === 'Both'} onChange={() => setAffectedUnit('Both')} />
-                                                    <span className="text-sm uppercase font-normal text-slate-500 tracking-tight">BOTH UNITS</span>
+                                                    <span className="text-sm uppercase font-normal text-slate-500 tracking-tight">{language === 'en' ? 'BOTH UNITS' : 'ZOTE MBILI'}</span>
                                                     <span className="text-[10px] font-normal text-slate-700 truncate w-full text-center">{hPlate} + {tPlate}</span>
                                                 </label>
                                             </div>
@@ -2309,14 +2558,13 @@ const GarageDashboard = () => {
                                 </div>
                             )}
 
-                            {/* Fault Entry Area */}
                             <div>
                                 <div className={`grid gap-6 ${affectedUnit === 'Both' && isCoupled ? 'md:grid-cols-2 bg-slate-50 p-4 rounded-xl border border-slate-200' : ''}`}>
-                                    {/* Horse/Main Section */}
                                     <div className="space-y-4">
                                         {affectedUnit === 'Both' && isCoupled && (
-                                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2 px-2 bg-white py-2 rounded border shadow-sm">
-                                                <Truck className="w-3 h-3" /> HORSE UNIT: <span className="text-slate-900 ml-1">{(() => {
+                                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2 px-2 bg-white py-2 rounded border shadow-sm">
+
+                                                <Truck className="w-3 h-3" /> {language === 'en' ? 'HORSE UNIT' : 'UNIT YA MBELE'}: <span className="text-slate-900 ml-1">{(() => {
                                                     const vList = (vehicles || []) as any[];
                                                     const pair = (couplings || []).find(c => c.horse_id === selectedVehicleId || c.trailer_id === selectedVehicleId);
                                                     const horse = vList.find(v => v.id === pair?.horse_id);
@@ -2331,7 +2579,7 @@ const GarageDashboard = () => {
                                                     <span className="text-xs font-mono text-slate-400 w-4 pt-1 text-right">{idx + 1}.</span>
                                                     <div className="flex-1">
                                                         <Input
-                                                            placeholder={!selectedVehicleId ? "Select a vehicle..." : "Describe the issue (e.g. Oil leak)..."}
+                                                            placeholder={!selectedVehicleId ? (language === 'en' ? "Select a vehicle..." : "Chagua gari...") : (language === 'en' ? "Describe the issue (e.g. Oil leak)..." : "Elezea tatizo (mfano: Kuvuja kwa mafuta)...")}
                                                             value={fault.description}
                                                             onChange={(e) => updateFaultRow('horse', idx, 'description', e.target.value)}
                                                             className="h-9 bg-white border-slate-200 focus:border-indigo-400 focus:ring-indigo-100 placeholder:text-slate-400"
@@ -2351,18 +2599,18 @@ const GarageDashboard = () => {
                                                     onClick={() => addFaultRow('horse')}
                                                     disabled={!selectedVehicleId}
                                                 >
-                                                    <Plus className="w-3 h-3 mr-1.5" /> Add Another Fault
+                                                    <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Another Fault' : 'Ongeza Tatizo Jingine'}
                                                 </Button>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Partner Section */}
                                     {affectedUnit === 'Both' && isCoupled && (
                                         <div className="space-y-4 border-l pl-6 border-slate-200">
-                                            <div className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2 flex items-center justify-between px-2 bg-indigo-50 py-2 rounded border border-indigo-100 shadow-sm">
+                                            <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2 flex items-center justify-between px-2 bg-indigo-50 py-2 rounded border border-indigo-100 shadow-sm">
                                                 <div className="flex items-center gap-2">
-                                                    <Link className="w-3 h-3" /> {(() => {
+                                                    <Link className="w-3 h-3" />
+                                                    {(() => {
                                                         const vList = (vehicles || []) as any[];
                                                         const pair = (couplings || []).find(c => c.horse_id === selectedVehicleId || c.trailer_id === selectedVehicleId);
                                                         const trailer = vList.find(v => v.id === pair?.trailer_id);
@@ -2374,7 +2622,7 @@ const GarageDashboard = () => {
                                                         return trailer?.trailer_number || trailer?.vehicle_no || "---";
                                                     })()}</span>
                                                 </div>
-                                                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-slate-400 hover:text-indigo-600" onClick={() => setPartnerFaults(JSON.parse(JSON.stringify(horseFaults)))}>Copy From Horse</Button>
+                                                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-slate-400 hover:text-indigo-600" onClick={() => setPartnerFaults(JSON.parse(JSON.stringify(horseFaults)))}>{language === 'en' ? 'Copy From Horse' : 'Nakili kutoka kwa Horse'}</Button>
                                             </div>
 
                                             <div className="space-y-2">
@@ -2383,7 +2631,7 @@ const GarageDashboard = () => {
                                                         <span className="text-xs font-mono text-indigo-300 w-4 pt-1 text-right">{idx + 1}.</span>
                                                         <div className="flex-1">
                                                             <Input
-                                                                placeholder="Describe partner issue..."
+                                                                placeholder={language === 'en' ? "Describe partner issue..." : "Elezea tatizo la mwenza..."}
                                                                 value={fault.description}
                                                                 onChange={(e) => updateFaultRow('partner', idx, 'description', e.target.value)}
                                                                 className="h-9 bg-white border-indigo-100 focus:border-indigo-400 focus:ring-indigo-100 placeholder:text-indigo-300/50"
@@ -2403,7 +2651,7 @@ const GarageDashboard = () => {
                                                         onClick={() => addFaultRow('partner')}
                                                         disabled={!selectedVehicleId}
                                                     >
-                                                        <Plus className="w-3 h-3 mr-1.5" /> Add Partner Fault
+                                                        <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Partner Fault' : 'Ongeza Tatizo la Mwenza'}
                                                     </Button>
                                                 </div>
                                             </div>
@@ -2414,27 +2662,31 @@ const GarageDashboard = () => {
 
                             <div className="grid grid-cols-2 gap-4 mt-4">
                                 <div className="space-y-2">
-                                    <Label>Overall Priority</Label>
+                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Overall Priority' : 'Kipaumbele cha Jumla'}</Label>
                                     <Select value={faultPriority} onValueChange={setFaultPriority}>
-                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectTrigger className="h-10 bg-white border-slate-200"><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="Routine">Routine (Scheduled)</SelectItem>
-                                            <SelectItem value="Urgent">Urgent (Affects Operation)</SelectItem>
-                                            <SelectItem value="Critical">Critical (Safety Hazard)</SelectItem>
+                                            <SelectItem value="Routine">{language === 'en' ? 'Routine (Scheduled)' : 'Kawaida (Iliyopangwa)'}</SelectItem>
+                                            <SelectItem value="Urgent">{language === 'en' ? 'Urgent (Affects Operation)' : 'Haraka (Inaathiri Kazi)'}</SelectItem>
+                                            <SelectItem value="Critical">{language === 'en' ? 'Critical (Safety Hazard)' : 'Hatari sana (Tishio kwa Usalama)'}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Current Odometer (Optional)</Label>
-                                    <Input type="number" placeholder="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} />
+                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Current Odometer (Optional)' : 'Odometer ya Sasa (Si lazima)'}</Label>
+                                    <Input type="number" placeholder="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} className="h-10" />
                                 </div>
                             </div>
+
                         </div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsLogFaultOpen(false)}>Cancel</Button>
-                        <Button onClick={handleLogFault} disabled={logFaultMutation.isPending || !selectedVehicleId} className="bg-red-600 hover:bg-red-700 hover:text-white text-white transition-colors">{logFaultMutation.isPending ? "Logging..." : "Log Fault & Down Vehicle"}</Button>
+                    <DialogFooter className="bg-slate-50/50 p-4 -mx-6 -mb-6 border-t mt-4">
+                        <Button variant="ghost" onClick={() => setIsLogFaultOpen(false)} className="text-slate-500 hover:bg-slate-100">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
+                        <Button onClick={handleLogFault} disabled={logFaultMutation.isPending || !selectedVehicleId} className="bg-red-600 hover:bg-red-700 hover:text-white text-white font-semibold px-6 transition-all active:scale-95 shadow-lg shadow-red-200">
+                            {logFaultMutation.isPending ? (language === 'en' ? "Logging..." : "Inasajili...") : (language === 'en' ? "Log Fault & Down Vehicle" : "Sajili Hitilafu & Simamisha Gari")}
+                        </Button>
                     </DialogFooter>
+
                 </DialogContent>
             </Dialog>
             {/* Manage Tasks Dialog */}
@@ -2450,34 +2702,38 @@ const GarageDashboard = () => {
                     <div className="flex-1 overflow-y-auto py-2 space-y-4 min-h-0">
                         <div className="grid grid-cols-2 gap-4 text-xs">
                             <div className="p-3 bg-slate-50 rounded-lg border">
-                                <span className="text-slate-500 block mb-1 uppercase tracking-wider font-bold">Opened On</span>
+                                <span className="text-slate-500 block mb-1 uppercase tracking-wider font-semibold">{language === 'en' ? 'Opened On' : 'Tarehe ya Kufunguliwa'}</span>
                                 <span className="text-slate-900">{selectedJobForTasks && new Date(selectedJobForTasks.opened_at).toLocaleDateString()}</span>
                             </div>
                             <div className="p-3 bg-slate-50 rounded-lg border">
-                                <span className="text-slate-500 block mb-1 uppercase tracking-wider font-bold">Priority</span>
+                                <span className="text-slate-500 block mb-1 uppercase tracking-wider font-semibold">{language === 'en' ? 'Priority' : 'Kipaumbele'}</span>
                                 <Badge variant="outline" className={selectedJobForTasks?.priority === 'Critical' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}>
-                                    {selectedJobForTasks?.priority}
+                                    {language === 'en' ? selectedJobForTasks?.priority : (selectedJobForTasks?.priority === 'Critical' ? 'Hatari' : selectedJobForTasks?.priority === 'Urgent' ? 'Haraka' : 'Kawaida')}
                                 </Badge>
                             </div>
                             <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100 col-span-2">
-                                <span className="text-indigo-600 block mb-1 uppercase tracking-wider font-bold flex items-center gap-2">
-                                    <TrendingUp className="w-3 h-3" /> Total Parts Investment
+                                <span className="text-indigo-600 block mb-1 uppercase tracking-wider font-semibold flex items-center gap-2">
+                                    <TrendingUp className="w-3 h-3" /> {language === 'en' ? 'Total Parts Investment' : 'Uwekezaji wa Vipuri'}
                                 </span>
-                                <span className="text-lg font-bold text-indigo-900">
+                                <span className="text-lg font-semibold text-indigo-900">
+
                                     TZS {selectedJobForTasks?.total_parts_investment?.toLocaleString() || "0"}
                                 </span>
                             </div>
                         </div>
 
+
+
                         {/* Conditional 2-Column Workspace */}
                         <div className={`grid ${maintenanceDebt && maintenanceDebt.length > 0 ? 'md:grid-cols-2 gap-6' : 'grid-cols-1'} h-[400px]`}>
                             {/* Left Column: Current Job Faults */}
                             <div className="flex flex-col gap-3">
-                                <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 px-1">
+                                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 px-1">
                                     <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                    Active Job Tasks
+                                    {language === 'en' ? 'Active Job Tasks' : 'Kazi Amilifu'}
                                 </h3>
                                 <div className="flex-1 overflow-y-auto border rounded-xl bg-slate-50/30 p-2 space-y-4">
+
                                     {/* Main Vehicle */}
                                     <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
                                         <div className="bg-slate-50 px-3 py-1.5 border-b flex items-center gap-2">
@@ -2487,7 +2743,8 @@ const GarageDashboard = () => {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="h-7 text-[10px] text-indigo-600 ml-auto border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-bold uppercase tracking-wider"
+                                                className="h-7 text-[10px] text-indigo-600 ml-auto border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
+
                                                 onClick={() => {
                                                     setReqType("Job");
                                                     setReqTargetVehicleId(selectedJobForTasks.vehicle_id);
@@ -2507,30 +2764,32 @@ const GarageDashboard = () => {
                                                     <div className="flex items-center gap-2">
                                                         <Select value={f.mechanic_id || "unassigned"} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, mechanicId: val })}>
                                                             <SelectTrigger className="h-7 text-[10px] w-36 border-slate-200 bg-white">
-                                                                <SelectValue placeholder="Assign Mechanic" />
+                                                                <SelectValue placeholder={language === 'en' ? "Assign Mechanic" : "Teua Mekanika"} />
                                                             </SelectTrigger>
                                                             <SelectContent>
-                                                                <SelectItem value="unassigned" className="text-slate-400 italic">Unassigned</SelectItem>
+                                                                <SelectItem value="unassigned" className="text-slate-400 italic">{language === 'en' ? 'Unassigned' : 'Hajapangiwa'}</SelectItem>
                                                                 {(personnel || []).map((p: any) => (
                                                                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                                                                 ))}
                                                             </SelectContent>
                                                         </Select>
                                                         <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
-                                                            <SelectTrigger className={`h-7 text-[10px] w-32 font-bold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                            <SelectTrigger className={`h-7 text-[10px] w-32 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                                                                 <SelectValue />
                                                             </SelectTrigger>
+
                                                             <SelectContent>
-                                                                <SelectItem value="Pending">Pending</SelectItem>
-                                                                <SelectItem value="In Progress">In Progress</SelectItem>
-                                                                <SelectItem value="Partial">Partial Repair</SelectItem>
-                                                                <SelectItem value="Not Repaired">Not Repaired</SelectItem>
-                                                                <SelectItem value="Completed">Completed</SelectItem>
+                                                                <SelectItem value="Pending">{language === 'en' ? 'Pending' : 'Inasubiri'}</SelectItem>
+                                                                <SelectItem value="In Progress">{language === 'en' ? 'In Progress' : 'Inaendelea'}</SelectItem>
+                                                                <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
+                                                                <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
+                                                                <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
                                                 </div>
-                                            )) : <div className="p-4 text-center text-xs text-muted-foreground italic">No faults logged</div>}
+                                            )) : <div className="p-4 text-center text-xs text-muted-foreground italic">{language === 'en' ? 'No faults logged' : 'Hakuna hitilafu zilizoandikwa'}</div>}
+
                                         </div>
                                     </div>
 
@@ -2545,7 +2804,8 @@ const GarageDashboard = () => {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    className="h-7 text-[10px] text-indigo-600 ml-auto border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-bold uppercase tracking-wider"
+                                                    className="h-7 text-[10px] text-indigo-600 ml-auto border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
+
                                                     onClick={() => {
                                                         setReqType("Job");
                                                         setReqTargetVehicleId(partnerJob.vehicle_id);
@@ -2553,8 +2813,9 @@ const GarageDashboard = () => {
                                                         setIsRequisitionDialogOpen(true);
                                                     }}
                                                 >
-                                                    <ShoppingCart className="w-3 h-3 mr-1.5" /> Request Item
+                                                    <ShoppingCart className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Request Item' : 'Omba Kifaa'}
                                                 </Button>
+
                                             </div>
                                             <div className="divide-y">
                                                 {partnerJob.fault_list?.length > 0 ? partnerJob.fault_list.map((f: any) => (
@@ -2565,30 +2826,32 @@ const GarageDashboard = () => {
                                                         <div className="flex items-center gap-2">
                                                             <Select value={f.mechanic_id || "unassigned"} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, mechanicId: val })}>
                                                                 <SelectTrigger className="h-7 text-[10px] w-36 border-indigo-100 bg-white">
-                                                                    <SelectValue placeholder="Assign Mechanic" />
+                                                                    <SelectValue placeholder={language === 'en' ? "Assign Mechanic" : "Teua Mekanika"} />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
-                                                                    <SelectItem value="unassigned" className="text-slate-400 italic">Unassigned</SelectItem>
+                                                                    <SelectItem value="unassigned" className="text-slate-400 italic">{language === 'en' ? 'Unassigned' : 'Hajapangiwa'}</SelectItem>
                                                                     {(personnel || []).map((p: any) => (
                                                                         <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                                                                     ))}
                                                                 </SelectContent>
                                                             </Select>
                                                             <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
-                                                                <SelectTrigger className={`h-7 text-[10px] w-32 font-bold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                                <SelectTrigger className={`h-7 text-[10px] w-32 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                                                                     <SelectValue />
                                                                 </SelectTrigger>
+
                                                                 <SelectContent>
-                                                                    <SelectItem value="Pending">Pending</SelectItem>
-                                                                    <SelectItem value="In Progress">In Progress</SelectItem>
-                                                                    <SelectItem value="Partial">Partial Repair</SelectItem>
-                                                                    <SelectItem value="Not Repaired">Not Repaired</SelectItem>
-                                                                    <SelectItem value="Completed">Completed</SelectItem>
+                                                                    <SelectItem value="Pending">{language === 'en' ? 'Pending' : 'Inasubiri'}</SelectItem>
+                                                                    <SelectItem value="In Progress">{language === 'en' ? 'In Progress' : 'Inaendelea'}</SelectItem>
+                                                                    <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
+                                                                    <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
+                                                                    <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
                                                     </div>
-                                                )) : <div className="p-4 text-center text-xs text-muted-foreground italic">No faults logged</div>}
+                                                )) : <div className="p-4 text-center text-xs text-muted-foreground italic">{language === 'en' ? 'No faults logged' : 'Hakuna hitilafu zilizoandikwa'}</div>}
+
                                             </div>
                                         </div>
                                     )}
@@ -2598,11 +2861,13 @@ const GarageDashboard = () => {
                             {/* Right Column: Carry-over Repairs (Conditional) */}
                             {maintenanceDebt && maintenanceDebt.length > 0 && (
                                 <div className="flex flex-col gap-3">
-                                    <h3 className="text-sm font-bold text-amber-700 flex items-center gap-2 px-1 underline decoration-amber-200 underline-offset-4">
+                                    <h3 className="text-sm font-semibold text-amber-700 flex items-center gap-2 px-1 underline decoration-amber-200 underline-offset-4">
                                         <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                        Carry-over Repairs (Prior Visits)
+                                        {language === 'en' ? 'Carry-over Repairs' : 'Matengenezo yaliyobaki'}
                                     </h3>
+
                                     <div className="flex-1 overflow-y-auto border border-amber-100 rounded-xl bg-amber-50/20 p-2 space-y-3">
+
                                         {maintenanceDebt.map((f: any) => {
                                             const age = getFaultAge(f.created_at);
                                             return (
@@ -2613,26 +2878,30 @@ const GarageDashboard = () => {
                                                                 {f.mechanic_notes}
                                                             </span>
                                                             <Badge variant="outline" className={`text-[10px] h-5 px-1.5 border font-medium ${getAgeColor(age)}`}>
-                                                                {age}d old
+                                                                {age}{language === 'en' ? 'd old' : 'siku'}
                                                             </Badge>
+
                                                         </div>
                                                         <div className="flex items-center gap-1.5 text-[10px] text-amber-600 font-medium">
                                                             <Truck className="w-3 h-3" />
                                                             <span>{f.job?.vehicle?.vehicle_no || f.job?.vehicle?.horse_number || f.job?.vehicle?.trailer_number}</span>
                                                             <span className="opacity-50">•</span>
-                                                            <span>Logged {new Date(f.created_at).toLocaleDateString()}</span>
+                                                            <span>{language === 'en' ? 'Logged' : 'Iliandikwa'} {new Date(f.created_at).toLocaleDateString()}</span>
                                                         </div>
+
                                                     </div>
                                                     <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
-                                                        <SelectTrigger className={`h-8 text-[10px] w-32 font-bold ${f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                        <SelectTrigger className={`h-8 text-[10px] w-32 font-semibold ${f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                                                             <SelectValue />
                                                         </SelectTrigger>
+
                                                         <SelectContent>
-                                                            <SelectItem value="Partial">Partial Repair</SelectItem>
-                                                            <SelectItem value="Not Repaired">Not Repaired</SelectItem>
-                                                            <SelectItem value="Completed">Completed</SelectItem>
+                                                            <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
+                                                            <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
+                                                            <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
                                                         </SelectContent>
                                                     </Select>
+
                                                 </div>
                                             );
                                         })}
@@ -2645,26 +2914,28 @@ const GarageDashboard = () => {
                     <DialogFooter className="flex-shrink-0 bg-slate-50 -mx-6 -mb-6 p-6 rounded-b-lg border-t gap-2 sm:justify-between items-center">
                         <div className="flex items-center gap-2">
                             {allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) ? (
-                                <span className="text-xs font-bold text-green-600 flex items-center gap-1">
-                                    <CheckCircle2 className="w-4 h-4" /> READY FOR RELEASE
+                                <span className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                                    <CheckCircle2 className="w-4 h-4" /> {language === 'en' ? 'READY FOR RELEASE' : 'TAYARI KURUHUSIWA'}
                                 </span>
                             ) : (
-                                <span className="text-xs font-bold text-slate-400">
-                                    {allTaskFaults.filter((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)).length} / {allTaskFaults.length} TASKS DONE
+                                <span className="text-xs font-semibold text-slate-400">
+                                    {allTaskFaults.filter((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)).length} / {allTaskFaults.length} {language === 'en' ? 'TASKS DONE' : 'KAZI ZIMEKAMILIKA'}
                                 </span>
                             )}
                         </div>
+
                         <div className="flex gap-2">
-                            <Button variant="outline" onClick={() => setIsManageTasksOpen(false)}>Close</Button>
+                            <Button variant="outline" onClick={() => setIsManageTasksOpen(false)}>{language === 'en' ? 'Close' : 'Funga'}</Button>
                             <Button
                                 disabled={!allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) || releaseVehicleMutation.isPending}
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 font-medium"
                                 onClick={handleReleaseClick}
                             >
-                                {releaseVehicleMutation.isPending ? "Releasing..." : <><Truck className="w-4 h-4" /> Release Vehicle</>}
+                                {releaseVehicleMutation.isPending ? (language === 'en' ? "Releasing..." : "Kuruhusu...") : <><Truck className="w-4 h-4" /> {language === 'en' ? 'Release Vehicle' : 'Ruhusu Gari'}</>}
                             </Button>
                         </div>
                     </DialogFooter>
+
                 </DialogContent>
             </Dialog>
 
@@ -2675,14 +2946,16 @@ const GarageDashboard = () => {
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-amber-700">
                             <AlertTriangle className="w-5 h-5" />
-                            Partial Release - Approval Required
+                            {language === 'en' ? 'Partial Release - Approval Required' : 'Ruhusa ya Sehemu - Idhini Inahitajika'}
                         </DialogTitle>
                     </DialogHeader>
+
 
                     <div className="py-4 space-y-6">
                         {/* Release Summary */}
                         <div className="bg-slate-50 p-4 rounded-lg border">
-                            <h3 className="text-sm font-bold text-slate-700 mb-3">Release Summary: {jobToRelease?.vehicle?.plate_number}</h3>
+                            <h3 className="text-sm font-semibold text-slate-700 mb-3">{language === 'en' ? 'Release Summary:' : 'Muhtasari wa Ruhusa:'} {jobToRelease?.vehicle?.plate_number}</h3>
+
                             <div className="space-y-2">
                                 {jobToRelease?.fault_list?.map((f: any) => (
                                     <div key={f.id} className="flex items-center gap-2 text-sm">
@@ -2696,57 +2969,67 @@ const GarageDashboard = () => {
                                         <span className={f.status === 'Completed' ? 'text-slate-500 line-through' : 'font-medium'}>
                                             {f.mechanic_notes || f.fault_type?.fault_name}
                                         </span>
-                                        <span className={`ml-auto text-xs font-bold ${f.status === 'Completed' ? 'text-green-600' :
+                                        <span className={`ml-auto text-xs font-semibold ${f.status === 'Completed' ? 'text-green-600' :
                                             f.status === 'Partial' ? 'text-amber-600' :
                                                 'text-red-600'
                                             }`}>
-                                            {f.status === 'Partial' ? 'Partial Repair' : f.status}
+                                            {f.status === 'Partial' ? (language === 'en' ? 'Partial Repair' : 'Ukarabati wa Kiasi') : (language === 'en' ? f.status : (f.status === 'Completed' ? 'Ilikamilika' : 'Haikutengenezwa'))}
                                         </span>
+
                                     </div>
                                 ))}
                             </div>
                             <div className="mt-4 pt-4 border-t">
-                                <div className="text-sm font-bold text-slate-700">
-                                    Status: {jobToRelease?.fault_list?.filter((f: any) => f.status === 'Completed').length} Completed,{' '}
-                                    {jobToRelease?.fault_list?.filter((f: any) => f.status === 'Partial').length} Partial,{' '}
-                                    {jobToRelease?.fault_list?.filter((f: any) => f.status === 'Not Repaired').length} Not Repaired
+                                <div className="text-sm font-semibold text-slate-700">
+
+                                    {language === 'en' ? 'Status:' : 'Hali:'} {jobToRelease?.fault_list?.filter((f: any) => f.status === 'Completed').length} {language === 'en' ? 'Completed' : 'Zilizokamilika'},{' '}
+                                    {jobToRelease?.fault_list?.filter((f: any) => f.status === 'Partial').length} {language === 'en' ? 'Partial' : 'Kiasi'},{' '}
+                                    {jobToRelease?.fault_list?.filter((f: any) => f.status === 'Not Repaired').length} {language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}
                                 </div>
                             </div>
                         </div>
+
 
                         {/* Warning Message */}
                         <div className="bg-amber-50 border border-amber-200 p-4 rounded-lg">
                             <div className="flex items-start gap-3">
                                 <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
                                 <div className="flex-1">
-                                    <h4 className="font-bold text-amber-900 mb-1">Partial Release Requires Approval</h4>
+                                    <h4 className="font-semibold text-amber-900 mb-1">{language === 'en' ? 'Partial Release Requires Approval' : 'Ruhusa ya Sehemu Inahitaji Idhini'}</h4>
+
                                     <p className="text-sm text-amber-800">
-                                        This vehicle has pending repairs. Head of Mechanics approval is REQUIRED to release with incomplete work.
+                                        {language === 'en' ? 'This vehicle has pending repairs. Head of Mechanics approval is REQUIRED to release with incomplete work.' : 'Gari hili lina matengenezo yanayosubiri. Idhini ya Mkuu wa Mafundi inahitajika ili kuruhusu kazi isiyokamilika.'}
                                     </p>
                                 </div>
                             </div>
                         </div>
 
+
                         {/* Approval Note - MANDATORY */}
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-700 flex items-center gap-1">
-                                Head of Mechanics Approval Note <span className="text-red-600">*</span>
+                            <Label className="text-sm font-semibold text-slate-700 flex items-center gap-1">
+                                {language === 'en' ? 'Head of Mechanics Approval Note' : 'Maelezo ya Idhini ya Mkuu wa Mafundi'} <span className="text-red-600">*</span>
                             </Label>
+
                             <Textarea
-                                placeholder="Explain why vehicle is being released with pending repairs. Include follow-up plan, parts status, safety assessment, etc."
+                                placeholder={language === 'en' ? "Explain why vehicle is being released with pending repairs. Include follow-up plan, parts status, safety assessment, etc." : "Eleza kwa nini gari linaruhusiwa likiwa na matengenezo yanayosubiri. Jumuisha mpango wa ufuatiliaji, hali ya vipuri, tathmini ya usalama, n.k."}
                                 value={approvalNotes}
                                 onChange={(e) => setApprovalNotes(e.target.value)}
                                 className="min-h-[100px]"
                                 required
                             />
-                            <p className="text-xs text-slate-500">This note will be visible to the Logistics team and recorded in vehicle history.</p>
+
+                            <p className="text-xs text-slate-500">{language === 'en' ? 'This note will be visible to the Logistics team and recorded in vehicle history.' : 'Maelezo haya yataonekana kwa timu ya Usafirishaji na kurekodiwa kwenye historia ya gari.'}</p>
+
                         </div>
 
                         {/* Release Notes - Optional */}
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-700">Release Notes (Optional)</Label>
+                            <Label className="text-sm font-semibold text-slate-700">{language === 'en' ? 'Release Notes (Optional)' : 'Maelezo ya Ruhusa (Hiari)'}</Label>
+
                             <Textarea
-                                placeholder="Additional notes about the release, operational limitations, etc."
+                                placeholder={language === 'en' ? "Additional notes about the release, operational limitations, etc." : "Maelezo ya ziada kuhusu ruhusa, mapungufu ya kiutendaji, n.k."}
+
                                 value={releaseNotes}
                                 onChange={(e) => setReleaseNotes(e.target.value)}
                                 className="min-h-[60px]"
@@ -2761,8 +3044,9 @@ const GarageDashboard = () => {
                             setReleaseNotes("");
                             setJobToRelease(null);
                         }}>
-                            Cancel
+                            {language === 'en' ? 'Cancel' : 'Ghairi'}
                         </Button>
+
                         <Button
                             disabled={!approvalNotes.trim() || releaseVehicleMutation.isPending}
                             className="bg-green-600 hover:bg-green-700 text-white"
@@ -2776,8 +3060,9 @@ const GarageDashboard = () => {
                                 });
                             }}
                         >
-                            {releaseVehicleMutation.isPending ? "Releasing..." : "Approve & Release Vehicle"}
+                            {releaseVehicleMutation.isPending ? (language === 'en' ? "Releasing..." : "Kuruhusu...") : (language === 'en' ? "Approve & Release Vehicle" : "Idhinisha na Ruhusu Gari")}
                         </Button>
+
                     </DialogFooter>
                 </DialogContent>
             </Dialog >
@@ -2788,14 +3073,16 @@ const GarageDashboard = () => {
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2 text-green-700">
                             <ClipboardCheck className="w-5 h-5" />
-                            Digital Quality Verification
+                            {language === 'en' ? 'Digital Quality Verification' : 'Uhakiki wa Ubora wa Kidijitali'}
                         </DialogTitle>
+
                     </DialogHeader>
 
                     <div className="py-4 space-y-6">
                         <div className="p-4 bg-green-50 border border-green-100 rounded-lg text-sm text-green-800">
-                            <strong>Verification Required:</strong> Please confirm that the following quality checks have been performed before releasing vehicle <strong>{selectedJobForTasks?.vehicle?.plate_number}</strong>.
+                            <strong>{language === 'en' ? 'Verification Required:' : 'Uhakiki Unahitajika:'}</strong> {language === 'en' ? 'Please confirm that the following quality checks have been performed before releasing vehicle' : 'Tafadhali thibitisha kuwa uhakiki ufuatao wa ubora umefanywa kabla ya kuruhusu gari'} <strong>{selectedJobForTasks?.vehicle?.plate_number}</strong>.
                         </div>
+
 
                         <div className="space-y-4">
                             {(qualityDefinitions || []).map((def: any) => (
@@ -2813,9 +3100,11 @@ const GarageDashboard = () => {
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-bold text-slate-700">Additional Verification Notes (Optional)</Label>
+                            <Label className="text-sm font-semibold text-slate-700">{language === 'en' ? 'Additional Verification Notes (Optional)' : 'Maelezo ya Uhakiki wa Ziada (Hiari)'}</Label>
+
                             <Textarea
-                                placeholder="Any final remarks from the supervisor..."
+                                placeholder={language === 'en' ? "Any final remarks from the supervisor..." : "Maelezo yoyote ya mwisho kutoka kwa msimamizi..."}
+
                                 value={releaseNotes}
                                 onChange={(e) => setReleaseNotes(e.target.value)}
                             />
@@ -2823,7 +3112,8 @@ const GarageDashboard = () => {
                     </div>
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsQualityCheckOpen(false)}>Back</Button>
+                        <Button variant="outline" onClick={() => setIsQualityCheckOpen(false)}>{language === 'en' ? 'Back' : 'Rudi'}</Button>
+
                         <Button
                             disabled={
                                 !(qualityDefinitions || []).every(def => qualityCheckAnswers[def.check_key] === true) ||
@@ -2840,8 +3130,9 @@ const GarageDashboard = () => {
                                 setIsQualityCheckOpen(false);
                             }}
                         >
-                            {releaseVehicleMutation.isPending ? "Processing..." : "Verify & Release Vehicle"}
+                            {releaseVehicleMutation.isPending ? (language === 'en' ? "Processing..." : "Inachakata...") : (language === 'en' ? "Verify & Release Vehicle" : "Hakiki na Ruhusu Gari")}
                         </Button>
+
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -2852,30 +3143,34 @@ const GarageDashboard = () => {
                     <DialogHeader>
                         <DialogTitle className="text-rose-600 flex items-center gap-2">
                             <XCircle className="w-5 h-5" />
-                            Reject Issuance
+                            {language === 'en' ? 'Reject Issuance' : 'Kataa Kutolewa'}
                         </DialogTitle>
                         <DialogDescription>
-                            Please provide a reason for rejecting this issuance request.
+                            {language === 'en' ? 'Please provide a reason for rejecting this issuance request.' : 'Tafadhali toa sababu ya kukataa maombi haya ya kutolewa.'}
                         </DialogDescription>
+
                     </DialogHeader>
                     <div className="py-4 space-y-4">
                         <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Item Details</div>
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">{language === 'en' ? 'Item Details' : 'Maelezo ya Kifaa'}</div>
                             <div className="text-sm font-semibold text-slate-700">{selectedUsageToApprove?.item_name}</div>
-                            <div className="text-xs text-slate-500">Requested Qty: {selectedUsageToApprove?.quantity_used}</div>
+                            <div className="text-xs text-slate-500">{language === 'en' ? 'Requested Qty:' : 'Idadi Iliyoombwa:'} {selectedUsageToApprove?.quantity_used}</div>
                         </div>
+
                         <div className="space-y-2">
-                            <Label className="text-xs font-bold text-slate-500 uppercase">Rejection Reason</Label>
+                            <Label className="text-xs font-semibold text-slate-500 uppercase">{language === 'en' ? 'Rejection Reason' : 'Sababu ya Kukataa'}</Label>
+
                             <Textarea
-                                placeholder="e.g. Wrong part selected, Excess quantity requested..."
+                                placeholder={language === 'en' ? "e.g. Wrong part selected, Excess quantity requested..." : "mfano: Kifaa kibaya kimechaguliwa, Idadi kubwa imeombwa..."}
                                 value={rejectionNotes}
                                 onChange={(e) => setRejectionNotes(e.target.value)}
                                 className="min-h-[100px]"
                             />
                         </div>
+
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsRejectionDialogOpen(false)}>Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsRejectionDialogOpen(false)}>{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
                         <Button
                             className="bg-rose-600 hover:bg-rose-700 text-white"
                             disabled={!rejectionNotes.trim() || approveIssuanceMutation.isPending}
@@ -2893,27 +3188,29 @@ const GarageDashboard = () => {
                                 });
                             }}
                         >
-                            {approveIssuanceMutation.isPending ? "Rejecting..." : "Confirm Rejection"}
+                            {approveIssuanceMutation.isPending ? (language === 'en' ? "Rejecting..." : "Inakataa...") : (language === 'en' ? "Confirm Rejection" : "Thibitisha Kukataa")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
+
 
             {/* NEW: Adjust Quantity Dialog */}
-            <Dialog open={isAdjustQtyOpen} onOpenChange={setIsAdjustQtyOpen}>
+            < Dialog open={isAdjustQtyOpen} onOpenChange={setIsAdjustQtyOpen} >
                 <DialogContent className="sm:max-w-[400px]">
                     <DialogHeader>
                         <DialogTitle className="text-indigo-600 flex items-center gap-2">
                             <Wrench className="w-5 h-5" />
-                            Adjust Issuance Quantity
+                            {language === 'en' ? 'Adjust Issuance Quantity' : 'Rekebisha Idadi ya Matoleo'}
                         </DialogTitle>
                         <DialogDescription>
-                            Review or reduce the quantity before final approval.
+                            {language === 'en' ? 'Review or reduce the quantity before final approval.' : 'Hakiki au punguza idadi kabla ya idhini ya mwisho.'}
                         </DialogDescription>
+
                     </DialogHeader>
                     <div className="py-6 space-y-6">
                         <div className="flex flex-col items-center justify-center p-8 bg-indigo-50/30 rounded-2xl border-2 border-dashed border-indigo-100">
-                            <Label className="text-xs font-bold text-indigo-400 uppercase mb-4 tracking-widest">Approved Quantity</Label>
+                            <Label className="text-xs font-semibold text-indigo-400 uppercase mb-4 tracking-widest">Approved Quantity</Label>
                             <div className="flex items-center gap-6">
                                 <Button
                                     variant="outline"
@@ -2923,7 +3220,8 @@ const GarageDashboard = () => {
                                 >
                                     <Minus className="w-6 h-6" />
                                 </Button>
-                                <div className="text-5xl font-black text-indigo-600 font-mono tracking-tighter w-20 text-center">
+                                <div className="text-5xl font-semibold text-indigo-600 font-mono tracking-tighter w-20 text-center">
+
                                     {adjustedQty}
                                 </div>
                                 <Button
@@ -2935,13 +3233,16 @@ const GarageDashboard = () => {
                                     <Plus className="w-6 h-6" />
                                 </Button>
                             </div>
+
                             <div className="mt-4 text-[10px] font-medium text-indigo-400 italic">
-                                Original Request: {selectedUsageToApprove?.quantity_used} units
+                                {language === 'en' ? 'Original Request:' : 'Maombi ya Awali:'} {selectedUsageToApprove?.quantity_used} {language === 'en' ? 'units' : 'vipande'}
                             </div>
+
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAdjustQtyOpen(false)}>Cancel</Button>
+                        <Button variant="outline" onClick={() => setIsAdjustQtyOpen(false)}>{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
+
                         <Button
                             className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg"
                             disabled={approveIssuanceMutation.isPending}
@@ -2958,13 +3259,15 @@ const GarageDashboard = () => {
                                 });
                             }}
                         >
-                            {approveIssuanceMutation.isPending ? "Approving..." : "Approve & Adjust Stock"}
+                            {approveIssuanceMutation.isPending ? (language === 'en' ? "Approving..." : "Inaidhinisha...") : (language === 'en' ? "Approve & Adjust Stock" : "Idhinisha na Rekebisha Stoo")}
                         </Button>
+
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
-        </div>
+            </Dialog >
+        </div >
     );
 };
+
 
 export default GarageDashboard;

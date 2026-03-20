@@ -21,7 +21,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useEffect, useState } from "react";
 
 const weighbridgeItems = [
-  { title: "Dashboard", url: "/", icon: Scale, roles: ["admin", "super_admin", "operator", "finance"] },
+  { title: "Dashboard", url: "/weighbridge-dashboard", icon: Scale, roles: ["admin", "super_admin", "operator", "finance"] },
   { title: "New Entry", url: "/entry", icon: Truck, roles: ["admin", "super_admin", "operator"] },
   { title: "Vehicle History", url: "/vehicle-history", icon: History, roles: ["admin", "super_admin", "operator", "finance"] },
   { title: "Pending Weighs", url: "/pending", icon: Clock, roles: ["admin", "super_admin", "operator"] },

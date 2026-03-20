@@ -88,9 +88,9 @@ const App = () => {
       case 'observer':
         return <Navigate to="/guardian-eye" replace />;
       case 'operator':
-        return <OperatorDashboard />;
+        return <Navigate to="/weighbridge-dashboard" replace />;
       default:
-        return <OperatorDashboard />;
+        return <Navigate to="/weighbridge-dashboard" replace />;
     }
   };
 
@@ -108,6 +108,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <SafeHome />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/weighbridge-dashboard"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'super_admin', 'operator', 'finance']}>
+                  <Layout>
+                    <OperatorDashboard />
                   </Layout>
                 </ProtectedRoute>
               }

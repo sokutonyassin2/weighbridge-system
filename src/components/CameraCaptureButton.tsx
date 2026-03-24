@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Camera, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CameraCaptureButtonProps {
   entryId: string;
@@ -11,6 +12,7 @@ interface CameraCaptureButtonProps {
   weighNumber: number;
   onPhotoCapture?: (photoUrl: string) => void;
   disabled?: boolean;
+  emergencyMode?: boolean;
 }
 
 interface CameraSettings {
@@ -25,6 +27,7 @@ export function CameraCaptureButton({
   weighNumber,
   onPhotoCapture,
   disabled = false,
+  emergencyMode = false,
 }: CameraCaptureButtonProps) {
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPath, setCapturedPath] = useState<string | null>(null);
@@ -39,15 +42,65 @@ export function CameraCaptureButton({
   });
 
   useEffect(() => {
-    const saved = localStorage.getItem("weightCaptureSettings");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setSettings({
-        cameraEnabled: parsed.cameraEnabled ?? false,
-        cameraUrl: parsed.cameraUrl ?? "http://localhost:5000",
-      });
-    }
+    fetchSettings();
+
+    // Subscribe to real-time changes
+    const channel = supabase
+      .channel('schema-db-changes-camera')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'weighbridge_settings',
+          filter: 'id=eq.1',
+        },
+        (payload) => {
+          console.log('Central settings updated (Camera):', payload.new);
+          if (payload.new) {
+            setSettings({
+              cameraEnabled: payload.new.camera_enabled ?? false,
+              cameraUrl: payload.new.camera_url ?? "http://localhost:5000",
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
+
+  const fetchSettings = async () => {
+    try {
+      // @ts-ignore
+      const { data, error } = await supabase
+        .from('weighbridge_settings')
+        .select('camera_enabled, camera_url')
+        .eq('id', 1)
+        .single();
+
+      if (!error && data) {
+        setSettings({
+          cameraEnabled: data.camera_enabled,
+          cameraUrl: data.camera_url,
+        });
+      } else {
+        // Fallback to local storage if DB fails
+        const saved = localStorage.getItem("weightCaptureSettings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setSettings({
+            cameraEnabled: parsed.cameraEnabled ?? false,
+            cameraUrl: parsed.cameraUrl ?? "http://localhost:5000",
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching settings:", err);
+    }
+  };
 
   const handleCapture = async () => {
     if (!settings.cameraEnabled) {
@@ -63,7 +116,8 @@ export function CameraCaptureButton({
     setError(null);
 
     try {
-      const response = await fetch(`${settings.cameraUrl}/api/hardware/capture`, {
+      const cameraBaseUrl = emergencyMode ? "http://localhost:5000" : settings.cameraUrl;
+      const response = await fetch(`${cameraBaseUrl}/api/hardware/capture`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

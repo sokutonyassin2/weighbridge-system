@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import {
     TrendingUp,
     DollarSign,
@@ -27,11 +28,14 @@ import {
     Navigation,
     Globe,
     Fuel,
-    Calculator as TotalIcon
+    Calculator as TotalIcon,
+    ShieldCheck,
+    Zap
 } from "lucide-react";
 
 interface TripSheetProps {
     tripId?: string;
+    duplicateData?: any;
     onSaveSuccess?: () => void;
 }
 
@@ -39,14 +43,34 @@ interface ExpenseItem {
     id?: string;
     item_name: string;
     amount: string;
-    category: 'TZ' | 'Zambia' | 'DRC' | 'Fixed';
+    category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed';
     currency: 'USD' | 'TZS';
 }
 
-export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
+export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetProps) => {
     const { toast } = useToast();
+    const { userRole, user, userProfile } = useAuth();
+    const isSuperAdmin = userRole === 'super_admin';
+    const isManager = userRole === 'logistics_manager' || userRole === 'admin' || userRole === 'super_admin';
     const [isSaving, setIsSaving] = useState(false);
+    const [isApproving, setIsApproving] = useState(false);
+    const [isActivating, setIsActivating] = useState(false);
+    const [currentStatus, setCurrentStatus] = useState<string>('Planned');
     const [isLoading, setIsLoading] = useState(true);
+    const [auditTrail, setAuditTrail] = useState<{
+        created_by_name?: string;
+        created_at?: string;
+        approved_by_name?: string;
+        approved_at?: string;
+        activated_by_name?: string;
+        activated_at?: string;
+    }>({});
+
+    const [convoyInfo, setConvoyInfo] = useState<{ id?: string; name?: string }>({});
+
+    const [activeCountries, setActiveCountries] = useState<string[]>(['TZ']);
+
+    const isLocked = !isSuperAdmin && (currentStatus === 'Approved' || currentStatus === 'Active' || currentStatus === 'Completed');
 
     // Trip Planning State (For New Sheets)
     const [tripData, setTripData] = useState({
@@ -57,7 +81,9 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
         destination: "",
         journey_type: "Go & Return",
         cargo_outbound: "",
-        notes: ""
+        notes: "",
+        agreed_days: "",
+        daily_fine_amount: ""
     });
 
     // Summary State
@@ -149,16 +175,25 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
 
                 if (sheetData) {
                     const doc = sheetData as any;
+                    setCurrentStatus(doc.status || 'Planned');
                     setTripData({
-                        vehicle_id: doc.vehicle_id,
+                        vehicle_id: doc.vehicle_id || "",
                         trailer_id: doc.trailer_id || "",
-                        driver_id: doc.driver_id,
+                        driver_id: doc.driver_id || "",
                         origin: doc.origin,
                         destination: doc.destination,
                         journey_type: doc.journey_type || "Go & Return",
                         cargo_outbound: doc.cargo_outbound,
-                        notes: doc.notes || ""
+                        notes: doc.notes || "",
+                        agreed_days: (doc.agreed_days || '').toString(),
+                        daily_fine_amount: (doc.daily_fine_amount || '').toString()
                     });
+
+                    setConvoyInfo({
+                        id: doc.convoy_id,
+                        name: doc.convoy_name
+                    });
+
                     setRevenueData({
                         revenue_type: doc.revenue_type || 'Without Fuel',
                         revenue_amount: (doc.revenue_amount || 0).toString(),
@@ -168,6 +203,19 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                         fuel_price: (doc.fuel_price || '').toString(),
                         fuel_amount: (doc.fuel_amount || 0).toString()
                     });
+                    setAuditTrail({
+                        created_by_name: doc.created_by_name,
+                        created_at: doc.created_at,
+                        approved_by_name: doc.approved_by_name,
+                        approved_at: doc.approved_at,
+                        activated_by_name: doc.activated_by_name,
+                        activated_at: doc.activated_at,
+                    });
+
+                    // Load persistent layout if available
+                    if (doc.active_countries && Array.isArray(doc.active_countries)) {
+                        setActiveCountries(doc.active_countries);
+                    }
                 }
 
                 // Fetch Expenses
@@ -177,15 +225,23 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                     .eq('trip_sheet_id', tripId);
 
                 if (expenseData && expenseData.length > 0) {
-                    setExpenses((expenseData as any[]).map(e => ({
+                    const docExpenses = (expenseData as any[]).map(e => ({
                         id: e.id,
                         item_name: e.item_name,
                         amount: e.amount.toString(),
                         category: e.category,
                         currency: e.currency
-                    })));
+                    })) as ExpenseItem[];
+
+                    setExpenses(docExpenses);
+
+                    // Auto-enable countries that have expenses
+                    const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
+                    if (countriesWithData.length > 0) {
+                        setActiveCountries(countriesWithData as string[]);
+                    }
                 }
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Error fetching financials:", error);
             } finally {
                 setIsLoading(false);
@@ -194,6 +250,79 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
 
         loadInitialData();
     }, [tripId]);
+
+    // Pre-fill from duplicate source
+    useEffect(() => {
+        if (!duplicateData) return;
+        const doc = duplicateData;
+
+        // NEW: Helper to normalize legacy or descriptive category names from DB to internal keys
+        const normalizeCategory = (cat: string): 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed' => {
+            const c = cat ? cat.trim() : 'Fixed';
+            if (c === 'Tanzania') return 'TZ';
+            if (c === 'DR Congo' || c === 'Congo') return 'DRC';
+            if (['TZ', 'Zambia', 'DRC', 'Rwanda', 'Burundi', 'Fixed'].includes(c)) return c as any;
+            return 'Fixed';
+        };
+
+        const fetchDuplicateExpenses = async () => {
+            try {
+                const { data: expenseData } = await supabase
+                    .from('logistics_trip_expenses' as any)
+                    .select('*')
+                    .eq('trip_sheet_id', doc.id);
+
+                if (expenseData && expenseData.length > 0) {
+                    const docExpenses = (expenseData as any[]).map(e => ({
+                        item_name: e.item_name || e.description || "",
+                        amount: e.amount.toString(),
+                        category: normalizeCategory(e.category), // APPLY NORMALIZATION
+                        currency: e.currency
+                    })) as ExpenseItem[];
+
+                    setExpenses(docExpenses);
+
+                    // Auto-enable countries that have expenses
+                    const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
+                    if (countriesWithData.length > 0) {
+                        setActiveCountries(countriesWithData as string[]);
+                    }
+                }
+            } catch (err) {
+                console.error("Scale-out error fetching duplicate expenses:", err);
+            }
+        };
+
+        setTripData({
+            vehicle_id: "", // Must be re-assigned for new trip
+            trailer_id: doc.trailer_id || "", // PRESERVE TRAILER
+            driver_id: "",  // Must be re-assigned for new trip
+            origin: doc.origin || "Headquarters",
+            destination: doc.destination || "",
+            journey_type: doc.journey_type || "Go & Return",
+            cargo_outbound: doc.cargo_outbound || "",
+            notes: doc.notes || "",
+            agreed_days: (doc.agreed_days || '').toString(),
+            daily_fine_amount: (doc.daily_fine_amount || '').toString()
+        });
+        setRevenueData({
+            revenue_type: doc.revenue_type || 'Without Fuel',
+            revenue_amount: (doc.revenue_amount || 0).toString(),
+            revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
+            exchange_rate: (doc.exchange_rate || 2700).toString(),
+            fuel_liters: (doc.fuel_liters || '').toString(),
+            fuel_price: (doc.fuel_price || '').toString(),
+            fuel_amount: (doc.fuel_amount || 0).toString()
+        });
+
+        // Ensure and set active countries (Regional Scope) from copied data
+        if (doc.active_countries && Array.isArray(doc.active_countries)) {
+            setActiveCountries(doc.active_countries);
+        }
+
+        fetchDuplicateExpenses();
+        setIsLoading(false);
+    }, [duplicateData]);
 
     // Form Persistence (Save to LocalStorage)
     useEffect(() => {
@@ -208,7 +337,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
 
     // Load Persistence
     useEffect(() => {
-        if (tripId) return;
+        if (tripId || duplicateData) return; // SKIP draft load if duplicating a trip!
         const saved = localStorage.getItem('trip_sheet_draft');
         if (saved) {
             try {
@@ -216,6 +345,12 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                 setTripData(prev => ({ ...prev, ...parsed.tripData }));
                 setRevenueData(prev => ({ ...prev, ...parsed.revenueData }));
                 setExpenses(parsed.expenses || []);
+
+                // Auto-enable countries that have expenses from draft
+                const countriesWithData = [...new Set((parsed.expenses || []).map((e: ExpenseItem) => e.category))].filter(c => c !== 'Fixed');
+                if (countriesWithData.length > 0) {
+                    setActiveCountries(countriesWithData as string[]);
+                }
             } catch (e) {
                 console.error("Failed to parse draft", e);
             }
@@ -277,7 +412,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
         });
     }, [expenses, revenueData]);
 
-    const addExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Fixed') => {
+    const addExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
         setExpenses([...expenses, {
             item_name: "",
             amount: "",
@@ -301,19 +436,21 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            if (!tripData.vehicle_id || !tripData.driver_id || !tripData.destination) {
-                throw new Error("Please complete the Assignment & Destination fields first.");
+            if (!tripData.destination) {
+                throw new Error("Please specify at least the Route Destination to save this plan.");
             }
 
             const sheetPayload = {
-                vehicle_id: tripData.vehicle_id,
+                vehicle_id: tripData.vehicle_id || null,
                 trailer_id: tripData.trailer_id || null,
-                driver_id: tripData.driver_id,
+                driver_id: tripData.driver_id || null,
                 origin: tripData.origin,
                 destination: tripData.destination,
                 journey_type: tripData.journey_type,
                 cargo_outbound: tripData.cargo_outbound,
                 notes: tripData.notes,
+                agreed_days: parseInt(tripData.agreed_days) || null,
+                daily_fine_amount: parseFloat(tripData.daily_fine_amount) || 0,
                 revenue_type: revenueData.revenue_type,
                 revenue_amount: parseFloat(revenueData.revenue_amount) || 0,
                 revenue_currency: revenueData.revenue_currency,
@@ -324,9 +461,16 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                 total_expenses_tzs: totals.totalExpensesTZS,
                 total_expenses_usd: totals.totalExpensesUSD,
                 net_profit_usd: totals.netProfitUSD,
-                status: 'Planned',
+                status: currentStatus,
+                active_countries: activeCountries, // PERSIST LAYOUT
                 updated_at: new Date().toISOString()
-            };
+            } as any;
+
+            // Set creation metadata if first time saving
+            if (!tripId && !duplicateData) {
+                sheetPayload.created_by = user?.id;
+                sheetPayload.created_by_name = userProfile?.full_name || user?.email;
+            }
 
             let activeSheetId = tripId;
 
@@ -364,12 +508,20 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                     .insert(expenses.map(e => ({
                         trip_sheet_id: activeSheetId,
                         category: e.category,
+                        nature: e.category, // Sync both for compatibility
                         item_name: e.item_name,
+                        description: e.item_name, // Sync both for compatibility
                         amount: parseFloat(e.amount) || 0,
                         currency: e.currency
                     })));
 
-                if (expenseError) throw expenseError;
+                if (expenseError) {
+                    // Cleanup: If expenses fail, delete the partially created sheet to avoid "empty rows"
+                    if (!tripId) {
+                        await supabase.from('logistics_trip_sheets' as any).delete().eq('id', activeSheetId);
+                    }
+                    throw expenseError;
+                }
             }
 
             toast({
@@ -394,9 +546,117 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
         }
     };
 
-    if (isLoading) return <div className="p-8 text-center">Loading Trip Financials...</div>;
+    const handleApprove = async () => {
+        if (!tripId) return;
+        setIsApproving(true);
+        try {
+            const approverName = (userProfile as any)?.full_name || (userProfile as any)?.username || 'Super Admin';
+            const { error } = await supabase
+                .from('logistics_trip_sheets' as any)
+                .update({
+                    status: 'Approved',
+                    approved_by: user?.id,
+                    approved_by_name: userProfile?.full_name || user?.email,
+                    approved_at: new Date().toISOString()
+                })
+                .eq('id', tripId);
+            if (error) throw error;
+            setCurrentStatus('Approved');
+            setAuditTrail(prev => ({
+                ...prev,
+                approved_by_name: userProfile?.full_name || user?.email,
+                approved_at: new Date().toISOString()
+            }));
+            toast({ title: "Budget Approved ✅", description: "This budget is now officially locked and ready for activation." });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Approve Failed", description: error.message });
+        } finally {
+            setIsApproving(false);
+        }
+    };
 
-    const renderExpenseSection = (title: string, category: 'TZ' | 'Zambia' | 'DRC' | 'Fixed', icon: any) => {
+    const handleActivate = async () => {
+        if (!tripId) return;
+        if (!tripData.vehicle_id || !tripData.driver_id) {
+            toast({ variant: "destructive", title: "Missing Assignment", description: "Please assign a Vehicle and Driver before activating the trip." });
+            return;
+        }
+        setIsActivating(true);
+        try {
+            // 1. Update the Trip Sheet Status to Active
+            const { error: sheetError } = await supabase
+                .from('logistics_trip_sheets' as any)
+                .update({
+                    status: 'Active',
+                    vehicle_id: tripData.vehicle_id,
+                    driver_id: tripData.driver_id,
+                    trailer_id: tripData.trailer_id || null,
+                    activated_by: user?.id,
+                    activated_by_name: userProfile?.full_name || user?.email,
+                    activated_at: new Date().toISOString()
+                })
+                .eq('id', tripId);
+            if (sheetError) throw sheetError;
+
+            // 2. CREATE THE OFFICIAL TRIP in logistics_trips
+            // This makes it show up in the "Trip Management" (Planned) column.
+            const tripFormattedData = {
+                vehicle_id: tripData.vehicle_id,
+                driver_id: tripData.driver_id,
+                trailer_id: tripData.trailer_id || null,
+                origin: tripData.origin,
+                destination: tripData.destination,
+                cargo_outbound: tripData.cargo_outbound,
+                notes: tripData.notes,
+                status: 'Planned', // Becomes Planned in the main board
+                trip_sheet_id: tripId, // Link them
+                fuel_liters: parseFloat(revenueData.fuel_liters) || 0,
+                trip_allowance: totals.totalExpensesTZS, // Use the TZS subtotal for allowance
+                created_by: user?.id // Track who activated/created this operational record
+            };
+
+            const { error: tripError } = await supabase
+                .from('logistics_trips' as any)
+                .insert([tripFormattedData]);
+
+            if (tripError) {
+                console.warn("Trip created in logistics_trips but failed to link correctly:", tripError.message);
+                // We don't throw here to avoid Rollback confusion, but we notify.
+            }
+
+            setCurrentStatus('Active');
+            setAuditTrail(prev => ({
+                ...prev,
+                activated_by_name: userProfile?.full_name || user?.email,
+                activated_at: new Date().toISOString()
+            }));
+            toast({ title: "Trip Activated 🚛", description: "The plan is now an active trip in Trip Management." });
+            if (onSaveSuccess) onSaveSuccess();
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Activation Failed", description: error.message });
+        } finally {
+            setIsActivating(false);
+        }
+    };
+
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'Planned':
+                return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Unapproved Draft</Badge>;
+            case 'Approved':
+                return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Budget Approved</Badge>;
+            case 'Active':
+                return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">Trip Active</Badge>;
+            case 'Completed':
+                return <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-200">Completed</Badge>;
+            default:
+                return null;
+        }
+    };
+
+    if (isLoading) return <div className="p-8 text-center text-slate-400">Loading Trip Financials...</div>;
+
+    const renderExpenseSection = (title: string, category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed', icon: any) => {
         const filteredExpenses = expenses
             .map((e, i) => ({ ...e, originalIndex: i }))
             .filter(e => e.category === category);
@@ -419,7 +679,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                             </p>
                         </div>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => addExpense(category)} className="text-primary hover:text-primary/80 print:hidden">
+                    <Button variant="ghost" size="sm" onClick={() => addExpense(category)} className="text-primary hover:text-primary/80 print:hidden" disabled={isLocked}>
                         <Plus size={16} className="mr-1" /> Add Item
                     </Button>
                 </div>
@@ -434,6 +694,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     placeholder="Enter expense name..."
                                     value={item.item_name}
                                     onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                    disabled={isLocked}
                                 />
                             </div>
                             <div className="w-32">
@@ -456,6 +717,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     placeholder="0"
                                     value={item.amount}
                                     onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
+                                    disabled={isLocked}
                                 />
                             </div>
                             <Button
@@ -463,6 +725,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                 size="icon"
                                 className="h-9 w-9 text-destructive hover:bg-destructive/10 print:hidden"
                                 onClick={() => removeExpense(item.originalIndex)}
+                                disabled={isLocked}
                             >
                                 <Trash2 size={16} />
                             </Button>
@@ -513,6 +776,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                             type="number"
                             value={revenueData.exchange_rate}
                             onChange={(e) => setRevenueData({ ...revenueData, exchange_rate: e.target.value })}
+                            disabled={isLocked}
                         />
                     </div>
                 </div>
@@ -522,6 +786,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                         <Select
                             value={revenueData.revenue_currency}
                             onValueChange={(v: any) => setRevenueData({ ...revenueData, revenue_currency: v })}
+                            disabled={isLocked}
                         >
                             <SelectTrigger className="w-20 h-9 bg-slate-800 border-none text-white text-xs font-bold">
                                 <SelectValue />
@@ -536,6 +801,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                             type="number"
                             value={revenueData.revenue_amount}
                             onChange={(e) => setRevenueData({ ...revenueData, revenue_amount: e.target.value })}
+                            disabled={isLocked}
                         />
                     </div>
                 </div>
@@ -559,6 +825,42 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                 </div>
             </div>
 
+            {/* 🔒 Locking Badge Indicator */}
+            {isLocked && (
+                <div className="sticky top-0 z-50 bg-amber-500 text-white text-[10px] font-bold py-1 px-4 flex items-center justify-center gap-2 rounded-t-lg -mx-6 -mt-6">
+                    <ShieldCheck size={14} />
+                    READ-ONLY MODE: Budget is locked after Superadmin Approval. For accountability, no more changes are allowed.
+                </div>
+            )}
+
+            {/* 🕰 Audit Trail Header */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 border-dashed mb-4">
+                <div className="flex flex-col">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Created By</span>
+                    <span className="text-[11px] font-bold text-slate-700">
+                        {auditTrail.created_by_name || "Unknown"}
+                        {auditTrail.created_at && <span className="ml-1 text-slate-400 font-normal">on {new Date(auditTrail.created_at).toLocaleDateString()}</span>}
+                    </span>
+                </div>
+                {auditTrail.approved_by_name && (
+                    <div className="flex flex-col border-l border-slate-200 pl-4">
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Approved By</span>
+                        <span className="text-[11px] font-bold text-blue-700">
+                            {auditTrail.approved_by_name}
+                            {auditTrail.approved_at && <span className="ml-1 text-slate-400 font-normal">on {new Date(auditTrail.approved_at).toLocaleDateString()}</span>}
+                        </span>
+                    </div>
+                )}
+                {auditTrail.activated_by_name && (
+                    <div className="flex flex-col border-l border-slate-200 pl-4">
+                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Activated By</span>
+                        <span className="text-[11px] font-bold text-emerald-700">
+                            {auditTrail.activated_by_name}
+                            {auditTrail.activated_at && <span className="ml-1 text-slate-400 font-normal">on {new Date(auditTrail.activated_at).toLocaleDateString()}</span>}
+                        </span>
+                    </div>
+                )}
+            </div>
             {/* 📍 Section 1: Asset Assignment & Route Details */}
             <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900">
                 <CardHeader className="bg-slate-50/80 border-b border-slate-200 py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
@@ -585,6 +887,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                                 trailer_id: selectedHorse?.primary_trailer_id || tripData.trailer_id
                                             });
                                         }}
+                                        disabled={isLocked}
                                     >
                                         <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
                                             <SelectValue placeholder="Select Horse" />
@@ -601,6 +904,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     <Select
                                         value={tripData.trailer_id}
                                         onValueChange={(v) => setTripData({ ...tripData, trailer_id: v })}
+                                        disabled={isLocked}
                                     >
                                         <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
                                             <SelectValue placeholder="Select Trailer" />
@@ -619,6 +923,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                 <Select
                                     value={tripData.driver_id}
                                     onValueChange={(v) => setTripData({ ...tripData, driver_id: v })}
+                                    disabled={isLocked}
                                 >
                                     <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
                                         <SelectValue placeholder="Assign Driver" />
@@ -635,6 +940,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                 <Select
                                     value={tripData.journey_type}
                                     onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
+                                    disabled={isLocked}
                                 >
                                     <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
                                         <SelectValue />
@@ -655,6 +961,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                         className="h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
                                         value={tripData.origin}
                                         onChange={(e) => setTripData({ ...tripData, origin: e.target.value })}
+                                        disabled={isLocked}
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -664,6 +971,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                         value={tripData.destination}
                                         onChange={(e) => setTripData({ ...tripData, destination: e.target.value })}
                                         placeholder="Enter Destination"
+                                        disabled={isLocked}
                                     />
                                 </div>
                             </div>
@@ -674,6 +982,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     value={tripData.cargo_outbound}
                                     onChange={(e) => setTripData({ ...tripData, cargo_outbound: e.target.value })}
                                     placeholder="e.g. 30 Tons of Copper Ore"
+                                    disabled={isLocked}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -682,7 +991,35 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     className="w-full p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm h-24 resize-none print:border-none print:p-0"
                                     value={tripData.notes}
                                     onChange={(e) => setTripData({ ...tripData, notes: e.target.value })}
+                                    disabled={isLocked}
                                 />
+                            </div>
+                            <div className="grid grid-cols-2 gap-6 mt-4">
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Agreed Duration (Days)</Label>
+                                    <Input
+                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                        type="number"
+                                        placeholder="e.g. 5"
+                                        value={tripData.agreed_days}
+                                        onChange={(e) => setTripData({ ...tripData, agreed_days: e.target.value })}
+                                        disabled={isLocked}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Daily Penalty Fine (USD)</Label>
+                                    <div className="relative">
+                                        <DollarSign size={14} className="absolute left-3 top-3.5 text-slate-400" />
+                                        <Input
+                                            className="pl-8 h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                            type="number"
+                                            placeholder="e.g. 100"
+                                            value={tripData.daily_fine_amount}
+                                            onChange={(e) => setTripData({ ...tripData, daily_fine_amount: e.target.value })}
+                                            disabled={isLocked}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -711,6 +1048,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     placeholder="e.g. 2575"
                                     value={revenueData.fuel_liters}
                                     onChange={(e) => setRevenueData({ ...revenueData, fuel_liters: e.target.value })}
+                                    disabled={isLocked}
                                 />
                             </div>
                         </div>
@@ -724,6 +1062,7 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                                     placeholder="e.g. 2780"
                                     value={revenueData.fuel_price}
                                     onChange={(e) => setRevenueData({ ...revenueData, fuel_price: e.target.value })}
+                                    disabled={isLocked}
                                 />
                             </div>
                         </div>
@@ -750,8 +1089,8 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                         <div className="flex items-center gap-2">
                             <Badge
                                 variant={revenueData.revenue_type === 'With Fuel' ? 'default' : 'outline'}
-                                className={`cursor-pointer text-sm px-4 py-1.5 transition-all ${revenueData.revenue_type === 'With Fuel' ? 'bg-orange-600 hover:bg-orange-700 border-orange-600' : 'hover:bg-orange-50'}`}
-                                onClick={() => setRevenueData({ ...revenueData, revenue_type: 'With Fuel' })}
+                                className={`cursor-pointer text-sm px-4 py-1.5 transition-all ${revenueData.revenue_type === 'With Fuel' ? 'bg-orange-600 hover:bg-orange-700 border-orange-600' : 'hover:bg-orange-50'} ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                onClick={() => !isLocked && setRevenueData({ ...revenueData, revenue_type: 'With Fuel' })}
                             >
                                 ✓ Include in Budget
                             </Badge>
@@ -768,51 +1107,124 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
             </Card>
 
             {/* 🌍 Section 3: Regional Expense Breakdown */}
+            <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-200 print:hidden mb-6">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+                    <Globe size={12} />
+                    Regional Scope: Select countries involved in this journey
+                </p>
+                <div className="flex flex-wrap gap-2">
+                    {[
+                        { id: 'TZ', name: 'Tanzania' },
+                        { id: 'Zambia', name: 'Zambia' },
+                        { id: 'DRC', name: 'DR Congo' },
+                        { id: 'Rwanda', name: 'Rwanda' },
+                        { id: 'Burundi', name: 'Burundi' }
+                    ].map(country => (
+                        <Badge
+                            key={country.id}
+                            variant={activeCountries.includes(country.id) ? 'default' : 'outline'}
+                            className={`cursor-pointer px-4 py-2 text-xs transition-all ${activeCountries.includes(country.id) ? 'bg-slate-900' : 'hover:bg-slate-100'}`}
+                            onClick={() => {
+                                if (isLocked) return;
+                                if (activeCountries.includes(country.id)) {
+                                    // Don't remove if it's the last one? Or just allow it.
+                                    setActiveCountries(prev => prev.filter(c => c !== country.id));
+                                } else {
+                                    setActiveCountries(prev => [...prev, country.id]);
+                                }
+                            }}
+                        >
+                            {country.name}
+                        </Badge>
+                    ))}
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:block print:space-y-8">
-                <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                    <CardHeader className="bg-blue-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                        <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-blue-900">
-                            <span>Tanzania Operations</span>
-                            <div className="flex gap-2 text-[10px]">
-                                <span className="text-slate-400">SUBTOTAL:</span>
-                                <span className="text-blue-700 font-black">${(totals.categoryTotals['TZ']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                            </div>
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-8">
-                        {renderExpenseSection("Tanzania Operations", "TZ", MapPin)}
-                    </CardContent>
-                </Card>
+                {activeCountries.includes('TZ') && (
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
+                        <CardHeader className="bg-blue-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
+                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-blue-900">
+                                <span>Tanzania Operations</span>
+                                <div className="flex gap-2 text-[10px]">
+                                    <span className="text-slate-400">SUBTOTAL:</span>
+                                    <span className="text-blue-700 font-black">${(totals.categoryTotals['TZ']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            {renderExpenseSection("Tanzania Operations", "TZ", MapPin)}
+                        </CardContent>
+                    </Card>
+                )}
 
-                <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                    <CardHeader className="bg-green-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                        <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-green-900">
-                            <span>Zambia Operations</span>
-                            <div className="flex gap-2 text-[10px]">
-                                <span className="text-slate-400">SUBTOTAL:</span>
-                                <span className="text-green-700 font-black">${(totals.categoryTotals['Zambia']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                            </div>
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-8">
-                        {renderExpenseSection("Zambia Operations", "Zambia", Globe)}
-                    </CardContent>
-                </Card>
+                {activeCountries.includes('Zambia') && (
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
+                        <CardHeader className="bg-green-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
+                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-green-900">
+                                <span>Zambia Operations</span>
+                                <div className="flex gap-2 text-[10px]">
+                                    <span className="text-slate-400">SUBTOTAL:</span>
+                                    <span className="text-green-700 font-black">${(totals.categoryTotals['Zambia']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            {renderExpenseSection("Zambia Operations", "Zambia", Globe)}
+                        </CardContent>
+                    </Card>
+                )}
 
-                <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                    <CardHeader className="bg-yellow-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                        <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-yellow-900">
-                            <span>DR Congo Operations</span>
-                            <div className="flex gap-2 text-[10px]">
-                                <span className="text-slate-400">SUBTOTAL:</span>
-                                <span className="text-yellow-700 font-black">${(totals.categoryTotals['DRC']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                            </div>
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-8">
-                        {renderExpenseSection("DR Congo Operations", "DRC", MapPin)}
-                    </CardContent>
-                </Card>
+                {activeCountries.includes('DRC') && (
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
+                        <CardHeader className="bg-yellow-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
+                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-yellow-900">
+                                <span>DR Congo Operations</span>
+                                <div className="flex gap-2 text-[10px]">
+                                    <span className="text-slate-400">SUBTOTAL:</span>
+                                    <span className="text-yellow-700 font-black">${(totals.categoryTotals['DRC']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            {renderExpenseSection("DR Congo Operations", "DRC", MapPin)}
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeCountries.includes('Rwanda') && (
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
+                        <CardHeader className="bg-purple-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
+                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-purple-900">
+                                <span>Rwanda Operations</span>
+                                <div className="flex gap-2 text-[10px]">
+                                    <span className="text-slate-400">SUBTOTAL:</span>
+                                    <span className="text-purple-700 font-black">${(totals.categoryTotals['Rwanda']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            {renderExpenseSection("Rwanda Operations", "Rwanda", Navigation)}
+                        </CardContent>
+                    </Card>
+                )}
+
+                {activeCountries.includes('Burundi') && (
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
+                        <CardHeader className="bg-rose-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
+                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-rose-900">
+                                <span>Burundi Operations</span>
+                                <div className="flex gap-2 text-[10px]">
+                                    <span className="text-slate-400">SUBTOTAL:</span>
+                                    <span className="text-rose-700 font-black">${(totals.categoryTotals['Burundi']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            {renderExpenseSection("Burundi Operations", "Burundi", Navigation)}
+                        </CardContent>
+                    </Card>
+                )}
 
                 <Card className="border-none shadow-xl bg-slate-50 overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
                     <CardHeader className="bg-slate-200/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
@@ -863,11 +1275,11 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
             </div>
 
             {/* 💾 Actions Floating Footer (Sticky bottom) */}
-            <div className="sticky bottom-6 flex items-center justify-end gap-4 p-4 bg-white/60 backdrop-blur-xl rounded-2xl shadow-2xl border ring-1 ring-slate-200 z-50 animate-in slide-in-from-bottom-8 duration-1000 print:hidden">
+            <div className="sticky bottom-6 flex flex-col md:flex-row items-center justify-end gap-3 p-4 bg-white/60 backdrop-blur-xl rounded-2xl shadow-2xl border ring-1 ring-slate-200 z-50 animate-in slide-in-from-bottom-8 duration-1000 print:hidden mx-4 md:mx-auto">
                 <Button
                     variant="ghost"
                     size="lg"
-                    className="font-bold text-slate-500 hover:text-slate-950"
+                    className="font-bold text-slate-500 hover:text-slate-950 w-full md:w-auto h-12 order-last md:order-first"
                     onClick={() => {
                         if (confirm("Are you sure? Unsaved changes will be lost.")) {
                             if (onSaveSuccess) onSaveSuccess();
@@ -876,26 +1288,60 @@ export const TripSheet = ({ tripId, onSaveSuccess }: TripSheetProps) => {
                 >
                     Cancel Edit
                 </Button>
-                <Button
-                    variant="outline"
-                    size="lg"
-                    className="font-black border-2 border-slate-900 hover:bg-slate-900 hover:text-white transition-all px-8 h-14 rounded-xl"
-                    onClick={() => window.print()}
-                    disabled={isSaving}
-                >
-                    <FileText size={20} className="mr-2" />
-                    Print Budget Report
-                </Button>
-                <Button
-                    size="lg"
-                    className="font-black bg-primary hover:bg-primary/90 text-white px-12 h-14 rounded-xl shadow-xl active:scale-95 transition-all"
-                    onClick={handleSave}
-                    disabled={isSaving}
-                >
-                    {isSaving ? "Finalizing Logic..." : "Commit & Save Plan"}
-                    {!isSaving && <Save size={20} className="ml-2" />}
-                </Button>
+
+                <div className="flex flex-col md:flex-row items-center gap-3 w-full md:w-auto">
+                    <Button
+                        variant="outline"
+                        size="lg"
+                        className="font-black border-2 border-slate-900 hover:bg-slate-900 hover:text-white transition-all px-8 h-12 rounded-xl w-full md:w-auto"
+                        onClick={() => window.print()}
+                        disabled={isSaving}
+                    >
+                        <FileText size={20} className="mr-2" />
+                        Print Budget Report
+                    </Button>
+
+                    {/* Superadmin: Approve Budget (only visible when status is Planned) */}
+                    {isSuperAdmin && tripId && currentStatus === 'Planned' && (
+                        <Button
+                            size="lg"
+                            className="font-black bg-blue-600 hover:bg-blue-700 text-white px-10 h-12 rounded-xl shadow-xl active:scale-95 transition-all w-full md:w-auto"
+                            onClick={handleApprove}
+                            disabled={isApproving}
+                        >
+                            <ShieldCheck size={20} className="mr-2" />
+                            {isApproving ? "Approving..." : "Approve Budget"}
+                        </Button>
+                    )}
+
+                    {/* Manager: Activate Trip (only visible when status is Approved) */}
+                    {isManager && tripId && currentStatus === 'Approved' && (
+                        <Button
+                            size="lg"
+                            className="font-black bg-emerald-600 hover:bg-emerald-700 text-white px-10 h-12 rounded-xl shadow-xl active:scale-95 transition-all w-full md:w-auto"
+                            onClick={handleActivate}
+                            disabled={isActivating}
+                        >
+                            <Zap size={20} className="mr-2" />
+                            {isActivating ? "Activating..." : "Activate Trip"}
+                        </Button>
+                    )}
+
+                    {/* Save Plan (always visible unless Active/Completed) */}
+                    {currentStatus !== 'Active' && currentStatus !== 'Completed' && (
+                        <Button
+                            size="lg"
+                            className="font-black bg-primary hover:bg-primary/90 text-white px-8 md:px-12 h-12 rounded-xl shadow-xl active:scale-95 transition-all w-full md:w-auto"
+                            onClick={handleSave}
+                            disabled={isSaving}
+                        >
+                            {isSaving ? "Finalizing..." : "Commit & Save Plan"}
+                            {!isSaving && <Save size={20} className="ml-2" />}
+                        </Button>
+                    )}
+                </div>
             </div>
         </div>
     );
 };
+

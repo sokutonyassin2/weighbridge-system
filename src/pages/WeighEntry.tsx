@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Scale as ScaleIcon, Printer, Camera, AlertTriangle, CheckCircle, Wifi, WifiOff, LayoutDashboard, History, Info, Truck, Monitor, RefreshCw } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { format } from "date-fns";
 import { getCurrentShiftDate, getCurrentShiftName } from "@/lib/shiftUtils";
 import { getShortEntryId } from "@/lib/utils";
@@ -46,6 +47,8 @@ export default function WeighEntry() {
   const [hardwareStatus, setHardwareStatus] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [pendingSubmitEvent, setPendingSubmitEvent] = useState<React.FormEvent | null>(null);
+  const [emergencyMode, setEmergencyMode] = useState<boolean>(false);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
 
   const { isOffline, pendingItems, isSyncing } = useOffline();
 
@@ -77,16 +80,109 @@ export default function WeighEntry() {
     return newStatus;
   };
 
-  // Load weight capture settings
   useEffect(() => {
-    const saved = localStorage.getItem("weightCaptureSettings");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setAutomaticMode(parsed.automaticMode ?? false);
-      setRequireImageCapture(parsed.requireImageCapture ?? false);
-      setHardwareIntegrationEnabled(parsed.hardwareIntegrationEnabled ?? false);
-    }
+    fetchCentralSettings();
+
+    // Subscribe to real-time changes
+    const channel = supabase
+      .channel('schema-db-changes-weigh-entry')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'weighbridge_settings',
+          filter: 'id=eq.1',
+        },
+        (payload) => {
+          console.log('Central settings updated (WeighEntry):', payload.new);
+          if (payload.new) {
+            setAutomaticMode(payload.new.automatic_mode ?? false);
+            setRequireImageCapture(payload.new.require_image_capture ?? false);
+            // We assume hardware integration is always preferred if automatic mode is set, 
+            // but we can just leave it true here since the new DB schema doesn't have the flag
+            setHardwareIntegrationEnabled(true);
+            setEmergencyMode(payload.new.emergency_mode_active ?? false);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
+
+  const fetchCentralSettings = async () => {
+    try {
+      // @ts-ignore - weighbridge_settings table types not yet generated
+      const { data, error } = await supabase
+        .from('weighbridge_settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (!error && data) {
+        setAutomaticMode(data.automatic_mode);
+        setRequireImageCapture(data.require_image_capture);
+        setHardwareIntegrationEnabled(true); // Always enabled for now, or derive from automaticMode
+        setEmergencyMode(data.emergency_mode_active);
+      } else {
+        // Fallback to local storage if DB fails
+        const saved = localStorage.getItem("weightCaptureSettings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setAutomaticMode(parsed.automaticMode ?? false);
+          setRequireImageCapture(parsed.requireImageCapture ?? false);
+          setHardwareIntegrationEnabled(parsed.hardwareIntegrationEnabled ?? false);
+        }
+
+        const localEmergency = localStorage.getItem("emergency_mode_active") === "true";
+        setEmergencyMode(localEmergency);
+      }
+    } catch (err) {
+      console.error("Error fetching settings:", err);
+    }
+  };
+
+  const handleToggleEmergencyMode = async (checked: boolean) => {
+    setIsUpdatingSettings(true);
+    setEmergencyMode(checked); // Optimistic update
+    localStorage.setItem("emergency_mode_active", String(checked)); // Keep local fallback
+
+    try {
+      // Update central DB
+      // @ts-ignore
+      const { error } = await supabase
+        .from('weighbridge_settings')
+        .update({ emergency_mode_active: checked, updated_at: new Date().toISOString() })
+        .eq('id', 1);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: checked ? "Hali ya Dharura IMEWASHWA" : "Hali ya Dharura IMEZIMWA",
+        description: checked
+          ? "System will now talk to MacBook (Localhost) for hardware."
+          : "System reverted to normal server connectivity.",
+        variant: checked ? "destructive" : "default"
+      });
+    } catch (error) {
+      console.error("Failed to update emergency mode in DB:", error);
+      // Revert on error
+      setEmergencyMode(!checked);
+      localStorage.setItem("emergency_mode_active", String(!checked));
+      toast({
+        title: "Failed to update",
+        description: "Could not sync emergency mode. Using local setting only.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
 
   // Check hardware connection status
   useEffect(() => {
@@ -94,7 +190,8 @@ export default function WeighEntry() {
 
     const checkHardwareConnection = async () => {
       try {
-        const response = await fetch(`${window.location.origin}/api/hardware/status`, {
+        const hardwareBaseUrl = emergencyMode ? "http://localhost:5000" : window.location.origin;
+        const response = await fetch(`${hardwareBaseUrl}/api/hardware/status`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -138,7 +235,7 @@ export default function WeighEntry() {
         .from("vehicle_entries")
         .select(`
           *,
-          vehicle_types (*),
+          vehicle_types:vehicle_types!inner (*),
           weigh_records (*)
         `)
         .eq("id", id)
@@ -169,7 +266,10 @@ export default function WeighEntry() {
   const isFirstWeigh = weighCount === 0;
   const isMVCategory = entry?.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
   const isJVCategory = entry?.category && ["JV-Payment", "JV-Free"].includes(entry.category);
-  const isPullingType = entry?.vehicle_types?.type_name?.toLowerCase().includes("pull");
+
+  // Robust check for vehicle type name (handles both single object and array results)
+  const typeData = Array.isArray(entry?.vehicle_types) ? entry?.vehicle_types[0] : entry?.vehicle_types;
+  const isPullingType = typeData?.type_name?.toLowerCase().includes("pull");
 
   // Determine "Came Loaded" state based on Category Rules:
   // 1. MV-Company -> ALWAYS Arrive Empty (First Weigh = Tare)
@@ -188,9 +288,9 @@ export default function WeighEntry() {
   // For MV vehicles, determine which weight to show/pre-fill
   const firstWeighRecord = entry?.weigh_records?.[0];
   const showGrossOnly = isMVCategory && isFirstWeigh && cameLoaded;
-  const showTareOnly = isMVCategory && isFirstWeigh && !cameLoaded;
-  const showPrefilledGross = isMVCategory && !isFirstWeigh && cameLoaded && !!firstWeighRecord;
-  const showPrefilledTare = isMVCategory && !isFirstWeigh && !cameLoaded && !!firstWeighRecord;
+  const showTareOnly = isMVCategory && isFirstWeigh && !cameLoaded && !isPullingType;
+  const showPrefilledGross = isMVCategory && !isFirstWeigh && cameLoaded && !!firstWeighRecord && !isPullingType;
+  const showPrefilledTare = isMVCategory && !isFirstWeigh && !cameLoaded && !!firstWeighRecord && !isPullingType;
 
   const netWeight =
     isPullingType
@@ -219,21 +319,32 @@ export default function WeighEntry() {
   // Pre-fill weights for MV second weigh
   useEffect(() => {
     if (isMVCategory && !isFirstWeigh && firstWeighRecord) {
-      if (cameLoaded) {
+      if (isPullingType) {
+        // For pulling type 2nd weigh, ensure fields are empty for fresh capture
+        // This prevents race conditions where weights might have pre-filled before isPullingType loaded
+        setWeighData(prev => ({
+          ...prev,
+          gross_weight: "",
+          gtm: "",
+          tare_weight: ""
+        }));
+      } else if (cameLoaded) {
         // Pre-fill Gross from first weigh, user enters Tare
         setWeighData(prev => ({
           ...prev,
-          gross_weight: String(firstWeighRecord.gross_weight || '')
+          gross_weight: String(firstWeighRecord.gross_weight || ''),
+          tare_weight: ""
         }));
       } else {
         // Pre-fill Tare from first weigh, user enters Gross
         setWeighData(prev => ({
           ...prev,
-          tare_weight: String(firstWeighRecord.tare_weight || '')
+          tare_weight: String(firstWeighRecord.tare_weight || ''),
+          gross_weight: ""
         }));
       }
     }
-  }, [isMVCategory, isFirstWeigh, firstWeighRecord, cameLoaded]);
+  }, [isMVCategory, isFirstWeigh, firstWeighRecord, cameLoaded, isPullingType]);
 
   // --- AUTO-SAVE DRAFTS (Anti-Data Loss) ---
   useEffect(() => {
@@ -374,7 +485,19 @@ Please process payment in Cashier section first.`,
         setIsSubmitting(false);
         return;
       }
-      if (!isFirstWeigh && cameLoaded && isWeightZeroOrEmpty(weighData.tare_weight)) {
+      if (isPullingType) {
+        // For pulling trucks, we need BOTH Gross and GTM on every weigh
+        if (isWeightZeroOrEmpty(weighData.gross_weight)) {
+          toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Gross Weight" });
+          setIsSubmitting(false);
+          return;
+        }
+        if (isWeightZeroOrEmpty(weighData.gtm)) {
+          toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid GTM (Trailer) Weight" });
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (!isFirstWeigh && cameLoaded && isWeightZeroOrEmpty(weighData.tare_weight)) {
         toast({ variant: "destructive", title: "Missing Weight", description: "Please enter a valid Tare Weight" });
         setIsSubmitting(false);
         return;
@@ -590,7 +713,7 @@ Please process payment in Cashier section first.`,
 
       let calculatedNetWeight = parseFloat(weighData.gross_weight) - parseFloat(weighData.tare_weight);
 
-      if (isPulling && weighCount === 1) {
+      if (isPullingType && weighCount > 0) {
         // We have both weights now for a pulling vehicle
         const firstRecord = entry.weigh_records?.[0];
         if (firstRecord) {
@@ -671,7 +794,11 @@ Please process payment in Cashier section first.`,
         }
       } else if (isMVCategory && !isFirstWeigh) {
         // Second weigh for MV vehicles
-        if (cameLoaded) {
+        if (isPullingType) {
+          // Pulling Truck: Newly captured Gross, Tare is always 0
+          actualGrossWeight = parseFloat(weighData.gross_weight);
+          actualTareWeight = 0;
+        } else if (cameLoaded) {
           // MV-PublicSeller & MV-Supplier: Now empty, so second weigh is TARE
           actualGrossWeight = parseFloat(weighData.gross_weight); // Pre-filled from first weigh
           actualTareWeight = parseFloat(weighData.tare_weight); // Newly captured
@@ -873,7 +1000,11 @@ Please process payment in Cashier section first.`,
         payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
         isCompleted: newStatus === "Completed",
         warning_flag: weighData.warning_flag,
-        pulling_gvm: pullingGVM // Add to print data
+        pulling_gvm: pullingGVM, // Add to print data
+        isPullingType: isPullingType, // Ensure this flag is passed
+        first_gross: entry.weigh_records?.[0]?.gross_weight || 0,
+        first_gtm: entry.weigh_records?.[0]?.gtm || 0,
+        first_gvm: (Number(entry.weigh_records?.[0]?.gross_weight || 0) + Number(entry.weigh_records?.[0]?.gtm || 0))
       });
       setShowPrint(true);
 
@@ -1099,23 +1230,25 @@ Please process payment in Cashier section first.`,
                     : 'border-t-2 border-dotted border-muted-foreground'
                   }`}
               >
-                <div className="space-y-3 print:space-y-0.5">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-lg print:text-base">Gross Weight:</span>
-                    <span className="text-xl font-bold print:text-lg">{printData.gross_weight} kg</span>
+                {!printData.isPullingType && (
+                  <div className="space-y-3 print:space-y-0.5">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-lg print:text-base">Gross Weight:</span>
+                      <span className="text-xl font-bold print:text-lg">{printData.gross_weight} kg</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-lg print:text-xl">Tare Weight:</span>
+                      <span className="text-xl font-bold print:text-2xl">{printData.tare_weight} kg</span>
+                    </div>
+                    <div className="flex justify-between items-center text-2xl font-black text-primary print:text-3xl">
+                      <span className="font-bold text-lg print:text-xl">Net Weight:</span>
+                      <span className="text-2xl font-black print:text-3xl">{printData.net_weight} kg</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-lg print:text-xl">Tare Weight:</span>
-                    <span className="text-xl font-bold print:text-2xl">{printData.tare_weight} kg</span>
-                  </div>
-                  <div className="flex justify-between items-center text-2xl font-black text-primary print:text-3xl">
-                    <span className="font-bold text-lg print:text-xl">Net Weight:</span>
-                    <span className="text-2xl font-black print:text-3xl">{printData.net_weight} kg</span>
-                  </div>
-                </div>
+                )}
 
                 {/* GVM/GTM/Trailer/Payload - Only show if values entered */}
-                {(printData.gvm || printData.gtm || printData.trailer_weight) && (
+                {((printData.gvm || printData.gtm || printData.trailer_weight) && !printData.isPullingType) && (
                   <div className="mt-4 pt-4 border-t border-dashed border-muted-foreground space-y-2">
                     <p className="text-sm font-semibold text-muted-foreground">Vehicle Mass Details:</p>
                     {printData.gvm && (
@@ -1136,12 +1269,68 @@ Please process payment in Cashier section first.`,
                         <span className="font-bold">{printData.trailer_weight} kg</span>
                       </div>
                     )}
-                    {printData.pulling_gvm && (
-                      <div className="flex justify-between items-center bg-blue-50/50 p-2 rounded border border-blue-100 dark:bg-blue-900/10 dark:border-blue-800">
-                        <span className="font-bold text-sm">Pulling GVM (Gross + GTM):</span>
-                        <span className="font-black text-xl text-primary">{Number(printData.pulling_gvm).toLocaleString()} kg</span>
+                  </div>
+                )}
+
+                {/* Detailed Pulling Breakdown (Match User Request) */}
+                {printData.isPullingType && printData.isSecondWeigh && (
+                  <div className="mt-4 pt-4 border-t-2 border-primary space-y-4 print:pt-2 print:mt-1">
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4 print:p-0 print:border-none print:bg-transparent">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Mass Calculation Breakdown</p>
+
+                      <div className="space-y-3 print:space-y-1">
+                        {/* Loaded Row */}
+                        <div className="flex justify-between items-end border-b border-slate-200 dark:border-slate-700 pb-2 print:pb-1">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-black text-slate-500 uppercase">Loaded Trip (Pass #1)</p>
+                            <p className="text-xs font-semibold text-slate-400 italic">Gross {Number(printData.first_gross || 0).toLocaleString()} + GTM {Number(printData.first_gtm || 0).toLocaleString()}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xl font-black text-slate-900 dark:text-white print:text-sm">{Number(printData.first_gvm || 0).toLocaleString()} <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">GVM</span></p>
+                          </div>
+                        </div>
+
+                        {/* Empty Row */}
+                        <div className="flex justify-between items-end border-b border-slate-200 dark:border-slate-700 pb-2 print:pb-1">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-black text-slate-500 uppercase">Empty Trip (Pass #2)</p>
+                            <p className="text-xs font-semibold text-slate-400 italic">Gross {Number(printData.gross_weight || 0).toLocaleString()} + GTM {Number(printData.gtm || 0).toLocaleString()}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xl font-black text-slate-900 dark:text-white print:text-sm">{Number(printData.pulling_gvm || 0).toLocaleString()} <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">GVM</span></p>
+                          </div>
+                        </div>
                       </div>
-                    )}
+
+                      <div className="pt-2 flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.1em]">
+                          <span>Final Cargo Weight (Net)</span>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-3xl font-black text-primary print:text-2xl">{Number(printData.net_weight).toLocaleString()}</span>
+                          <span className="text-sm font-bold text-primary/60 uppercase tracking-tighter">KG</span>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-400/80 italic">
+                          Formula: {Number(printData.first_gvm || 0).toLocaleString()} - {Number(printData.pulling_gvm || 0).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Simple Pulling GVM for First Weigh */}
+                {printData.isPullingType && !printData.isSecondWeigh && (
+                  <div className="mt-4 pt-4 border-t border-dashed border-muted-foreground">
+                    <div className="bg-blue-50/40 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30 flex justify-between items-center print:p-0 print:border-none print:bg-transparent">
+                      <div className="space-y-0.5">
+                        <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider">Pass #1 Total Mass</p>
+                        <p className="text-xs font-bold text-slate-800 dark:text-white">Pulling GVM (Gross + GTM)</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-2xl font-black text-primary">{Number((Number(printData.gross_weight) || 0) + (Number(printData.gtm) || 0)).toLocaleString()}</span>
+                        <span className="text-xs font-bold text-primary/60 ml-1 uppercase">KG</span>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1294,6 +1483,18 @@ Please process payment in Cashier section first.`,
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-slate-900/5 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 dark:bg-slate-900/50">
+            <Label htmlFor="emergency-mode" className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              Mkombozi (Plan B)
+            </Label>
+            <Switch
+              id="emergency-mode"
+              checked={emergencyMode}
+              disabled={isUpdatingSettings}
+              onCheckedChange={handleToggleEmergencyMode}
+            />
+          </div>
+
           {isOffline ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400 text-xs font-bold border border-red-200 dark:border-red-900">
               <WifiOff className="h-3.5 w-3.5" /> OFFLINE MODE
@@ -1315,6 +1516,23 @@ Please process payment in Cashier section first.`,
           )}
         </div>
       </div>
+
+      {emergencyMode && (
+        <div className="bg-red-500/10 border-y border-red-500/20 py-1.5 flex justify-center items-center gap-3 overflow-hidden animate-in fade-in duration-500">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+            </span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-red-500">
+              Hali ya Dharura - Mkombozi Active
+            </span>
+          </div>
+          <span className="text-[9px] font-medium text-red-500/60 hidden sm:inline">
+            Accessing Server via Public IP | Hardware via MacBook Localhost
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN: Main Weghing Actions (8 cols on lg) */}
@@ -1356,7 +1574,9 @@ Please process payment in Cashier section first.`,
                               ? "📦 First Weigh: Recording Gross Weight (Loaded). Vehicle will return empty for Tare Weight."
                               : "📦 First Weigh: Recording Tare Weight (Empty). Vehicle will return loaded for Gross Weight."
                           ) : (
-                            cameLoaded
+                            isPullingType ? (
+                              `✅ Second Weigh for Pulling Truck: Recording EMPTY weights (Gross & GTM). First weigh (Loaded) was ${firstWeighRecord?.gross_weight} kg.`
+                            ) : cameLoaded
                               ? `✅ Second Weigh: First weigh recorded ${firstWeighRecord?.gross_weight} kg (Loaded). Now recording Tare Weight (Empty).`
                               : `✅ Second Weigh: First weigh recorded ${firstWeighRecord?.tare_weight} kg (Empty). Now recording Gross Weight (Loaded).`
                           )}
@@ -1390,6 +1610,7 @@ Please process payment in Cashier section first.`,
                             disabled={isSubmitting}
                             vehicleNo={entry.vehicle_no}
                             entryId={id}
+                            emergencyMode={emergencyMode}
                           />
                         </div>
                       </div>
@@ -1409,7 +1630,7 @@ Please process payment in Cashier section first.`,
                       {(!isMVCategory || !isFirstWeigh || showGrossOnly) && (
                         <div className="space-y-2">
                           <Label htmlFor="gross_weight" className="text-xs font-bold text-slate-500 uppercase">
-                            Gross weight (kg) {isMVCategory && !isFirstWeigh && cameLoaded ? "(PRE-FILLED)" : ""}
+                            Gross weight (kg) {isMVCategory && !isFirstWeigh && cameLoaded && !isPullingType ? "(PRE-FILLED)" : ""}
                           </Label>
                           <div className="relative">
                             <Input
@@ -1419,8 +1640,8 @@ Please process payment in Cashier section first.`,
                               placeholder={automaticMode ? "Waiting for capture..." : "0.00"}
                               value={weighData.gross_weight || (showPrefilledGross ? String(firstWeighRecord.gross_weight) : "")}
                               onChange={(e) => setWeighData({ ...weighData, gross_weight: e.target.value })}
-                              readOnly={showPrefilledGross || automaticMode}
-                              className={`h-14 text-2xl font-bold rounded-xl border-2 transition-all ${showPrefilledGross || automaticMode ? "bg-slate-50 dark:bg-slate-800 border-slate-200" : "border-slate-200 focus:border-primary"}`}
+                              readOnly={(showPrefilledGross || automaticMode) && !isPullingType}
+                              className={`h-14 text-2xl font-bold rounded-xl border-2 transition-all ${(showPrefilledGross || automaticMode) && !isPullingType ? "bg-slate-50 dark:bg-slate-800 border-slate-200" : "border-slate-200 focus:border-primary"}`}
                               required
                             />
                             {showPrefilledGross && <CheckCircle className="absolute right-4 top-4 text-emerald-500 h-6 w-6" />}
@@ -1428,10 +1649,10 @@ Please process payment in Cashier section first.`,
                         </div>
                       )}
 
-                      {(!isMVCategory || !isFirstWeigh || showTareOnly) && (
+                      {((!isMVCategory || !isFirstWeigh || showTareOnly) && !isPullingType) && (
                         <div className="space-y-2">
                           <Label htmlFor="tare_weight" className="text-xs font-bold text-slate-500 uppercase">
-                            Tare weight (kg) {isMVCategory && !isFirstWeigh && !cameLoaded ? "(PRE-FILLED)" : ""}
+                            Tare weight (kg) {isMVCategory && !isFirstWeigh && !cameLoaded && !isPullingType ? "(PRE-FILLED)" : ""}
                           </Label>
                           <div className="relative">
                             <Input
@@ -1544,6 +1765,7 @@ Please process payment in Cashier section first.`,
                         toast({ title: "Photo captured!", description: "The image has been saved to the server." });
                       }}
                       disabled={isSubmitting}
+                      emergencyMode={emergencyMode}
                     />
                     {requireImageCapture && !capturedPhotoUrl && (
                       <div className="mt-4 flex justify-center">

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Scale, Settings, Wifi, Camera } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface WeightSettings {
   automaticMode: boolean;
@@ -13,6 +14,7 @@ interface WeightSettings {
   cameraEnabled: boolean;
   cameraUrl: string;
   requireImageCapture: boolean;
+  emergencyModeActive: boolean;
 }
 
 const defaultSettings: WeightSettings = {
@@ -21,25 +23,104 @@ const defaultSettings: WeightSettings = {
   cameraEnabled: false,
   cameraUrl: `http://${window.location.hostname}:5000`,
   requireImageCapture: false,
+  emergencyModeActive: false,
 };
 
 export default function AdminWeightSettings() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<WeightSettings>(defaultSettings);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("weightCaptureSettings");
-    if (saved) {
-      setSettings({ ...defaultSettings, ...JSON.parse(saved) });
-    }
+    fetchSettings();
   }, []);
 
-  const handleSave = () => {
-    localStorage.setItem("weightCaptureSettings", JSON.stringify(settings));
-    toast({
-      title: "Settings Saved",
-      description: "Weight capture settings have been updated.",
-    });
+  const fetchSettings = async () => {
+    setIsLoading(true);
+    try {
+      // @ts-ignore
+      const { data, error } = await supabase
+        .from('weighbridge_settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (error) {
+        if (error.code !== 'PGRST116') { // Ignore row not found, fallback to defaults
+          console.error('Error fetching settings:', error);
+        }
+      } else if (data) {
+        setSettings({
+          automaticMode: data.automatic_mode ?? defaultSettings.automaticMode,
+          hardwareBridgeUrl: data.hardware_bridge_url ?? defaultSettings.hardwareBridgeUrl,
+          cameraEnabled: data.camera_enabled ?? defaultSettings.cameraEnabled,
+          cameraUrl: data.camera_url ?? defaultSettings.cameraUrl,
+          requireImageCapture: data.require_image_capture ?? defaultSettings.requireImageCapture,
+          emergencyModeActive: data.emergency_mode_active ?? defaultSettings.emergencyModeActive,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+    } finally {
+      // Ensure single row with id 1 exists
+      // @ts-ignore
+      const { error } = await supabase
+        .from('weighbridge_settings')
+        .upsert([{
+          id: 1, // Always update the first row
+          automatic_mode: settings.automaticMode,
+          hardware_bridge_url: settings.hardwareBridgeUrl,
+          camera_enabled: settings.cameraEnabled,
+          camera_url: settings.cameraUrl,
+          require_image_capture: settings.requireImageCapture,
+          emergency_mode_active: settings.emergencyModeActive,
+          updated_at: new Date().toISOString()
+        }], { onConflict: 'id' });
+
+      if (error) {
+        console.error('Error ensuring settings row:', error);
+      }
+      setIsLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const payload = {
+        id: 1, // Always update the master row
+        automatic_mode: settings.automaticMode,
+        hardware_bridge_url: settings.hardwareBridgeUrl,
+        camera_enabled: settings.cameraEnabled,
+        camera_url: settings.cameraUrl,
+        require_image_capture: settings.requireImageCapture,
+        emergency_mode_active: settings.emergencyModeActive,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from('weighbridge_settings')
+        .upsert(payload, { onConflict: 'id' });
+
+      if (error) throw error;
+
+      toast({
+        title: "Settings Saved",
+        description: "Centralized weight capture settings have been updated.",
+      });
+
+      // Also update localStorage for backward compatibility or immediate local read if needed
+      localStorage.setItem("weightCaptureSettings", JSON.stringify(settings));
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to save",
+        description: err.message || "An error occurred while saving settings.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const testConnection = async () => {
@@ -139,6 +220,26 @@ export default function AdminWeightSettings() {
             <p className="text-sm font-medium">
               Current Mode: {settings.automaticMode ? "🔒 Automatic (Capture Only)" : "✏️ Manual Entry Allowed"}
             </p>
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900 overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+            <div className="space-y-1 relative z-10">
+              <Label htmlFor="emergency-mode" className="text-base font-bold text-red-700 dark:text-red-400">
+                Mkombozi (Plan B) - Emergency Mode
+              </Label>
+              <p className="text-sm text-red-600/80 dark:text-red-300/80 max-w-lg">
+                Activate this to force all weighbridge operations to route hardware traffic through the local MacBook (`localhost:5000`). Use this when the local server access point is down.
+              </p>
+            </div>
+            <Switch
+              id="emergency-mode"
+              checked={settings.emergencyModeActive}
+              onCheckedChange={(checked) =>
+                setSettings({ ...settings, emergencyModeActive: checked })
+              }
+              className="relative z-10"
+            />
           </div>
         </CardContent>
       </Card>
@@ -256,9 +357,9 @@ export default function AdminWeightSettings() {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button onClick={handleSave}>
-          Save Settings
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleSave} size="lg" disabled={isLoading || isSaving} className="min-w-[150px]">
+          {isSaving ? "Saving..." : "Save Central Settings"}
         </Button>
       </div>
 

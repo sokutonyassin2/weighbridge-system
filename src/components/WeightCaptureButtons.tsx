@@ -4,6 +4,7 @@ import { Scale, AlertCircle, Loader2, Wifi, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import HardwareWebSocket from "@/lib/hardwareWebSocket";
+import { supabase } from "@/integrations/supabase/client";
 
 interface WeightCaptureButtonsProps {
   onCaptureGross: (weight: string) => void;
@@ -15,11 +16,11 @@ interface WeightCaptureButtonsProps {
   disabled?: boolean;
   vehicleNo?: string;
   entryId?: string;
+  emergencyMode?: boolean;
 }
 
 interface WeightSettings {
   automaticMode: boolean;
-  hardwareIntegrationEnabled: boolean;
   hardwareBridgeUrl: string;
 }
 
@@ -33,6 +34,7 @@ export function WeightCaptureButtons({
   disabled = false,
   vehicleNo,
   entryId,
+  emergencyMode = false,
 }: WeightCaptureButtonsProps) {
   const { toast } = useToast();
   const { userRole } = useAuth();
@@ -41,35 +43,94 @@ export function WeightCaptureButtons({
   const [liveWeight, setLiveWeight] = useState<string>("0");
   const [settings, setSettings] = useState<WeightSettings>({
     automaticMode: false,
-    hardwareIntegrationEnabled: false,
     hardwareBridgeUrl: "http://localhost:5000",
   });
 
-  const hardwareWebSocket = new HardwareWebSocket(settings.hardwareBridgeUrl);
+  const hardwareUrl = emergencyMode ? "http://localhost:5000" : settings.hardwareBridgeUrl;
+  const hardwareWebSocket = new HardwareWebSocket(hardwareUrl);
 
   const isAdmin = userRole === "admin";
 
   useEffect(() => {
-    const saved = localStorage.getItem("weightCaptureSettings");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setSettings({
-        automaticMode: parsed.automaticMode ?? false,
-        hardwareIntegrationEnabled: parsed.hardwareIntegrationEnabled ?? false,
-        hardwareBridgeUrl: parsed.hardwareBridgeUrl ?? "http://localhost:5000",
-      });
-    }
+    fetchSettings();
+
+    // Subscribe to real-time changes
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'weighbridge_settings',
+          filter: 'id=eq.1',
+        },
+        (payload) => {
+          console.log('Central settings updated:', payload.new);
+          if (payload.new) {
+            setSettings({
+              automaticMode: payload.new.automatic_mode ?? false,
+              hardwareBridgeUrl: payload.new.hardware_bridge_url ?? "http://localhost:5000",
+            });
+            // Also update the emergency mode active state if we were propagating it via context,
+            // but for now, emergencyMode is passed as a prop from WeighEntry, so WeighEntry needs
+            // to subscribe to this as well to update the top-level app state.
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
+
+  const fetchSettings = async () => {
+    try {
+      // @ts-ignore
+      const { data, error } = await supabase
+        .from('weighbridge_settings')
+        .select('automatic_mode, hardware_bridge_url')
+        .eq('id', 1)
+        .single();
+
+      if (!error && data) {
+        setSettings({
+          automaticMode: data.automatic_mode,
+          hardwareBridgeUrl: data.hardware_bridge_url,
+        });
+      } else {
+        // Fallback to local storage if DB fails
+        const saved = localStorage.getItem("weightCaptureSettings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setSettings({
+            automaticMode: parsed.automaticMode ?? false,
+            hardwareBridgeUrl: parsed.hardwareBridgeUrl ?? `http://${window.location.hostname}:5000`,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching settings:", err);
+    }
+  };
 
   // Initialize hardware connection when settings change
   useEffect(() => {
-    if (!settings.hardwareIntegrationEnabled || !vehicleNo || !entryId) return;
+    if (!settings.hardwareIntegrationEnabled || !vehicleNo || !entryId) {
+      hardwareWebSocket.disconnect(); // Ensure disconnected if conditions not met
+      setHardwareStatus('disconnected');
+      return;
+    }
 
+    let mounted = true;
     const connectToHardware = async () => {
       setHardwareStatus('connecting');
       try {
         await hardwareWebSocket.connect();
-        setHardwareStatus('connected');
+        if (mounted) { // Check if component is still mounted before updating state
+          setHardwareStatus('connected');
+        }
 
         // Listen for internal weight results (Capture)
         const handleWeightUpdate = (event: any) => {
@@ -98,7 +159,7 @@ export function WeightCaptureButtons({
         // Listen for LIVE streaming updates
         const handleLiveUpdate = (event: any) => {
           const { detail } = event;
-          if (detail && detail.weight !== undefined) {
+          if (mounted && detail && detail.weight !== undefined) { // Check mounted
             setLiveWeight(detail.weight.toString());
             // If we're getting weight, we are definitely connected!
             // This bypasses any delay in the initial connection handshake
@@ -117,17 +178,20 @@ export function WeightCaptureButtons({
         };
       } catch (error) {
         console.error('Failed to connect to hardware:', error);
-        setHardwareStatus('error');
+        if (mounted) { // Check if component is still mounted before updating state
+          setHardwareStatus('error');
+        }
       }
     };
 
-    connectToHardware();
+    connectToHardware(); // Call once
 
     // Clean up on unmount
     return () => {
+      mounted = false; // Set mounted to false on unmount
       hardwareWebSocket.disconnect();
     };
-  }, [settings.hardwareIntegrationEnabled, settings.hardwareBridgeUrl, vehicleNo, entryId,
+  }, [settings.hardwareIntegrationEnabled, settings.hardwareBridgeUrl, emergencyMode, vehicleNo, entryId,
     onCaptureGross, onCaptureTare, onCaptureGVM, onCaptureGTM, onCaptureTrailer]);
 
   const captureWeight = async (type: 'gross' | 'tare' | 'gvm' | 'gtm' | 'trailer') => {
@@ -144,12 +208,12 @@ export function WeightCaptureButtons({
 
     try {
       // Fetch weight from the server which will proxy to your helper program
-      const response = await fetch(`${settings.hardwareBridgeUrl}/api/hardware/weight?entryId=${entryId}&vehicleNo=${vehicleNo}&type=${type}`, {
+      const response = await fetch(`${hardwareUrl}/api/hardware/weight?entryId=${entryId}&vehicleNo=${vehicleNo}&type=${type}`, {
         method: "GET",
         headers: {
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(11000), // Increased timeout slightly
       });
 
       if (!response.ok) {
@@ -221,7 +285,7 @@ export function WeightCaptureButtons({
       </div>
 
       {/* DIGITAL WEIGHT MONITOR */}
-      {!isLocked && (
+      {!isLocked && settings.hardwareIntegrationEnabled && ( // Only show if hardware integration is enabled
         <div className="bg-slate-950 border-2 border-slate-800 rounded-lg p-4 my-2 text-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
           <div className="text-[10px] text-emerald-500/40 font-mono uppercase tracking-[0.3em] mb-3">
             Digital Scale Monitor
@@ -366,10 +430,16 @@ export function WeightCaptureButtons({
         </div>
       )}
 
+      {!settings.automaticMode && !isCapturing && liveWeight === "0" && (
+        <p className="text-xs text-muted-foreground mb-2 mt-4 text-center">
+          Hardware bridge is not connected or weight is flat. You can enter weights manually based on your settings.
+        </p>
+      )}
+
       {settings.hardwareIntegrationEnabled && (
         <p className="text-xs text-muted-foreground">
           {isAdmin
-            ? `Weights captured from hardware bridge at ${settings.hardwareBridgeUrl}`
+            ? `Weights captured from hardware bridge at ${hardwareUrl}`
             : "Weights captured automatically from weighbridge"
           }
         </p>

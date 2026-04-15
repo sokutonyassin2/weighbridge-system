@@ -135,11 +135,12 @@ export default function CashierDashboard() {
     refetchInterval: 30000, // Auto-refresh every 30 seconds (Optimized)
   });
 
-  // Fetch current active shift
+  // Fetch current shift — with 3-step fallback for operator name
   const { data: currentShift } = useQuery({
     queryKey: ["current-shift", selectedShift, reportDate],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // 1. Basic shift record
+      const { data: shiftData, error } = await supabase
         .from("shifts")
         .select("*")
         .eq("shift_date", reportDate)
@@ -147,7 +148,43 @@ export default function CashierDashboard() {
         .maybeSingle();
 
       if (error) throw error;
-      return data;
+
+      // 2. Lookup last weighing name using created_at (most reliable for all records)
+      const { startTime, endTime } = getShiftTimeWindow(reportDate, selectedShift as "Day" | "Night");
+      const { data: lastWeigh } = await supabase
+        .from("weigh_records")
+        .select("weighed_by, operator_id")
+        .gte("created_at", startTime)
+        .lte("created_at", endTime)
+        .not("weighed_by", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let resolvedName = shiftData?.operator_name || lastWeigh?.weighed_by || null;
+
+      // 3. Last fallback: Profile lookup from IDs
+      if (!resolvedName) {
+        const idToLookup = lastWeigh?.operator_id || shiftData?.operator_id;
+        if (idToLookup) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("full_name, username")
+            .eq("id", idToLookup)
+            .maybeSingle();
+          
+          if (profile) {
+            resolvedName = profile.full_name && profile.full_name !== "User" 
+              ? profile.full_name 
+              : profile.username || null;
+          }
+        }
+      }
+
+      return {
+        ...shiftData,
+        operator_name: resolvedName,
+      };
     },
     enabled: showShiftReport,
   });
@@ -171,7 +208,7 @@ export default function CashierDashboard() {
       // Query payments that were CREATED within the shift time window
       const { data, error } = await supabase
         .from("payments")
-        .select("id, amount, payment_type, created_at, entry_id, vehicle_no, vehicle_entries(wb_number, shift_id, vehicle_types(type_name, category))")
+        .select("id, amount, payment_type, created_at, entry_id, vehicle_no, cashier_name, cashier_id, vehicle_entries(wb_number, shift_id, vehicle_types(type_name, category))")
         .gte("created_at", startTime)
         .lte("created_at", endTime)
         .order("created_at", { ascending: false });
@@ -456,17 +493,16 @@ export default function CashierDashboard() {
       );
     }
 
+    // Final operator name resolution: Shift record name -> Payment list name -> Database lookup name
+    const resolvedReportOperator = currentShift?.operator_name || 
+                                   shiftPayments?.find(p => p.cashier_name && p.cashier_name !== "Operator")?.cashier_name || 
+                                   "Shift Operator";
+
     return (
       <CashierShiftReport
         shiftName={selectedShift}
         shiftDate={reportDate}
-        operatorName={
-          currentShift?.operator_name ||
-          (userProfile?.full_name && userProfile?.full_name !== "User"
-            ? userProfile?.full_name
-            : userProfile?.username) ||
-          "Operator"
-        }
+        operatorName={resolvedReportOperator}
         payments={shiftPayments}
         penalties={shiftPenalties}
         completedWeighs={completedWeighs || []}

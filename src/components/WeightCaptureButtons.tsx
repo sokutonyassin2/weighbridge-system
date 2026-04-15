@@ -16,7 +16,6 @@ interface WeightCaptureButtonsProps {
   disabled?: boolean;
   vehicleNo?: string;
   entryId?: string;
-  emergencyMode?: boolean;
 }
 
 interface WeightSettings {
@@ -34,7 +33,6 @@ export function WeightCaptureButtons({
   disabled = false,
   vehicleNo,
   entryId,
-  emergencyMode = false,
 }: WeightCaptureButtonsProps) {
   const { toast } = useToast();
   const { userRole } = useAuth();
@@ -46,7 +44,7 @@ export function WeightCaptureButtons({
     hardwareBridgeUrl: "http://localhost:5000",
   });
 
-  const hardwareUrl = emergencyMode ? "http://localhost:5000" : settings.hardwareBridgeUrl;
+  const hardwareUrl = settings.hardwareBridgeUrl;
   const hardwareWebSocket = new HardwareWebSocket(hardwareUrl);
 
   const isAdmin = userRole === "admin";
@@ -72,9 +70,6 @@ export function WeightCaptureButtons({
               automaticMode: payload.new.automatic_mode ?? false,
               hardwareBridgeUrl: payload.new.hardware_bridge_url ?? "http://localhost:5000",
             });
-            // Also update the emergency mode active state if we were propagating it via context,
-            // but for now, emergencyMode is passed as a prop from WeighEntry, so WeighEntry needs
-            // to subscribe to this as well to update the top-level app state.
           }
         }
       )
@@ -191,7 +186,7 @@ export function WeightCaptureButtons({
       mounted = false; // Set mounted to false on unmount
       hardwareWebSocket.disconnect();
     };
-  }, [settings.hardwareIntegrationEnabled, settings.hardwareBridgeUrl, emergencyMode, vehicleNo, entryId,
+  }, [settings.hardwareIntegrationEnabled, settings.hardwareBridgeUrl, vehicleNo, entryId,
     onCaptureGross, onCaptureTare, onCaptureGVM, onCaptureGTM, onCaptureTrailer]);
 
   const captureWeight = async (type: 'gross' | 'tare' | 'gvm' | 'gtm' | 'trailer') => {

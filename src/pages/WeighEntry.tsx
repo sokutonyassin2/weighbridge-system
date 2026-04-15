@@ -7,13 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Scale as ScaleIcon, Printer, Camera, AlertTriangle, CheckCircle, Wifi, WifiOff, LayoutDashboard, History, Info, Truck, Monitor, RefreshCw } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
+
 import { format } from "date-fns";
 import { getCurrentShiftDate, getCurrentShiftName } from "@/lib/shiftUtils";
 import { getShortEntryId } from "@/lib/utils";
@@ -47,8 +48,7 @@ export default function WeighEntry() {
   const [hardwareStatus, setHardwareStatus] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [pendingSubmitEvent, setPendingSubmitEvent] = useState<React.FormEvent | null>(null);
-  const [emergencyMode, setEmergencyMode] = useState<boolean>(false);
-  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+
 
   const { isOffline, pendingItems, isSyncing } = useOffline();
 
@@ -102,7 +102,6 @@ export default function WeighEntry() {
             // We assume hardware integration is always preferred if automatic mode is set, 
             // but we can just leave it true here since the new DB schema doesn't have the flag
             setHardwareIntegrationEnabled(true);
-            setEmergencyMode(payload.new.emergency_mode_active ?? false);
           }
         }
       )
@@ -117,7 +116,7 @@ export default function WeighEntry() {
     try {
       // @ts-ignore - weighbridge_settings table types not yet generated
       const { data, error } = await supabase
-        .from('weighbridge_settings')
+        .from('weighbridge_settings' as any)
         .select('*')
         .eq('id', 1)
         .single();
@@ -126,7 +125,6 @@ export default function WeighEntry() {
         setAutomaticMode(data.automatic_mode);
         setRequireImageCapture(data.require_image_capture);
         setHardwareIntegrationEnabled(true); // Always enabled for now, or derive from automaticMode
-        setEmergencyMode(data.emergency_mode_active);
       } else {
         // Fallback to local storage if DB fails
         const saved = localStorage.getItem("weightCaptureSettings");
@@ -136,53 +134,13 @@ export default function WeighEntry() {
           setRequireImageCapture(parsed.requireImageCapture ?? false);
           setHardwareIntegrationEnabled(parsed.hardwareIntegrationEnabled ?? false);
         }
-
-        const localEmergency = localStorage.getItem("emergency_mode_active") === "true";
-        setEmergencyMode(localEmergency);
       }
     } catch (err) {
       console.error("Error fetching settings:", err);
     }
   };
 
-  const handleToggleEmergencyMode = async (checked: boolean) => {
-    setIsUpdatingSettings(true);
-    setEmergencyMode(checked); // Optimistic update
-    localStorage.setItem("emergency_mode_active", String(checked)); // Keep local fallback
 
-    try {
-      // Update central DB
-      // @ts-ignore
-      const { error } = await supabase
-        .from('weighbridge_settings')
-        .update({ emergency_mode_active: checked, updated_at: new Date().toISOString() })
-        .eq('id', 1);
-
-      if (error) {
-        throw error;
-      }
-
-      toast({
-        title: checked ? "Hali ya Dharura IMEWASHWA" : "Hali ya Dharura IMEZIMWA",
-        description: checked
-          ? "System will now talk to MacBook (Localhost) for hardware."
-          : "System reverted to normal server connectivity.",
-        variant: checked ? "destructive" : "default"
-      });
-    } catch (error) {
-      console.error("Failed to update emergency mode in DB:", error);
-      // Revert on error
-      setEmergencyMode(!checked);
-      localStorage.setItem("emergency_mode_active", String(!checked));
-      toast({
-        title: "Failed to update",
-        description: "Could not sync emergency mode. Using local setting only.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsUpdatingSettings(false);
-    }
-  };
 
   // Check hardware connection status
   useEffect(() => {
@@ -190,7 +148,7 @@ export default function WeighEntry() {
 
     const checkHardwareConnection = async () => {
       try {
-        const hardwareBaseUrl = emergencyMode ? "http://localhost:5000" : window.location.origin;
+        const hardwareBaseUrl = window.location.origin;
         const response = await fetch(`${hardwareBaseUrl}/api/hardware/status`, {
           method: 'GET',
           headers: {
@@ -412,6 +370,10 @@ export default function WeighEntry() {
     e.preventDefault();
 
     setIsSubmitting(true);
+
+    const enteredByName = (userProfile?.full_name && userProfile?.full_name !== "User")
+      ? userProfile?.full_name
+      : userProfile?.username || "Unknown";
 
     if (!user?.id) {
       toast({
@@ -675,9 +637,7 @@ Please process payment in Cashier section first.`,
           vehicle_type_name: entry.vehicle_types?.type_name,
           price: entry.vehicle_types?.first_weigh_fee || 0,
           isPrepaid: false,
-          weighed_by: userProfile?.full_name && userProfile.full_name !== 'User'
-            ? userProfile.full_name
-            : userProfile?.username || 'Unknown Operator',
+          weighed_by: enteredByName,
           weigh_time: new Date().toISOString(),
           isSecondWeigh: !isFirstWeigh,
           gvm: weighData.gvm || null,
@@ -821,6 +781,8 @@ Please process payment in Cashier section first.`,
             tare_weight: actualTareWeight,
             weigh_number: weighCount + 1,
             operator_id: user.id,
+            weighed_by: enteredByName,
+            weigh_time: new Date().toISOString(),
             warning_flag: weighData.warning_flag,
             exceedence_notes: weighData.exceedence_notes || null,
             is_locked: true,
@@ -933,44 +895,52 @@ Please process payment in Cashier section first.`,
 
         if (typeof fee === 'number' && !skipPayment && !skipSecondWeighPayment && fee > 0) {
           promises.push((async () => {
-            const { data: existingRecords } = await supabase.from("payments")
-              .select("id, payment_status")
-              .eq("entry_id", id)
-              .eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh")
-              .limit(1);
+            try {
+              const { data: existingRecords, error: fetchError } = await supabase.from("payments")
+                .select("id, payment_status")
+                .eq("entry_id", id)
+                .eq("payment_type", isFirstWeigh ? "First Weigh" : "Second Weigh")
+                .limit(1);
 
-            const existing = existingRecords?.[0];
+              if (fetchError) throw fetchError;
+              const existing = existingRecords?.[0];
 
-            // Auto-mark as PAID if it's the second weigh (User requirement: "when they save automatically let the money reflect")
-            const shouldBePaid = isFirstWeigh ? true : true; // Both First and Second weigh now auto-mark as paid on save/print if applicable
-
-            if (!existing) {
-              return supabase.from("payments").insert({
+              // Determine if it should be marked as PAID
+              // We always mark as paid on save/print to reflect in cashier totals immediately
+              const paymentData = {
                 entry_id: id,
                 vehicle_no: entry.vehicle_no,
                 amount: fee,
                 payment_type: isFirstWeigh ? "First Weigh" : "Second Weigh",
-                payment_status: "Paid", // Always Paid on save
+                payment_status: "Paid" as const,
                 paid_at: new Date().toISOString(),
                 cashier_name: userProfile?.full_name || "Operator",
                 cashier_id: user?.id
-              });
-            } else if (!isFirstWeigh && existing.payment_status === 'Pending') {
-              // If Second Weigh exists but is Pending, update it to Paid
-              return supabase.from("payments").update({
-                payment_status: "Paid",
-                paid_at: new Date().toISOString(),
-                cashier_name: userProfile?.full_name || "Operator",
-                cashier_id: user?.id
-              }).eq("id", existing.id);
+              };
+
+              if (!existing) {
+                const { error: insertError } = await supabase.from("payments").insert(paymentData);
+                if (insertError) throw insertError;
+                return { success: true };
+              } else if (!isFirstWeigh && existing.payment_status === 'Pending') {
+                const { error: updateError } = await supabase.from("payments").update({
+                  payment_status: "Paid",
+                  paid_at: new Date().toISOString(),
+                  cashier_name: userProfile?.full_name || "Operator",
+                  cashier_id: user?.id
+                }).eq("id", existing.id);
+                if (updateError) throw updateError;
+                return { success: true };
+              }
+            } catch (err: any) {
+              console.error("Payment Record Error:", err);
+              // We don't throw here to avoid blocking the weigh record, but we log it
+              return { error: err };
             }
           })());
         }
       }
 
-      const enteredByName = (userProfile?.full_name && userProfile?.full_name !== "User")
-        ? userProfile?.full_name
-        : userProfile?.username || "Unknown";
 
       // EXECUTE ALL IN PARALLEL
 
@@ -991,7 +961,7 @@ Please process payment in Cashier section first.`,
         vehicle_type_name: entry.vehicle_types?.type_name,
         price: isFirstWeigh ? (entry.vehicle_types?.first_weigh_fee || 0) : (entry.vehicle_types?.second_weigh_fee || 0),
         isPrepaid,
-        weighed_by: userProfile?.full_name || userProfile?.username || 'Operator',
+        weighed_by: enteredByName,
         weigh_time: new Date().toISOString(),
         isSecondWeigh: !isFirstWeigh,
         gvm: weighData.gvm || null,
@@ -1086,20 +1056,12 @@ Please process payment in Cashier section first.`,
     const qrSizeMap = { small: 60, medium: 75, large: 90 };
     const qrSize = qrSizeMap[settings.qrCode.size as keyof typeof qrSizeMap] || 75;
 
-    const templateClass = settings.template === 'classic'
-      ? 'border-4 border-primary rounded-lg'
-      : settings.template === 'modern'
-        ? 'border border-border rounded-xl shadow-lg'
-        : 'border-none';
-
-    const fontClass = settings.template === 'minimal' ? 'font-mono' : '';
-
     return (
       <div className="p-6 max-w-4xl mx-auto">
-        <Card className={templateClass}>
+        <Card className="border-none shadow-sm print:shadow-none">
           <CardContent className={`p-8 print:p-2 ${fontClass}`}>
             <div id="print-receipt" className="print:m-0 print:p-0">
-              <div className={`mb-8 print:mb-1 text-${settings.header.logoPosition} relative`}>
+              <div className={`mb-6 print:mb-4 text-${settings.header.logoPosition} relative text-slate-900 border-b-2 border-slate-950 pb-6 print:pb-4`}>
                 {settings.header.showLogo && (
                   <img
                     src={settings.header.useCustomLogo && settings.header.customLogo
@@ -1107,23 +1069,19 @@ Please process payment in Cashier section first.`,
                       : "/images/energy-feeds-logo.jpg"
                     }
                     alt="Energy Feeds"
-                    className={`h-24 mb-4 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
+                    className={`h-20 mb-4 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
                   />
                 )}
-                <h1 className={`${settings.template === 'minimal' ? 'text-2xl' : 'text-3xl'} font-bold text-primary`}>
+                <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">
                   {settings.header.companyName}
                 </h1>
-                <p className="text-sm text-muted-foreground mt-1">{settings.header.subtitle}</p>
-                <p className="text-sm text-muted-foreground">{settings.header.address}</p>
-                {settings.template === 'classic' ? (
-                  <div className="border-b-4 border-primary mt-4 mb-6 print:mt-0.5 print:mb-1"></div>
-                ) : settings.template === 'modern' ? (
-                  <div className="border-b-2 border-border mt-4 mb-6 print:mt-0.5 print:mb-1"></div>
-                ) : (
-                  <div className="border-b border-dotted border-muted-foreground mt-3 mb-4 print:mt-0.5 print:mb-1"></div>
-                )}
-                <h2 className={`${settings.template === 'minimal' ? 'text-lg' : 'text-xl'} font-semibold`}>
-                  WEIGH RECEIPT
+                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">{settings.header.subtitle}</p>
+                <p className="text-xs text-slate-400 font-medium">{settings.header.address}</p>
+                
+                <h2 className="mt-6 text-sm font-black text-slate-900 uppercase tracking-[0.3em] flex items-center justify-center gap-2">
+                  <span className="h-px bg-slate-200 flex-1"></span>
+                  OFFICIAL WEIGH RECEIPT
+                  <span className="h-px bg-slate-200 flex-1"></span>
                 </h2>
 
                 {/* QR Code - Top Right Position */}
@@ -1148,41 +1106,41 @@ Please process payment in Cashier section first.`,
                 )}
               </div>
 
-              <div className="space-y-4 mb-6 print:space-y-0 print:mb-1">
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4 mb-8 print:mb-4 text-slate-900 px-4">
+                <div className="grid grid-cols-2 gap-x-12 gap-y-6">
                   <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Entry ID</p>
-                    <p className="font-bold font-mono text-lg print:text-xl">{printData.wb_number ? getShortEntryId(printData.id, printData.wb_number) : 'N/A'}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Entry ID</p>
+                    <p className="font-bold font-mono text-lg text-slate-900">{printData.wb_number ? getShortEntryId(printData.id, printData.wb_number) : 'N/A'}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Weigh Time</p>
-                    <p className="font-bold print:text-lg">
-                      {format(new Date(printData.weigh_time), "MMM dd, yyyy HH:mm")}
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Weigh Time</p>
+                    <p className="font-bold text-slate-900">
+                      {format(new Date(printData.weigh_time), "dd/MM/yyyy HH:mm:ss")}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Vehicle Number</p>
-                    <p className="font-bold text-xl print:text-2xl">{printData.vehicle_no}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Plate</p>
+                    <p className="font-black text-2xl text-slate-950 tracking-tighter">{printData.vehicle_no}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Type</p>
+                    <p className="font-bold text-slate-900">{printData.vehicle_type_name}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Vehicle Type</p>
-                    <p className="font-bold print:text-lg">{printData.vehicle_type_name}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Category</p>
+                    <p className="font-bold text-slate-700">{printData.category}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Driver</p>
+                    <p className="font-bold text-slate-700">{printData.driver_name}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Category</p>
-                    <p className="font-bold print:text-lg">{printData.category}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Shift Operator</p>
+                    <p className="font-bold text-slate-700">{printData.weighed_by}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Driver</p>
-                    <p className="font-bold print:text-lg">{printData.driver_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Weighed By</p>
-                    <p className="font-bold print:text-lg">{printData.weighed_by}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground print:text-base">Status</p>
-                    <p className="font-bold print:text-lg">
+                  <div className="text-right">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Weigh Status</p>
+                    <p className="font-bold text-slate-900">
                       {printData.isSecondWeigh ? "Second Weigh Complete" : "First Weigh Complete"}
                     </p>
                   </div>
@@ -1222,27 +1180,20 @@ Please process payment in Cashier section first.`,
                 )}
               </div>
 
-              <div
-                className={`py-4 mt-6 print:py-0.5 print:mt-1 ${settings.template === 'classic'
-                  ? 'border-t-4 border-b-4 border-primary'
-                  : settings.template === 'modern'
-                    ? 'border-t-2 border-b-2 border-border'
-                    : 'border-t-2 border-dotted border-muted-foreground'
-                  }`}
-              >
+              <div className="mt-8 border-y border-slate-200 py-8 bg-slate-50/50 rounded-xl print:mt-4 print:py-4">
                 {!printData.isPullingType && (
-                  <div className="space-y-3 print:space-y-0.5">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-lg print:text-base">Gross Weight:</span>
-                      <span className="text-xl font-bold print:text-lg">{printData.gross_weight} kg</span>
+                  <div className="grid grid-cols-3 gap-4 text-center px-4">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross Weight</p>
+                      <p className="text-xl font-bold text-slate-700">{Number(printData.gross_weight).toLocaleString()} <span className="text-xs text-slate-400">KG</span></p>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-lg print:text-xl">Tare Weight:</span>
-                      <span className="text-xl font-bold print:text-2xl">{printData.tare_weight} kg</span>
+                    <div className="space-y-1 border-x border-slate-100">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tare Weight</p>
+                      <p className="text-xl font-bold text-slate-700">{Number(printData.tare_weight).toLocaleString()} <span className="text-xs text-slate-400">KG</span></p>
                     </div>
-                    <div className="flex justify-between items-center text-2xl font-black text-primary print:text-3xl">
-                      <span className="font-bold text-lg print:text-xl">Net Weight:</span>
-                      <span className="text-2xl font-black print:text-3xl">{printData.net_weight} kg</span>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">Net Weight</p>
+                      <p className="text-3xl font-black text-slate-950 underline decoration-slate-200">{Number(printData.net_weight).toLocaleString()} <span className="text-sm">KG</span></p>
                     </div>
                   </div>
                 )}
@@ -1343,23 +1294,16 @@ Please process payment in Cashier section first.`,
               </div>
 
               {!printData.isSecondWeigh && (
-                <div
-                  className={`pt-4 mt-6 print:pt-0.5 print:mt-1 ${settings.template === 'classic'
-                    ? 'border-t-2 border-primary'
-                    : settings.template === 'modern'
-                      ? 'border-t border-border'
-                      : 'border-t border-dotted border-muted-foreground'
-                    }`}
-                >
-                  <div className="flex justify-between items-center text-lg">
-                    <span className="font-semibold">First Weigh Fee:</span>
+                <div className="pt-6 mt-6 border-t border-slate-100 print:pt-4 print:mt-4">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">First Weigh Fee:</span>
                     {printData.isPrepaid ? (
-                      <span className="font-bold text-success">
+                      <span className="font-black text-emerald-600 uppercase tracking-tight">
                         Pre-paid (Penalty)
                       </span>
                     ) : (
-                      <span className="font-bold text-primary">
-                        TShs {(printData.price || 0).toLocaleString()}.00
+                      <span className="text-2xl font-black text-slate-900">
+                        <span className="text-xs mr-1">TZS</span>{(printData.price || 0).toLocaleString()}
                       </span>
                     )}
                   </div>
@@ -1380,28 +1324,22 @@ Please process payment in Cashier section first.`,
                 </div>
               )}
 
-              <div
-                className={`text-center text-sm text-muted-foreground pt-4 mt-6 print:pt-0.5 print:mt-1 ${settings.template === 'classic'
-                  ? 'border-t-2 border-primary'
-                  : settings.template === 'modern'
-                    ? 'border-t border-border'
-                    : 'border-t border-dotted border-muted-foreground'
-                  }`}
-              >
+              <div className="text-center text-[10px] text-slate-400 mt-12 print:mt-8 uppercase tracking-[0.3em] font-bold border-t border-slate-100 pt-8">
                 {printData.isSecondWeigh ? (
                   <>
-                    <p className="font-semibold text-base text-primary">Final Receipt - Weighing Complete</p>
-                    <p className="mt-2">{settings.footer.text}</p>
+                    <p className="font-black text-slate-900 tracking-[0.2em] mb-2">Final Receipt - Weighing Complete</p>
+                    <p className="text-slate-500">{settings.footer.text}</p>
                   </>
                 ) : (
                   <>
-                    <p>Please keep this receipt for second weighing</p>
-                    <p className="mt-2">{settings.footer.text}</p>
+                    <p className="font-black text-slate-900 tracking-[0.2em] mb-2">Partial Receipt - Keep for Pass #2</p>
+                    <p className="text-slate-500">{settings.footer.text}</p>
                   </>
                 )}
                 {settings.footer.showGeneratedTime && (
-                  <p className="text-xs mt-2">Generated: {new Date().toLocaleString()}</p>
+                  <p className="mt-2">Generated: {new Date().toLocaleString()}</p>
                 )}
+                <p className="mt-1">Document Validated Digitally</p>
               </div>
 
               {/* QR Code - Bottom Position (after all content) */}
@@ -1483,18 +1421,6 @@ Please process payment in Cashier section first.`,
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-900/5 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 dark:bg-slate-900/50">
-            <Label htmlFor="emergency-mode" className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-              Mkombozi (Plan B)
-            </Label>
-            <Switch
-              id="emergency-mode"
-              checked={emergencyMode}
-              disabled={isUpdatingSettings}
-              onCheckedChange={handleToggleEmergencyMode}
-            />
-          </div>
-
           {isOffline ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400 text-xs font-bold border border-red-200 dark:border-red-900">
               <WifiOff className="h-3.5 w-3.5" /> OFFLINE MODE
@@ -1517,22 +1443,7 @@ Please process payment in Cashier section first.`,
         </div>
       </div>
 
-      {emergencyMode && (
-        <div className="bg-red-500/10 border-y border-red-500/20 py-1.5 flex justify-center items-center gap-3 overflow-hidden animate-in fade-in duration-500">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-            </span>
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-red-500">
-              Hali ya Dharura - Mkombozi Active
-            </span>
-          </div>
-          <span className="text-[9px] font-medium text-red-500/60 hidden sm:inline">
-            Accessing Server via Public IP | Hardware via MacBook Localhost
-          </span>
-        </div>
-      )}
+
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN: Main Weghing Actions (8 cols on lg) */}
@@ -1610,7 +1521,6 @@ Please process payment in Cashier section first.`,
                             disabled={isSubmitting}
                             vehicleNo={entry.vehicle_no}
                             entryId={id}
-                            emergencyMode={emergencyMode}
                           />
                         </div>
                       </div>
@@ -1765,7 +1675,6 @@ Please process payment in Cashier section first.`,
                         toast({ title: "Photo captured!", description: "The image has been saved to the server." });
                       }}
                       disabled={isSubmitting}
-                      emergencyMode={emergencyMode}
                     />
                     {requireImageCapture && !capturedPhotoUrl && (
                       <div className="mt-4 flex justify-center">

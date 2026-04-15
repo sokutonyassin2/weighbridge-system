@@ -332,18 +332,12 @@ const ReceiptPreview = ({ data }: { data: any }) => {
     const qrSizeMap: any = { small: 60, medium: 75, large: 90 };
     const qrSize = qrSizeMap[settings.qrCode.size] || 75;
 
-    const templateClass = settings.template === 'classic'
-        ? 'border-4 border-primary rounded-lg'
-        : settings.template === 'modern'
-            ? 'border border-border rounded-xl shadow-lg'
-            : 'border-none';
-
     return (
         <div className="p-6 max-w-4xl mx-auto">
-            <Card className={templateClass}>
+            <Card className="border-none shadow-sm print:shadow-none">
                 <CardContent className="p-8 print:p-2">
                     <div id="print-receipt" className="print:m-0 print:p-0">
-                        <div className={`mb-8 print:mb-1 text-${settings.header.logoPosition} relative text-black`}>
+                        <div className={`mb-6 print:mb-4 text-${settings.header.logoPosition} relative text-slate-900 border-b-2 border-slate-900 pb-6 print:pb-4`}>
                             {settings.header.showLogo && (
                                 <img
                                     src={settings.header.useCustomLogo && settings.header.customLogo
@@ -351,19 +345,19 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                         : "/images/energy-feeds-logo.jpg"
                                     }
                                     alt="Logo"
-                                    className={`h-24 mb-4 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
+                                    className={`h-20 mb-4 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
                                 />
                             )}
-                            <h1 className="text-3xl font-bold text-black uppercase">
+                            <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">
                                 {settings.header.companyName}
                             </h1>
-                            <p className="text-sm text-gray-600 mt-1">{settings.header.subtitle}</p>
-                            <p className="text-sm text-gray-600 font-bold">{settings.header.address}</p>
+                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">{settings.header.subtitle}</p>
+                            <p className="text-xs text-slate-400 font-medium">{settings.header.address}</p>
 
-                            <div className="border-b-4 border-black mt-4 mb-6 print:mt-1 print:mb-2"></div>
-
-                            <h2 className="text-xl font-semibold text-center mb-6 print:mb-2 uppercase tracking-wide">
+                            <h2 className="mt-6 text-sm font-black text-slate-900 uppercase tracking-[0.3em] flex items-center justify-center gap-2">
+                                <span className="h-px bg-slate-200 flex-1"></span>
                                 OFFICIAL WEIGH RECEIPT
+                                <span className="h-px bg-slate-200 flex-1"></span>
                             </h2>
 
                             {/* QR Code - Top Right Position */}
@@ -381,45 +375,45 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                             )}
                         </div>
 
-                        <div className="space-y-4 mb-8 print:space-y-0.5 print:mb-2 text-black">
-                            <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-4 mb-8 print:mb-4 text-slate-900 px-4">
+                            <div className="grid grid-cols-2 gap-x-12 gap-y-6">
                                 <div>
-                                    <p className="text-sm text-gray-500 uppercase tracking-wider">Entry ID</p>
-                                    <p className="font-bold font-mono text-xl">{getShortEntryId(data.id, data.wb_number)}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Entry ID</p>
+                                    <p className="font-bold font-mono text-lg text-slate-900">{getShortEntryId(data.id, data.wb_number)}</p>
                                 </div>
-                                <div>
-                                    <p className="text-sm text-gray-500 uppercase tracking-wider">Date</p>
-                                    <p className="font-bold text-lg">
-                                        {format(new Date(data.weigh_time), "dd/MM/yyyy HH:mm")}
+                                <div className="text-right">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Date & Time</p>
+                                    <p className="font-bold text-slate-900">
+                                        {format(new Date(data.weigh_time), "dd/MM/yyyy HH:mm:ss")}
                                     </p>
                                 </div>
                                 <div>
-                                    <p className="text-sm text-gray-500 uppercase tracking-wider">Vehicle No</p>
-                                    <p className="font-bold text-2xl">{data.vehicle_no}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Plate</p>
+                                    <p className="font-black text-2xl text-slate-950 tracking-tighter">{data.vehicle_no}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Product Details</p>
+                                    <p className="font-bold text-slate-900">{data.vehicle_types?.type_name || data.category}</p>
                                 </div>
                                 <div>
-                                    <p className="text-sm text-gray-500 uppercase tracking-wider">Product</p>
-                                    <p className="font-bold text-lg">{data.vehicle_types?.type_name || data.category}</p>
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-500 uppercase tracking-wider">Weighed By</p>
-                                    <p className="font-bold text-lg">{data.weighed_by}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Shift Operator</p>
+                                    <p className="font-bold text-slate-700">{data.weighed_by}</p>
                                 </div>
                             </div>
 
-                            <div className="mt-8 border-t border-b border-gray-200 py-6 print:mt-2 print:py-1">
+                            <div className="mt-8 border-y border-slate-200 py-8 bg-slate-50/50 rounded-xl print:mt-4 print:py-4">
                                 <div className="grid grid-cols-3 gap-4 text-center">
-                                    <div>
-                                        <p className="text-xs text-gray-500 uppercase">Gross Weight</p>
-                                        <p className="text-xl font-semibold">{Number(data.gross_weight).toLocaleString()} kg</p>
+                                    <div className="space-y-1">
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross Weight</p>
+                                        <p className="text-xl font-bold text-slate-700">{Number(data.gross_weight).toLocaleString()} <span className="text-xs text-slate-400">KG</span></p>
                                     </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500 uppercase">Tare Weight</p>
-                                        <p className="text-xl font-semibold">{Number(data.tare_weight).toLocaleString()} kg</p>
+                                    <div className="space-y-1 border-x border-slate-100">
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tare Weight</p>
+                                        <p className="text-xl font-bold text-slate-700">{Number(data.tare_weight).toLocaleString()} <span className="text-xs text-slate-400">KG</span></p>
                                     </div>
-                                    <div>
-                                        <p className="text-xs text-gray-500 uppercase">Net Weight</p>
-                                        <p className="text-2xl font-bold">{Number(data.net_weight).toLocaleString()} kg</p>
+                                    <div className="space-y-1">
+                                        <p className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">Net Payload</p>
+                                        <p className="text-3xl font-black text-slate-950 underline decoration-slate-200">{Number(data.net_weight).toLocaleString()} <span className="text-sm">KG</span></p>
                                     </div>
                                 </div>
                             </div>
@@ -477,9 +471,9 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                 </div>
                             )}
                             {data.pulling_gvm && !data.isPulling && (
-                                <div className="flex justify-between items-center text-sm bg-blue-50/50 dark:bg-blue-900/10 p-2 rounded border border-blue-100 dark:border-blue-800">
-                                    <span className="text-gray-900 font-bold">Pulling GVM (Gross + GTM):</span>
-                                    <span className="font-black text-blue-700 dark:text-blue-400 text-xl">{Number(data.pulling_gvm).toLocaleString()} kg</span>
+                                <div className="flex justify-between items-center text-sm bg-slate-50 p-4 rounded-xl border border-slate-200 mt-4">
+                                    <span className="text-slate-400 font-bold uppercase tracking-widest">Pulling GVM (Gross + GTM):</span>
+                                    <span className="font-black text-slate-900 text-xl">{Number(data.pulling_gvm).toLocaleString()} <span className="text-xs">KG</span></span>
                                 </div>
                             )}
                             {data.payload && (
@@ -491,9 +485,10 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                         </div>
                     </div>
 
-                    <div className="text-center text-sm text-gray-500 mt-12 print:mt-2">
-                        <p>{settings.footer.text}</p>
-                        <p className="text-xs mt-2">Reprinted on: {new Date().toLocaleString()}</p>
+                    <div className="text-center text-[10px] text-slate-400 mt-12 print:mt-8 uppercase tracking-[0.3em] font-bold">
+                        <p className="text-slate-600 mb-2">{settings.footer.text}</p>
+                        <p>Document Validated & Signed Digitally</p>
+                        <p className="mt-1">Reprinted: {new Date().toLocaleString()}</p>
                     </div>
                 </CardContent>
             </Card>

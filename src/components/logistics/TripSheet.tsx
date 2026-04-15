@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,9 @@ import {
     User,
     Package,
     FileText,
+    Building2,
+    Calendar,
+    Route,
     TrendingDown,
     MapPin,
     Navigation,
@@ -30,8 +33,18 @@ import {
     Fuel,
     Calculator as TotalIcon,
     ShieldCheck,
-    Zap
+    Zap,
+    Download,
+    Search,
+    Check,
+    ChevronsUpDown,
+    CreditCard
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 interface TripSheetProps {
     tripId?: string;
@@ -45,6 +58,8 @@ interface ExpenseItem {
     amount: string;
     category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed';
     currency: 'USD' | 'TZS';
+    nature: string;
+    is_extra?: boolean;
 }
 
 export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetProps) => {
@@ -66,143 +81,247 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         activated_at?: string;
     }>({});
 
-    const [convoyInfo, setConvoyInfo] = useState<{ id?: string; name?: string }>({});
-
     const [activeCountries, setActiveCountries] = useState<string[]>(['TZ']);
 
-    const isLocked = !isSuperAdmin && (currentStatus === 'Approved' || currentStatus === 'Active' || currentStatus === 'Completed');
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+    const isLocked = !isAdmin && (currentStatus === 'Approved' || currentStatus === 'Active' || currentStatus === 'Completed');
 
     // Trip Planning State (For New Sheets)
     const [tripData, setTripData] = useState({
+        trip_number: "",
         vehicle_id: "",
         trailer_id: "",
         driver_id: "",
+        license_no: "",
+        passport_no: "",
         origin: "Headquarters",
         destination: "",
+        client_name: "", // Mandatory for grouping
         journey_type: "Go & Return",
         cargo_outbound: "",
         notes: "",
         agreed_days: "",
-        daily_fine_amount: ""
+        daily_fine_amount: "",
+        invoice_no: "",
+        invoice_date: "",
+        payment_status: "Pending" as "Pending" | "Paid" | "Partial" | "Overdue"
     });
 
     // Summary State
     const [revenueData, setRevenueData] = useState({
         revenue_type: 'Without Fuel' as 'With Fuel' | 'Without Fuel',
         revenue_amount: '',
-        revenue_currency: 'USD' as 'USD' | 'TZS',
-        exchange_rate: '2700',
+        revenue_currency: 'TZS' as 'USD' | 'TZS',
         fuel_liters: '',
         fuel_price: '',
         fuel_amount: '0' // Total fuel cost in USD (calculated)
     });
 
+    const [countryRates, setCountryRates] = useState<Record<string, number>>({
+        "TZ": 2700,
+        "Zambia": 25.5,
+        "DRC": 1.0,
+        "Rwanda": 1250,
+        "Burundi": 2850
+    });
+
     // Expenses State
     const [expenses, setExpenses] = useState<ExpenseItem[]>([
-        { item_name: "Driver Allowance", amount: "", category: "TZ", currency: "USD" }
+        { item_name: "Driver Allowance", amount: "", category: "TZ", currency: "USD", nature: "Go & Return", is_extra: false }
     ]);
+
+    // 💾 Auto-save to LocalStorage
+    useEffect(() => {
+        if (tripId) {
+            const draft = {
+                expenses,
+                countryRates,
+                revenueData
+            };
+            localStorage.setItem(`trip_draft_${tripId}`, JSON.stringify(draft));
+        }
+    }, [expenses, countryRates, revenueData, tripId]);
+
+    // 🔄 Load Draft on Mount
+    useEffect(() => {
+        if (tripId) {
+            const savedDraft = localStorage.getItem(`trip_draft_${tripId}`);
+            if (savedDraft && expenses.length === 0) {
+                try {
+                    const draft = JSON.parse(savedDraft);
+                    setExpenses(draft.expenses || []);
+                    setCountryRates(draft.countryRates || {});
+                    if (draft.revenueData) setRevenueData(draft.revenueData);
+                } catch (e) {
+                    console.error("Failed to load draft", e);
+                }
+            }
+        }
+    }, [tripId]);
+
+    // ⚠️ Prevent accidental closing
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+            e.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, []);
+
+    const [fleet, setFleet] = useState<any[]>([]);
+    const [drivers, setDrivers] = useState<any[]>([]);
+    const [couplings, setCouplings] = useState<any[]>([]);
+
+    const [trailerPlate, setTrailerPlate] = useState<string>("");
+    const lastResolvedId = useRef<string | null>(null);
+
+    // 🔗 Trailer Plate Resolver (Stabilized)
+    useEffect(() => {
+        if (!tripData.trailer_id || tripData.trailer_id === 'none') {
+            setTrailerPlate("");
+            lastResolvedId.current = null;
+            return;
+        }
+
+        // Avoid clearing if we've already resolved this ID to prevent "flicker"
+        if (lastResolvedId.current === tripData.trailer_id && trailerPlate) {
+            return;
+        }
+
+        const found = fleet.find(f => String(f.id).toLowerCase().trim() === String(tripData.trailer_id).toLowerCase().trim());
+        if (found) {
+            setTrailerPlate(found.vehicle_no || found.trailer_number);
+            lastResolvedId.current = tripData.trailer_id;
+        } else {
+            const resolveTrailer = async () => {
+                try {
+                    const { data } = await supabase
+                        .from('logistics_fleet' as any)
+                        .select('vehicle_no, trailer_number')
+                        .eq('id', tripData.trailer_id)
+                        .single();
+                    
+                    if (data) {
+                        const plate = data.vehicle_no || data.trailer_number;
+                        setTrailerPlate(plate);
+                        lastResolvedId.current = tripData.trailer_id;
+                        // Silently update cache without triggering recursive refetch
+                        setFleet(prev => prev.some(f => f.id === tripData.trailer_id) ? prev : [...prev, { id: tripData.trailer_id, vehicle_no: plate }]);
+                    } else {
+                        setTrailerPlate(tripData.trailer_id); // Show ID if name fetch fails
+                    }
+                } catch (err) {
+                    console.error("Trailer resolution failed", err);
+                }
+            };
+            resolveTrailer();
+        }
+    }, [tripData.trailer_id]); // Only re-run when the selected trailer ID changes
 
     // Financial Totals
     const [totals, setTotals] = useState({
         totalExpensesTZS: 0,
         totalExpensesUSD: 0,
         netProfitUSD: 0,
-        categoryTotals: {} as Record<string, { usd: number, tzs: number }>
+        extraExpensesTZS: 0,
+        extraExpensesUSD: 0,
+        finalNetProfitUSD: 0,
+        categoryTotals: {} as Record<string, { usd: number, tzs: number }>,
+        extraCategoryTotals: {} as Record<string, { usd: number, tzs: number }>
     });
 
-    // Data fetching states
-    const [fleet, setFleet] = useState<any[]>([]);
-    const [drivers, setDrivers] = useState<any[]>([]);
+    // 👤 Driver Credentials Auto-fill
+    useEffect(() => {
+        if (tripData.driver_id) {
+            const driver = drivers.find(d => d.id === tripData.driver_id);
+            if (driver) {
+                setTripData(prev => ({
+                    ...prev,
+                    license_no: driver.license_no || "",
+                    passport_no: driver.id_number || ""
+                }));
+            }
+        }
+    }, [tripData.driver_id, drivers]);
 
     // Fetch existing data
     useEffect(() => {
         const loadInitialData = async () => {
             try {
-                // Fetch Assets for selection (Transit Only)
-                const { data: fleetData } = await supabase
-                    .from('logistics_fleet' as any)
-                    .select('*')
-                    .eq('fleet_category', 'Transit')
-                    .eq('is_active', true);
+                setIsLoading(true);
 
-                const { data: driverData } = await supabase
-                    .from('logistics_drivers' as any)
-                    .select('id, full_name, license_expiry, classification')
-                    .eq('classification', 'Transit')
-                    .eq('is_active', true);
+                // 1. Parallel Fetch EVERYTHING (Meta + Trip Details + Expenses)
+                // Using Promise.all minimizes network latency and column selection reduces payload
+                const [fleetRes, couplingRes, driverRes, categoryRes, sheetRes, expenseRes] = await Promise.all([
+                    supabase.from('logistics_fleet' as any).select('id, vehicle_no, asset_type, fleet_category, assignment_status, make_model, trailer_number'),
+                    supabase.from('logistics_couplings' as any).select('id, horse_id, trailer_id, is_active').eq('is_active', true),
+                    supabase.from('logistics_drivers' as any).select('id, full_name, license_expiry, classification, license_no, id_number, is_active').eq('is_active', true).order('full_name'),
+                    supabase.from('logistics_expense_categories' as any).select('id, name').order('name'),
+                    tripId ? supabase.from('logistics_trip_sheets' as any).select('*').eq('id', tripId).single() : Promise.resolve({ data: null, error: null }),
+                    tripId ? supabase.from('logistics_trip_expenses' as any).select('*').eq('trip_sheet_id', tripId) : Promise.resolve({ data: [], error: null })
+                ]);
 
-                if (fleetData) setFleet(fleetData);
+                if (fleetRes.data) setFleet(fleetRes.data);
+                if (couplingRes.data) setCouplings(couplingRes.data);
 
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
 
-                const filterExpired = (list: any[]) =>
-                    list.filter(d => !d.license_expiry || new Date(d.license_expiry) >= today);
-
-                if (driverData && driverData.length > 0) {
-                    setDrivers(filterExpired(driverData));
-                } else {
-                    // Fallback: Fetch all active drivers if no Transit classified drivers exist yet
-                    const { data: allDrivers } = await supabase
-                        .from('logistics_drivers' as any)
-                        .select('id, full_name, license_expiry')
-                        .eq('is_active', true);
-                    if (allDrivers) setDrivers(filterExpired(allDrivers));
+                // Priority: Transit drivers first, then others if list is empty
+                let currentDrivers = (driverRes.data || []).filter(d => d.classification === 'Transit');
+                if (currentDrivers.length === 0) {
+                    currentDrivers = (driverRes.data || []);
                 }
+                
+                const filterExpired = (list: any[]) => list.filter(d => !d.license_expiry || new Date(d.license_expiry) >= today);
+                setDrivers(filterExpired(currentDrivers));
 
                 if (!tripId) {
                     setIsLoading(false);
                     return;
                 }
 
-                // Fetch Trip Details
-                const { data: tripDoc } = await supabase
-                    .from('logistics_trips' as any)
-                    .select('*')
-                if (!tripId) {
-                    setIsLoading(false);
-                    return;
-                }
+                if (sheetRes.error) throw sheetRes.error;
+                const doc = sheetRes.data as any;
 
-                // Fetch Standalone Trip Sheet Details
-                const { data: sheetData, error: fetchError } = await supabase
-                    .from('logistics_trip_sheets' as any)
-                    .select('*')
-                    .eq('id', tripId)
-                    .single();
-
-                if (fetchError) throw fetchError;
-
-                if (sheetData) {
-                    const doc = sheetData as any;
+                if (doc) {
                     setCurrentStatus(doc.status || 'Planned');
                     setTripData({
+                        trip_number: doc.reference_number || "",
                         vehicle_id: doc.vehicle_id || "",
                         trailer_id: doc.trailer_id || "",
                         driver_id: doc.driver_id || "",
+                        license_no: doc.license_no || "",
+                        passport_no: doc.passport_no || "",
                         origin: doc.origin,
                         destination: doc.destination,
-                        journey_type: doc.journey_type || "Go & Return",
+                        client_name: doc.client_name || "",
+                        journey_type: doc.journey_type || "Go & Return (Full Cycle)",
                         cargo_outbound: doc.cargo_outbound,
                         notes: doc.notes || "",
                         agreed_days: (doc.agreed_days || '').toString(),
-                        daily_fine_amount: (doc.daily_fine_amount || '').toString()
-                    });
-
-                    setConvoyInfo({
-                        id: doc.convoy_id,
-                        name: doc.convoy_name
+                        daily_fine_amount: (doc.daily_fine_amount || '').toString(),
+                        invoice_no: doc.invoice_no || "",
+                        invoice_date: doc.invoice_date || "",
+                        payment_status: doc.payment_status || "Pending"
                     });
 
                     setRevenueData({
                         revenue_type: doc.revenue_type || 'Without Fuel',
                         revenue_amount: (doc.revenue_amount || 0).toString(),
                         revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
-                        exchange_rate: (doc.exchange_rate || 2700).toString(),
                         fuel_liters: (doc.fuel_liters || '').toString(),
                         fuel_price: (doc.fuel_price || '').toString(),
                         fuel_amount: (doc.fuel_amount || 0).toString()
                     });
+
+                    if (doc.country_rates) {
+                        setCountryRates(doc.country_rates);
+                    } else if (doc.exchange_rate) {
+                        setCountryRates(prev => ({ ...prev, "TZ": doc.exchange_rate }));
+                    }
+
                     setAuditTrail({
                         created_by_name: doc.created_by_name,
                         created_at: doc.created_at,
@@ -212,33 +331,30 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         activated_at: doc.activated_at,
                     });
 
-                    // Load persistent layout if available
                     if (doc.active_countries && Array.isArray(doc.active_countries)) {
                         setActiveCountries(doc.active_countries);
                     }
-                }
 
-                // Fetch Expenses
-                const { data: expenseData } = await supabase
-                    .from('logistics_trip_expenses' as any)
-                    .select('*')
-                    .eq('trip_sheet_id', tripId);
+                    // Handle Expenses
+                    const expenseData = expenseRes.data;
+                    if (expenseData && expenseData.length > 0) {
+                        const rate = parseFloat(doc.exchange_rate) || 2700;
+                        const docExpenses = (expenseData as any[]).map(e => ({
+                            id: e.id,
+                            item_name: e.item_name,
+                            amount: e.currency === 'USD' ? (parseFloat(e.amount) * rate).toString() : e.amount.toString(),
+                            category: e.category,
+                            currency: 'TZS',
+                            nature: e.nature || e.category,
+                            is_extra: e.is_extra || false
+                        })) as ExpenseItem[];
 
-                if (expenseData && expenseData.length > 0) {
-                    const docExpenses = (expenseData as any[]).map(e => ({
-                        id: e.id,
-                        item_name: e.item_name,
-                        amount: e.amount.toString(),
-                        category: e.category,
-                        currency: e.currency
-                    })) as ExpenseItem[];
+                        setExpenses(docExpenses);
 
-                    setExpenses(docExpenses);
-
-                    // Auto-enable countries that have expenses
-                    const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
-                    if (countriesWithData.length > 0) {
-                        setActiveCountries(countriesWithData as string[]);
+                        const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
+                        if (countriesWithData.length > 0) {
+                            setActiveCountries(countriesWithData as string[]);
+                        }
                     }
                 }
             } catch (error: any) {
@@ -273,12 +389,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     .eq('trip_sheet_id', doc.id);
 
                 if (expenseData && expenseData.length > 0) {
-                    const docExpenses = (expenseData as any[]).map(e => ({
-                        item_name: e.item_name || e.description || "",
-                        amount: e.amount.toString(),
-                        category: normalizeCategory(e.category), // APPLY NORMALIZATION
-                        currency: e.currency
-                    })) as ExpenseItem[];
+                    const docExpenses = (expenseData as any[]).map(e => {
+                        const rate = parseFloat(doc.exchange_rate) || 2700;
+                        const isUSD = e.currency === 'USD';
+                        return {
+                            item_name: e.item_name || e.description || "",
+                            amount: isUSD ? (parseFloat(e.amount) * rate).toString() : e.amount.toString(),
+                            category: normalizeCategory(e.category),
+                            currency: 'TZS'
+                        };
+                    }) as ExpenseItem[];
 
                     setExpenses(docExpenses);
 
@@ -294,26 +414,38 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         };
 
         setTripData({
+            trip_number: doc.reference_number || "",
             vehicle_id: "", // Must be re-assigned for new trip
             trailer_id: doc.trailer_id || "", // PRESERVE TRAILER
             driver_id: "",  // Must be re-assigned for new trip
+            license_no: "",
+            passport_no: "",
             origin: doc.origin || "Headquarters",
             destination: doc.destination || "",
+            client_name: doc.client_name || "",
             journey_type: doc.journey_type || "Go & Return",
             cargo_outbound: doc.cargo_outbound || "",
             notes: doc.notes || "",
             agreed_days: (doc.agreed_days || '').toString(),
-            daily_fine_amount: (doc.daily_fine_amount || '').toString()
+            daily_fine_amount: (doc.daily_fine_amount || '').toString(),
+            invoice_no: doc.invoice_no || "",
+            invoice_date: doc.invoice_date || "",
+            payment_status: doc.payment_status || "Pending"
         });
         setRevenueData({
             revenue_type: doc.revenue_type || 'Without Fuel',
             revenue_amount: (doc.revenue_amount || 0).toString(),
             revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
-            exchange_rate: (doc.exchange_rate || 2700).toString(),
             fuel_liters: (doc.fuel_liters || '').toString(),
             fuel_price: (doc.fuel_price || '').toString(),
             fuel_amount: (doc.fuel_amount || 0).toString()
         });
+
+        if (doc.country_rates) {
+            setCountryRates(doc.country_rates);
+        } else if (doc.exchange_rate) {
+            setCountryRates(prev => ({ ...prev, "TZ": doc.exchange_rate }));
+        }
 
         // Ensure and set active countries (Regional Scope) from copied data
         if (doc.active_countries && Array.isArray(doc.active_countries)) {
@@ -357,19 +489,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         }
     }, [tripId]);
 
-    // Migration: Force any 'TZ' or 'Fixed' category to USD if it's currently TZS (for existing drafts)
-    useEffect(() => {
-        const hasTZS = expenses.some(e => (e.category === 'TZ' || e.category === 'Fixed') && e.currency === 'TZS');
-        if (hasTZS) {
-            setExpenses(prev => prev.map(e =>
-                ((e.category === 'TZ' || e.category === 'Fixed') && e.currency === 'TZS') ? { ...e, currency: 'USD' } : e
-            ));
-        }
-    }, [expenses]);
+    // --------------------------------------------------------------------------------
 
     // Calculate Totals
     useEffect(() => {
-        const rate = parseFloat(revenueData.exchange_rate) || 2700;
+        const rate = countryRates["TZ"] || 2700;
 
         // Fuel Calculation: Liters * Price = Total TZS -> / Rate = Total USD
         const liters = parseFloat(revenueData.fuel_liters) || 0;
@@ -377,20 +501,31 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const fuelTotalTZS = liters * pricePerLiter;
         const fuelTotalUSD = fuelTotalTZS / rate;
 
-        // Group Expenses & Subtotals
-        const catTotals = expenses.reduce((acc, curr) => {
-            const amt = parseFloat(curr.amount) || 0;
-            const inUSD = curr.currency === 'USD' ? amt : amt / rate;
-            const inTZS = curr.currency === 'TZS' ? amt : amt * rate;
+        // Split budgeted vs extra expenses
+        const budgetedExpenses = expenses.filter(e => !e.is_extra);
+        const extraExpensesArr = expenses.filter(e => e.is_extra);
 
-            acc[curr.category] = {
-                usd: (acc[curr.category]?.usd || 0) + inUSD,
-                tzs: (acc[curr.category]?.tzs || 0) + inTZS
-            };
-            return acc;
-        }, {} as Record<string, { usd: number, tzs: number }>);
+        const buildCategoryTotals = (list: ExpenseItem[]) =>
+            list.reduce((acc, curr) => {
+                const amt = parseFloat(curr.amount) || 0;
+                const inUSD = curr.currency === 'USD' ? amt : amt / rate;
+                const inTZS = curr.currency === 'TZS' ? amt : amt * rate;
+                acc[curr.category] = {
+                    usd: (acc[curr.category]?.usd || 0) + inUSD,
+                    tzs: (acc[curr.category]?.tzs || 0) + inTZS
+                };
+                return acc;
+            }, {} as Record<string, { usd: number, tzs: number }>);
 
-        const totalOperationalUSD = expenses.reduce((sum, item) => {
+        const catTotals = buildCategoryTotals(budgetedExpenses);
+        const extraCatTotals = buildCategoryTotals(extraExpensesArr);
+
+        const totalOperationalUSD = budgetedExpenses.reduce((sum, item) => {
+            const amt = parseFloat(item.amount) || 0;
+            return sum + (item.currency === 'USD' ? amt : amt / rate);
+        }, 0);
+
+        const totalExtraUSD = extraExpensesArr.reduce((sum, item) => {
             const amt = parseFloat(item.amount) || 0;
             return sum + (item.currency === 'USD' ? amt : amt / rate);
         }, 0);
@@ -402,23 +537,48 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         // Final Logic: Profit = Revenue - Operational - (isWithFuel ? Fuel : 0)
         const activeFuelUSD = revenueData.revenue_type === 'With Fuel' ? fuelTotalUSD : 0;
-        const totalExpensesUSD = totalOperationalUSD + activeFuelUSD;
+        const totalBudgetedExpensesUSD = totalOperationalUSD + activeFuelUSD;
+        const expectedNetProfitUSD = revenueInUSD - totalBudgetedExpensesUSD;
 
         setTotals({
-            totalExpensesTZS: totalExpensesUSD * rate,
-            totalExpensesUSD: totalExpensesUSD,
-            netProfitUSD: revenueInUSD - totalExpensesUSD,
-            categoryTotals: catTotals // Store for UI display
+            totalExpensesTZS: totalBudgetedExpensesUSD * rate,
+            totalExpensesUSD: totalBudgetedExpensesUSD,
+            netProfitUSD: expectedNetProfitUSD,
+            extraExpensesTZS: totalExtraUSD * rate,
+            extraExpensesUSD: totalExtraUSD,
+            finalNetProfitUSD: expectedNetProfitUSD - totalExtraUSD,
+            categoryTotals: catTotals,
+            extraCategoryTotals: extraCatTotals
         });
-    }, [expenses, revenueData]);
+    }, [expenses, revenueData, countryRates]);
 
     const addExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
         setExpenses([...expenses, {
             item_name: "",
             amount: "",
             category,
-            currency: 'USD' // Default all to USD now as requested
+            currency: 'TZS',
+            nature: "Go & Return",
+            is_extra: false
         }]);
+    };
+
+    const addExtraExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
+        setExpenses([...expenses, {
+            item_name: "",
+            amount: "",
+            category,
+            currency: 'TZS',
+            nature: "Unbudgeted",
+            is_extra: true
+        }]);
+    };
+
+    const formatWithCommas = (val: string | number) => {
+        if (val === undefined || val === null || val === '') return '';
+        const num = val.toString().replace(/,/g, '');
+        if (isNaN(Number(num))) return val.toString();
+        return Number(num).toLocaleString();
     };
 
     const removeExpense = (index: number) => {
@@ -427,9 +587,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         setExpenses(newExpenses);
     };
 
-    const updateExpense = (index: number, field: keyof ExpenseItem, value: string) => {
+    const updateExpense = (index: number, field: string, value: any) => {
         const newExpenses = [...expenses];
-        newExpenses[index] = { ...newExpenses[index], [field]: value };
+        let finalValue = value;
+        
+        if (field === 'amount' && typeof value === 'string') {
+            // Remove commas before parsing
+            const cleanVal = value.replace(/,/g, '');
+            const numValue = parseFloat(cleanVal);
+            if (!isNaN(numValue)) {
+                finalValue = Math.round(numValue).toString();
+            } else {
+                finalValue = cleanVal;
+            }
+        }
+        
+        newExpenses[index] = { ...newExpenses[index], [field]: finalValue };
         setExpenses(newExpenses);
     };
 
@@ -446,6 +619,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 driver_id: tripData.driver_id || null,
                 origin: tripData.origin,
                 destination: tripData.destination,
+                client_name: tripData.client_name,
                 journey_type: tripData.journey_type,
                 cargo_outbound: tripData.cargo_outbound,
                 notes: tripData.notes,
@@ -454,7 +628,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 revenue_type: revenueData.revenue_type,
                 revenue_amount: parseFloat(revenueData.revenue_amount) || 0,
                 revenue_currency: revenueData.revenue_currency,
-                exchange_rate: parseFloat(revenueData.exchange_rate) || 2700,
+                exchange_rate: countryRates["TZ"] || 2700, // Sync legacy field for compatibility
+                country_rates: countryRates, // New professional JSONB field
                 fuel_liters: parseFloat(revenueData.fuel_liters) || 0,
                 fuel_price: parseFloat(revenueData.fuel_price) || 0,
                 fuel_amount: parseFloat(revenueData.fuel_amount) || 0, // Calculated USD value
@@ -462,7 +637,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 total_expenses_usd: totals.totalExpensesUSD,
                 net_profit_usd: totals.netProfitUSD,
                 status: currentStatus,
+                reference_number: tripData.trip_number, // Auto-generated Trip ID
+                license_no: tripData.license_no,
+                passport_no: tripData.passport_no,
                 active_countries: activeCountries, // PERSIST LAYOUT
+                invoice_no: tripData.invoice_no,
+                invoice_date: tripData.invoice_date || null,
+                payment_status: tripData.payment_status,
                 updated_at: new Date().toISOString()
             } as any;
 
@@ -503,24 +684,24 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             if (deleteError) throw deleteError;
 
             if (expenses.length > 0) {
-                const { error: expenseError } = await supabase
+                const { error: expensesError } = await supabase
                     .from('logistics_trip_expenses' as any)
                     .insert(expenses.map(e => ({
                         trip_sheet_id: activeSheetId,
                         category: e.category,
-                        nature: e.category, // Sync both for compatibility
+                        nature: e.nature || e.category,
                         item_name: e.item_name,
-                        description: e.item_name, // Sync both for compatibility
-                        amount: parseFloat(e.amount) || 0,
-                        currency: e.currency
+                        description: e.item_name,
+                        amount: parseFloat(e.amount.toString().replace(/,/g, '')) || 0,
+                        currency: e.currency,
+                        is_extra: e.is_extra || false
                     })));
 
-                if (expenseError) {
-                    // Cleanup: If expenses fail, delete the partially created sheet to avoid "empty rows"
+                if (expensesError) {
                     if (!tripId) {
                         await supabase.from('logistics_trip_sheets' as any).delete().eq('id', activeSheetId);
                     }
-                    throw expenseError;
+                    throw expensesError;
                 }
             }
 
@@ -546,8 +727,318 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         }
     };
 
-    const handleApprove = async () => {
+    const handleExportExcel = async () => {
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Trip Budget');
+
+        // Styles
+        const titleStyle: Partial<ExcelJS.Style> = {
+            font: { bold: true, size: 16, color: { argb: '000000' } },
+            fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC000' } }, // Gold/Amber
+            alignment: { horizontal: 'center', vertical: 'middle' }
+        };
+
+        const headerStyle: Partial<ExcelJS.Style> = {
+            font: { bold: true, color: { argb: '000000' } },
+            fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } },
+            border: {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            }
+        };
+
+        const subtotalStyle: Partial<ExcelJS.Style> = {
+            font: { bold: true },
+            fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F1F5F9' } }
+        };
+
+        const borderStyle: Partial<ExcelJS.Borders> = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+        };
+
+        // Column widths
+        sheet.getColumn(1).width = 30; // Item Description (Increased)
+        sheet.getColumn(2).width = 20; // Nature
+        sheet.getColumn(3).width = 20; // TZS Amount
+        sheet.getColumn(4).width = 15; // USD Equivalent
+        sheet.getColumn(5).width = 20; // Other Currency (ZMW/RWF/BIF)
+        // 1. Title
+        sheet.mergeCells('A1:E2');
+        const titleCell = sheet.getCell('A1');
+        titleCell.value = 'TRIP BUDGET & CLEARANCE SHEET';
+        titleCell.style = titleStyle;
+
+        let currRow = 4;
+
+        // 2. Trip Details Headers
+        const addProjectInfo = (label: string, value: string) => {
+            const rowIdx = currRow++;
+            const row = sheet.getRow(rowIdx);
+            row.getCell(1).value = label;
+            row.getCell(1).font = { bold: true };
+            row.getCell(1).border = borderStyle;
+            row.getCell(2).value = value;
+            row.getCell(2).border = borderStyle;
+            row.getCell(3).border = borderStyle;
+            row.getCell(4).border = borderStyle;
+            row.getCell(5).border = borderStyle;
+            sheet.mergeCells(`B${rowIdx}:E${rowIdx}`);
+        };
+
+        addProjectInfo('Trip Reference:', tripData.trip_number || (auditTrail as any)?.reference_number || 'STANDALONE-BUDGET');
+        addProjectInfo('Date Generated:', new Date().toLocaleDateString());
+        addProjectInfo('Vehicle (Horse):', fleet.find(f => f.id === tripData.vehicle_id)?.vehicle_no || 'Pending');
+        addProjectInfo('Linked Trailer:', fleet.find(f => f.id === tripData.trailer_id)?.vehicle_no || 'None Coupled');
+        addProjectInfo('Driver:', drivers.find(d => d.id === tripData.driver_id)?.full_name || 'Pending');
+        addProjectInfo('Route / Destination:', tripData.destination || 'Not Specified');
+        addProjectInfo('Exchange Rates:', `1 USD = ${countryRates["TZ"] || 2700} TZS${activeCountries.includes('Zambia') ? ` | 1 USD = ${countryRates["Zambia"] || 25.5} ZMW` : ''}`);
+        if (activeCountries.includes('Zambia')) {
+            addProjectInfo('Zambia Rate (USD to ZMW):', `1 USD = ${countryRates["Zambia"] || 25.5} ZMW`);
+        }
+
+        currRow += 2;
+
+        // 3. Financial Summary
+        sheet.mergeCells(`A${currRow}:E${currRow}`);
+        sheet.getRow(currRow).getCell(1).value = 'FINANCIAL SUMMARY';
+        sheet.getRow(currRow).getCell(1).font = { bold: true, size: 12 };
+        sheet.getRow(currRow).getCell(1).alignment = { horizontal: 'center' };
+        currRow++;
+
+        const addSummaryLine = (label: string, usd: number, tzs: number, color?: string) => {
+            const rowIdx = currRow++;
+            const row = sheet.getRow(rowIdx);
+            row.getCell(1).value = label;
+            row.getCell(3).value = tzs;
+            row.getCell(3).numFmt = '#,##0 "TSHS"';
+            row.getCell(3).font = { bold: true };
+            
+            row.getCell(4).value = usd;
+            row.getCell(4).numFmt = '"$"#,##0.00';
+            
+            row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                if (colNumber <= 5) c.border = borderStyle;
+            });
+            
+            if (color) row.getCell(1).font = { bold: true, color: { argb: color } };
+            // Merge description and nature columns for financial summary for a cleaner look
+            sheet.mergeCells(`A${rowIdx}:B${rowIdx}`);
+        };
+
+        const tzR = countryRates["TZ"] || 2700;
+        const zmwR = countryRates["Zambia"] || 25.5;
+        const revTzs = parseFloat(revenueData.revenue_amount || '0');
+        const revUsd = revenueData.revenue_currency === 'TZS' ? revTzs / tzR : parseFloat(revenueData.revenue_amount || '0');
+
+        addSummaryLine('GROSS TRIP REVENUE', revUsd, revTzs);
+        addSummaryLine('CUMULATIVE TRIP COSTS', totals.totalExpensesUSD, totals.totalExpensesTZS, 'C0504D');
+        addSummaryLine('PROJECTED NET PROFIT', totals.netProfitUSD, totals.netProfitUSD * (countryRates["TZ"] || 2700), totals.netProfitUSD < 0 ? 'C0504D' : '107C10');
+
+        currRow += 2;
+
+        // 4. Detailed Expenses Breakdown
+        const categories = [
+            { id: 'TZ', label: 'TANZANIA OPERATIONS' },
+            { id: 'Zambia', label: 'ZAMBIA OPERATIONS' },
+            { id: 'DRC', label: 'DR CONGO OPERATIONS' },
+            { id: 'Rwanda', label: 'RWANDA OPERATIONS' },
+            { id: 'Burundi', label: 'BURUNDI OPERATIONS' },
+            { id: 'Fixed', label: 'FIXED EXPENSES & OVERHEAD' }
+        ];
+
+        categories.forEach(cat => {
+            if (!activeCountries.includes(cat.id) && cat.id !== 'Fixed') return;
+
+            const sectionHeaderIdx = currRow++;
+            const sectionHeader = sheet.getRow(sectionHeaderIdx);
+            sectionHeader.getCell(1).value = cat.label;
+            sectionHeader.getCell(1).style = headerStyle;
+            sheet.mergeCells(`A${sectionHeaderIdx}:E${sectionHeaderIdx}`);
+
+            const tableHeader = sheet.getRow(currRow++);
+            tableHeader.getCell(1).value = 'Item Description';
+            tableHeader.getCell(2).value = 'Nature';
+            tableHeader.getCell(3).value = 'Amount (TZS)';
+            tableHeader.getCell(3).alignment = { horizontal: 'right' };
+            tableHeader.getCell(4).value = 'Amount (USD)';
+            tableHeader.getCell(4).alignment = { horizontal: 'right' };
+            
+            if (cat.id === 'Zambia') {
+                tableHeader.getCell(5).value = 'Amount (ZMW)';
+                tableHeader.getCell(5).alignment = { horizontal: 'right' };
+            } else if (cat.id === 'Rwanda') {
+                tableHeader.getCell(5).value = 'Amount (RWF)';
+                tableHeader.getCell(5).alignment = { horizontal: 'right' };
+            } else if (cat.id === 'Burundi') {
+                tableHeader.getCell(5).value = 'Amount (BIF)';
+                tableHeader.getCell(5).alignment = { horizontal: 'right' };
+            }
+            
+            tableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                const limit = cat.id === 'Zambia' ? 5 : 4;
+                if (colNumber <= limit) {
+                    c.font = { bold: true };
+                    c.border = borderStyle;
+                    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } };
+                }
+            });
+
+            const catExpenses = expenses.filter(e => e.category === cat.id);
+            catExpenses.forEach(exp => {
+                const rowIdx = currRow++;
+                const row = sheet.getRow(rowIdx);
+                const amtTzs = parseFloat(exp.amount) || 0;
+                const amtUsd = amtTzs / tzR;
+                const amtZmw = amtUsd * zmwR;
+
+                row.getCell(1).value = exp.item_name;
+                row.getCell(2).value = exp.nature || 'General';
+                row.getCell(3).value = amtTzs;
+                row.getCell(3).numFmt = '#,##0';
+                
+                row.getCell(4).value = amtUsd;
+                row.getCell(4).numFmt = '"$"#,##0.00';
+                
+                if (cat.id === 'Zambia') {
+                    row.getCell(5).value = Math.round(amtUsd * (countryRates["Zambia"] || 25.5));
+                    row.getCell(5).numFmt = '#,##0 "K"';
+                } else if (cat.id === 'Rwanda') {
+                    row.getCell(5).value = Math.round(amtUsd * (countryRates["Rwanda"] || 1250));
+                    row.getCell(5).numFmt = '#,##0 "RWF"';
+                } else if (cat.id === 'Burundi') {
+                    row.getCell(5).value = Math.round(amtUsd * (countryRates["Burundi"] || 2850));
+                    row.getCell(5).numFmt = '#,##0 "BIF"';
+                }
+                
+                row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    const limit = cat.id === 'Zambia' ? 5 : 4;
+                    if (colNumber <= limit) c.border = borderStyle;
+                });
+            });
+
+            const subTotalRowIdx = currRow++;
+            const subTotalRow = sheet.getRow(subTotalRowIdx);
+            subTotalRow.getCell(1).value = `SUBTOTAL ${cat.label}`;
+            subTotalRow.getCell(1).style = subtotalStyle;
+            
+            subTotalRow.getCell(3).value = totals.categoryTotals[cat.id]?.tzs || 0;
+            subTotalRow.getCell(3).numFmt = '#,##0';
+            
+            subTotalRow.getCell(4).value = totals.categoryTotals[cat.id]?.usd || 0;
+            subTotalRow.getCell(4).numFmt = '"$"#,##0.00';
+            
+            if (cat.id === 'Zambia') {
+                subTotalRow.getCell(5).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Zambia"] || 25.5));
+                subTotalRow.getCell(5).numFmt = '#,##0 "K"';
+            } else if (cat.id === 'Rwanda') {
+                subTotalRow.getCell(5).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Rwanda"] || 1250));
+                subTotalRow.getCell(5).numFmt = '#,##0 "RWF"';
+            } else if (cat.id === 'Burundi') {
+                subTotalRow.getCell(5).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Burundi"] || 2850));
+                subTotalRow.getCell(5).numFmt = '#,##0 "BIF"';
+            }
+            
+            sheet.mergeCells(`A${subTotalRowIdx}:B${subTotalRowIdx}`);
+
+            subTotalRow.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                const limit = ['Zambia', 'Rwanda', 'Burundi'].includes(cat.id) ? 5 : 4;
+                if (colNumber <= limit) {
+                    c.font = { bold: true };
+                    c.border = borderStyle;
+                }
+            });
+
+            currRow += 1;
+        });
+
+        currRow += 2;
+
+        // 5. Signature Section (THE RELEVANT TABLE)
+        const addSignatureTable = (title: string, name: string, pos: string) => {
+            const headRow = sheet.getRow(currRow++);
+            headRow.getCell(1).value = title.toUpperCase();
+            headRow.getCell(2).value = 'POSITION';
+            headRow.getCell(3).value = 'SIGNATURE & DATE';
+            headRow.eachCell(c => {
+                c.style = titleStyle;
+                c.border = borderStyle;
+                c.font = { bold: true, size: 10 };
+            });
+            sheet.mergeCells(`C${currRow - 1}:E${currRow - 1}`);
+
+            const dataRow = sheet.getRow(currRow++);
+            dataRow.height = 40;
+            dataRow.getCell(1).value = name;
+            dataRow.getCell(2).value = pos;
+            dataRow.eachCell(c => {
+                c.alignment = { vertical: 'middle' };
+                c.border = borderStyle;
+            });
+            sheet.mergeCells(`C${currRow - 1}:E${currRow - 1}`);
+            currRow++;
+        };
+
+        sheet.getColumn(4).width = 25; // TZS / Date Column
+
+        addSignatureTable('Prepared By', 'KONYA PAUL', 'Fleet Manager');
+        addSignatureTable('First Approved By', 'YAHYA KILUA', 'Operations Manager');
+        addSignatureTable('Final Approved By', 'SOOD M. SOOD', 'Managing Director');
+
+        // 6. Lock the sheet (Read-only protection)
+        sheet.protect('budget_locked', {
+            selectLockedCells: true,
+            selectUnlockedCells: false,
+            insertRows: false,
+            deleteRows: false,
+            formatCells: false,
+            formatColumns: false,
+            formatRows: false
+        });
+
+        // Generate & Download
+        // 🔒 Protect the sheet to prevent data manipulation
+        sheet.protect('qoder123', {
+            formatColumns: true,
+            formatRows: true,
+            formatCells: true,
+            selectLockedCells: true,
+            selectUnlockedCells: true,
+            insertColumns: false,
+            insertRows: false,
+            deleteColumns: false,
+            deleteRows: false
+        });
+
+        const workbookBuffer = await workbook.xlsx.writeBuffer();
+        const tripRef = tripData.trip_number || (auditTrail as any)?.reference_number || 'New';
+        const routeSlug = tripData.destination ? `_${tripData.destination.replace(/[^a-zA-Z0-9]/g, '-')}` : '';
+        saveAs(new Blob([workbookBuffer]), `${tripRef}${routeSlug}.xlsx`);
+    };
+
+     const handleApprove = async () => {
         if (!tripId) return;
+        
+        // Strict Validation Check
+        if (!tripData.vehicle_id || !tripData.trailer_id || tripData.trailer_id === 'none') {
+            toast({ variant: "destructive", title: "Approval Blocked", description: "You cannot approve a trip without an assigned Horse and a Linked Trailer." });
+            return;
+        }
+
+        if (!tripData.trip_number) {
+            toast({ variant: "destructive", title: "Approval Blocked", description: "Trip Reference Number is required for approval." });
+            return;
+        }
+
+        if (!tripData.journey_type) {
+            toast({ variant: "destructive", title: "Approval Blocked", description: "Journey Type must be specified before approval." });
+            return;
+        }
+
         setIsApproving(true);
         try {
             const approverName = (userProfile as any)?.full_name || (userProfile as any)?.username || 'Super Admin';
@@ -659,80 +1150,106 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     const renderExpenseSection = (title: string, category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed', icon: any) => {
         const filteredExpenses = expenses
             .map((e, i) => ({ ...e, originalIndex: i }))
-            .filter(e => e.category === category);
-
-        const Icon = icon;
+            .filter(e => e.category === category && !e.is_extra);
 
         return (
-            <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className={`p-2 rounded-lg ${category === 'TZ' ? 'bg-blue-100 text-blue-600' : category === 'Zambia' ? 'bg-green-100 text-green-600' : category === 'DRC' ? 'bg-yellow-100 text-yellow-600' : 'bg-orange-100 text-orange-600'}`}>
-                            <Icon size={18} />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-lg leading-tight">{title}</h3>
-                            <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest leading-none mt-1">
-                                Sub-total: <span className="text-primary">${(totals.categoryTotals[category]?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                <span className="mx-1 opacity-20">|</span>
-                                <span className="text-slate-500">{(totals.categoryTotals[category]?.tzs || 0).toLocaleString()} TSh</span>
-                            </p>
-                        </div>
+            <div className="space-y-4 print:space-y-1">
+                <div className="grid gap-1.5 print:gap-1">
+                    {/* Professional Table Header */}
+                    <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
+                        <div className="flex-[8] min-w-[150px]">Expense Description</div>
+                        <div className="w-28">Nature</div>
+                        <div className="w-28 text-right">Amount (TZS)</div>
+                        <div className="w-14 text-right">USD</div>
+                        {category === 'Zambia' && <div className="w-14 text-right">ZMW</div>}
+                        <div className="w-6"></div>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => addExpense(category)} className="text-primary hover:text-primary/80 print:hidden" disabled={isLocked}>
-                        <Plus size={16} className="mr-1" /> Add Item
-                    </Button>
-                </div>
 
-                <div className="grid gap-3">
-                    {filteredExpenses.map((item) => (
-                        <div key={item.originalIndex} className="flex gap-3 items-end animate-fade-in">
-                            <div className="flex-1">
-                                <Label className="text-[10px] text-muted-foreground uppercase mb-1 block">Description</Label>
-                                <Input
-                                    className="h-9"
-                                    placeholder="Enter expense name..."
-                                    value={item.item_name}
-                                    onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
-                                    disabled={isLocked}
-                                />
+                    {filteredExpenses.map((item) => {
+                        const amountTSh = parseFloat(item.amount) || 0;
+                        const tzRate = countryRates["TZ"] || 2700;
+                        const zambiaRate = countryRates["Zambia"] || 25.5;
+                        const amountUSD = amountTSh / tzRate;
+                        const amountZMW = amountUSD * zambiaRate;
+
+                        return (
+                            <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
+                                <div className="flex-[8] min-w-[150px]">
+                                    <div className="hidden print:block text-[9px] font-medium text-slate-700">{item.item_name}</div>
+                                    <Input
+                                        className="h-7 bg-slate-50/20 border-none focus-visible:ring-1 ring-slate-100 font-normal !text-[12px] text-slate-700 placeholder:text-slate-300 print:hidden"
+                                        placeholder="Description..."
+                                        value={item.item_name}
+                                        onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                        disabled={isLocked}
+                                    />
+                                </div>
+
+                                <div className="w-28 print:hidden">
+                                     <Select
+                                        value={item.nature}
+                                        onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
+                                        disabled={isLocked}
+                                    >
+                                        <SelectTrigger className="h-7 !text-[12px] bg-white border-slate-100 shadow-none font-normal text-slate-500 hover:text-slate-700">
+                                            <SelectValue placeholder="Nature" />
+                                        </SelectTrigger>
+                                        <SelectContent className="z-[100]">
+                                            <SelectItem value="Go & Return">Go & Return</SelectItem>
+                                            <SelectItem value="Going Only">Going Only</SelectItem>
+                                            <SelectItem value="Returning Only">Returning Only</SelectItem>
+                                            <SelectItem value="Single Trip">Single Trip</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="w-28 flex items-center gap-1 print:w-fit">
+                                    <div className="hidden print:flex items-center justify-end gap-2 text-[9px] whitespace-nowrap">
+                                        <span className="text-slate-900 font-bold">TShs {Math.round(amountTSh).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 print:hidden w-full">
+                                        <span className="text-slate-300 font-bold text-[8px] shrink-0">TZS</span>
+                                        <Input
+                                            className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
+                                            type="text"
+                                            placeholder="0"
+                                            value={formatWithCommas(item.amount || '')}
+                                            onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
+                                            disabled={isLocked}
+                                        />
+                                    </div>
+                                </div>
+                                
+                                <div className="w-14 text-right print:hidden shrink-0">
+                                    <p className="text-[11px] font-semibold text-slate-400">
+                                        ${Math.round(amountUSD).toLocaleString()}
+                                    </p>
+                                </div>
+
+                                {category === 'Zambia' && (
+                                    <div className="w-14 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
+                                        <p className="text-[9px] font-bold text-emerald-600/70">
+                                            K{Math.round(amountZMW).toLocaleString()}
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="w-6 flex justify-end shrink-0">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 text-slate-200 hover:text-destructive hover:bg-destructive/5 opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
+                                        onClick={() => removeExpense(item.originalIndex)}
+                                        disabled={isLocked}
+                                    >
+                                        <Trash2 size={12} />
+                                    </Button>
+                                </div>
                             </div>
-                            <div className="w-32">
-                                <Label className="text-[10px] text-muted-foreground uppercase mb-1 block">
-                                    Amount ({item.currency})
-                                    {item.currency === 'USD' && category === 'TZ' && (
-                                        <span className="ml-1 text-emerald-600 font-bold italic">
-                                            (~ {((parseFloat(item.amount) || 0) * (parseFloat(revenueData.exchange_rate) || 2700)).toLocaleString()} TSh)
-                                        </span>
-                                    )}
-                                    {item.currency === 'TZS' && (
-                                        <span className="ml-1 text-primary font-bold">
-                                            (${((parseFloat(item.amount) || 0) / (parseFloat(revenueData.exchange_rate) || 2700)).toFixed(2)})
-                                        </span>
-                                    )}
-                                </Label>
-                                <Input
-                                    className="h-9"
-                                    type="number"
-                                    placeholder="0"
-                                    value={item.amount}
-                                    onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
-                                    disabled={isLocked}
-                                />
-                            </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9 text-destructive hover:bg-destructive/10 print:hidden"
-                                onClick={() => removeExpense(item.originalIndex)}
-                                disabled={isLocked}
-                            >
-                                <Trash2 size={16} />
-                            </Button>
-                        </div>
-                    ))}
+                        );
+                    })}
                     {filteredExpenses.length === 0 && (
-                        <div className="text-center py-4 border-2 border-dashed rounded-lg text-muted-foreground text-sm">
+                        <div className="text-center py-4 border-2 border-dashed rounded-lg text-muted-foreground text-[10px]">
                             No {title} expenses recorded yet
                         </div>
                     )}
@@ -742,53 +1259,87 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     };
 
     return (
-        <div id="print-logistics" className="space-y-8 max-w-5xl mx-auto pb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div id="print-logistics" className="space-y-8 max-w-[98%] mx-auto pb-8 px-4 md:px-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* 📄 Header for Printing Only */}
-            <div className="hidden print:block p-10 border-b-4 border-slate-900 mb-10 bg-white">
-                <div className="flex justify-between items-start">
+            <div className="hidden print:block p-4 border-b-2 border-slate-900 mb-6 bg-white">
+                <div className="flex justify-between items-center text-slate-900 font-bold">
                     <div>
-                        <h1 className="text-5xl font-black uppercase tracking-tighter text-slate-900">Pro-Forma Trip Budget</h1>
-                        <div className="flex gap-8 mt-4">
-                            <p className="text-sm font-bold text-slate-600 uppercase tracking-widest">Date: {new Date().toLocaleDateString()}</p>
-                            <p className="text-sm font-black text-primary uppercase tracking-widest">Rate: $1 = {revenueData.exchange_rate} TSh</p>
+                        <h1 className="text-xl font-black uppercase tracking-tight">Pro-Forma Trip Budget</h1>
+                        <div className="flex gap-4 mt-1 text-[10px] text-slate-600 uppercase tracking-wider">
+                            <p>Date: {new Date().toLocaleDateString()}</p>
+                            <p className="text-primary">Rate: $1 = {countryRates["TZ"] || 2700} TSh</p>
                         </div>
                     </div>
                     <div className="text-right">
-                        <div className="text-4xl font-black text-slate-900">{tripData.vehicle_id ? (fleet.find(f => f.id === tripData.vehicle_id)?.vehicle_no) : 'N/A'}</div>
-                        <div className="flex flex-col items-end mt-2">
-                            <p className="text-lg font-bold uppercase tracking-widest text-slate-700">{tripData.destination || 'Unplanned Route'}</p>
-                            <Badge variant="outline" className="text-xs px-4 py-1.5 mt-3 border-slate-900 text-slate-900 font-black rounded-none border-2">
-                                Official Budget Plan • SudPESA Logistics
-                            </Badge>
-                        </div>
+                        <div className="text-xl font-black">{tripData.vehicle_id ? (fleet.find(f => f.id === tripData.vehicle_id)?.vehicle_no) : 'N/A'}</div>
+                        <p className="text-xs uppercase tracking-widest">{tripData.destination || 'Unplanned Route'}</p>
                     </div>
                 </div>
             </div>
 
             {/* 📊 Financial Summary Bar (Stays on screen, hidden in print) */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 print:hidden sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md p-4 rounded-2xl border shadow-lg">
-                <div className="bg-white p-4 rounded-xl border shadow-sm col-span-1 md:col-span-1">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Exchange Rate</p>
-                    <div className="relative">
-                        <span className="absolute left-3 top-2 text-slate-400 font-bold">$1 = </span>
-                        <Input
-                            className="pl-14 h-9 border-none bg-slate-100 font-bold text-slate-900 focus-visible:ring-1 ring-primary"
-                            type="number"
-                            value={revenueData.exchange_rate}
-                            onChange={(e) => setRevenueData({ ...revenueData, exchange_rate: e.target.value })}
-                            disabled={isLocked}
-                        />
+            <div className="flex flex-wrap gap-4 print:hidden sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md p-4 rounded-2xl border shadow-lg">
+                <div className="bg-white p-3 rounded-xl border shadow-sm flex-1 min-w-[280px]">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <Globe size={10} className="text-primary opacity-70" />
+                        Market Exchange Rates
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                        <div className="space-y-1 flex-1 min-w-[120px]">
+                            <Label className="text-[10px] font-medium text-slate-400 uppercase">TZ (USD to TZS)</Label>
+                            <div className="relative">
+                                <span className="absolute left-2.5 top-2 text-slate-400 font-semibold text-[10px]">$1 =</span>
+                                <Input
+                                    className="pl-8 h-8 bg-slate-50/50 border-slate-200 font-medium text-slate-900 text-xs focus-visible:ring-1 ring-primary"
+                                    type="number"
+                                    value={countryRates["TZ"]}
+                                    onChange={(e) => setCountryRates({ ...countryRates, "TZ": parseFloat(e.target.value) || 0 })}
+                                    disabled={isLocked}
+                                />
+                            </div>
+                        </div>
+                        {activeCountries.includes('Zambia') && (
+                            <div className="space-y-1 flex-1 min-w-[120px] animate-in slide-in-from-left-2">
+                                <Label className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">Zambia (ZMW)</Label>
+                                <div className="relative">
+                                    <span className="absolute left-2.5 top-2 text-slate-400 font-medium text-[10px]">$1 =</span>
+                                    <Input
+                                        className="pl-8 h-8 bg-slate-50/50 border-slate-200 font-normal text-slate-700 text-xs focus-visible:ring-1 ring-emerald-500"
+                                        type="number"
+                                        value={countryRates["Zambia"]}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "Zambia": parseFloat(e.target.value) || 0 })}
+                                        disabled={isLocked}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        {activeCountries.includes('DRC') && (
+                            <div className="space-y-1 flex-1 min-w-[120px] animate-in slide-in-from-left-2">
+                                <Label className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">DRC ($ Price)</Label>
+                                <div className="relative">
+                                    <span className="absolute left-2.5 top-2 text-slate-400 font-medium text-[10px]">$1 =</span>
+                                    <Input
+                                        className="pl-8 h-8 bg-slate-50/50 border-slate-200 font-normal text-slate-700 text-xs focus-visible:ring-1 ring-amber-500"
+                                        type="number"
+                                        value={countryRates["DRC"]}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "DRC": parseFloat(e.target.value) || 0 })}
+                                        disabled={isLocked}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
-                <div className="bg-slate-900 p-4 rounded-xl shadow-xl col-span-1 md:col-span-1">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Gross Revenue</p>
-                    <div className="flex items-center gap-2">
+
+                <div className="bg-slate-900 p-3 rounded-xl shadow-lg flex-1 min-w-[280px]">
+                    <div className="flex justify-between items-start mb-2">
+                        <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">Gross Revenue</p>
                         <Select
                             value={revenueData.revenue_currency}
                             onValueChange={(v: any) => setRevenueData({ ...revenueData, revenue_currency: v })}
                             disabled={isLocked}
                         >
-                            <SelectTrigger className="w-20 h-9 bg-slate-800 border-none text-white text-xs font-bold">
+                            <SelectTrigger className="w-16 h-6 bg-slate-800 border-none text-white text-[9px] font-semibold">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent className="z-[100]">
@@ -796,30 +1347,41 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 <SelectItem value="TZS">TZS</SelectItem>
                             </SelectContent>
                         </Select>
+                    </div>
+                    <div className="relative">
+                        <span className="absolute left-2.5 top-2.5 text-slate-400 font-bold text-[10px]">{revenueData.revenue_currency === 'TZS' ? 'TShs' : 'USD'}.</span>
                         <Input
-                            className="h-9 border-none bg-slate-800 text-white font-black text-lg focus-visible:ring-1 ring-primary"
+                            className="h-9 border-none bg-slate-800/50 text-white font-bold text-lg pl-12 focus-visible:ring-1 ring-primary w-full"
                             type="number"
                             value={revenueData.revenue_amount}
                             onChange={(e) => setRevenueData({ ...revenueData, revenue_amount: e.target.value })}
                             disabled={isLocked}
                         />
                     </div>
+                    <p className="text-[9px] font-medium text-slate-500 mt-1.5 text-right">
+                        {revenueData.revenue_currency === 'TZS' 
+                            ? `Approx $${((parseFloat(revenueData.revenue_amount) || 0) / (countryRates["TZ"] || 2700)).toLocaleString()} USD`
+                            : `Approx TShs ${(parseFloat(revenueData.revenue_amount || '0') * (countryRates["TZ"] || 2700)).toLocaleString()}`
+                        }
+                    </p>
                 </div>
-                <div className="bg-orange-500 p-4 rounded-xl shadow-lg col-span-1 md:col-span-1">
-                    <p className="text-[10px] font-bold text-orange-100 uppercase tracking-wider mb-1 text-right">Total Operational Cost</p>
+
+                <div className="bg-orange-500 p-3 rounded-xl shadow-md w-full md:w-48">
+                    <p className="text-[10px] font-semibold text-orange-100 uppercase tracking-wider mb-1 text-right opacity-80">Operational Cost</p>
                     <div className="text-right">
-                        <p className="text-xl font-black text-white">${totals.totalExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
-                        <p className="text-[9px] text-orange-100 font-bold uppercase tracking-tighter">Approx. {totals.totalExpensesTZS.toLocaleString()} TSh</p>
+                        <p className="text-lg font-bold text-white leading-tight">TShs {totals.totalExpensesTZS.toLocaleString()}</p>
+                        <p className="text-[10px] text-orange-100 font-medium mt-1 opacity-80">Approx. ${totals.totalExpensesUSD.toLocaleString()} USD</p>
                     </div>
                 </div>
-                <div className="bg-emerald-500 p-4 rounded-xl shadow-lg col-span-1 md:col-span-1">
-                    <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider mb-1 text-right">Expected Net Profit</p>
+
+                <div className="bg-emerald-500 p-3 rounded-xl shadow-md w-full md:w-56">
+                    <p className="text-[10px] font-semibold text-emerald-100 uppercase tracking-wider mb-1 text-right opacity-80">Expected Surplus</p>
                     <div className="text-right">
-                        <p className={`text-2xl font-black text-white ${totals.netProfitUSD < 0 ? 'text-red-100' : ''}`}>
-                            ${totals.netProfitUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        <p className={`text-xl font-bold text-white leading-none ${totals.netProfitUSD < 0 ? 'text-red-100' : ''}`}>
+                            TSh { (totals.netProfitUSD * (countryRates["TZ"] || 2700)).toLocaleString() }
                         </p>
-                        <p className="text-[9px] text-emerald-100 font-bold uppercase tracking-tighter">
-                            {totals.netProfitUSD >= 0 ? 'Surplus Expected' : 'Deficit Projected'}
+                        <p className="text-[10px] text-emerald-100 font-medium mt-1.5 opacity-80">
+                            Est. ${totals.netProfitUSD.toLocaleString()} USD
                         </p>
                     </div>
                 </div>
@@ -834,12 +1396,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             )}
 
             {/* 🕰 Audit Trail Header */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 border-dashed mb-4">
+            <div className="grid grid-grid-cols-1 md:grid-cols-3 gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 border-dashed mb-4">
                 <div className="flex flex-col">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Created By</span>
-                    <span className="text-[11px] font-bold text-slate-700">
-                        {auditTrail.created_by_name || "Unknown"}
-                        {auditTrail.created_at && <span className="ml-1 text-slate-400 font-normal">on {new Date(auditTrail.created_at).toLocaleDateString()}</span>}
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Prepared By</span>
+                    <span className="text-[11px] font-medium text-slate-700">
+                        {auditTrail.created_by_name || userProfile?.full_name || user?.email || "Unknown"}
+                        {(auditTrail.created_at || (!tripId && !duplicateData)) && (
+                            <span className="ml-1 text-slate-400 font-normal">
+                                on {new Date(auditTrail.created_at || new Date()).toLocaleDateString()}
+                            </span>
+                        )}
                     </span>
                 </div>
                 {auditTrail.approved_by_name && (
@@ -853,8 +1419,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 )}
                 {auditTrail.activated_by_name && (
                     <div className="flex flex-col border-l border-slate-200 pl-4">
-                        <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Activated By</span>
-                        <span className="text-[11px] font-bold text-emerald-700">
+                        <span className="text-[10px] font-semibold text-emerald-500 pb-0.5">Activated By</span>
+                        <span className="text-xs font-bold text-emerald-700">
                             {auditTrail.activated_by_name}
                             {auditTrail.activated_at && <span className="ml-1 text-slate-400 font-normal">on {new Date(auditTrail.activated_at).toLocaleDateString()}</span>}
                         </span>
@@ -864,7 +1430,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             {/* 📍 Section 1: Asset Assignment & Route Details */}
             <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900">
                 <CardHeader className="bg-slate-50/80 border-b border-slate-200 py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                    <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-slate-800 flex items-center gap-3">
+                    <CardTitle className="text-[15px] font-bold text-slate-800 flex items-center gap-3">
                         <div className="p-2 bg-primary/10 rounded-lg text-primary print:hidden">
                             <Navigation size={18} />
                         </div>
@@ -873,132 +1439,302 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 </CardHeader>
                 <CardContent className="p-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                        {/* LEFT COLUMN: Assets & IDs */}
                         <div className="space-y-6">
+                            {/* NEW: Client Name (Mandatory) */}
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                    Client / Company Name <span className="text-red-500">*</span>
+                                </Label>
+                                <div className="relative group">
+                                    <div className="absolute left-3 top-3 text-primary opacity-50">
+                                        <Building2 size={16} />
+                                    </div>
+                                    <Input 
+                                        className="h-11 bg-white border-slate-200 pl-10 font-medium text-slate-700 shadow-sm focus:ring-primary/20"
+                                        value={tripData.client_name || ''}
+                                        onChange={(e) => setTripData({ ...tripData, client_name: e.target.value })}
+                                        placeholder="Who is paying for this trip?"
+                                        disabled={isLocked}
+                                    />
+                                </div>
+                                <p className="text-[9px] text-slate-400 font-medium italic">Used for automatic grouping of vehicles.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500">Trip Reference Number</Label>
+                                <div className="relative">
+                                    <FileText size={16} className="absolute left-3 top-3 text-primary opacity-50" />
+                                    <Input 
+                                        className="h-11 bg-slate-50 border-slate-200 pl-10 font-semibold text-slate-900 shadow-sm"
+                                        value={tripData.trip_number}
+                                        onChange={(e) => setTripData({...tripData, trip_number: e.target.value})}
+                                        placeholder="Generating ID..."
+                                        readOnly={isLocked}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 🧾 Invoice & Payment Tracking Row */}
+                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div className="p-1.5 bg-white rounded-md border border-slate-200 text-primary">
+                                        <CreditCard size={14} />
+                                    </div>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice & Payment Management</span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
+                                        <Input
+                                            className="h-9 bg-white border-slate-200 text-xs font-bold text-slate-700"
+                                            placeholder="e.g. INV-2025-001"
+                                            value={tripData.invoice_no || ''}
+                                            onChange={(e) => setTripData({ ...tripData, invoice_no: e.target.value })}
+                                            disabled={isLocked && !isSuperAdmin && !isAdmin}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Invoice Date</Label>
+                                        <Input
+                                            type="date"
+                                            className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700"
+                                            value={tripData.invoice_date || ''}
+                                            onChange={(e) => setTripData({ ...tripData, invoice_date: e.target.value })}
+                                            disabled={isLocked && !isSuperAdmin && !isAdmin}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Payment Status</Label>
+                                    <Select
+                                        value={tripData.payment_status}
+                                        onValueChange={(val) => setTripData({ ...tripData, payment_status: val })}
+                                        disabled={isLocked && !isSuperAdmin && !isAdmin}
+                                    >
+                                        <SelectTrigger className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-700">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-2 h-2 rounded-full ${
+                                                    tripData.payment_status === 'Paid' ? 'bg-emerald-500' : 
+                                                    tripData.payment_status === 'Partial' ? 'bg-amber-500' : 'bg-slate-300'
+                                                }`} />
+                                                <SelectValue />
+                                            </div>
+                                        </SelectTrigger>
+                                        <SelectContent className="z-[100]">
+                                            <SelectItem value="Pending">Pending / Unpaid</SelectItem>
+                                            <SelectItem value="Partial">Partial Payment</SelectItem>
+                                            <SelectItem value="Paid">Fully Paid</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vehicle (Horse)</Label>
-                                    <Select
-                                        value={tripData.vehicle_id}
-                                        onValueChange={(v) => {
-                                            const selectedHorse = fleet.find(f => f.id === v);
-                                            setTripData({
-                                                ...tripData,
-                                                vehicle_id: v,
-                                                trailer_id: selectedHorse?.primary_trailer_id || tripData.trailer_id
-                                            });
-                                        }}
-                                        disabled={isLocked}
-                                    >
-                                        <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
-                                            <SelectValue placeholder="Select Horse" />
-                                        </SelectTrigger>
-                                        <SelectContent className="z-[100]">
-                                            {fleet.filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse').map(v => (
-                                                <SelectItem key={v.id} value={v.id}>{v.vehicle_no} - {v.make_model}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label className="text-xs font-semibold text-slate-500">Vehicle (Horse)</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                role="combobox"
+                                                disabled={isLocked}
+                                                className={cn(
+                                                    "h-11 w-full justify-between bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0",
+                                                    !tripData.vehicle_id && "text-muted-foreground"
+                                                )}
+                                            >
+                                                {tripData.vehicle_id
+                                                    ? (fleet.find((v) => v.id === tripData.vehicle_id)?.vehicle_no || 'Unknown')
+                                                    : "Select Horse"}
+                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[300px] p-0 z-[100]">
+                                            <Command>
+                                                <CommandInput placeholder="Search vehicle..." />
+                                                <CommandList className="max-h-[350px]">
+                                                    <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                    <CommandGroup>
+                                                        <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Horse / Tractor</div>
+                                                        {fleet
+                                                            .filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse')
+                                                            .map((v) => {
+                                                                const isBusy = v.assignment_status === 'Active';
+                                                                return (
+                                                                <CommandItem
+                                                                    key={v.id}
+                                                                    value={v.vehicle_no + " " + v.make_model}
+                                                                    disabled={isBusy}
+                                                                    onSelect={async () => {
+                                                                        if (isBusy) return;
+                                                                        
+                                                                        // Check for Active Coupling
+                                                                        const activeCoupling = couplings.find(c => c.horse_id === v.id);
+                                                                        if (!activeCoupling) {
+                                                                            toast({
+                                                                                variant: "destructive",
+                                                                                title: "Trailer Link Missing",
+                                                                                description: `${v.vehicle_no} is not linked to any trailer in the Registry. Please link them first.`
+                                                                            });
+                                                                            return;
+                                                                        }
+
+                                                                        const isTanker = v.asset_type?.toLowerCase().includes('tanker') || v.fleet_category?.toLowerCase() === 'tanker';
+                                                                        const journeyType = isTanker ? "Go Only (Return Empty)" : "Go & Return (Full Cycle)";
+                                                                        
+                                                                        // Generate Trip ID logic
+                                                                        const cleanHorse = v.vehicle_no.replace(/\s*[A-Z]+$/, "").trim();
+                                                                        const { count } = await supabase.from('logistics_trip_sheets' as any).select('*', { count: 'exact', head: true });
+                                                                        const { count: transitCount } = await supabase.from('logistics_transit_trips' as any).select('*', { count: 'exact', head: true });
+                                                                        const totalTrips = (count || 0) + (transitCount || 0);
+                                                                        const seq = String(totalTrips + 1).padStart(3, '0');
+                                                                        const newTripId = `${cleanHorse}/2025/G${seq}`;
+
+                                                                        setTripData({
+                                                                            ...tripData,
+                                                                            vehicle_id: v.id,
+                                                                            trailer_id: activeCoupling.trailer_id,
+                                                                            trip_number: newTripId,
+                                                                            journey_type: journeyType
+                                                                        });
+
+                                                                        const trailerFound = fleet.find(f => String(f.id).toLowerCase().trim() === String(activeCoupling.trailer_id).toLowerCase().trim());
+                                                                        const trailerDisplay = trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : activeCoupling.trailer_id;
+
+                                                                        toast({
+                                                                            title: "Vehicle Assigned",
+                                                                            description: `Linked with Trailer ${trailerDisplay}`
+                                                                        });
+                                                                    }}
+                                                                    className={cn(
+                                                                        "flex flex-col items-start gap-1 py-2.5 px-3 transition-all",
+                                                                        isBusy ? "opacity-40 cursor-not-allowed" : "hover:bg-slate-50"
+                                                                    )}
+                                                                >
+                                                                    <div className="flex justify-between w-full items-center">
+                                                                        <span className="text-xs font-semibold text-slate-800 tracking-wide uppercase">{v.vehicle_no}</span>
+                                                                        <Badge variant="outline" className="text-[8px] font-bold uppercase py-0 px-1 border-slate-200 text-slate-400">{v.fleet_category || 'Local'}</Badge>
+                                                                    </div>
+                                                                    <span className="text-[10px] text-slate-400 uppercase tracking-wide">{v.asset_type || 'Truck'}</span>
+                                                                </CommandItem>
+                                                            );
+                                                        })}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Trailer</Label>
-                                    <Select
-                                        value={tripData.trailer_id}
-                                        onValueChange={(v) => setTripData({ ...tripData, trailer_id: v })}
-                                        disabled={isLocked}
-                                    >
-                                        <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
-                                            <SelectValue placeholder="Select Trailer" />
-                                        </SelectTrigger>
-                                        <SelectContent className="z-[100]">
-                                            <SelectItem value="none">No Trailer</SelectItem>
-                                            {fleet.filter(f => f.asset_type === 'Trailer').map(v => (
-                                                <SelectItem key={v.id} value={v.id}>{v.vehicle_no} - {v.make_model}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label className="text-xs font-semibold text-slate-500">Linked Trailer</Label>
+                                    <div className="relative group">
+                                        <div className="absolute left-3 top-2.5 text-primary opacity-50">
+                                            <Package size={16} />
+                                        </div>
+                                        <Input
+                                            className="h-11 bg-slate-100/50 border-slate-200 pl-10 font-medium text-slate-700 cursor-not-allowed shadow-inner"
+                                            readOnly
+                                            value={
+                                                tripData.vehicle_id 
+                                                    ? (tripData.trailer_id && tripData.trailer_id !== 'none'
+                                                        ? trailerPlate
+                                                        : "No Coupling Found")
+                                                    : "Select Horse First..."
+                                            }
+                                        />
+                                    </div>
                                 </div>
                             </div>
+
                             <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Assigned Driver</Label>
-                                <Select
-                                    value={tripData.driver_id}
-                                    onValueChange={(v) => setTripData({ ...tripData, driver_id: v })}
-                                    disabled={isLocked}
-                                >
-                                    <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
-                                        <SelectValue placeholder="Assign Driver" />
-                                    </SelectTrigger>
-                                    <SelectContent className="z-[100]">
-                                        {drivers.map(d => (
-                                            <SelectItem key={d.id} value={d.id}>{d.full_name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <Label className="text-xs font-semibold text-slate-500">Assigned Driver</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            disabled={isLocked}
+                                            className={cn(
+                                                "h-11 w-full justify-between bg-white border-slate-200 shadow-sm font-medium text-slate-700 print:h-8 print:border-none print:p-0",
+                                                !tripData.driver_id && "text-muted-foreground"
+                                            )}
+                                        >
+                                            {tripData.driver_id
+                                                ? drivers.find(d => d.id === tripData.driver_id)?.full_name
+                                                : "Assign Driver"}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[300px] p-0 z-[100]">
+                                        <Command>
+                                            <CommandInput placeholder="Search driver name..." />
+                                            <CommandList className="max-h-[300px]">
+                                                <CommandEmpty>No driver found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Company Drivers</div>
+                                                    {drivers.map(d => (
+                                                        <CommandItem
+                                                            key={d.id}
+                                                            value={d.full_name}
+                                                            onSelect={() => setTripData({ ...tripData, driver_id: d.id })}
+                                                            className="flex items-center gap-2 py-2.5 px-3"
+                                                        >
+                                                            <Check className={cn("h-4 w-4", d.id === tripData.driver_id ? "opacity-100" : "opacity-0")} />
+                                                            <div className="flex flex-col">
+                                                                <span className="text-sm font-medium text-slate-700">{d.full_name}</span>
+                                                            </div>
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Journey Type</Label>
-                                <Select
-                                    value={tripData.journey_type}
-                                    onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
-                                    disabled={isLocked}
-                                >
-                                    <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="z-[100]">
-                                        <SelectItem value="Go & Return">Go & Return (Full Cycle)</SelectItem>
-                                        <SelectItem value="Go Only">Go Only (Return Empty)</SelectItem>
-                                        <SelectItem value="One Way">One Way (Direct Delivery)</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+
                         </div>
+
+                        {/* RIGHT COLUMN: Route & Cargo */}
                         <div className="space-y-6">
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Route Origin</Label>
+                                    <Label className="text-xs font-semibold text-slate-500">Route Origin</Label>
                                     <Input
-                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
                                         value={tripData.origin}
                                         onChange={(e) => setTripData({ ...tripData, origin: e.target.value })}
                                         disabled={isLocked}
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Route Destination</Label>
+                                    <Label className="text-xs font-semibold text-slate-500">Route Destination</Label>
                                     <Input
-                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                        className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700 ring-2 ring-primary/10"
                                         value={tripData.destination}
                                         onChange={(e) => setTripData({ ...tripData, destination: e.target.value })}
-                                        placeholder="Enter Destination"
+                                        placeholder="Target City/Port"
                                         disabled={isLocked}
                                     />
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cargo Description</Label>
+                                <Label className="text-xs font-semibold text-slate-500">Cargo Description</Label>
                                 <Input
-                                    className="h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                    className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700"
                                     value={tripData.cargo_outbound}
                                     onChange={(e) => setTripData({ ...tripData, cargo_outbound: e.target.value })}
                                     placeholder="e.g. 30 Tons of Copper Ore"
                                     disabled={isLocked}
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Operational Notes</Label>
-                                <textarea
-                                    className="w-full p-4 rounded-xl bg-slate-50 border border-slate-200 text-sm h-24 resize-none print:border-none print:p-0"
-                                    value={tripData.notes}
-                                    onChange={(e) => setTripData({ ...tripData, notes: e.target.value })}
-                                    disabled={isLocked}
-                                />
-                            </div>
                             <div className="grid grid-cols-2 gap-6 mt-4">
                                 <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Agreed Duration (Days)</Label>
+                                    <Label className="text-xs font-semibold text-slate-500">Agreed Duration (Days)</Label>
                                     <Input
-                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
                                         type="number"
                                         placeholder="e.g. 5"
                                         value={tripData.agreed_days}
@@ -1007,19 +1743,35 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Daily Penalty Fine (USD)</Label>
+                                    <Label className="text-xs font-semibold text-slate-500">Daily Penalty Fine (TShs)</Label>
                                     <div className="relative">
-                                        <DollarSign size={14} className="absolute left-3 top-3.5 text-slate-400" />
+                                        <span className="absolute left-3 top-3 text-slate-400 font-semibold text-[10px]">TShs</span>
                                         <Input
-                                            className="pl-8 h-11 bg-slate-50 border-slate-200 shadow-sm print:border-none print:p-0"
+                                            className="pl-12 h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
                                             type="number"
-                                            placeholder="e.g. 100"
                                             value={tripData.daily_fine_amount}
                                             onChange={(e) => setTripData({ ...tripData, daily_fine_amount: e.target.value })}
+                                            placeholder="0"
                                             disabled={isLocked}
                                         />
                                     </div>
                                 </div>
+                            </div>
+                            <div className="space-y-2 pt-4 border-t border-slate-100">
+                                <Label className="text-xs font-semibold text-slate-500">Journey Type</Label>
+                                <Select
+                                    value={tripData.journey_type}
+                                    onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
+                                    disabled={isLocked || (fleet.find(v => v.id === tripData.vehicle_id)?.asset_type?.toLowerCase().includes('tanker'))}
+                                >
+                                    <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="z-[100]">
+                                        <SelectItem value="Go & Return (Full Cycle)">Go & Return (Full Cycle)</SelectItem>
+                                        <SelectItem value="Go Only (Return Empty)">Go Only (Return Empty)</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                     </div>
@@ -1029,7 +1781,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             {/* ⛽ Section 2: Fuel Allocation & Logic Calculator */}
             <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
                 <CardHeader className="bg-orange-50/80 border-b border-orange-100 py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                    <CardTitle className="text-sm font-black uppercase tracking-[0.2em] text-orange-800 flex items-center gap-3">
+                    <CardTitle className="text-[15px] font-bold text-orange-800 flex items-center gap-3">
                         <div className="p-2 bg-orange-200/50 rounded-lg text-orange-700 print:hidden">
                             <Fuel size={18} />
                         </div>
@@ -1039,11 +1791,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 <CardContent className="p-8">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-end">
                         <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fuel Liters (Qty)</Label>
+                            <Label className="text-xs font-semibold text-slate-500">Fuel Liters (Qty)</Label>
                             <div className="relative">
                                 <Fuel size={14} className="absolute left-3 top-3.5 text-slate-400" />
                                 <Input
-                                    className="pl-10 h-12 bg-slate-50 border-slate-200 font-black text-lg focus-visible:ring-1 ring-orange-500"
+                                    className="pl-10 h-12 bg-slate-50 border-slate-200 font-semibold text-lg focus-visible:ring-1 ring-orange-500"
                                     type="number"
                                     placeholder="e.g. 2575"
                                     value={revenueData.fuel_liters}
@@ -1053,11 +1805,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Price Per Liter (TSh)</Label>
+                            <Label className="text-xs font-semibold text-slate-500">Price Per Liter (TSh)</Label>
                             <div className="relative">
-                                <DollarSign size={14} className="absolute left-3 top-3.5 text-slate-400" />
+                                <span className="absolute left-2.5 top-3.5 text-slate-400 font-semibold text-[10px]">TShs</span>
                                 <Input
-                                    className="pl-10 h-12 bg-slate-50 border-slate-200 font-black text-lg focus-visible:ring-1 ring-orange-500"
+                                    className="pl-10 h-12 bg-slate-50 border-slate-200 font-semibold text-lg focus-visible:ring-1 ring-orange-500"
                                     type="number"
                                     placeholder="e.g. 2780"
                                     value={revenueData.fuel_price}
@@ -1066,14 +1818,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 />
                             </div>
                         </div>
-                        <div className="bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-orange-200 flex flex-col items-end justify-center h-24">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-orange-600 mb-1">Calculated Fuel Total</p>
+                        <div className="bg-slate-50 p-4 rounded-xl border border-dashed border-orange-200 flex flex-col items-end justify-center h-20 print:flex-row print:justify-between print:w-full print:h-auto print:border-none print:p-1 print:bg-white">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-600 mb-1 print:mb-0">Calculated Fuel Total</p>
                             <div className="flex items-baseline gap-2">
-                                <span className="text-2xl font-black text-slate-900">
-                                    {(parseFloat(revenueData.fuel_liters) * parseFloat(revenueData.fuel_price) || 0).toLocaleString()} TZS
+                                <span className="text-base font-semibold text-slate-900 print:text-xs">
+                                    TShs. {(parseFloat(revenueData.fuel_liters) * parseFloat(revenueData.fuel_price) || 0).toLocaleString()}
                                 </span>
-                                <span className="text-sm font-bold text-slate-400">
-                                    Approx. ${((parseFloat(revenueData.fuel_liters) * parseFloat(revenueData.fuel_price) || 0) / (parseFloat(revenueData.exchange_rate) || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                <span className="text-[10px] font-medium text-slate-400 print:text-[8px]">
+                                    (~ ${((parseFloat(revenueData.fuel_liters) * parseFloat(revenueData.fuel_price) || 0) / (countryRates["TZ"] || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD)
                                 </span>
                             </div>
                         </div>
@@ -1081,9 +1833,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     {/* Fuel Budget Toggle — moved from header into body */}
                     <div className="mt-6 pt-6 border-t border-orange-100 flex items-center justify-between print:hidden">
                         <div>
-                            <p className="text-sm font-black text-slate-700">Include Fuel Cost in Trip Budget?</p>
+                            <p className="text-sm font-semibold text-slate-700">Include Fuel Cost in Trip Budget?</p>
                             <p className="text-xs text-slate-400 mt-0.5">
-                                When <span className="font-bold text-orange-600">included</span>, fuel cost is deducted from profit. When <span className="font-bold text-slate-500">excluded</span>, client covers fuel separately.
+                                When <span className="font-semibold text-orange-600">included</span>, fuel cost is deducted from profit. When <span className="font-semibold text-slate-500">excluded</span>, client covers fuel separately.
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1108,7 +1860,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
             {/* 🌍 Section 3: Regional Expense Breakdown */}
             <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-200 print:hidden mb-6">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
+                <p className="text-[10px] font-semibold text-slate-500 mb-4 flex items-center gap-2">
                     <Globe size={12} />
                     Regional Scope: Select countries involved in this journey
                 </p>
@@ -1140,15 +1892,31 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:block print:space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {activeCountries.includes('TZ') && (
-                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                        <CardHeader className="bg-blue-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-blue-900">
-                                <span>Tanzania Operations</span>
-                                <div className="flex gap-2 text-[10px]">
-                                    <span className="text-slate-400">SUBTOTAL:</span>
-                                    <span className="text-blue-700 font-black">${(totals.categoryTotals['TZ']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
+                        <CardHeader className="bg-blue-50/50 border-b py-4 px-8">
+                            <CardTitle className="text-xs font-bold flex items-center justify-between text-blue-900">
+                                <div className="flex items-center gap-3">
+                                    <span>Tanzania Operations</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => addExpense('TZ')} 
+                                        className="h-6 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-100/50 border border-blue-200/50 print:hidden" 
+                                        disabled={isLocked}
+                                    >
+                                        <Plus size={10} className="mr-1" /> Add Item
+                                    </Button>
+                                </div>
+                                <div className="flex flex-col items-end gap-0.5">
+                                    <div className="flex gap-2 text-[10px] items-baseline">
+                                        <span className="text-slate-400 font-semibold uppercase tracking-wider">TZS Subtotal:</span>
+                                        <span className="text-blue-700 font-bold">{Math.round(totals.categoryTotals['TZ']?.tzs || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
+                                        <span>USD: ${(totals.categoryTotals['TZ']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                    </div>
                                 </div>
                             </CardTitle>
                         </CardHeader>
@@ -1159,13 +1927,31 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 )}
 
                 {activeCountries.includes('Zambia') && (
-                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                        <CardHeader className="bg-green-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-green-900">
-                                <span>Zambia Operations</span>
-                                <div className="flex gap-2 text-[10px]">
-                                    <span className="text-slate-400">SUBTOTAL:</span>
-                                    <span className="text-green-700 font-black">${(totals.categoryTotals['Zambia']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
+                        <CardHeader className="bg-green-50/50 border-b py-4 px-8">
+                            <CardTitle className="text-xs font-bold flex items-center justify-between text-green-900">
+                                <div className="flex items-center gap-3">
+                                    <span>Zambia Operations</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => addExpense('Zambia')} 
+                                        className="h-6 px-2 text-[10px] text-green-600 hover:text-green-700 hover:bg-green-100/50 border border-green-200/50 print:hidden" 
+                                        disabled={isLocked}
+                                    >
+                                        <Plus size={10} className="mr-1" /> Add Item
+                                    </Button>
+                                </div>
+                                <div className="flex flex-col items-end gap-0.5">
+                                    <div className="flex gap-2 text-[10px] items-baseline">
+                                        <span className="text-slate-400 font-semibold uppercase tracking-wider">TZS Subtotal:</span>
+                                        <span className="text-green-700 font-bold">{Math.round(totals.categoryTotals['Zambia']?.tzs || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
+                                        <span>USD: ${(totals.categoryTotals['Zambia']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                        <span className="mx-1 opacity-30">|</span>
+                                        <span className="text-green-600">ZMW: {Math.round((totals.categoryTotals['Zambia']?.usd || 0) * (countryRates["Zambia"] || 25.5)).toLocaleString()}</span>
+                                    </div>
                                 </div>
                             </CardTitle>
                         </CardHeader>
@@ -1176,13 +1962,29 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 )}
 
                 {activeCountries.includes('DRC') && (
-                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                        <CardHeader className="bg-yellow-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-yellow-900">
-                                <span>DR Congo Operations</span>
-                                <div className="flex gap-2 text-[10px]">
-                                    <span className="text-slate-400">SUBTOTAL:</span>
-                                    <span className="text-yellow-700 font-black">${(totals.categoryTotals['DRC']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
+                        <CardHeader className="bg-yellow-50/50 border-b py-4 px-8">
+                            <CardTitle className="text-xs font-bold flex items-center justify-between text-yellow-900">
+                                <div className="flex items-center gap-3">
+                                    <span>DR Congo Operations</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => addExpense('DRC')} 
+                                        className="h-6 px-2 text-[10px] text-yellow-600 hover:text-yellow-700 hover:bg-yellow-100/50 border border-yellow-200/50 print:hidden" 
+                                        disabled={isLocked}
+                                    >
+                                        <Plus size={10} className="mr-1" /> Add Item
+                                    </Button>
+                                </div>
+                                <div className="flex flex-col items-end gap-0.5">
+                                    <div className="flex gap-2 text-[10px] items-baseline">
+                                        <span className="text-slate-400 font-semibold uppercase tracking-wider">TZS Subtotal:</span>
+                                        <span className="text-yellow-700 font-bold">{Math.round(totals.categoryTotals['DRC']?.tzs || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
+                                        <span>USD: ${(totals.categoryTotals['DRC']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                    </div>
                                 </div>
                             </CardTitle>
                         </CardHeader>
@@ -1193,9 +1995,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 )}
 
                 {activeCountries.includes('Rwanda') && (
-                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                        <CardHeader className="bg-purple-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-purple-900">
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
+                        <CardHeader className="bg-purple-50/50 border-b py-4 px-8">
+                            <CardTitle className="text-xs font-semibold flex items-center justify-between text-purple-900">
                                 <span>Rwanda Operations</span>
                                 <div className="flex gap-2 text-[10px]">
                                     <span className="text-slate-400">SUBTOTAL:</span>
@@ -1210,10 +2012,21 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 )}
 
                 {activeCountries.includes('Burundi') && (
-                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                        <CardHeader className="bg-rose-50/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-rose-900">
-                                <span>Burundi Operations</span>
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
+                        <CardHeader className="bg-rose-50/50 border-b py-4 px-8">
+                            <CardTitle className="text-xs font-semibold flex items-center justify-between text-rose-900">
+                                <div className="flex items-center gap-3">
+                                    <span>Burundi Operations</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => addExpense('Burundi')} 
+                                        className="h-6 px-2 text-[10px] text-rose-600 hover:text-rose-700 hover:bg-rose-100/50 border border-rose-200/50 print:hidden" 
+                                        disabled={isLocked}
+                                    >
+                                        <Plus size={10} className="mr-1" /> Add Item
+                                    </Button>
+                                </div>
                                 <div className="flex gap-2 text-[10px]">
                                     <span className="text-slate-400">SUBTOTAL:</span>
                                     <span className="text-rose-700 font-black">${(totals.categoryTotals['Burundi']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -1226,13 +2039,29 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </Card>
                 )}
 
-                <Card className="border-none shadow-xl bg-slate-50 overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
-                    <CardHeader className="bg-slate-200/50 border-b py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                        <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center justify-between text-slate-800">
-                            <span>Fixed Expenses</span>
-                            <div className="flex gap-2 text-[10px]">
-                                <span className="text-slate-400">SUBTOTAL:</span>
-                                <span className="text-slate-900 font-black">${(totals.categoryTotals['Fixed']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <Card className="border-none shadow-xl bg-slate-50 overflow-hidden ring-1 ring-slate-200">
+                    <CardHeader className="bg-slate-200/50 border-b py-4 px-8">
+                        <CardTitle className="text-xs font-bold flex items-center justify-between text-slate-800">
+                            <div className="flex items-center gap-3">
+                                <span>Fixed Expenses</span>
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => addExpense('Fixed')} 
+                                    className="h-6 px-2 text-[10px] text-slate-600 hover:text-slate-700 hover:bg-slate-100/50 border border-slate-200/50 print:hidden" 
+                                    disabled={isLocked}
+                                >
+                                    <Plus size={10} className="mr-1" /> Add Item
+                                </Button>
+                            </div>
+                            <div className="flex flex-col items-end gap-0.5">
+                                <div className="flex gap-2 text-[10px] items-baseline">
+                                    <span className="text-slate-400 font-semibold uppercase tracking-wider">TZS Subtotal:</span>
+                                    <span className="text-slate-900 font-bold">{Math.round(totals.categoryTotals['Fixed']?.tzs || 0).toLocaleString()}</span>
+                                </div>
+                                <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
+                                    <span>USD: ${(totals.categoryTotals['Fixed']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                </div>
                             </div>
                         </CardTitle>
                     </CardHeader>
@@ -1242,44 +2071,88 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 </Card>
             </div>
 
-            {/* 🏆 Final Signature & Summary Footer */}
-            <div className="mt-12 bg-slate-900 p-12 rounded-3xl shadow-2xl text-white print:bg-white print:text-black print:border-t-4 print:border-slate-900 print:shadow-none print:rounded-none break-inside-avoid">
-                <div className="flex flex-col md:flex-row justify-between gap-12">
-                    <div className="space-y-10 flex-1">
-                        <div className="grid grid-cols-2 gap-x-20 max-w-lg">
-                            <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Trip Revenue</p>
-                                <p className="text-2xl font-black">${revenueData.revenue_currency === 'USD' ? parseFloat(revenueData.revenue_amount || '0').toLocaleString() : (parseFloat(revenueData.revenue_amount || '0') / (parseFloat(revenueData.exchange_rate) || 2700)).toLocaleString()}</p>
+
+            {/* 🏆 Final Summary & Signature Footer */}
+            <div className="mt-8 bg-slate-900 p-8 rounded-2xl shadow-xl text-white print:bg-gray-50 print:text-black print:border print:border-slate-200 print:shadow-none print:rounded-xl print:p-4 print:mt-4 break-inside-avoid">
+                <div className="flex flex-col md:flex-row justify-between gap-8 print:gap-4">
+                    <div className="space-y-6 flex-1 print:space-y-3">
+                        <div className="grid grid-cols-2 gap-x-12 max-w-lg print:gap-x-6">
+                             <div className="space-y-1">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Gross Trip Revenue</p>
+                                <p className="text-lg font-bold print:text-sm">TShs {revenueData.revenue_currency === 'TZS' ? parseFloat(revenueData.revenue_amount || '0').toLocaleString() : (parseFloat(revenueData.revenue_amount || '0') * (countryRates["TZ"] || 2700)).toLocaleString()}</p>
+                                <p className="text-[10px] text-slate-400 font-medium">
+                                    Est. ${revenueData.revenue_currency === 'USD' ? parseFloat(revenueData.revenue_amount || '0').toLocaleString() : (parseFloat(revenueData.revenue_amount || '0') / (countryRates["TZ"] || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD
+                                </p>
                             </div>
                             <div className="space-y-1">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cumulative Costs</p>
-                                <p className="text-2xl font-black text-orange-400">${totals.totalExpensesUSD.toLocaleString()}</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Budgeted Costs</p>
+                                <p className="text-lg font-bold text-orange-400 print:text-sm print:text-slate-900">TShs {totals.totalExpensesTZS.toLocaleString()}</p>
+                                <p className="text-[10px] text-slate-400 font-medium">
+                                    Est. ${totals.totalExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD
+                                </p>
                             </div>
                         </div>
-                        <div className="pt-10 border-t border-slate-800 print:border-slate-900 space-y-4">
-                            <div className="h-16 w-80 border-b-2 border-slate-700 border-dashed print:border-slate-900"></div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">AUTHORIZED BUDGET OFFICER SIGNATURE</p>
+                        {/* Extra Expenses row — only show when tripsheet is locked */}
+                        {totals.extraExpensesUSD > 0 && (
+                            <div className="flex gap-6 bg-red-900/30 px-4 py-3 rounded-xl border border-red-800/40">
+                                <div className="space-y-0.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-red-400">Extra / Unbudgeted</p>
+                                    <p className="text-base font-bold text-red-300">- TShs {Math.round(totals.extraExpensesTZS).toLocaleString()}</p>
+                                    <p className="text-[10px] text-red-500 font-medium">- ${totals.extraExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>
+                                </div>
+                            </div>
+                        )}
+                        <div className="pt-6 border-t border-slate-800 print:border-slate-300 print:pt-3 space-y-4 print:space-y-2">
+                            <div className="h-12 w-64 border-b border-slate-700 border-dashed print:border-slate-300 print:h-8 print:w-48"></div>
+                            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 print:text-[8px]">AUTHORIZED BUDGET OFFICER SIGNATURE</p>
                         </div>
                     </div>
-                    <div className="bg-white/5 p-10 rounded-2xl text-right md:w-80 flex flex-col justify-center print:bg-slate-50 print:border-2 print:border-slate-900">
-                        <p className="text-xs font-black uppercase tracking-[0.4em] text-slate-500 mb-4">PROJECTED NET PROFIT</p>
-                        <div className={`text-6xl font-black ${totals.netProfitUSD < 0 ? 'text-red-400' : 'text-emerald-400 print:text-emerald-700'}`}>
-                            ${totals.netProfitUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    <div className="bg-white/5 p-6 rounded-xl text-right md:w-80 flex flex-col justify-center print:bg-white print:border print:border-slate-200 print:p-3 print:w-56">
+                        <p className="text-[9px] font-black uppercase tracking-[0.4em] text-slate-500 mb-1">BUDGETED NET PROFIT</p>
+                        <div className={`text-2xl font-black print:text-lg ${totals.netProfitUSD < 0 ? 'text-red-400' : 'text-slate-300'}`}>
+                            TShs {(totals.netProfitUSD * (countryRates["TZ"] || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
-                        <div className={`text-sm font-bold opacity-80 ${totals.netProfitUSD < 0 ? 'text-red-300' : 'text-emerald-300 print:text-emerald-600'} mt-1`}>
-                            {(totals.netProfitUSD * (parseFloat(revenueData.exchange_rate) || 2700)).toLocaleString()} TSh
-                        </div>
-                        <p className="text-[10px] font-bold text-slate-400 mt-4 uppercase tracking-tighter">Budget valid for current exchange rate</p>
+                        <p className={`text-[10px] font-bold opacity-70 mb-4 ${totals.netProfitUSD < 0 ? 'text-red-300' : 'text-slate-400'}`}>
+                            ${totals.netProfitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        </p>
+                        {totals.extraExpensesUSD > 0 && (
+                            <>
+                                <div className="border-t border-red-800/50 pt-4 mt-2">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-red-400 mb-1">FINAL NET PROFIT</p>
+                                    <div className={`text-3xl font-black print:text-xl ${totals.finalNetProfitUSD < 0 ? 'text-red-400' : 'text-emerald-400 print:text-emerald-700'}`}>
+                                        TShs {(totals.finalNetProfitUSD * (countryRates["TZ"] || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    </div>
+                                    <p className={`text-xs font-bold mt-1 ${totals.finalNetProfitUSD < 0 ? 'text-red-300' : 'text-emerald-300'}`}>
+                                        ${totals.finalNetProfitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                    </p>
+                                </div>
+                            </>
+                        )}
+                        {totals.extraExpensesUSD === 0 && (
+                            <div className={`text-3xl font-black print:text-xl ${totals.netProfitUSD < 0 ? 'text-red-400' : 'text-emerald-400 print:text-emerald-700'}`}>
+                                TShs {(totals.netProfitUSD * (countryRates["TZ"] || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </div>
+                        )}
+                        <p className="text-[9px] font-bold text-slate-400 mt-4 uppercase tracking-tighter print:hidden">Budget valid for current exchange rates</p>
                     </div>
                 </div>
             </div>
 
+
             {/* 💾 Actions Floating Footer (Sticky bottom) */}
-            <div className="sticky bottom-6 flex flex-col md:flex-row items-center justify-end gap-3 p-4 bg-white/60 backdrop-blur-xl rounded-2xl shadow-2xl border ring-1 ring-slate-200 z-50 animate-in slide-in-from-bottom-8 duration-1000 print:hidden mx-4 md:mx-auto">
+            <div className="sticky bottom-6 flex flex-col md:flex-row items-center justify-end gap-3 p-4 bg-white/70 backdrop-blur-xl rounded-2xl shadow-2xl border ring-1 ring-slate-200 z-50 animate-in slide-in-from-bottom-8 duration-1000 print:hidden mx-4 md:mx-auto">
+                <div className="hidden md:flex flex-col items-start mr-auto px-4 border-r pr-6 border-slate-100">
+                    <div className="flex items-center gap-2 text-emerald-600">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider">Draft Saved Locally</span>
+                    </div>
+                    <p className="text-[8px] text-slate-400 font-medium italic">Refresh safely anytime</p>
+                </div>
+
                 <Button
                     variant="ghost"
                     size="lg"
-                    className="font-bold text-slate-500 hover:text-slate-950 w-full md:w-auto h-12 order-last md:order-first"
+                    className="font-bold text-slate-500 hover:text-slate-900 w-full md:w-auto h-12 order-last md:order-first"
                     onClick={() => {
                         if (confirm("Are you sure? Unsaved changes will be lost.")) {
                             if (onSaveSuccess) onSaveSuccess();
@@ -1293,13 +2166,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     <Button
                         variant="outline"
                         size="lg"
-                        className="font-black border-2 border-slate-900 hover:bg-slate-900 hover:text-white transition-all px-8 h-12 rounded-xl w-full md:w-auto"
-                        onClick={() => window.print()}
+                        className="font-black border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all px-8 h-12 rounded-xl w-full md:w-auto"
+                        onClick={handleExportExcel}
                         disabled={isSaving}
                     >
-                        <FileText size={20} className="mr-2" />
-                        Print Budget Report
+                        <Download size={20} className="mr-2" />
+                        Download Excel
                     </Button>
+
 
                     {/* Superadmin: Approve Budget (only visible when status is Planned) */}
                     {isSuperAdmin && tripId && currentStatus === 'Planned' && (
@@ -1341,6 +2215,133 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     )}
                 </div>
             </div>
+
+
+            {/* 🔴 OUT-OF-BUDGET / EXTRA EXPENSES — Only visible when trip is Approved/Active/Completed */}
+            {isLocked && (
+                <div className="mt-8 border-2 border-dashed border-red-200 rounded-2xl p-6 bg-red-50/30">
+                    {/* Header */}
+                    <div className="flex items-start justify-between mb-6">
+                        <div>
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-red-100 rounded-lg">
+                                    <TrendingDown size={18} className="text-red-600" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-red-900">Unbudgeted / Extra Expenses</h3>
+                                    <p className="text-[10px] text-red-500 font-medium mt-0.5">Expenses incurred beyond the approved budget. These reduce the final net profit.</p>
+                                </div>
+                            </div>
+                        </div>
+                        {totals.extraExpensesUSD > 0 && (
+                            <div className="text-right bg-red-100 px-4 py-2 rounded-xl">
+                                <p className="text-[9px] font-bold text-red-500 uppercase tracking-wider">Total Extra Spend</p>
+                                <p className="text-base font-black text-red-700">TShs {Math.round(totals.extraExpensesTZS).toLocaleString()}</p>
+                                <p className="text-[10px] text-red-400 font-medium">${totals.extraExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Per-country extra expense cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {[
+                            { id: 'TZ', label: 'Tanzania', color: 'blue' },
+                            { id: 'Zambia', label: 'Zambia', color: 'green' },
+                            { id: 'DRC', label: 'DR Congo', color: 'yellow' },
+                            { id: 'Rwanda', label: 'Rwanda', color: 'purple' },
+                            { id: 'Burundi', label: 'Burundi', color: 'rose' },
+                            { id: 'Fixed', label: 'General / Fixed', color: 'slate' }
+                        ]
+                            .filter(c => c.id === 'Fixed' || activeCountries.includes(c.id))
+                            .map(country => {
+                                const extraForCountry = expenses
+                                    .map((e, i) => ({ ...e, originalIndex: i }))
+                                    .filter(e => e.is_extra && e.category === country.id);
+                                const subtotalTZS = extraForCountry.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+                                const subtotalUSD = subtotalTZS / (countryRates['TZ'] || 2700);
+
+                                return (
+                                    <div key={country.id} className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
+                                        <div className="flex items-center justify-between px-5 py-3 bg-red-50/60 border-b border-red-100">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-red-900">{country.label}</span>
+                                                <button
+                                                    onClick={() => addExtraExpense(country.id as any)}
+                                                    className="flex items-center gap-1 text-[10px] text-red-600 hover:text-red-700 bg-red-100 hover:bg-red-200 rounded-md px-2 py-1 font-semibold transition-colors"
+                                                >
+                                                    <Plus size={10} /> Add Extra
+                                                </button>
+                                            </div>
+                                            {subtotalTZS > 0 && (
+                                                <div className="text-right">
+                                                    <p className="text-[10px] font-bold text-red-700">TShs {Math.round(subtotalTZS).toLocaleString()}</p>
+                                                    <p className="text-[9px] text-red-400">${subtotalUSD.toFixed(2)}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="p-3 space-y-2">
+                                            {extraForCountry.length === 0 ? (
+                                                <div className="text-center py-4 text-[10px] text-slate-300 border-2 border-dashed border-slate-100 rounded-lg">
+                                                    No extra expenses for {country.label} yet
+                                                </div>
+                                            ) : extraForCountry.map(item => {
+                                                const amt = parseFloat(item.amount) || 0;
+                                                const usd = amt / (countryRates['TZ'] || 2700);
+                                                return (
+                                                    <div key={item.originalIndex} className="group flex gap-2 items-center bg-red-50/30 border border-red-100 p-1.5 rounded-lg hover:border-red-200 transition-all">
+                                                        <Input
+                                                            className="flex-1 h-7 bg-white border-none text-[12px] text-slate-700 font-normal focus-visible:ring-1 ring-red-200"
+                                                            placeholder="What was the expense?"
+                                                            value={item.item_name}
+                                                            onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                                        />
+                                                        <Select
+                                                            value={item.nature}
+                                                            onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
+                                                        >
+                                                            <SelectTrigger className="w-28 h-7 !text-[11px] bg-white border-red-100 shadow-none text-red-500">
+                                                                <SelectValue placeholder="Nature" />
+                                                            </SelectTrigger>
+                                                            <SelectContent className="z-[100]">
+                                                                <SelectItem value="Unbudgeted">Unbudgeted</SelectItem>
+                                                                <SelectItem value="Emergency">Emergency</SelectItem>
+                                                                <SelectItem value="Breakdown">Breakdown</SelectItem>
+                                                                <SelectItem value="Fine / Penalty">Fine / Penalty</SelectItem>
+                                                                <SelectItem value="Extra Fuel">Extra Fuel</SelectItem>
+                                                                <SelectItem value="Other">Other</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <div className="flex items-center gap-1 w-28">
+                                                            <span className="text-[8px] text-red-300 font-bold shrink-0">TZS</span>
+                                                            <Input
+                                                                className="h-7 text-right text-[12px] font-medium text-red-700 bg-white border-red-100 focus-visible:ring-1 ring-red-300 w-full"
+                                                                type="text"
+                                                                placeholder="0"
+                                                                value={formatWithCommas(item.amount || '')}
+                                                                onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
+                                                            />
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-400 w-12 text-right shrink-0">${usd.toFixed(0)}</span>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-6 w-6 text-red-300 hover:text-destructive hover:bg-destructive/5 transition-opacity shrink-0"
+                                                            onClick={() => removeExpense(item.originalIndex)}
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </Button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        }
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 };

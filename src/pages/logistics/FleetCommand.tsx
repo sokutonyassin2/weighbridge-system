@@ -72,8 +72,7 @@ const FleetCommand = () => {
             const { data, error } = await supabase
                 .from("logistics_fleet")
                 .select("*")
-                .order("created_at", { ascending: false })
-                .limit(100);
+                .order("created_at", { ascending: false });
             if (error) throw error;
             return data;
         }
@@ -303,7 +302,8 @@ const FleetCommand = () => {
                     if (doc.file) {
                         docUrl = await handleDocumentUpload(doc.file);
                     }
-                    const { file, ...rest } = doc;
+                    // Strip 'id' and 'file' so DB can auto-generate or reuse correctly
+                    const { file, id: _id, ...rest } = doc;
 
                     // Sanitize document date
                     const docPayload = { ...rest, document_url: docUrl, fleet_id: fleetData.id };
@@ -466,7 +466,8 @@ const FleetCommand = () => {
                     if (doc.file) {
                         docUrl = await handleDocumentUpload(doc.file);
                     }
-                    const { file, ...rest } = doc;
+                    // Strip 'id' and 'file' to let DB generate fresh IDs upon re-insertion
+                    const { file, id: _id, ...rest } = doc;
                     const docPayload = {
                         ...rest,
                         document_url: docUrl,
@@ -807,9 +808,10 @@ const FleetCommand = () => {
         if (!fleet) return [];
 
         const baseFiltered = fleet.filter(item => {
-            const matchesSearch = (item.vehicle_no || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.horse_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (item.trailer_number || "").toLowerCase().includes(searchTerm.toLowerCase());
+            const normalizedSearch = searchTerm.replace(/\s+/g, "").toLowerCase();
+            const matchesSearch = (item.vehicle_no || "").replace(/\s+/g, "").toLowerCase().includes(normalizedSearch) ||
+                (item.horse_number || "").replace(/\s+/g, "").toLowerCase().includes(normalizedSearch) ||
+                (item.trailer_number || "").replace(/\s+/g, "").toLowerCase().includes(normalizedSearch);
 
             if (activeTab === "all") return matchesSearch;
             return matchesSearch && (item.fleet_category || "").toLowerCase() === activeTab.toLowerCase();
@@ -1294,40 +1296,50 @@ const FleetCommand = () => {
                                             </Button>
 
                                             <div className="grid grid-cols-2 gap-3">
-                                                <div className="space-y-1">
-                                                    <Label className="text-[10px]">Type</Label>
-                                                    <Select
-                                                        value={doc.document_type}
-                                                        onValueChange={(v) => {
-                                                            const updated = [...fleetDocuments];
-                                                            updated[idx].document_type = v;
-                                                            setFleetDocuments(updated);
-                                                        }}
-                                                    >
-                                                        <SelectTrigger className="h-8 text-xs">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {(docTypes as any[])?.filter((t: any) => t.category === activeRegTab || t.category === 'General').map((type: any) => (
-                                                                <SelectItem key={type.id} value={type.name}>{type.name}</SelectItem>
-                                                            ))}
-                                                            <SelectItem value="Custom">Custom / Other...</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <Label className="text-[10px]">Expiry Date</Label>
-                                                    <Input
-                                                        type="date"
-                                                        className="h-8 text-xs"
-                                                        value={doc.expiry_date}
-                                                        onChange={(e) => {
-                                                            const updated = [...fleetDocuments];
-                                                            updated[idx].expiry_date = e.target.value;
-                                                            setFleetDocuments(updated);
-                                                        }}
-                                                    />
-                                                </div>
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px]">Type</Label>
+                                                        <Select
+                                                            value={doc.document_type}
+                                                            onValueChange={(v) => {
+                                                                const updated = [...fleetDocuments];
+                                                                updated[idx].document_type = v;
+                                                                // Truck Cards are permanent - clear expiry
+                                                                if (v.toLowerCase().includes("truck card")) {
+                                                                    updated[idx].expiry_date = "";
+                                                                }
+                                                                setFleetDocuments(updated);
+                                                            }}
+                                                        >
+                                                            <SelectTrigger className="h-8 text-xs">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {(docTypes as any[])?.filter((t: any) => t.category === activeRegTab || t.category === 'General').map((type: any) => (
+                                                                    <SelectItem key={type.id} value={type.name}>{type.name}</SelectItem>
+                                                                ))}
+                                                                <SelectItem value="Custom">Custom / Other...</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px]">Expiry Date</Label>
+                                                        {doc.document_type?.toLowerCase().includes("truck card") ? (
+                                                            <div className="h-8 flex items-center px-3 bg-green-50 border border-green-100 rounded text-[9px] font-bold text-green-700 uppercase">
+                                                                Permanent Document
+                                                            </div>
+                                                        ) : (
+                                                            <Input
+                                                                type="date"
+                                                                className="h-8 text-xs"
+                                                                value={doc.expiry_date}
+                                                                onChange={(e) => {
+                                                                    const updated = [...fleetDocuments];
+                                                                    updated[idx].expiry_date = e.target.value;
+                                                                    setFleetDocuments(updated);
+                                                                }}
+                                                            />
+                                                        )}
+                                                    </div>
                                             </div>
 
                                             <div className="flex items-center gap-3">

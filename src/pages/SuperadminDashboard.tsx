@@ -151,9 +151,9 @@ export default function SuperadminDashboard() {
 
     const { todayRevenue, todayTransactions } = useMemo(() => {
         const now = new Date();
-        const startOfBusinessDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0);
+        const startOfBusinessDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 7, 0, 0);
 
-        // If it's before 6 AM, current business day started yesterday at 6 AM
+        // If it's before 7 AM, current business day started yesterday at 7 AM (Night Shift morning)
         if (now < startOfBusinessDay) {
             startOfBusinessDay.setDate(startOfBusinessDay.getDate() - 1);
         }

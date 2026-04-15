@@ -35,6 +35,7 @@ import DriverRegistry from "./pages/logistics/DriverRegistry";
 import TripManagement from "./pages/logistics/TripManagement";
 import ComplianceCenter from "./pages/logistics/ComplianceCenter";
 import VehiclePerformance from "./pages/logistics/VehiclePerformance";
+import TransitTripSheetPage from "./pages/logistics/TransitTripSheetPage";
 import GarageDashboard from "./pages/garage/GarageDashboard";
 import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
 import InventoryReports from "./pages/garage/InventoryReports";
@@ -441,6 +442,14 @@ const App = () => {
                   <Layout>
                     <VehiclePerformance />
                   </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/transit-sheet/:id"
+              element={
+                <ProtectedRoute>
+                  <TransitTripSheetPage />
                 </ProtectedRoute>
               }
             />

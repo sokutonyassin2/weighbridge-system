@@ -14,7 +14,6 @@ interface WeightSettings {
   cameraEnabled: boolean;
   cameraUrl: string;
   requireImageCapture: boolean;
-  emergencyModeActive: boolean;
 }
 
 const defaultSettings: WeightSettings = {
@@ -23,7 +22,6 @@ const defaultSettings: WeightSettings = {
   cameraEnabled: false,
   cameraUrl: `http://${window.location.hostname}:5000`,
   requireImageCapture: false,
-  emergencyModeActive: false,
 };
 
 export default function AdminWeightSettings() {
@@ -57,7 +55,6 @@ export default function AdminWeightSettings() {
           cameraEnabled: data.camera_enabled ?? defaultSettings.cameraEnabled,
           cameraUrl: data.camera_url ?? defaultSettings.cameraUrl,
           requireImageCapture: data.require_image_capture ?? defaultSettings.requireImageCapture,
-          emergencyModeActive: data.emergency_mode_active ?? defaultSettings.emergencyModeActive,
         });
       }
     } catch (err) {
@@ -74,7 +71,6 @@ export default function AdminWeightSettings() {
           camera_enabled: settings.cameraEnabled,
           camera_url: settings.cameraUrl,
           require_image_capture: settings.requireImageCapture,
-          emergency_mode_active: settings.emergencyModeActive,
           updated_at: new Date().toISOString()
         }], { onConflict: 'id' });
 
@@ -95,7 +91,6 @@ export default function AdminWeightSettings() {
         camera_enabled: settings.cameraEnabled,
         camera_url: settings.cameraUrl,
         require_image_capture: settings.requireImageCapture,
-        emergency_mode_active: settings.emergencyModeActive,
         updated_at: new Date().toISOString(),
       };
 
@@ -222,25 +217,7 @@ export default function AdminWeightSettings() {
             </p>
           </div>
 
-          <div className="flex items-center justify-between p-4 border rounded-lg border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900 overflow-hidden relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-            <div className="space-y-1 relative z-10">
-              <Label htmlFor="emergency-mode" className="text-base font-bold text-red-700 dark:text-red-400">
-                Mkombozi (Plan B) - Emergency Mode
-              </Label>
-              <p className="text-sm text-red-600/80 dark:text-red-300/80 max-w-lg">
-                Activate this to force all weighbridge operations to route hardware traffic through the local MacBook (`localhost:5000`). Use this when the local server access point is down.
-              </p>
-            </div>
-            <Switch
-              id="emergency-mode"
-              checked={settings.emergencyModeActive}
-              onCheckedChange={(checked) =>
-                setSettings({ ...settings, emergencyModeActive: checked })
-              }
-              className="relative z-10"
-            />
-          </div>
+
         </CardContent>
       </Card>
 

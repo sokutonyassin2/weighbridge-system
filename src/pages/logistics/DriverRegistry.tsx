@@ -314,7 +314,8 @@ const DriverRegistry = () => {
                 const docUrls = await Promise.all(docUploadPromises);
 
                 const docsToInsert = documents.map((doc, index) => {
-                    const { file, ...rest } = doc;
+                    // Strip 'id' and 'file' so DB can auto-generate or reuse correctly
+                    const { file, id: _id, ...rest } = doc;
                     const docPayload = {
                         ...rest,
                         document_url: docUrls[index],
@@ -397,7 +398,8 @@ const DriverRegistry = () => {
                     if (doc.file) {
                         docUrl = await handleDocumentUpload(doc.file);
                     }
-                    const { file, ...rest } = doc;
+                    // Strip 'id' and 'file' to let DB generate fresh IDs upon re-insertion
+                    const { file, id: _id, ...rest } = doc;
                     return {
                         ...rest,
                         document_url: docUrl,
@@ -805,6 +807,10 @@ const DriverRegistry = () => {
                                                         onValueChange={(v) => {
                                                             const updated = [...driverDocuments];
                                                             updated[idx].document_type = v;
+                                                            // Handle permanent documents if any
+                                                            if (v.toLowerCase().includes("permanent") || v.toLowerCase().includes("truck card")) {
+                                                                updated[idx].expiry_date = "";
+                                                            }
                                                             setDriverDocuments(updated);
                                                         }}
                                                     >
@@ -821,16 +827,22 @@ const DriverRegistry = () => {
                                                 </div>
                                                 <div className="space-y-1">
                                                     <Label className="text-[10px]">Expiry Date</Label>
-                                                    <Input
-                                                        type="date"
-                                                        className="h-8 text-xs"
-                                                        value={doc.expiry_date}
-                                                        onChange={(e) => {
-                                                            const updated = [...driverDocuments];
-                                                            updated[idx].expiry_date = e.target.value;
-                                                            setDriverDocuments(updated);
-                                                        }}
-                                                    />
+                                                    {doc.document_type?.toLowerCase().includes("permanent") || doc.document_type?.toLowerCase().includes("truck card") ? (
+                                                        <div className="h-8 flex items-center px-3 bg-green-50 border border-green-100 rounded text-[9px] font-bold text-green-700 uppercase">
+                                                            Permanent Document
+                                                        </div>
+                                                    ) : (
+                                                        <Input
+                                                            type="date"
+                                                            className="h-8 text-xs"
+                                                            value={doc.expiry_date}
+                                                            onChange={(e) => {
+                                                                const updated = [...driverDocuments];
+                                                                updated[idx].expiry_date = e.target.value;
+                                                                setDriverDocuments(updated);
+                                                            }}
+                                                        />
+                                                    )}
                                                 </div>
                                             </div>
 

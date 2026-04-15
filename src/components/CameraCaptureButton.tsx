@@ -12,7 +12,6 @@ interface CameraCaptureButtonProps {
   weighNumber: number;
   onPhotoCapture?: (photoUrl: string) => void;
   disabled?: boolean;
-  emergencyMode?: boolean;
 }
 
 interface CameraSettings {
@@ -27,7 +26,6 @@ export function CameraCaptureButton({
   weighNumber,
   onPhotoCapture,
   disabled = false,
-  emergencyMode = false,
 }: CameraCaptureButtonProps) {
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPath, setCapturedPath] = useState<string | null>(null);
@@ -116,7 +114,7 @@ export function CameraCaptureButton({
     setError(null);
 
     try {
-      const cameraBaseUrl = emergencyMode ? "http://localhost:5000" : settings.cameraUrl;
+      const cameraBaseUrl = settings.cameraUrl;
       const response = await fetch(`${cameraBaseUrl}/api/hardware/capture`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

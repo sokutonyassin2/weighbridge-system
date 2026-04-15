@@ -360,70 +360,80 @@ export default function ShiftSummaryReport() {
       {reportData && (
         <div className="p-8 max-w-7xl mx-auto print-container">
           {/* Header */}
-          {/* Header */}
-          <div className="text-center mb-8 border-b pb-4">
-            <h1 className="text-3xl font-bold mb-2">Shift Summary Report</h1>
-            <p className="text-lg text-muted-foreground">{getCurrentShiftName()}</p>
-            <div className="flex flex-col gap-1 mt-2 text-sm text-muted-foreground">
-              <p>
-                Period: {format(new Date(startDate), "MMM dd, yyyy")} - {format(new Date(endDate), "MMM dd, yyyy")}
-              </p>
-              <p>
-                Time: {reportData.timeRange}
-              </p>
-              <p>
-                Operator(s): {reportData.involvedOperators?.length > 0
-                  ? reportData.involvedOperators.join(", ")
-                  : "All Operators"}
-              </p>
+          <div className={`mb-10 text-center relative text-slate-900 border-b-2 border-slate-950 pb-8 print:mb-6 print:pb-4`}>
+            {/* Logo Placeholder - assuming same logo */}
+            <img
+              src="/images/energy-feeds-logo.jpg"
+              alt="Logo"
+              className="h-20 mb-4 mx-auto object-contain"
+            />
+            <h1 className="text-3xl font-black text-slate-950 uppercase tracking-tight">
+              ENERGY FEEDS LIMITED
+            </h1>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Official Shift Summary</p>
+            
+            <h2 className="mt-8 text-sm font-black text-slate-900 uppercase tracking-[0.3em] flex items-center justify-center gap-4">
+              <span className="h-px bg-slate-200 flex-1"></span>
+              PERIODIC PERFORMANCE REPORT
+              <span className="h-px bg-slate-200 flex-1"></span>
+            </h2>
+
+            <div className="grid grid-cols-3 gap-8 mt-8 text-left px-4 print:grid-cols-3 print:gap-4 print:mt-4">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reporting Period</p>
+                <p className="font-bold text-slate-800">
+                  {format(new Date(startDate), "dd/MM/yyyy")} - {format(new Date(endDate), "dd/MM/yyyy")}
+                </p>
+              </div>
+              <div className="space-y-1 text-center">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Shift Name</p>
+                <p className="font-bold text-slate-800 uppercase">{getCurrentShiftName()}</p>
+              </div>
+              <div className="space-y-1 text-right">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Operator Context</p>
+                <p className="font-bold text-slate-800">
+                  {reportData.involvedOperators?.length > 0
+                    ? reportData.involvedOperators.join(", ")
+                    : "ALL PLATFORM OPERATORS"}
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Total Vehicles</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{reportData.summary.totalVehicles}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-green-600">First Weigh Collections</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  TShs {reportData.summary.firstWeighTotal.toLocaleString()}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10 print:mb-6">
+            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Throughput</p>
+                <div className="text-3xl font-black text-slate-950">{reportData.summary.totalVehicles} <span className="text-xs font-bold text-slate-400">UNITS</span></div>
+            </div>
+            
+            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Weigh Revenue</p>
+                <div className="text-3xl font-black text-emerald-600">
+                  <span className="text-xs mr-1">TZS</span>{reportData.summary.firstWeighTotal.toLocaleString()}
                 </div>
-                <p className="text-xs text-muted-foreground">{reportData.summary.firstWeighCount} payments</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-destructive">Penalty Collections</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-destructive">
-                  TShs {reportData.summary.penaltyTotal.toLocaleString()}
+                <p className="text-[10px] font-bold text-slate-400 uppercase">{reportData.summary.firstWeighCount} PAYMENTS PROCESSED</p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Penalty Collections</p>
+                <div className="text-3xl font-black text-rose-600">
+                  <span className="text-xs mr-1">TZS</span>{reportData.summary.penaltyTotal.toLocaleString()}
                 </div>
-                <p className="text-xs text-muted-foreground">{reportData.summary.penaltyCount} penalties</p>
-              </CardContent>
-            </Card>
+                <p className="text-[10px] font-bold text-slate-400 uppercase">{reportData.summary.penaltyCount} PENALTIES ISSUED</p>
+            </div>
           </div>
 
-          {/* Grand Total */}
-          <Card className="mb-8 bg-primary/10">
-            <CardContent className="py-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold">Grand Total Collections</h2>
-                <p className="text-4xl font-bold text-primary">
-                  TShs {reportData.summary.grandTotal.toLocaleString()}
-                </p>
+          <div className="mb-10 bg-slate-900 text-white rounded-3xl p-8 shadow-xl shadow-slate-200 print:mb-6 print:p-6 print:shadow-none">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Portfolio Valuation</p>
+                <h2 className="text-2xl font-black uppercase tracking-tight">Consolidated Revenue</h2>
               </div>
-            </CardContent>
-          </Card>
+              <p className="text-5xl font-black tracking-tighter">
+                <span className="text-lg mr-2 text-slate-400 font-bold">TZS</span>{reportData.summary.grandTotal.toLocaleString()}
+              </p>
+            </div>
+          </div>
 
           {/* Detailed Breakdown Table */}
           <Card>

@@ -173,19 +173,39 @@ export default function VehiclePerformance() {
                     </div>
 
                     {/* REPORT HEADER (PRINT ONLY) */}
-                    <div className="hidden print:block text-center mb-8 border-b border-slate-900 pb-6">
-                        <h1 className="text-2xl font-bold uppercase tracking-wider mb-2">Energy Feeds Limited</h1>
-                        <p className="text-xs text-slate-500 font-semibold uppercase tracking-widest mb-6">Logistics Department • Vehicle Report Card</p>
-                        <div className="flex justify-between items-end">
-                            <div className="text-left">
-                                <h2 className="text-3xl font-bold text-slate-900">{vehicleProfile.vehicle_no || vehicleProfile.trailer_number}</h2>
-                                <p className="text-lg text-slate-600 font-medium">{vehicleProfile.make_model}</p>
+                    <div className="hidden print:block mb-10 relative text-slate-900 border-b-2 border-slate-950 pb-8">
+                        <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-6">
+                                <img
+                                    src="/images/energy-feeds-logo.jpg"
+                                    alt="Logo"
+                                    className="h-20 object-contain"
+                                />
+                                <div>
+                                    <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">ENERGY FEEDS LIMITED</h1>
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">FLEET PERFORMANCE & LOGISTICS REPORT</p>
+                                    <div className="flex gap-4 mt-2 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                        <span>Generated: {format(new Date(), "MMM dd, yyyy • HH:mm")}</span>
+                                        <span className="opacity-30">•</span>
+                                        <span>Department: Logistics Operations</span>
+                                    </div>
+                                </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-xs text-slate-500 uppercase tracking-wider">Generated On</p>
-                                <p className="font-semibold text-slate-900">{format(new Date(), "MMM dd, yyyy • HH:mm")}</p>
+                                <div className="text-3xl font-black text-slate-950 tracking-tighter">
+                                    {vehicleProfile.vehicle_no || vehicleProfile.trailer_number}
+                                </div>
+                                <p className="text-sm font-bold text-slate-600 uppercase tracking-widest mt-1">
+                                    {vehicleProfile.make_model || 'Standard Asset'}
+                                </p>
                             </div>
                         </div>
+
+                        <h2 className="mt-8 text-sm font-black text-slate-900 uppercase tracking-[0.3em] flex items-center justify-center gap-4">
+                            <span className="h-px bg-slate-200 flex-1"></span>
+                            OFFICIAL ASSET SCORECARD
+                            <span className="h-px bg-slate-200 flex-1"></span>
+                        </h2>
                     </div>
 
                     {/* 1. PROFILE & STATS CARD */}

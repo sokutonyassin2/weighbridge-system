@@ -65,9 +65,18 @@ const ComplianceCenter = () => {
         }
     });
 
+    const normalizeDocType = (type: string) => {
+        if (!type) return "";
+        const t = type.toUpperCase().trim();
+        if (t === "INSUARENCE" || t === "INSUARANCE" || t === "INSURENCE") return "INSURANCE";
+        return t;
+    };
+
     const getStatusInfo = (expiryDate: string, documentType?: string) => {
+        const normalizedType = normalizeDocType(documentType || "");
+        
         // ONLY Truck Cards are permanent.
-        if (documentType?.toLowerCase().includes("truck card")) {
+        if (normalizedType.includes("TRUCK CARD")) {
             return {
                 label: "VALID",
                 color: "bg-green-600",
@@ -363,7 +372,7 @@ const ComplianceCenter = () => {
                                     </Table>
                                 </TabsContent>
 
-                                {[...new Set(fleetDocs?.map((d: any) => d.document_type))].map((type: any) => (
+                                 {[...new Set(fleetDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
                                     <TabsContent key={type} value={type} className="m-0">
                                         <Table>
                                             <TableHeader className="bg-slate-50/50">
@@ -378,7 +387,7 @@ const ComplianceCenter = () => {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {fleetDocs?.filter((d: any) => d.document_type === type).map((doc: any) => {
+                                                {fleetDocs?.filter((d: any) => normalizeDocType(d.document_type) === type).map((doc: any) => {
                                                     const status = getStatusInfo(doc.expiry_date, doc.document_type);
                                                     return (
                                                         <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
@@ -470,7 +479,7 @@ const ComplianceCenter = () => {
                                     <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Document Categories</h3>
                                     <TabsList className="bg-white border">
                                         <TabsTrigger value="all" className="text-[10px] font-bold">ALL</TabsTrigger>
-                                        {[...new Set(driverDocs?.map((d: any) => d.document_type))].map((type: any) => (
+                                        {[...new Set(driverDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
                                             <TabsTrigger key={type} value={type} className="text-[10px] font-bold uppercase">{type}</TabsTrigger>
                                         ))}
                                     </TabsList>
@@ -543,7 +552,7 @@ const ComplianceCenter = () => {
                                     </Table>
                                 </TabsContent>
 
-                                {[...new Set(driverDocs?.map((d: any) => d.document_type))].map((type: any) => (
+                                 {[...new Set(driverDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
                                     <TabsContent key={type} value={type} className="m-0">
                                         <Table>
                                             <TableHeader className="bg-slate-50/50">
@@ -557,7 +566,7 @@ const ComplianceCenter = () => {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {driverDocs?.filter((d: any) => d.document_type === type).map((doc: any) => {
+                                                {driverDocs?.filter((d: any) => normalizeDocType(d.document_type) === type).map((doc: any) => {
                                                     const status = getStatusInfo(doc.expiry_date, doc.document_type);
                                                     return (
                                                         <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">

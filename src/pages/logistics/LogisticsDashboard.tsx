@@ -147,19 +147,19 @@ const LogisticsDashboard = () => {
     });
 
     return (
-        <div className="space-y-6 animate-fade-in p-6">
-            <div className="flex items-center justify-between">
+        <div className="space-y-6 animate-fade-in p-4 md:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Logistics Overview</h1>
-                    <p className="text-muted-foreground mt-2">Manage fleet, drivers, and active journeys.</p>
+                    <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Logistics Overview</h1>
+                    <p className="text-xs md:text-sm text-muted-foreground mt-1">Manage fleet, drivers, and active journeys.</p>
                 </div>
             </div>
 
             <div className="space-y-6">
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="grid gap-4 md:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     {/* Metric Cards */}
                     <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 hover:scale-[1.02] transition-transform">
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 md:pb-2">
                             <CardTitle className="text-sm font-medium text-muted-foreground">Total Fleet</CardTitle>
                             <Truck className="h-4 w-4 text-primary" />
                         </CardHeader>

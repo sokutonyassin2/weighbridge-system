@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
 import { 
     Dialog, 
     DialogContent, 
@@ -60,7 +61,7 @@ const TripSheets = () => {
         groupKey: '',
         trips: []
     });
-    const [batchData, setBatchData] = useState({ invoice_no: '', payment_status: 'Pending', invoice_date: '' });
+    const [batchData, setBatchData] = useState({ invoice_no: '', payment_status: 'Pending' });
     const [isProcessingBatch, setIsProcessingBatch] = useState(false);
     const [selectedBatchTrips, setSelectedBatchTrips] = useState<string[]>([]);
     const [selectedTrip, setSelectedTrip] = useState<any>(null);
@@ -380,23 +381,23 @@ const TripSheets = () => {
     }
 
     return (
-        <div className="p-6 space-y-6 animate-fade-in max-w-[1600px] mx-auto">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-4 md:p-6 space-y-6 animate-fade-in max-w-[1600px] mx-auto">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-xl font-bold tracking-tight text-slate-900">Transit Financials</h1>
-                    <p className="text-[11px] text-slate-500 font-medium">Client Grouping & Logistics Budgeting</p>
+                    <p className="text-[11px] text-slate-500 font-medium whitespace-nowrap">Client Grouping & Logistics Budgeting</p>
                 </div>
-                <div className="flex items-center gap-3">
-                    <div className="relative w-64">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+                    <div className="relative flex-1 sm:w-64">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                         <Input 
-                            placeholder="Search client, trip, or truck..." 
-                            className="pl-9 h-10 bg-white border-slate-200 shadow-sm rounded-xl text-xs font-medium"
+                            placeholder="Search client, trip..." 
+                            className="pl-9 h-10 bg-white border-slate-200 shadow-sm rounded-xl text-xs font-medium w-full"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <Button className="h-10 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-2 shadow-lg shadow-slate-200" onClick={() => {
+                    <Button className="h-10 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-2 shadow-lg shadow-slate-200 whitespace-nowrap" onClick={() => {
                         setSelectedTrip(null);
                         setDuplicateSourceTrip(null);
                         setIsSheetOpen(true);
@@ -454,7 +455,8 @@ const TripSheets = () => {
             </div>
 
             <Card className="border border-slate-200 shadow-xl bg-white overflow-hidden rounded-2xl">
-                <Table>
+                <div className="overflow-x-auto">
+                    <Table>
                     <TableHeader className="bg-slate-50/50">
                         <TableRow className="hover:bg-transparent border-b border-slate-100">
                             <TableHead className="w-12 text-center text-xs font-semibold text-slate-500">#</TableHead>
@@ -523,7 +525,7 @@ const TripSheets = () => {
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         setBatchDialog({ open: true, groupKey, trips: group.trips });
-                                                                        setBatchData({ invoice_no: '', payment_status: 'Pending', invoice_date: new Date().toISOString().split('T')[0] });
+                                                                        setBatchData({ invoice_no: '', payment_status: 'Pending' });
                                                                         setSelectedBatchTrips(group.trips.map((t: any) => t.id));
                                                                     }}
                                                                 >
@@ -625,54 +627,62 @@ const TripSheets = () => {
                                                                     </div>
 
                                                                     {/* 2. Financial Breakdown (3 Pillars) */}
-                                                                    <div className="flex items-center gap-10 bg-slate-50/50 px-6 py-3 rounded-xl border border-slate-100">
+                                                                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 sm:gap-10 bg-slate-50/50 px-4 sm:px-6 py-3 rounded-xl border border-slate-100">
                                                                         {/* Revenue */}
-                                                                        <div className="space-y-0.5">
+                                                                        <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-4 sm:gap-0.5">
                                                                             <span className="block text-[8px] text-slate-400 font-bold uppercase tracking-[0.2em] leading-none">Gross Rev</span>
-                                                                            <span className="block text-[13px] font-bold text-slate-900 leading-snug">{formatTSh(revTSh)}</span>
-                                                                            <span className="block text-[9px] font-medium text-slate-400 leading-none">${formatUSD(revTSh / rate).replace('$','')} USD</span>
+                                                                            <div className="text-right sm:text-left">
+                                                                                <span className="block text-[13px] font-bold text-slate-900 leading-snug">{formatTSh(revTSh)}</span>
+                                                                                <span className="block text-[9px] font-medium text-slate-400 leading-none">${formatUSD(revTSh / rate).replace('$','')} USD</span>
+                                                                            </div>
                                                                         </div>
 
-                                                                        <div className="h-8 w-px bg-slate-200" />
+                                                                        <div className="hidden sm:block h-8 w-px bg-slate-200" />
+                                                                        <Separator className="sm:hidden bg-slate-200" />
 
                                                                         {/* Expenses */}
-                                                                        <div className="space-y-0.5">
+                                                                        <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-4 sm:gap-0.5">
                                                                             <span className="block text-[8px] text-orange-400 font-bold uppercase tracking-[0.2em] leading-none">Expenses</span>
-                                                                            <span className="block text-[13px] font-bold text-orange-600 leading-snug">{formatTSh(trip.total_expenses_tzs)}</span>
-                                                                            <span className="block text-[9px] font-medium text-orange-300 leading-none">${formatUSD(trip.total_expenses_usd).replace('$','')} USD</span>
+                                                                            <div className="text-right sm:text-left">
+                                                                                <span className="block text-[13px] font-bold text-orange-600 leading-snug">{formatTSh(trip.total_expenses_tzs)}</span>
+                                                                                <span className="block text-[9px] font-medium text-orange-300 leading-none">${formatUSD(trip.total_expenses_usd).replace('$','')} USD</span>
+                                                                            </div>
                                                                         </div>
 
-                                                                        <div className="h-8 w-px bg-slate-200" />
+                                                                        <div className="hidden sm:block h-8 w-px bg-slate-200" />
+                                                                        <Separator className="sm:hidden bg-slate-200" />
 
                                                                         {/* Profit */}
-                                                                        <div className="space-y-0.5">
+                                                                        <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-4 sm:gap-0.5">
                                                                             <span className={cn(
                                                                                 "block text-[8px] font-bold uppercase tracking-[0.2em] leading-none",
                                                                                 isProfit ? "text-emerald-400" : "text-red-400"
                                                                             )}>Net Profit</span>
-                                                                            <div className="flex items-center gap-1.5">
+                                                                            <div className="text-right sm:text-left">
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <span className={cn(
+                                                                                        "block text-[15px] font-bold leading-snug",
+                                                                                        isProfit ? "text-emerald-600" : "text-red-600"
+                                                                                    )}>
+                                                                                        {formatTSh((trip.net_profit_usd || 0) * rate)}
+                                                                                    </span>
+                                                                                    {isProfit ? <TrendingUp size={14} className="text-emerald-400" /> : <TrendingDown size={14} className="text-red-400" />}
+                                                                                </div>
                                                                                 <span className={cn(
-                                                                                    "block text-[15px] font-bold leading-snug",
-                                                                                    isProfit ? "text-emerald-600" : "text-red-600"
-                                                                                )}>
-                                                                                    {formatTSh((trip.net_profit_usd || 0) * rate)}
-                                                                                </span>
-                                                                                {isProfit ? <TrendingUp size={14} className="text-emerald-400" /> : <TrendingDown size={14} className="text-red-400" />}
+                                                                                    "block text-[9px] font-medium leading-none opacity-70",
+                                                                                    isProfit ? "text-emerald-500" : "text-red-400"
+                                                                                )}>${formatUSD(trip.net_profit_usd).replace('$','')} USD</span>
                                                                             </div>
-                                                                            <span className={cn(
-                                                                                "block text-[9px] font-medium leading-none opacity-70",
-                                                                                isProfit ? "text-emerald-500" : "text-red-400"
-                                                                            )}>${formatUSD(trip.net_profit_usd).replace('$','')} USD</span>
                                                                         </div>
                                                                     </div>
 
                                                                     {/* 3. Actions Section */}
-                                                                    <div className="flex items-center gap-2 pl-4 border-l border-slate-100">
+                                                                    <div className="flex items-center gap-2 pl-0 sm:pl-4 border-l-0 sm:border-l border-slate-100 flex-wrap sm:flex-nowrap">
                                                                         {isAdmin && trip.status === 'Planned' && (
                                                                             <Button
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-600 hover:text-white"
+                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-600 hover:text-white flex-1 sm:flex-none"
                                                                                 onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Approved'); }}
                                                                             >
                                                                                 <ShieldCheck size={14} className="mr-1.5" /> Approve
@@ -683,60 +693,62 @@ const TripSheets = () => {
                                                                             <Button
                                                                                 variant="outline"
                                                                                 size="sm"
-                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white"
+                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
                                                                                 onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
                                                                             >
                                                                                 <Zap size={14} className="mr-1.5" /> Activate
                                                                             </Button>
                                                                         )}
 
-                                                                        <Button
-                                                                            variant="ghost"
-                                                                            size="icon"
-                                                                            className="h-9 w-9 rounded-xl border border-slate-200 hover:bg-white hover:text-indigo-600 shadow-sm"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setDuplicateSourceTrip(trip);
-                                                                                setSelectedTrip(null);
-                                                                                setIsSheetOpen(true);
-                                                                            }}
-                                                                            title="Duplicate"
-                                                                        >
-                                                                            <Copy size={16} />
-                                                                        </Button>
+                                                                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                className="h-9 w-9 rounded-xl border border-slate-200 hover:bg-white hover:text-indigo-600 shadow-sm"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setDuplicateSourceTrip(trip);
+                                                                                    setSelectedTrip(null);
+                                                                                    setIsSheetOpen(true);
+                                                                                }}
+                                                                                title="Duplicate"
+                                                                            >
+                                                                                <Copy size={16} />
+                                                                            </Button>
 
-                                                                        <Button
-                                                                            variant="ghost"
-                                                                            size="icon"
-                                                                            className={cn(
-                                                                                "h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all",
-                                                                                (isAdmin || trip.status === 'Planned') 
-                                                                                    ? "text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200" 
-                                                                                    : "text-slate-300 bg-slate-50 cursor-not-allowed opacity-50"
-                                                                            )}
-                                                                            disabled={!isAdmin && trip.status !== 'Planned'}
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                handleDeleteTrip(trip.id);
-                                                                            }}
-                                                                            title={(!isAdmin && trip.status !== 'Planned') ? "Only Drafts can be deleted" : "Delete Trip"}
-                                                                        >
-                                                                            <Trash2 size={16} />
-                                                                        </Button>
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                className={cn(
+                                                                                    "h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all",
+                                                                                    (isAdmin || trip.status === 'Planned') 
+                                                                                        ? "text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200" 
+                                                                                        : "text-slate-300 bg-slate-50 cursor-not-allowed opacity-50"
+                                                                                )}
+                                                                                disabled={!isAdmin && trip.status !== 'Planned'}
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleDeleteTrip(trip.id);
+                                                                                }}
+                                                                                title={(!isAdmin && trip.status !== 'Planned') ? "Only Drafts can be deleted" : "Delete Trip"}
+                                                                            >
+                                                                                <Trash2 size={16} />
+                                                                            </Button>
 
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            className="h-9 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-md active:scale-95 transition-all"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setDuplicateSourceTrip(null);
-                                                                                setSelectedTrip(trip);
-                                                                                setIsSheetOpen(true);
-                                                                            }}
-                                                                        >
-                                                                            Manage
-                                                                        </Button>
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="h-9 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-md active:scale-95 transition-all flex-1"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setDuplicateSourceTrip(null);
+                                                                                    setSelectedTrip(trip);
+                                                                                    setIsSheetOpen(true);
+                                                                                }}
+                                                                            >
+                                                                                Manage
+                                                                            </Button>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             );
@@ -750,7 +762,8 @@ const TripSheets = () => {
                             })
                         )}
                     </TableBody>
-                </Table>
+                    </Table>
+                </div>
             </Card>
 
             {/* 🧾 Professional Batch Invoicing Dashboard */}
@@ -770,32 +783,22 @@ const TripSheets = () => {
 
                     <div className="p-8 space-y-8">
                         {/* 1. Invoice Details Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                        <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Shared Invoice Number</Label>
+                                <Label className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Invoice Number</Label>
                                 <Input 
-                                    className="h-11 bg-white border-slate-200 font-bold text-slate-900 focus-visible:ring-primary shadow-sm"
-                                    placeholder="e.g. INV-WAKA-001"
+                                    placeholder="REQ-2024-..." 
                                     value={batchData.invoice_no}
                                     onChange={(e) => setBatchData({...batchData, invoice_no: e.target.value})}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Billing Date</Label>
-                                <Input 
-                                    type="date"
-                                    className="h-11 bg-white border-slate-200 font-medium text-slate-700"
-                                    value={batchData.invoice_date}
-                                    onChange={(e) => setBatchData({...batchData, invoice_date: e.target.value})}
-                                />
-                            </div>
-                            <div className="col-span-full space-y-2">
-                                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Status</Label>
+                                <Label className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Payment Status</Label>
                                 <Select 
                                     value={batchData.payment_status}
                                     onValueChange={(val) => setBatchData({...batchData, payment_status: val})}
                                 >
-                                    <SelectTrigger className="h-11 bg-white border-slate-200 font-semibold">
+                                    <SelectTrigger className="h-10 bg-slate-50 border-slate-200 text-xs font-semibold">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent className="z-[105]">

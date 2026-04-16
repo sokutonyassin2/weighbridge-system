@@ -10,23 +10,6 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-function MobileNav() {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="md:hidden">
-          <Menu className="h-5 w-5" />
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="left" className="p-0 w-72">
-        <AppSidebar />
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 export const Layout = ({ children }: LayoutProps) => {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [pendingItems, setPendingItems] = useState(0);
@@ -58,21 +41,14 @@ export const Layout = ({ children }: LayoutProps) => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
-        {/* Desktop sidebar - hidden on mobile */}
-        <div className="hidden md:block">
-          <AppSidebar />
-        </div>
+        {/* Sidebar handles its own responsive visibility (hidden on desktop, drawer on mobile) */}
+        <AppSidebar />
 
         <div className="flex-1 flex flex-col overflow-auto">
           <header className="sticky top-0 z-40 border-b px-3 md:px-6 py-3 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 shadow-sm">
             <div className="flex items-center gap-3">
-              {/* Mobile menu button */}
-              <MobileNav />
-
-              {/* Desktop sidebar trigger */}
-              <div className="hidden md:block">
-                <SidebarTrigger />
-              </div>
+              {/* Sidebar trigger works for both desktop collapse and mobile drawer */}
+              <SidebarTrigger />
 
               {/* Search - responsive width */}
               <div className="flex-1 max-w-xl">

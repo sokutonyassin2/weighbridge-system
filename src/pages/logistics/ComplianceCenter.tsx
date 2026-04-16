@@ -287,93 +287,7 @@ const ComplianceCenter = () => {
                                 </div>
 
                                 <TabsContent value="all" className="m-0">
-                                    <Table>
-                                        <TableHeader className="bg-slate-50/50">
-                                            <TableRow>
-                                                <TableHead>Vehicle / Unit</TableHead>
-                                                <TableHead>Document Type</TableHead>
-                                                <TableHead>Expiry Date</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead className="text-center">View</TableHead>
-                                                <TableHead className="text-right">Remaining</TableHead>
-                                                <TableHead className="text-right">Action</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {fleetDocs?.map((doc: any) => {
-                                                const status = getStatusInfo(doc.expiry_date, doc.document_type);
-                                                return (
-                                                    <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
-                                                        <TableCell className="font-semibold text-slate-700">
-                                                            <div className="flex flex-col">
-                                                                <span>{doc.fleet?.vehicle_no}</span>
-                                                                <span className="text-[10px] text-slate-400 font-normal">{doc.fleet?.make_model}</span>
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Badge variant="outline" className="text-[10px] font-semibold uppercase">
-                                                                {doc.document_type}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        <TableCell className="text-sm font-medium text-slate-600">
-                                                            {status.isPermanent ? "NA (Permanent)" : format(new Date(doc.expiry_date), "MMM dd, yyyy")}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className={`flex items-center gap-2 text-xs font-bold uppercase ${status.text}`}>
-                                                                {status.icon}
-                                                                {status.label}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-center">
-                                                            {doc.document_url && doc.document_url !== "pending" ? (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                                                    asChild
-                                                                >
-                                                                    <a href={doc.document_url} target="_blank" rel="noopener noreferrer">
-                                                                        <Link className="h-4 w-4" />
-                                                                    </a>
-                                                                </Button>
-                                                            ) : (
-                                                                <span className="text-[10px] text-slate-400 italic">No File</span>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <Badge className={`${status.color} text-white font-bold h-6 px-3`}>
-                                                                {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                className="h-8 text-[10px] font-bold uppercase border-blue-900 text-blue-900 hover:bg-blue-50"
-                                                                onClick={() => {
-                                                                    setSelectedDocForRenewal(doc);
-                                                                    setIsRenewalDialogOpen(true);
-                                                                }}
-                                                            >
-                                                                Create Renewal PO
-                                                            </Button>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                );
-                                            })}
-                                            {(!fleetDocs || fleetDocs.length === 0) && (
-                                                <TableRow>
-                                                    <TableCell colSpan={7} className="text-center py-12 text-slate-400 italic">
-                                                        No fleet documents found in registry.
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
-                                        </TableBody>
-                                    </Table>
-                                </TabsContent>
-
-                                 {[...new Set(fleetDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
-                                    <TabsContent key={type} value={type} className="m-0">
+                                    <div className="overflow-x-auto">
                                         <Table>
                                             <TableHeader className="bg-slate-50/50">
                                                 <TableRow>
@@ -387,7 +301,7 @@ const ComplianceCenter = () => {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {fleetDocs?.filter((d: any) => normalizeDocType(d.document_type) === type).map((doc: any) => {
+                                                {fleetDocs?.map((doc: any) => {
                                                     const status = getStatusInfo(doc.expiry_date, doc.document_type);
                                                     return (
                                                         <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
@@ -448,8 +362,98 @@ const ComplianceCenter = () => {
                                                         </TableRow>
                                                     );
                                                 })}
+                                                {(!fleetDocs || fleetDocs.length === 0) && (
+                                                    <TableRow>
+                                                        <TableCell colSpan={7} className="text-center py-12 text-slate-400 italic">
+                                                            No fleet documents found in registry.
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
                                             </TableBody>
                                         </Table>
+                                    </div>
+                                </TabsContent>
+
+                                 {[...new Set(fleetDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
+                                    <TabsContent key={type} value={type} className="m-0">
+                                        <div className="overflow-x-auto">
+                                            <Table>
+                                                <TableHeader className="bg-slate-50/50">
+                                                    <TableRow>
+                                                        <TableHead>Vehicle / Unit</TableHead>
+                                                        <TableHead>Document Type</TableHead>
+                                                        <TableHead>Expiry Date</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead className="text-center">View</TableHead>
+                                                        <TableHead className="text-right">Remaining</TableHead>
+                                                        <TableHead className="text-right">Action</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {fleetDocs?.filter((d: any) => normalizeDocType(d.document_type) === type).map((doc: any) => {
+                                                        const status = getStatusInfo(doc.expiry_date, doc.document_type);
+                                                        return (
+                                                            <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
+                                                                <TableCell className="font-semibold text-slate-700">
+                                                                    <div className="flex flex-col">
+                                                                        <span>{doc.fleet?.vehicle_no}</span>
+                                                                        <span className="text-[10px] text-slate-400 font-normal">{doc.fleet?.make_model}</span>
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant="outline" className="text-[10px] font-semibold uppercase">
+                                                                        {doc.document_type}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-sm font-medium text-slate-600">
+                                                                    {status.isPermanent ? "NA (Permanent)" : format(new Date(doc.expiry_date), "MMM dd, yyyy")}
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <div className={`flex items-center gap-2 text-xs font-bold uppercase ${status.text}`}>
+                                                                        {status.icon}
+                                                                        {status.label}
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell className="text-center">
+                                                                    {doc.document_url && doc.document_url !== "pending" ? (
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                                            asChild
+                                                                        >
+                                                                            <a href={doc.document_url} target="_blank" rel="noopener noreferrer">
+                                                                                <Link className="h-4 w-4" />
+                                                                            </a>
+                                                                        </Button>
+                                                                    ) : (
+                                                                        <span className="text-[10px] text-slate-400 italic">No File</span>
+                                                                    )}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <Badge className={`${status.color} text-white font-bold h-6 px-3`}>
+                                                                        {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-900 text-blue-900 hover:bg-blue-50"
+                                                                        onClick={() => {
+                                                                            setSelectedDocForRenewal(doc);
+                                                                            setIsRenewalDialogOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        Create Renewal PO
+                                                                    </Button>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
                                     </TabsContent>
                                 ))}
                             </Tabs>
@@ -486,74 +490,7 @@ const ComplianceCenter = () => {
                                 </div>
 
                                 <TabsContent value="all" className="m-0">
-                                    <Table>
-                                        <TableHeader className="bg-slate-50/50">
-                                            <TableRow>
-                                                <TableHead>Driver Name</TableHead>
-                                                <TableHead>Document Type</TableHead>
-                                                <TableHead>Expiry Date</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead className="text-center">View</TableHead>
-                                                <TableHead className="text-right">Remaining</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {driverDocs?.map((doc: any) => {
-                                                const status = getStatusInfo(doc.expiry_date, doc.document_type);
-                                                return (
-                                                    <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
-                                                        <TableCell className="font-semibold text-slate-700">{doc.driver?.full_name}</TableCell>
-                                                        <TableCell>
-                                                            <Badge variant="outline" className="text-[10px] font-semibold uppercase">
-                                                                {doc.document_type}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        <TableCell className="text-sm font-medium text-slate-600">
-                                                            {status.isPermanent ? "NA (Permanent)" : format(new Date(doc.expiry_date), "MMM dd, yyyy")}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className={`flex items-center gap-2 text-xs font-bold uppercase ${status.text}`}>
-                                                                {status.icon}
-                                                                {status.label}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-center">
-                                                            {doc.document_url && doc.document_url !== "pending" ? (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                                                    asChild
-                                                                >
-                                                                    <a href={doc.document_url} target="_blank" rel="noopener noreferrer">
-                                                                        <Link className="h-4 w-4" />
-                                                                    </a>
-                                                                </Button>
-                                                            ) : (
-                                                                <span className="text-[10px] text-slate-400 italic">No File</span>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <Badge className={`${status.color} text-white font-bold h-6 px-3`}>
-                                                                {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
-                                                            </Badge>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                );
-                                            })}
-                                            {(!driverDocs || driverDocs.length === 0) && (
-                                                <TableRow>
-                                                    <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic">
-                                                        No driver documents found in registry.
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
-                                        </TableBody>
-                                    </Table>
-                                </TabsContent>
-
-                                 {[...new Set(driverDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
-                                    <TabsContent key={type} value={type} className="m-0">
+                                    <div className="overflow-x-auto">
                                         <Table>
                                             <TableHeader className="bg-slate-50/50">
                                                 <TableRow>
@@ -566,7 +503,7 @@ const ComplianceCenter = () => {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {driverDocs?.filter((d: any) => normalizeDocType(d.document_type) === type).map((doc: any) => {
+                                                {driverDocs?.map((doc: any) => {
                                                     const status = getStatusInfo(doc.expiry_date, doc.document_type);
                                                     return (
                                                         <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
@@ -609,8 +546,79 @@ const ComplianceCenter = () => {
                                                         </TableRow>
                                                     );
                                                 })}
+                                                {(!driverDocs || driverDocs.length === 0) && (
+                                                    <TableRow>
+                                                        <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic">
+                                                            No driver documents found in registry.
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
                                             </TableBody>
                                         </Table>
+                                    </div>
+                                </TabsContent>
+
+                                 {[...new Set(driverDocs?.map((d: any) => normalizeDocType(d.document_type)))].map((type: any) => (
+                                    <TabsContent key={type} value={type} className="m-0">
+                                        <div className="overflow-x-auto">
+                                            <Table>
+                                                <TableHeader className="bg-slate-50/50">
+                                                    <TableRow>
+                                                        <TableHead>Driver Name</TableHead>
+                                                        <TableHead>Document Type</TableHead>
+                                                        <TableHead>Expiry Date</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead className="text-center">View</TableHead>
+                                                        <TableHead className="text-right">Remaining</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {driverDocs?.filter((d: any) => normalizeDocType(d.document_type) === type).map((doc: any) => {
+                                                        const status = getStatusInfo(doc.expiry_date, doc.document_type);
+                                                        return (
+                                                            <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
+                                                                <TableCell className="font-semibold text-slate-700">{doc.driver?.full_name}</TableCell>
+                                                                <TableCell>
+                                                                    <Badge variant="outline" className="text-[10px] font-semibold uppercase">
+                                                                        {doc.document_type}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                                <TableCell className="text-sm font-medium text-slate-600">
+                                                                    {status.isPermanent ? "NA (Permanent)" : format(new Date(doc.expiry_date), "MMM dd, yyyy")}
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <div className={`flex items-center gap-2 text-xs font-bold uppercase ${status.text}`}>
+                                                                        {status.icon}
+                                                                        {status.label}
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell className="text-center">
+                                                                    {doc.document_url && doc.document_url !== "pending" ? (
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                                            asChild
+                                                                        >
+                                                                            <a href={doc.document_url} target="_blank" rel="noopener noreferrer">
+                                                                                <Link className="h-4 w-4" />
+                                                                            </a>
+                                                                        </Button>
+                                                                    ) : (
+                                                                        <span className="text-[10px] text-slate-400 italic">No File</span>
+                                                                    )}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <Badge className={`${status.color} text-white font-bold h-6 px-3`}>
+                                                                        {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
+                                                                    </Badge>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
                                     </TabsContent>
                                 ))}
                             </Tabs>
@@ -631,91 +639,93 @@ const ComplianceCenter = () => {
                                 </div>
 
                                 <TabsContent value="all" className="m-0">
-                                    <Table>
-                                        <TableHeader className="bg-slate-50/50">
-                                            <TableRow>
-                                                <TableHead>Vehicle / Unit</TableHead>
-                                                <TableHead>Document Type</TableHead>
-                                                <TableHead>Expiry Date</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead className="text-center">View</TableHead>
-                                                <TableHead className="text-right">Remaining</TableHead>
-                                                {isProcurementView && <TableHead className="text-right">Action</TableHead>}
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {fleetDocs?.map((doc: any) => {
-                                                const status = getStatusInfo(doc.expiry_date, doc.document_type);
-                                                return (
-                                                    <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
-                                                        <TableCell className="font-semibold text-slate-700">
-                                                            <div className="flex flex-col">
-                                                                <span>{doc.fleet?.vehicle_no}</span>
-                                                                <span className="text-[10px] text-slate-400 font-normal">{doc.fleet?.make_model}</span>
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Badge variant="outline" className="text-[10px] font-semibold uppercase">
-                                                                {doc.document_type}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        <TableCell className="text-sm font-medium text-slate-600">
-                                                            {status.isPermanent ? "NA (Permanent)" : format(new Date(doc.expiry_date), "MMM dd, yyyy")}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className={`flex items-center gap-2 text-xs font-bold uppercase ${status.text}`}>
-                                                                {status.icon}
-                                                                {status.label}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-center">
-                                                            {doc.document_url && doc.document_url !== "pending" ? (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                                                    asChild
-                                                                >
-                                                                    <a href={doc.document_url} target="_blank" rel="noopener noreferrer">
-                                                                        <Link className="h-4 w-4" />
-                                                                    </a>
-                                                                </Button>
-                                                            ) : (
-                                                                <span className="text-[10px] text-slate-400 italic">No File</span>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            <Badge className={`${status.color} text-white font-bold h-6 px-3`}>
-                                                                {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        {isProcurementView && (
-                                                            <TableCell className="text-right">
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-8 text-[10px] font-bold uppercase border-blue-900 text-blue-900 hover:bg-blue-50"
-                                                                    onClick={() => {
-                                                                        setSelectedDocForRenewal(doc);
-                                                                        setIsRenewalDialogOpen(true);
-                                                                    }}
-                                                                >
-                                                                    Create Renewal PO
-                                                                </Button>
-                                                            </TableCell>
-                                                        )}
-                                                    </TableRow>
-                                                );
-                                            })}
-                                            {(!fleetDocs || fleetDocs.length === 0) && (
+                                    <div className="overflow-x-auto">
+                                        <Table>
+                                            <TableHeader className="bg-slate-50/50">
                                                 <TableRow>
-                                                    <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic">
-                                                        No fleet documents found in registry.
-                                                    </TableCell>
+                                                    <TableHead>Vehicle / Unit</TableHead>
+                                                    <TableHead>Document Type</TableHead>
+                                                    <TableHead>Expiry Date</TableHead>
+                                                    <TableHead>Status</TableHead>
+                                                    <TableHead className="text-center">View</TableHead>
+                                                    <TableHead className="text-right">Remaining</TableHead>
+                                                    {isProcurementView && <TableHead className="text-right">Action</TableHead>}
                                                 </TableRow>
-                                            )}
-                                        </TableBody>
-                                    </Table>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {fleetDocs?.map((doc: any) => {
+                                                    const status = getStatusInfo(doc.expiry_date, doc.document_type);
+                                                    return (
+                                                        <TableRow key={doc.id} className="hover:bg-slate-50/50 transition-colors">
+                                                            <TableCell className="font-semibold text-slate-700">
+                                                                <div className="flex flex-col">
+                                                                    <span>{doc.fleet?.vehicle_no}</span>
+                                                                    <span className="text-[10px] text-slate-400 font-normal">{doc.fleet?.make_model}</span>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Badge variant="outline" className="text-[10px] font-semibold uppercase">
+                                                                    {doc.document_type}
+                                                                </Badge>
+                                                            </TableCell>
+                                                            <TableCell className="text-sm font-medium text-slate-600">
+                                                                {status.isPermanent ? "NA (Permanent)" : format(new Date(doc.expiry_date), "MMM dd, yyyy")}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <div className={`flex items-center gap-2 text-xs font-bold uppercase ${status.text}`}>
+                                                                    {status.icon}
+                                                                    {status.label}
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-center">
+                                                                {doc.document_url && doc.document_url !== "pending" ? (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                                        asChild
+                                                                    >
+                                                                        <a href={doc.document_url} target="_blank" rel="noopener noreferrer">
+                                                                            <Link className="h-4 w-4" />
+                                                                        </a>
+                                                                    </Button>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-slate-400 italic">No File</span>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <Badge className={`${status.color} text-white font-bold h-6 px-3`}>
+                                                                    {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
+                                                                </Badge>
+                                                            </TableCell>
+                                                            {isProcurementView && (
+                                                                <TableCell className="text-right">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-900 text-blue-900 hover:bg-blue-50"
+                                                                        onClick={() => {
+                                                                            setSelectedDocForRenewal(doc);
+                                                                            setIsRenewalDialogOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        Create Renewal PO
+                                                                    </Button>
+                                                                </TableCell>
+                                                            )}
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                                {(!fleetDocs || fleetDocs.length === 0) && (
+                                                    <TableRow>
+                                                        <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic">
+                                                            No fleet documents found in registry.
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
                                 </TabsContent>
 
                                 {[...new Set(fleetDocs?.map((d: any) => d.document_type))].map((type: any) => (
@@ -806,48 +816,50 @@ const ComplianceCenter = () => {
 
                     <TabsContent value="maintenance">
                         <Card className="border-none shadow-xl bg-white overflow-hidden">
-                            <Table>
-                                <TableHeader className="bg-slate-50/50">
-                                    <TableRow>
-                                        <TableHead>Vehicle / Unit</TableHead>
-                                        <TableHead>Current Odo</TableHead>
-                                        <TableHead>Target Odo</TableHead>
-                                        <TableHead>Health Meter</TableHead>
-                                        <TableHead className="text-right">Remaining KM</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {fleetMaintenance?.map((asset: any) => {
-                                        const status = getMaintenanceStatus(asset.current_odometer, asset.next_service_odometer);
-                                        return (
-                                            <TableRow key={asset.id} className="hover:bg-slate-50/50 transition-colors">
-                                                <TableCell className="font-bold text-slate-700">
-                                                    <div className="flex flex-col">
-                                                        <span>{asset.vehicle_no}</span>
-                                                        <span className="text-[10px] text-slate-400 font-normal">{asset.make_model}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-sm font-medium text-slate-600">{(asset.current_odometer || 0).toLocaleString()} KM</TableCell>
-                                                <TableCell className="text-sm font-medium text-slate-600">{(asset.next_service_odometer || 0).toLocaleString()} KM</TableCell>
-                                                <TableCell className="min-w-[150px]">
-                                                    <div className="space-y-1.5">
-                                                        <div className="flex justify-between items-center text-[10px] font-black uppercase">
-                                                            <span className={status.remaining <= 1000 ? "text-rose-600" : "text-slate-900"}>{status.label}</span>
-                                                            <span>{Math.round(status.percentage)}%</span>
+                            <div className="overflow-x-auto">
+                                <Table>
+                                    <TableHeader className="bg-slate-50/50">
+                                        <TableRow>
+                                            <TableHead>Vehicle / Unit</TableHead>
+                                            <TableHead>Current Odo</TableHead>
+                                            <TableHead>Target Odo</TableHead>
+                                            <TableHead>Health Meter</TableHead>
+                                            <TableHead className="text-right">Remaining KM</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {fleetMaintenance?.map((asset: any) => {
+                                            const status = getMaintenanceStatus(asset.current_odometer, asset.next_service_odometer);
+                                            return (
+                                                <TableRow key={asset.id} className="hover:bg-slate-50/50 transition-colors">
+                                                    <TableCell className="font-bold text-slate-700">
+                                                        <div className="flex flex-col">
+                                                            <span>{asset.vehicle_no}</span>
+                                                            <span className="text-[10px] text-slate-400 font-normal">{asset.make_model}</span>
                                                         </div>
-                                                        <Progress value={status.percentage} className={`h-1.5 ${status.remaining <= 1000 ? '[&>div]:bg-rose-600' : '[&>div]:bg-slate-900'}`} />
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Badge className={`${status.color} text-white font-black h-6 px-3`}>
-                                                        {status.remaining <= 0 ? `${Math.abs(status.remaining)} KM OVER` : `${status.remaining} KM LEFT`}
-                                                    </Badge>
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm font-medium text-slate-600">{(asset.current_odometer || 0).toLocaleString()} KM</TableCell>
+                                                    <TableCell className="text-sm font-medium text-slate-600">{(asset.next_service_odometer || 0).toLocaleString()} KM</TableCell>
+                                                    <TableCell className="min-w-[150px]">
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex justify-between items-center text-[10px] font-black uppercase">
+                                                                <span className={status.remaining <= 1000 ? "text-rose-600" : "text-slate-900"}>{status.label}</span>
+                                                                <span>{Math.round(status.percentage)}%</span>
+                                                            </div>
+                                                            <Progress value={status.percentage} className={`h-1.5 ${status.remaining <= 1000 ? '[&>div]:bg-rose-600' : '[&>div]:bg-slate-900'}`} />
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Badge className={`${status.color} text-white font-black h-6 px-3`}>
+                                                            {status.remaining <= 0 ? `${Math.abs(status.remaining)} KM OVER` : `${status.remaining} KM LEFT`}
+                                                        </Badge>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
                         </Card>
                     </TabsContent>
 
@@ -1058,56 +1070,58 @@ const DocumentTypesManager = () => {
                 <CardHeader>
                     <CardTitle className="text-base font-bold text-slate-800">Managed Document Types</CardTitle>
                 </CardHeader>
-                <Table>
-                    <TableHeader className="bg-slate-50/50">
-                        <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Category</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {docTypes?.map((type: any) => (
-                            <TableRow key={type.id} className="group">
-                                <TableCell className="font-bold text-slate-700">{type.name}</TableCell>
-                                <TableCell>
-                                    <Badge variant="secondary" className="font-bold">
-                                        {type.category}
-                                    </Badge>
-                                </TableCell>
-                                <TableCell>
-                                    {type.is_mandatory ? (
-                                        <Badge variant="destructive" className="font-bold text-[10px]">MANDATORY</Badge>
-                                    ) : (
-                                        <Badge variant="outline" className="font-bold text-[10px] text-slate-400">OPTIONAL</Badge>
-                                    )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-8 w-8 text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        onClick={() => {
-                                            if (confirm("Are you sure? This will remove this type from dropdowns.")) {
-                                                deleteMutation.mutate(type.id);
-                                            }
-                                        }}
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                        {(!docTypes || docTypes.length === 0) && (
+                <div className="overflow-x-auto">
+                    <Table>
+                        <TableHeader className="bg-slate-50/50">
                             <TableRow>
-                                <TableCell colSpan={4} className="text-center py-8 text-slate-400 italic">
-                                    No document types defined. Add one to get started.
-                                </TableCell>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Category</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead className="text-right">Action</TableHead>
                             </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
+                        </TableHeader>
+                        <TableBody>
+                            {docTypes?.map((type: any) => (
+                                <TableRow key={type.id} className="group">
+                                    <TableCell className="font-bold text-slate-700">{type.name}</TableCell>
+                                    <TableCell>
+                                        <Badge variant="secondary" className="font-bold">
+                                            {type.category}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        {type.is_mandatory ? (
+                                            <Badge variant="destructive" className="font-bold text-[10px]">MANDATORY</Badge>
+                                        ) : (
+                                            <Badge variant="outline" className="font-bold text-[10px] text-slate-400">OPTIONAL</Badge>
+                                        )}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-8 w-8 text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onClick={() => {
+                                                if (confirm("Are you sure? This will remove this type from dropdowns.")) {
+                                                    deleteMutation.mutate(type.id);
+                                                }
+                                            }}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                            {(!docTypes || docTypes.length === 0) && (
+                                <TableRow>
+                                    <TableCell colSpan={4} className="text-center py-8 text-slate-400 italic">
+                                        No document types defined. Add one to get started.
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
             </Card>
         </div>
     );

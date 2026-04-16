@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Layout } from "./components/Layout";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useEffect } from 'react';
 import OperatorDashboard from "./pages/OperatorDashboard";
 import VehicleEntry from "./pages/VehicleEntry";
@@ -96,12 +97,13 @@ const App = () => {
   };
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AuthProvider>
-          <Routes>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AuthProvider>
+            <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route
               path="/"
@@ -556,9 +558,10 @@ const App = () => {
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 };
 

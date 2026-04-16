@@ -509,31 +509,37 @@ const TripManagement = () => {
                                     tripId={selectedTripForSheet.id} 
                                     onSaveSuccess={() => {
                                         queryClient.invalidateQueries({ queryKey: ["logistics_trips"] });
-                                        toast({ title: "Sheet Updated", description: "Financial records saved successfully." });
+                                        toast({ 
+                                            title: "Sheet Updated", 
+                                            description: "The trip sheet has been successfully updated and security logs recorded." 
+                                        });
+                                        setSelectedTripForSheet(null);
                                     }} 
                                 />
                             </div>
                         </div>
                     ) : (
-                        <div className="contents">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-6">
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                                 <div>
-                                    <h1 className="text-2xl font-bold flex items-center gap-2">
-                                        <div className="p-2 bg-primary/10 rounded-lg"><Navigation className="w-6 h-6 text-primary" /></div>
+                                    <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                                        <div className="p-2 bg-primary/10 rounded-lg"><Navigation className="w-5 h-5 md:w-6 md:h-6 text-primary" /></div>
                                         Trip Management
                                     </h1>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <div className="flex bg-slate-100/50 p-1 rounded-xl border backdrop-blur-sm">
-                                        <Button variant={activeView === "kanban" ? "secondary" : "ghost"} size="sm" className={cn("h-8 px-4 rounded-lg text-xs font-bold transition-all duration-300", activeView === "kanban" && "shadow-sm border bg-white")} onClick={() => setActiveView("kanban")}>Board</Button>
-                                        <Button variant={activeView === "tabs" ? "secondary" : "ghost"} size="sm" className={cn("h-8 px-4 rounded-lg text-xs font-bold transition-all duration-300", activeView === "tabs" && "shadow-sm border bg-white")} onClick={() => setActiveView("tabs")}>Tabs</Button>
+                                <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
+                                    <div className="flex bg-slate-100/50 p-1 rounded-xl border backdrop-blur-sm w-full sm:w-auto">
+                                        <Button variant={activeView === "kanban" ? "secondary" : "ghost"} size="sm" className={cn("h-8 flex-1 sm:flex-none px-4 rounded-lg text-xs font-bold transition-all duration-300", activeView === "kanban" && "shadow-sm border bg-white")} onClick={() => setActiveView("kanban")}>Board</Button>
+                                        <Button variant={activeView === "tabs" ? "secondary" : "ghost"} size="sm" className={cn("h-8 flex-1 sm:flex-none px-4 rounded-lg text-xs font-bold transition-all duration-300", activeView === "tabs" && "shadow-sm border bg-white")} onClick={() => setActiveView("tabs")}>Tabs</Button>
                                     </div>
-                                    <Select value={dateRange} onValueChange={(v: any) => setDateRange(v)}>
-                                        <SelectTrigger className="w-[150px] h-10 text-xs font-bold bg-white/80 border-slate-200 rounded-xl shadow-sm"><Calendar className="w-3.5 h-3.5 mr-2 text-primary" /><SelectValue /></SelectTrigger>
-                                        <SelectContent className="rounded-xl"><SelectItem value="Today">Today</SelectItem><SelectItem value="Yesterday">Yesterday</SelectItem><SelectItem value="7Days">Last 7 Days</SelectItem><SelectItem value="All">All</SelectItem></SelectContent>
-                                    </Select>
-                                    <div className="relative w-48 md:w-64"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input placeholder="Search..." className="h-10 pl-10 text-xs bg-white/80 rounded-xl" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-                                    <Button onClick={() => setIsCreateDialogOpen(true)} className="h-10 font-bold bg-slate-900 rounded-xl"><Plus className="w-4 h-4 mr-2" />Plan New Trip</Button>
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <Select value={dateRange} onValueChange={(v: any) => setDateRange(v)}>
+                                            <SelectTrigger className="flex-1 sm:w-[150px] h-10 text-xs font-bold bg-white/80 border-slate-200 rounded-xl shadow-sm"><Calendar className="w-3.5 h-3.5 mr-2 text-primary" /><SelectValue /></SelectTrigger>
+                                            <SelectContent className="rounded-xl"><SelectItem value="Today">Today</SelectItem><SelectItem value="Yesterday">Yesterday</SelectItem><SelectItem value="7Days">Last 7 Days</SelectItem><SelectItem value="All">All</SelectItem></SelectContent>
+                                        </Select>
+                                        <Button onClick={() => setIsCreateDialogOpen(true)} className="flex-1 sm:flex-none h-10 font-bold bg-slate-900 rounded-xl whitespace-nowrap"><Plus className="w-4 h-4 mr-0 sm:mr-2" /><span className="hidden sm:inline">Plan New Trip</span><span className="sm:hidden">Plan</span></Button>
+                                    </div>
+                                    <div className="relative w-full sm:w-48 lg:w-64"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input placeholder="Search..." className="h-10 pl-10 text-xs bg-white/80 rounded-xl w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                                 </div>
                             </div>
 
@@ -611,11 +617,11 @@ const TripManagement = () => {
                 <DialogContent className="max-w-xl">
                     <DialogHeader><DialogTitle>Plan New Trip</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">ORIGIN</Label><Input value={newTrip.origin} onChange={(e) => setNewTrip({ ...newTrip, origin: e.target.value })} /></div>
                             <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">DESTINATION *</Label><Input placeholder="City/Port" value={newTrip.destination} onChange={(e) => setNewTrip({ ...newTrip, destination: e.target.value })} /></div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                                 <Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">VEHICLE *</Label>
                                 <Popover open={isVehiclePopoverOpen} onOpenChange={setIsVehiclePopoverOpen}>
@@ -627,7 +633,7 @@ const TripManagement = () => {
                                             <ChevronsUpDown className="h-4 w-4 opacity-50" />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="p-0 w-[400px] z-[100]" align="start">
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] sm:w-[400px] z-[100]" align="start">
                                         <Command className="border-none">
                                             <div className="flex items-center border-b px-3">
                                                 <CommandInput 
@@ -690,7 +696,7 @@ const TripManagement = () => {
                                             <ChevronsUpDown className="h-4 w-4 opacity-50" />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="p-0 w-[400px] z-[100]" align="start">
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] sm:w-[400px] z-[100]" align="start">
                                         <Command className="border-none">
                                             <div className="flex items-center border-b px-3">
                                                 <CommandInput 
@@ -736,13 +742,13 @@ const TripManagement = () => {
                             </div>
                         </div>
                         <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">OUTBOUND CARGO</Label><Input placeholder="Cargo details..." value={newTrip.cargo_outbound} onChange={(e) => setNewTrip({ ...newTrip, cargo_outbound: e.target.value })} /></div>
-                        <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
                             <div className="space-y-1.5">
                                 <Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">STARTING KM</Label>
                                 <Input type="number" value={newTrip.starting_km} onChange={(e) => setNewTrip({ ...newTrip, starting_km: e.target.value })} />
                             </div>
-                            <div className="space-y-1.5 text-right">
-                                <Label className="text-emerald-600 font-bold uppercase text-[10px] tracking-wider block text-right">TRIP ALLOW. (TSHS)</Label>
+                            <div className="space-y-1.5 text-left">
+                                <Label className="text-emerald-600 font-bold uppercase text-[10px] tracking-wider block text-right">ALLOWANCE (TSHS)</Label>
                                 <Input type="number" placeholder="Enter amount..." value={newTrip.trip_allowance} onChange={(e) => setNewTrip({ ...newTrip, trip_allowance: e.target.value })} className="text-right" />
                             </div>
                         </div>
@@ -756,14 +762,14 @@ const TripManagement = () => {
                 <DialogContent className="max-w-xl">
                     <DialogHeader><DialogTitle>Edit Trip: {tripToEdit?.trip_number}</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">ORIGIN</Label><Input value={tripToEdit?.origin} onChange={(e) => setTripToEdit({ ...tripToEdit, origin: e.target.value })} /></div>
                             <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">DESTINATION *</Label><Input placeholder="City/Port" value={tripToEdit?.destination} onChange={(e) => setTripToEdit({ ...tripToEdit, destination: e.target.value })} /></div>
                         </div>
                         <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">OUTBOUND CARGO</Label><Input placeholder="Cargo details..." value={tripToEdit?.cargo_outbound} onChange={(e) => setTripToEdit({ ...tripToEdit, cargo_outbound: e.target.value })} /></div>
-                        <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
                              <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">STARTING KM</Label><Input type="number" value={tripToEdit?.starting_km} onChange={(e) => setTripToEdit({ ...tripToEdit, starting_km: e.target.value })} /></div>
-                             <div className="space-y-1.5 text-right"><Label className="text-emerald-600 font-bold uppercase text-[10px] tracking-wider block text-right">TRIP ALLOW. (TSHS)</Label><Input type="number" placeholder="Enter amount..." value={tripToEdit?.trip_allowance} onChange={(e) => setTripToEdit({ ...tripToEdit, trip_allowance: e.target.value })} className="text-right" /></div>
+                             <div className="space-y-1.5 text-right"><Label className="text-emerald-600 font-bold uppercase text-[10px] tracking-wider block text-right">ALLOWANCE (TSHS)</Label><Input type="number" placeholder="Enter amount..." value={tripToEdit?.trip_allowance} onChange={(e) => setTripToEdit({ ...tripToEdit, trip_allowance: e.target.value })} className="text-right" /></div>
                         </div>
                     </div>
                     <DialogFooter><Button className="w-full font-bold h-11 bg-blue-600 hover:bg-blue-700" onClick={() => editTripMutation.mutate(tripToEdit)}>Save Changes</Button></DialogFooter>
@@ -776,9 +782,9 @@ const TripManagement = () => {
                     <DialogHeader><DialogTitle>Finalize Trip: {selectedTripForCompletion?.trip_number}</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="space-y-1.5"><Label className="text-slate-600 font-bold uppercase text-[10px] tracking-wider">Closing KM *</Label><Input type="number" value={completionData.closing_km} onChange={(e) => setCompletionData({ ...completionData, closing_km: e.target.value })} /></div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                              <div className="space-y-1.5"><Label className="text-slate-600 font-bold uppercase text-[10px] tracking-wider">Fuel Liters</Label><Input type="number" value={completionData.actual_fuel_liters} onChange={(e) => setCompletionData({ ...completionData, actual_fuel_liters: e.target.value })} /></div>
-                             <div className="space-y-1.5 text-right"><Label className="text-orange-700 font-bold uppercase text-[10px] tracking-wider block text-right">Actual Fuel Cost (TShs)</Label><Input type="number" placeholder="Enter amount..." value={completionData.actual_fuel_cost} onChange={(e) => setCompletionData({ ...completionData, actual_fuel_cost: e.target.value })} className="text-right" /></div>
+                             <div className="space-y-1.5 text-right"><Label className="text-orange-700 font-bold uppercase text-[10px] tracking-wider block text-right font-medium">FUEL COST (TSHS)</Label><Input type="number" placeholder="Enter amount..." value={completionData.actual_fuel_cost} onChange={(e) => setCompletionData({ ...completionData, actual_fuel_cost: e.target.value })} className="text-right" /></div>
                         </div>
                         <div className="space-y-1.5"><Label className="text-blue-600 font-bold uppercase text-[10px] tracking-wider">RETURN CARGO</Label><Input placeholder="Cargo details..." value={completionData.return_cargo} onChange={(e) => setCompletionData({ ...completionData, return_cargo: e.target.value })} /></div>
                     </div>

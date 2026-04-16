@@ -297,7 +297,7 @@ export default function WeighEntry() {
         // Pre-fill Tare from first weigh, user enters Gross
         setWeighData(prev => ({
           ...prev,
-          tare_weight: String(firstWeighRecord.tare_weight || ''),
+          tare_weight: String(firstWeighRecord?.tare_weight || ''),
           gross_weight: ""
         }));
       }
@@ -958,8 +958,8 @@ Please process payment in Cashier section first.`,
         gross_weight: weighData.gross_weight,
         tare_weight: weighData.tare_weight,
         net_weight: calculatedNetWeight,
-        vehicle_type_name: entry.vehicle_types?.type_name,
-        price: isFirstWeigh ? (entry.vehicle_types?.first_weigh_fee || 0) : (entry.vehicle_types?.second_weigh_fee || 0),
+        vehicle_type_name: typeData?.type_name || 'N/A',
+        price: isFirstWeigh ? (typeData?.first_weigh_fee || 0) : (typeData?.second_weigh_fee || 0),
         isPrepaid,
         weighed_by: enteredByName,
         weigh_time: new Date().toISOString(),
@@ -970,11 +970,11 @@ Please process payment in Cashier section first.`,
         payload: weighData.gtm && weighData.trailer_weight ? (parseFloat(weighData.gtm) - parseFloat(weighData.trailer_weight)).toFixed(2) : null,
         isCompleted: newStatus === "Completed",
         warning_flag: weighData.warning_flag,
-        pulling_gvm: pullingGVM, // Add to print data
-        isPullingType: isPullingType, // Ensure this flag is passed
-        first_gross: entry.weigh_records?.[0]?.gross_weight || 0,
-        first_gtm: entry.weigh_records?.[0]?.gtm || 0,
-        first_gvm: (Number(entry.weigh_records?.[0]?.gross_weight || 0) + Number(entry.weigh_records?.[0]?.gtm || 0))
+        pulling_gvm: pullingGVM, 
+        isPullingType: isPullingType, 
+        first_gross: entry?.weigh_records?.[0]?.gross_weight || 0,
+        first_gtm: entry?.weigh_records?.[0]?.gtm || 0,
+        first_gvm: (Number(entry?.weigh_records?.[0]?.gross_weight || 0) + Number(entry?.weigh_records?.[0]?.gtm || 0))
       });
       setShowPrint(true);
 
@@ -1029,30 +1029,46 @@ Please process payment in Cashier section first.`,
     );
   }
 
-  // Print receipt dialog
-  if (showPrint && printData) {
-    const savedSettings = localStorage.getItem('receiptSettings');
-    const settings = savedSettings ? JSON.parse(savedSettings) : {
-      template: 'classic',
-      header: {
-        companyName: 'ENERGY FEEDS LIMITED',
-        subtitle: 'Under SudSud Group',
-        address: 'P.O BOX 106254 - DAR ES SALAAM, TANZANIA',
-        showLogo: true,
-        logoPosition: 'center',
-        useCustomLogo: false,
-      },
-      qrCode: {
-        enabled: true,
-        size: 'medium',
-        position: 'bottom-right',
-      },
-      footer: {
-        text: 'Thank you for using our services!',
-        showGeneratedTime: true,
-      },
-    };
+    // Print receipt dialog
+    if (showPrint && printData) {
+        let settings = {
+            template: 'classic',
+            header: {
+                companyName: 'ENERGY FEEDS LIMITED',
+                subtitle: 'Under SudSud Group',
+                address: 'P.O BOX 106254 - DAR ES SALAAM, TANZANIA',
+                showLogo: true,
+                logoPosition: 'center' as const,
+                useCustomLogo: false,
+                customLogo: null as string | null
+            },
+            qrCode: {
+                enabled: true,
+                size: 'medium',
+                position: 'bottom-right' as const,
+            },
+            footer: {
+                text: 'Thank you for using our services!',
+                showGeneratedTime: true,
+            },
+        };
 
+        try {
+            const savedSettings = localStorage.getItem('receiptSettings');
+            if (savedSettings) {
+                const parsed = JSON.parse(savedSettings);
+                // Deep merge or overwrite with parsed settings
+                settings = { ...settings, ...parsed };
+                // Ensure nested structures exist
+                if (parsed.header) settings.header = { ...settings.header, ...parsed.header };
+                if (parsed.qrCode) settings.qrCode = { ...settings.qrCode, ...parsed.qrCode };
+                if (parsed.footer) settings.footer = { ...settings.footer, ...parsed.footer };
+            }
+        } catch (e) {
+            console.error("Failed to parse receipt settings, using defaults", e);
+        }
+
+    const fontClass = settings.template === 'minimal' ? 'font-mono' : 'font-sans';
     const qrSizeMap = { small: 60, medium: 75, large: 90 };
     const qrSize = qrSizeMap[settings.qrCode.size as keyof typeof qrSizeMap] || 75;
 
@@ -1849,24 +1865,25 @@ Please process payment in Cashier section first.`,
               <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200/50">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Vehicle plate</span>
-                  <span className="text-lg font-bold text-slate-900 dark:text-white tracking-widest">{entry.vehicle_no}</span>
+                  <span className="text-lg font-bold text-slate-900 dark:text-white tracking-widest">{entry?.vehicle_no || '---'}</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-100">
                     <p className="text-[10px] font-bold text-slate-300 uppercase leading-none mb-1">Entry category</p>
-                    <p className="text-xs font-bold text-slate-600 truncate">{entry.category}</p>
+                    <p className="text-xs font-bold text-slate-600 truncate">{entry?.category || '---'}</p>
                   </div>
                   <div className="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-100">
                     <p className="text-[10px] font-bold text-slate-300 uppercase leading-none mb-1">Current status</p>
-                    <StatusBadge status={entry.status} category={entry.category} />
+                    <StatusBadge status={entry?.status || 'Active'} category={entry?.category} />
                   </div>
                 </div>
 
                 <div className="p-3 rounded-xl border bg-white dark:bg-slate-900 border-slate-100">
                   <p className="text-[10px] font-bold text-slate-300 uppercase leading-none mb-1">Initial entry time</p>
                   <p className="text-xs font-bold text-slate-600 flex items-center gap-2 mt-1">
-                    <History className="h-3 w-3 opacity-40" /> {format(new Date(entry.entry_time), "MMM dd, HH:mm:ss")}
+                    <History className="h-3 w-3 opacity-40" /> 
+                    {entry?.entry_time ? format(new Date(entry.entry_time), "MMM dd, HH:mm:ss") : '---'}
                   </p>
                 </div>
               </div>

@@ -252,15 +252,45 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 setIsLoading(true);
 
                 // 1. Parallel Fetch EVERYTHING (Meta + Trip Details + Expenses)
-                // Using Promise.all minimizes network latency and column selection reduces payload
-                const [fleetRes, couplingRes, driverRes, categoryRes, sheetRes, expenseRes] = await Promise.all([
+                // Using separate calls for drivers to allow robust fallback logic
+                const [fleetRes, couplingRes, categoryRes, sheetRes, expenseRes] = await Promise.all([
                     supabase.from('logistics_fleet' as any).select('id, vehicle_no, asset_type, fleet_category, assignment_status, make_model, trailer_number'),
                     supabase.from('logistics_couplings' as any).select('id, horse_id, trailer_id, is_active').eq('is_active', true),
-                    supabase.from('logistics_drivers' as any).select('id, full_name, license_expiry, classification, license_no, id_number, is_active').eq('is_active', true).order('full_name'),
-                    supabase.from('logistics_expense_categories' as any).select('id, name').order('name'),
+                    supabase.from('logistics_drivers' as any).select('id, name').order('name'), // Category labels
                     tripId ? supabase.from('logistics_trip_sheets' as any).select('*').eq('id', tripId).single() : Promise.resolve({ data: null, error: null }),
                     tripId ? supabase.from('logistics_trip_expenses' as any).select('*').eq('trip_sheet_id', tripId) : Promise.resolve({ data: [], error: null })
                 ]);
+
+                // 2. Specialized Driver Fetch with Fallback Logic
+                let driverData = [];
+                try {
+                    // Try preferred columns first
+                    const { data, error: dError } = await supabase
+                        .from('logistics_drivers' as any)
+                        .select('id, full_name, license_expiry, license_no, id_number, is_active, assigned_vehicle_id')
+                        .order('full_name');
+                    
+                    if (dError) {
+                        console.warn("Driver fetch with full fields failed, attempting fallback...", dError);
+                        // Fallback to basic columns if database schema is lagging
+                        const { data: fallbackData, error: fError } = await supabase
+                            .from('logistics_drivers' as any)
+                            .select('id, full_name')
+                            .order('full_name');
+                        
+                        if (fError) throw fError;
+                        driverData = fallbackData || [];
+                    } else {
+                        driverData = data || [];
+                    }
+                } catch (err: any) {
+                    console.error("Driver fetch failed completely", err);
+                    toast({
+                        variant: "destructive",
+                        title: "Driver Load Failed",
+                        description: "Could not retrieve driver list. Please check if the 'logistics_drivers' table exists."
+                    });
+                }
 
                 if (fleetRes.data) setFleet(fleetRes.data);
                 if (couplingRes.data) setCouplings(couplingRes.data);
@@ -268,14 +298,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
 
-                // Priority: Transit drivers first, then others if list is empty
-                let currentDrivers = (driverRes.data || []).filter(d => d.classification === 'Transit');
-                if (currentDrivers.length === 0) {
-                    currentDrivers = (driverRes.data || []);
-                }
-                
-                const filterExpired = (list: any[]) => list.filter(d => !d.license_expiry || new Date(d.license_expiry) >= today);
-                setDrivers(filterExpired(currentDrivers));
+                // Show ALL active drivers — expired licences are flagged visually, not hidden
+                setDrivers(driverData);
 
                 if (!tripId) {
                     setIsLoading(false);
@@ -1157,11 +1181,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 <div className="grid gap-1.5 print:gap-1">
                     {/* Professional Table Header */}
                     <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
-                        <div className="flex-[8] min-w-[150px]">Expense Description</div>
-                        <div className="w-28">Nature</div>
-                        <div className="w-28 text-right">Amount (TZS)</div>
-                        <div className="w-14 text-right">USD</div>
-                        {category === 'Zambia' && <div className="w-14 text-right">ZMW</div>}
+                        <div className="flex-[8] min-w-[200px]">Expense Description</div>
+                        <div className="w-28 text-center">Nature</div>
+                        <div className="w-40 text-right pr-4">Amount (TZS)</div>
+                        <div className="w-20 text-right">USD</div>
+                        {category === 'Zambia' && <div className="w-20 text-right">ZMW</div>}
                         <div className="w-6"></div>
                     </div>
 
@@ -1174,7 +1198,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                         return (
                             <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
-                                <div className="flex-[8] min-w-[150px]">
+                                <div className="flex-[8] min-w-[200px]">
                                     <div className="hidden print:block text-[9px] font-medium text-slate-700">{item.item_name}</div>
                                     <Input
                                         className="h-7 bg-slate-50/20 border-none focus-visible:ring-1 ring-slate-100 font-normal !text-[12px] text-slate-700 placeholder:text-slate-300 print:hidden"
@@ -1203,7 +1227,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     </Select>
                                 </div>
 
-                                <div className="w-28 flex items-center gap-1 print:w-fit">
+                                <div className="w-40 flex items-center gap-1 print:w-fit">
                                     <div className="hidden print:flex items-center justify-end gap-2 text-[9px] whitespace-nowrap">
                                         <span className="text-slate-900 font-bold">TShs {Math.round(amountTSh).toLocaleString()}</span>
                                     </div>
@@ -1220,15 +1244,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     </div>
                                 </div>
                                 
-                                <div className="w-14 text-right print:hidden shrink-0">
+                                <div className="w-20 text-right print:hidden shrink-0">
                                     <p className="text-[11px] font-semibold text-slate-400">
                                         ${Math.round(amountUSD).toLocaleString()}
                                     </p>
                                 </div>
 
                                 {category === 'Zambia' && (
-                                    <div className="w-14 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
-                                        <p className="text-[9px] font-bold text-emerald-600/70">
+                                    <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
+                                        <p className="text-[10px] font-bold text-emerald-600/70">
                                             K{Math.round(amountZMW).toLocaleString()}
                                         </p>
                                     </div>
@@ -1248,18 +1272,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             </div>
                         );
                     })}
-                    {filteredExpenses.length === 0 && (
-                        <div className="text-center py-4 border-2 border-dashed rounded-lg text-muted-foreground text-[10px]">
-                            No {title} expenses recorded yet
-                        </div>
-                    )}
                 </div>
+                {filteredExpenses.length === 0 && (
+                    <div className="text-center py-4 border-2 border-dashed rounded-lg text-muted-foreground text-[10px]">
+                        No {title} expenses recorded yet
+                    </div>
+                )}
             </div>
         );
     };
 
     return (
-        <div id="print-logistics" className="space-y-8 max-w-[98%] mx-auto pb-8 px-4 md:px-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div id="print-logistics" className="space-y-8 w-full max-w-none pb-8 px-1 md:px-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* 📄 Header for Printing Only */}
             <div className="hidden print:block p-4 border-b-2 border-slate-900 mb-6 bg-white">
                 <div className="flex justify-between items-center text-slate-900 font-bold">
@@ -1278,8 +1302,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             </div>
 
             {/* 📊 Financial Summary Bar (Stays on screen, hidden in print) */}
-            <div className="flex flex-wrap gap-4 print:hidden sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md p-4 rounded-2xl border shadow-lg">
-                <div className="bg-white p-3 rounded-xl border shadow-sm flex-1 min-w-[280px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md p-4 rounded-2xl border shadow-lg">
+                <div className="bg-white p-3 rounded-xl border shadow-sm col-span-1 sm:col-span-2 lg:col-span-1">
                     <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                         <Globe size={10} className="text-primary opacity-70" />
                         Market Exchange Rates
@@ -1331,7 +1355,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </div>
                 </div>
 
-                <div className="bg-slate-900 p-3 rounded-xl shadow-lg flex-1 min-w-[280px]">
+                <div className="bg-slate-900 p-3 rounded-xl shadow-lg">
                     <div className="flex justify-between items-start mb-2">
                         <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">Gross Revenue</p>
                         <Select
@@ -1366,7 +1390,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </p>
                 </div>
 
-                <div className="bg-orange-500 p-3 rounded-xl shadow-md w-full md:w-48">
+                <div className="bg-orange-500 p-3 rounded-xl shadow-md">
                     <p className="text-[10px] font-semibold text-orange-100 uppercase tracking-wider mb-1 text-right opacity-80">Operational Cost</p>
                     <div className="text-right">
                         <p className="text-lg font-bold text-white leading-tight">TShs {totals.totalExpensesTZS.toLocaleString()}</p>
@@ -1374,7 +1398,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </div>
                 </div>
 
-                <div className="bg-emerald-500 p-3 rounded-xl shadow-md w-full md:w-56">
+                <div className="bg-emerald-500 p-3 rounded-xl shadow-md">
                     <p className="text-[10px] font-semibold text-emerald-100 uppercase tracking-wider mb-1 text-right opacity-80">Expected Surplus</p>
                     <div className="text-right">
                         <p className={`text-xl font-bold text-white leading-none ${totals.netProfitUSD < 0 ? 'text-red-100' : ''}`}>
@@ -1484,7 +1508,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice & Payment Management</span>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="space-y-1.5">
                                         <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
                                         <Input
@@ -1496,7 +1520,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         />
                                     </div>
                                     <div className="space-y-1.5">
-                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Invoice Date</Label>
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
                                         <Input
                                             type="date"
                                             className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700"
@@ -1532,7 +1556,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <Label className="text-xs font-semibold text-slate-500">Vehicle (Horse)</Label>
                                     <Popover>
@@ -1552,7 +1576,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                             </Button>
                                         </PopoverTrigger>
-                                        <PopoverContent className="w-[300px] p-0 z-[100]">
+                                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] sm:w-[300px] p-0 z-[100]" align="start">
                                             <Command>
                                                 <CommandInput placeholder="Search vehicle..." />
                                                 <CommandList className="max-h-[350px]">
@@ -1593,12 +1617,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                         const seq = String(totalTrips + 1).padStart(3, '0');
                                                                         const newTripId = `${cleanHorse}/2025/G${seq}`;
 
+                                                                        // Auto-fill driver assigned to this vehicle
+                                                                        const assignedDriver = driverData.find((d: any) => d.assigned_vehicle_id === v.id);
+
                                                                         setTripData({
                                                                             ...tripData,
                                                                             vehicle_id: v.id,
                                                                             trailer_id: activeCoupling.trailer_id,
                                                                             trip_number: newTripId,
-                                                                            journey_type: journeyType
+                                                                            journey_type: journeyType,
+                                                                            driver_id: assignedDriver ? assignedDriver.id : tripData.driver_id
                                                                         });
 
                                                                         const trailerFound = fleet.find(f => String(f.id).toLowerCase().trim() === String(activeCoupling.trailer_id).toLowerCase().trim());
@@ -1620,8 +1648,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                     </div>
                                                                     <span className="text-[10px] text-slate-400 uppercase tracking-wide">{v.asset_type || 'Truck'}</span>
                                                                 </CommandItem>
-                                                            );
-                                                        })}
+                                                                );
+                                                            })}
                                                     </CommandGroup>
                                                 </CommandList>
                                             </Command>
@@ -1648,7 +1676,6 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     </div>
                                 </div>
                             </div>
-
                             <div className="space-y-2">
                                 <Label className="text-xs font-semibold text-slate-500">Assigned Driver</Label>
                                 <Popover>
@@ -1668,38 +1695,43 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-[300px] p-0 z-[100]">
+                                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] sm:w-[300px] p-0 z-[100]" align="start">
                                         <Command>
                                             <CommandInput placeholder="Search driver name..." />
                                             <CommandList className="max-h-[300px]">
                                                 <CommandEmpty>No driver found.</CommandEmpty>
                                                 <CommandGroup>
                                                     <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Company Drivers</div>
-                                                    {drivers.map(d => (
-                                                        <CommandItem
-                                                            key={d.id}
-                                                            value={d.full_name}
-                                                            onSelect={() => setTripData({ ...tripData, driver_id: d.id })}
-                                                            className="flex items-center gap-2 py-2.5 px-3"
-                                                        >
-                                                            <Check className={cn("h-4 w-4", d.id === tripData.driver_id ? "opacity-100" : "opacity-0")} />
-                                                            <div className="flex flex-col">
-                                                                <span className="text-sm font-medium text-slate-700">{d.full_name}</span>
-                                                            </div>
-                                                        </CommandItem>
-                                                    ))}
+                                                    {drivers.map(d => {
+                                                        const isExpired = d.license_expiry && new Date(d.license_expiry) < new Date();
+                                                        return (
+                                                            <CommandItem
+                                                                key={d.id}
+                                                                value={d.full_name}
+                                                                onSelect={() => setTripData({ ...tripData, driver_id: d.id })}
+                                                                className="flex items-center gap-2 py-2.5 px-3"
+                                                            >
+                                                                <Check className={cn("h-4 w-4", d.id === tripData.driver_id ? "opacity-100" : "opacity-0")} />
+                                                                <div className="flex flex-col flex-1">
+                                                                    <span className="text-sm font-medium text-slate-700">{d.full_name}</span>
+                                                                    {isExpired && (
+                                                                        <span className="text-[10px] font-bold text-red-500 uppercase tracking-wide">⚠ Licence Expired</span>
+                                                                    )}
+                                                                </div>
+                                                            </CommandItem>
+                                                        );
+                                                    })}
                                                 </CommandGroup>
                                             </CommandList>
                                         </Command>
                                     </PopoverContent>
                                 </Popover>
                             </div>
-
                         </div>
 
                         {/* RIGHT COLUMN: Route & Cargo */}
                         <div className="space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <Label className="text-xs font-semibold text-slate-500">Route Origin</Label>
                                     <Input
@@ -1730,7 +1762,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     disabled={isLocked}
                                 />
                             </div>
-                            <div className="grid grid-cols-2 gap-6 mt-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
                                 <div className="space-y-2">
                                     <Label className="text-xs font-semibold text-slate-500">Agreed Duration (Days)</Label>
                                     <Input
@@ -2076,7 +2108,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             <div className="mt-8 bg-slate-900 p-8 rounded-2xl shadow-xl text-white print:bg-gray-50 print:text-black print:border print:border-slate-200 print:shadow-none print:rounded-xl print:p-4 print:mt-4 break-inside-avoid">
                 <div className="flex flex-col md:flex-row justify-between gap-8 print:gap-4">
                     <div className="space-y-6 flex-1 print:space-y-3">
-                        <div className="grid grid-cols-2 gap-x-12 max-w-lg print:gap-x-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 max-w-lg print:gap-x-6 gap-y-6">
                              <div className="space-y-1">
                                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Gross Trip Revenue</p>
                                 <p className="text-lg font-bold print:text-sm">TShs {revenueData.revenue_currency === 'TZS' ? parseFloat(revenueData.revenue_amount || '0').toLocaleString() : (parseFloat(revenueData.revenue_amount || '0') * (countryRates["TZ"] || 2700)).toLocaleString()}</p>

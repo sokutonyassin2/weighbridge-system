@@ -1088,13 +1088,13 @@ Please process payment in Cashier section first.`,
                     className={`h-20 mb-4 object-contain ${settings.header.logoPosition === 'center' ? 'mx-auto' : settings.header.logoPosition === 'right' ? 'ml-auto' : ''}`}
                   />
                 )}
-                <h1 className="text-2xl font-black text-slate-950 uppercase tracking-tight">
+                <h1 className="text-xl font-bold text-slate-900 uppercase">
                   {settings.header.companyName}
                 </h1>
-                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">{settings.header.subtitle}</p>
-                <p className="text-xs text-slate-400 font-medium">{settings.header.address}</p>
+                <p className="text-xs text-slate-500 font-semibold mt-1">{settings.header.subtitle}</p>
+                <p className="text-xs text-slate-400">{settings.header.address}</p>
                 
-                <h2 className="mt-6 text-sm font-black text-slate-900 uppercase tracking-[0.3em] flex items-center justify-center gap-2">
+                <h2 className="mt-4 text-sm font-bold text-slate-900 uppercase tracking-widest flex items-center justify-center gap-2">
                   <span className="h-px bg-slate-200 flex-1"></span>
                   OFFICIAL WEIGH RECEIPT
                   <span className="h-px bg-slate-200 flex-1"></span>
@@ -1122,40 +1122,40 @@ Please process payment in Cashier section first.`,
                 )}
               </div>
 
-              <div className="space-y-4 mb-8 print:mb-4 text-slate-900 px-4">
-                <div className="grid grid-cols-2 gap-x-12 gap-y-6">
+              <div className="space-y-4 mb-6 print:mb-4 text-slate-900 px-4">
+                <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Entry ID</p>
-                    <p className="font-bold font-mono text-lg text-slate-900">{printData.wb_number ? getShortEntryId(printData.id, printData.wb_number) : 'N/A'}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Entry ID</p>
+                    <p className="font-bold font-mono text-base text-slate-900">{printData.wb_number ? getShortEntryId(printData.id, printData.wb_number) : 'N/A'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Weigh Time</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Weigh Time</p>
                     <p className="font-bold text-slate-900">
                       {format(new Date(printData.weigh_time), "dd/MM/yyyy HH:mm:ss")}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Plate</p>
-                    <p className="font-black text-2xl text-slate-950 tracking-tighter">{printData.vehicle_no}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Vehicle Plate</p>
+                    <p className="font-bold text-xl text-slate-900">{printData.vehicle_no}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Type</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Vehicle Type</p>
                     <p className="font-bold text-slate-900">{printData.vehicle_type_name}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Category</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Category</p>
                     <p className="font-bold text-slate-700">{printData.category}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Driver</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Driver</p>
                     <p className="font-bold text-slate-700">{printData.driver_name}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Shift Operator</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Shift Operator</p>
                     <p className="font-bold text-slate-700">{printData.weighed_by}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Weigh Status</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Weigh Status</p>
                     <p className="font-bold text-slate-900">
                       {printData.isSecondWeigh ? "Second Weigh Complete" : "First Weigh Complete"}
                     </p>
@@ -1196,20 +1196,20 @@ Please process payment in Cashier section first.`,
                 )}
               </div>
 
-              <div className="mt-8 border-y border-slate-200 py-8 bg-slate-50/50 rounded-xl print:mt-4 print:py-4">
+              <div className="mt-6 border-y-2 border-slate-900 py-6 print:mt-4 print:py-4">
                 {!printData.isPullingType && (
                   <div className="grid grid-cols-3 gap-4 text-center px-4">
                     <div className="space-y-1">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Gross Weight</p>
-                      <p className="text-xl font-bold text-slate-700">{Number(printData.gross_weight).toLocaleString()} <span className="text-xs text-slate-400">KG</span></p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Gross Weight</p>
+                      <p className="text-lg font-bold text-slate-800">{Number(printData.gross_weight).toLocaleString()} KG</p>
                     </div>
-                    <div className="space-y-1 border-x border-slate-100">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tare Weight</p>
-                      <p className="text-xl font-bold text-slate-700">{Number(printData.tare_weight).toLocaleString()} <span className="text-xs text-slate-400">KG</span></p>
+                    <div className="space-y-1 border-x border-slate-200">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Tare Weight</p>
+                      <p className="text-lg font-bold text-slate-800">{Number(printData.tare_weight).toLocaleString()} KG</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">Net Weight</p>
-                      <p className="text-3xl font-black text-slate-950 underline decoration-slate-200">{Number(printData.net_weight).toLocaleString()} <span className="text-sm">KG</span></p>
+                      <p className="text-[10px] font-bold text-slate-900 uppercase">Net Weight</p>
+                      <p className="text-2xl font-bold text-slate-950">{Number(printData.net_weight).toLocaleString()} KG</p>
                     </div>
                   </div>
                 )}
@@ -1241,45 +1241,42 @@ Please process payment in Cashier section first.`,
 
                 {/* Detailed Pulling Breakdown (Match User Request) */}
                 {printData.isPullingType && printData.isSecondWeigh && (
-                  <div className="mt-4 pt-4 border-t-2 border-primary space-y-4 print:pt-2 print:mt-1">
-                    <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4 print:p-0 print:border-none print:bg-transparent">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mb-2">Mass Calculation Breakdown</p>
+                  <div className="mt-4 pt-4 border-t-2 border-slate-900 space-y-4 print:pt-2 print:mt-1">
+                    <div className="space-y-4 print:p-0">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Mass Calculation Breakdown</p>
 
                       <div className="space-y-3 print:space-y-1">
                         {/* Loaded Row */}
-                        <div className="flex justify-between items-end border-b border-slate-200 dark:border-slate-700 pb-2 print:pb-1">
+                        <div className="flex justify-between items-end border-b border-slate-200 pb-2 print:pb-1">
                           <div className="space-y-1">
-                            <p className="text-[10px] font-black text-slate-500 uppercase">Loaded Trip (Pass #1)</p>
-                            <p className="text-xs font-semibold text-slate-400 italic">Gross {Number(printData.first_gross || 0).toLocaleString()} + GTM {Number(printData.first_gtm || 0).toLocaleString()}</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase">Loaded Trip (Pass #1)</p>
+                            <p className="text-[10px] text-slate-400 italic">Gross {Number(printData.first_gross || 0).toLocaleString()} + GTM {Number(printData.first_gtm || 0).toLocaleString()}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xl font-black text-slate-900 dark:text-white print:text-sm">{Number(printData.first_gvm || 0).toLocaleString()} <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">GVM</span></p>
+                            <p className="text-lg font-bold text-slate-900 print:text-sm">{Number(printData.first_gvm || 0).toLocaleString()} KG</p>
                           </div>
                         </div>
 
                         {/* Empty Row */}
-                        <div className="flex justify-between items-end border-b border-slate-200 dark:border-slate-700 pb-2 print:pb-1">
+                        <div className="flex justify-between items-end border-b border-slate-200 pb-2 print:pb-1">
                           <div className="space-y-1">
-                            <p className="text-[10px] font-black text-slate-500 uppercase">Empty Trip (Pass #2)</p>
-                            <p className="text-xs font-semibold text-slate-400 italic">Gross {Number(printData.gross_weight || 0).toLocaleString()} + GTM {Number(printData.gtm || 0).toLocaleString()}</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase">Empty Trip (Pass #2)</p>
+                            <p className="text-[10px] text-slate-400 italic">Gross {Number(printData.gross_weight || 0).toLocaleString()} + GTM {Number(printData.gtm || 0).toLocaleString()}</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xl font-black text-slate-900 dark:text-white print:text-sm">{Number(printData.pulling_gvm || 0).toLocaleString()} <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">GVM</span></p>
+                            <p className="text-lg font-bold text-slate-900 print:text-sm">{Number(printData.pulling_gvm || 0).toLocaleString()} KG</p>
                           </div>
                         </div>
                       </div>
 
                       <div className="pt-2 flex flex-col items-end gap-1">
-                        <div className="flex items-center gap-2 text-primary text-[10px] font-black uppercase tracking-[0.1em]">
+                        <div className="flex items-center gap-2 text-slate-900 text-[10px] font-bold uppercase tracking-widest">
                           <span>Final Cargo Weight (Net)</span>
                         </div>
                         <div className="flex items-baseline gap-2">
-                          <span className="text-3xl font-black text-primary print:text-2xl">{Number(printData.net_weight).toLocaleString()}</span>
-                          <span className="text-sm font-bold text-primary/60 uppercase tracking-tighter">KG</span>
+                          <span className="text-2xl font-bold text-slate-950 print:text-xl">{Number(printData.net_weight).toLocaleString()}</span>
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">KG</span>
                         </div>
-                        <p className="text-[10px] font-bold text-slate-400/80 italic">
-                          Formula: {Number(printData.first_gvm || 0).toLocaleString()} - {Number(printData.pulling_gvm || 0).toLocaleString()}
-                        </p>
                       </div>
                     </div>
                   </div>
@@ -1287,15 +1284,14 @@ Please process payment in Cashier section first.`,
 
                 {/* Simple Pulling GVM for First Weigh */}
                 {printData.isPullingType && !printData.isSecondWeigh && (
-                  <div className="mt-4 pt-4 border-t border-dashed border-muted-foreground">
-                    <div className="bg-blue-50/40 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30 flex justify-between items-center print:p-0 print:border-none print:bg-transparent">
+                  <div className="mt-4 pt-4 border-t border-dashed border-slate-900">
+                    <div className="flex justify-between items-center print:p-0">
                       <div className="space-y-0.5">
-                        <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider">Pass #1 Total Mass</p>
-                        <p className="text-xs font-bold text-slate-800 dark:text-white">Pulling GVM (Gross + GTM)</p>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Pass #1 Total Mass</p>
+                        <p className="text-xs font-bold text-slate-800 uppercase">Pulling GVM (Gross + GTM)</p>
                       </div>
                       <div className="text-right">
-                        <span className="text-2xl font-black text-primary">{Number((Number(printData.gross_weight) || 0) + (Number(printData.gtm) || 0)).toLocaleString()}</span>
-                        <span className="text-xs font-bold text-primary/60 ml-1 uppercase">KG</span>
+                        <span className="text-xl font-bold text-slate-900">{Number((Number(printData.gross_weight) || 0) + (Number(printData.gtm) || 0)).toLocaleString()} KG</span>
                       </div>
                     </div>
                   </div>
@@ -1310,16 +1306,16 @@ Please process payment in Cashier section first.`,
               </div>
 
               {!printData.isSecondWeigh && (
-                <div className="pt-6 mt-6 border-t border-slate-100 print:pt-4 print:mt-4">
+                <div className="pt-6 mt-6 border-t border-slate-200 print:pt-4 print:mt-4">
                   <div className="flex justify-between items-baseline">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">First Weigh Fee:</span>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">First Weigh Fee:</span>
                     {printData.isPrepaid ? (
-                      <span className="font-black text-emerald-600 uppercase tracking-tight">
+                      <span className="font-bold text-slate-900 uppercase">
                         Pre-paid (Penalty)
                       </span>
                     ) : (
-                      <span className="text-2xl font-black text-slate-900">
-                        <span className="text-xs mr-1">TZS</span>{(printData.price || 0).toLocaleString()}
+                      <span className="text-xl font-bold text-slate-900">
+                        <span className="text-xs mr-1 font-normal">TZS</span>{(printData.price || 0).toLocaleString()}
                       </span>
                     )}
                   </div>
@@ -1328,27 +1324,27 @@ Please process payment in Cashier section first.`,
 
               {/* JV-Payment Overweight Notice */}
               {printData.category === "JV-Payment" && printData.warning_flag && !printData.isSecondWeigh && (
-                <div className="mt-4 p-3 border-2 border-dashed border-red-300 bg-red-50/50 rounded-lg text-center print:border-red-400 print:bg-transparent">
-                  <p className="font-bold text-red-600 print:text-black uppercase text-sm mb-1">
+                <div className="mt-4 p-3 border-2 border-slate-900 text-center">
+                  <p className="font-bold text-slate-900 uppercase text-sm mb-1">
                     ⚠️ OVERWEIGHT NOTICE
                   </p>
-                  <p className="text-xs text-slate-700 print:text-black font-medium leading-relaxed">
-                    This receipt is valid for <strong>2 additional re-weigh attempts</strong> within <strong>12 hours</strong>.
+                  <p className="text-xs text-slate-900 font-bold leading-relaxed">
+                    This receipt is valid for 2 additional re-weigh attempts within 12 hours.
                     <br />
                     If acceptable weight is not achieved within these limits, a new payment will be required.
                   </p>
                 </div>
               )}
 
-              <div className="text-center text-[10px] text-slate-400 mt-12 print:mt-8 uppercase tracking-[0.3em] font-bold border-t border-slate-100 pt-8">
+              <div className="text-center text-[10px] text-slate-500 mt-12 print:mt-8 uppercase tracking-widest font-bold border-t border-slate-200 pt-8">
                 {printData.isSecondWeigh ? (
                   <>
-                    <p className="font-black text-slate-900 tracking-[0.2em] mb-2">Final Receipt - Weighing Complete</p>
+                    <p className="font-bold text-slate-900 mb-1">Final Receipt - Weighing Complete</p>
                     <p className="text-slate-500">{settings.footer.text}</p>
                   </>
                 ) : (
                   <>
-                    <p className="font-black text-slate-900 tracking-[0.2em] mb-2">Partial Receipt - Keep for Pass #2</p>
+                    <p className="font-bold text-slate-900 mb-1">Partial Receipt - Keep for Pass #2</p>
                     <p className="text-slate-500">{settings.footer.text}</p>
                   </>
                 )}

@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
@@ -118,6 +118,7 @@ const GarageDashboard = () => {
     const [selectedUsageToApprove, setSelectedUsageToApprove] = useState<any>(null);
     const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
     const [language, setLanguage] = useState<'en' | 'sw'>('en');
+    const [inventoryViewMode, setInventoryViewMode] = useState<"list" | "grid">("list");
 
 
     const t = (key: keyof typeof translations.en) => translations[language][key] || key;
@@ -126,7 +127,8 @@ const GarageDashboard = () => {
     const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted">(
         location.pathname === "/garage/store" ? "inventory" :
             location.pathname === "/garage/logs" ? "logs" :
-                location.pathname === "/garage/deleted" ? "deleted" : "jobs"
+                location.pathname === "/garage/deleted" ? "deleted" :
+                    (userRole === "storekeeper") ? "inventory" : "jobs"
     );
 
     // Sync tab with URL changes
@@ -141,7 +143,10 @@ const GarageDashboard = () => {
             setActiveTab("jobs");
         }
     }, [location.pathname]);
+
     const [isRequisitionDialogOpen, setIsRequisitionDialogOpen] = useState(false);
+    const [isEditReqOpen, setIsEditReqOpen] = useState(false);
+    const [editingReqItem, setEditingReqItem] = useState<{ id: string; item_name: string; quantity: number } | null>(null);
     const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
@@ -309,6 +314,15 @@ const GarageDashboard = () => {
         refetchInterval: 60000 // Optimized refresh
     });
 
+    const filteredInventory = useMemo(() => {
+        return (inventory || []).filter((item: any) => {
+            const matchesNamCat = item.item_name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
+                item.category.toLowerCase().includes(inventorySearch.toLowerCase());
+            const matchesPN = (item.part_number || "").toLowerCase().includes(partNumberSearch.toLowerCase());
+            return matchesNamCat && matchesPN;
+        });
+    }, [inventory, inventorySearch, partNumberSearch]);
+
     const { data: requisitions, isLoading: isLoadingRequisitions } = useQuery({
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
@@ -444,6 +458,50 @@ const GarageDashboard = () => {
             setRequisitionItems([{ item_name: "", quantity: 1 }]);
         },
         onError: (err: any) => toast({ variant: "destructive", title: "Submission Error", description: err.message })
+    });
+
+    const editRequisitionMutation = useMutation({
+        mutationFn: async ({ id, item_name, quantity }: { id: string, item_name: string, quantity: number }) => {
+            const { data, error } = await sb.from("garage_requisitions")
+                .update({ item_name, quantity_requested: quantity })
+                .eq("id", id)
+                .eq("status", "Pending")
+                .select();
+                
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                throw new Error("Cannot edit: This requisition is no longer pending and has been picked up by Procurement.");
+            }
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+            toast({ title: "Requisition Updated", description: "Changes have been saved." });
+            setIsEditReqOpen(false);
+            setEditingReqItem(null);
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Update Error", description: err.message })
+    });
+
+    const deleteRequisitionMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { data, error } = await sb.from("garage_requisitions")
+                .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+                .eq("id", id)
+                .eq("status", "Pending")
+                .select();
+                
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                throw new Error("Cannot delete: This requisition is no longer pending and has been picked up by Procurement.");
+            }
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+            toast({ title: "Requisition Deleted", description: "The request has been removed." });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Delete Error", description: err.message })
     });
 
     const logFaultMutation = useMutation({
@@ -1037,16 +1095,16 @@ const GarageDashboard = () => {
     ] : [];
 
     return (
-        <div className="space-y-6 p-6 animate-fade-in text-slate-900">
+        <div className="space-y-6 p-6 animate-fade-in text-slate-900 font-dashboard">
             {/* Conditional Header: Only show for Repairs tab */}
             {activeTab === 'jobs' && (
                 <div className="flex items-center justify-between border-b pb-6 border-slate-100">
                     <div>
-                        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+                        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                             <Wrench className="w-8 h-8 text-indigo-600" />
                             <div className="flex flex-col">
-                                <span className="text-slate-900">{t('garage_title')}</span>
-                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{t('garage_subtitle')}</span>
+                                <span className="text-slate-900 leading-tight">{t('garage_title')}</span>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mt-0.5">{t('garage_subtitle')}</span>
                             </div>
                         </h1>
 
@@ -1078,7 +1136,7 @@ const GarageDashboard = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-medium text-slate-400 uppercase tracking-widest leading-none">{t('active_jobs')}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{t('active_jobs')}</CardTitle>
                                 <div className="p-2 bg-indigo-50 rounded-lg">
                                     <Truck className="h-4 w-4 text-indigo-500" />
                                 </div>
@@ -1098,7 +1156,7 @@ const GarageDashboard = () => {
                         </Card>
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all border-l-4 border-l-red-500">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-medium text-red-500 uppercase tracking-widest leading-none">{t('critical_faults')}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold text-red-500 uppercase tracking-[0.15em] leading-none">{t('critical_faults')}</CardTitle>
                                 <div className="p-2 bg-red-50 rounded-lg">
                                     <AlertTriangle className="h-4 w-4 text-red-500" />
                                 </div>
@@ -1117,7 +1175,7 @@ const GarageDashboard = () => {
                         </Card>
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-medium text-slate-400 uppercase tracking-widest leading-none">{t('pending_issues')}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{t('pending_issues')}</CardTitle>
                                 <div className="p-2 bg-amber-50 rounded-lg">
                                     <Clock className="h-4 w-4 text-amber-500" />
                                 </div>
@@ -1152,7 +1210,7 @@ const GarageDashboard = () => {
                                 }}
                             >
                                 <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
-                                    <CardTitle className={`text-[11px] font-semibold uppercase tracking-widest ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>{language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}</CardTitle>
+                                    <CardTitle className={`text-[11px] font-bold uppercase tracking-[0.15em] ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>{language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}</CardTitle>
                                     <ClipboardCheck className={`h-4 w-4 ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-white" : "text-indigo-500"}`} />
                                 </CardHeader>
 
@@ -1172,7 +1230,7 @@ const GarageDashboard = () => {
                         {/* Recent Activity Feed for Accountability */}
                         <Card className="border-none shadow-sm bg-white md:row-span-2 lg:row-span-1">
                             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
-                                <CardTitle className="text-[11px] font-semibold text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                                <CardTitle className="text-[11px] font-bold text-slate-700 uppercase tracking-[0.15em] flex items-center gap-2">
                                     <HistoryIcon className="h-3.5 w-3.5 text-indigo-500" />
                                     {language === 'en' ? 'Accountability Feed' : 'Mlisho wa Uwajibikaji'}
                                 </CardTitle>
@@ -1253,7 +1311,7 @@ const GarageDashboard = () => {
                     <Card className="border-none shadow-lg bg-white">
                         <CardHeader>
                             <div className="flex items-center justify-between">
-                                <CardTitle className="text-sm font-semibold text-slate-700 uppercase tracking-widest flex items-center gap-2">{language === 'en' ? 'Active Job Cards' : 'Kadi za Kazi Amilifu'}</CardTitle>
+                                <CardTitle className="text-sm font-bold text-slate-700 uppercase tracking-[0.15em] flex items-center gap-2">{language === 'en' ? 'Active Job Cards' : 'Kadi za Kazi Amilifu'}</CardTitle>
 
                                 <div className="flex w-full max-w-sm items-center space-x-2">
                                     <Input
@@ -1270,13 +1328,13 @@ const GarageDashboard = () => {
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/50">
-                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Job No' : 'Namba ya Kazi'}</TableHead>
-                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('vehicle')}</TableHead>
-                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('mechanic')}</TableHead>
-                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400 text-center">{language === 'en' ? 'Open Date' : 'Tarehe iliyofunguliwa'}</TableHead>
-                                        <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Primary Issue' : 'Tatizo Kuu'}</TableHead>
-                                        <TableHead className="text-[11px] font-medium text-slate-400 uppercase tracking-widest text-center">Status</TableHead>
-                                        <TableHead className="text-right text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('actions')}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Job No' : 'Namba ya Kazi'}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('vehicle')}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('mechanic')}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 text-center">{language === 'en' ? 'Open Date' : 'Tarehe iliyofunguliwa'}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Primary Issue' : 'Tatizo Kuu'}</TableHead>
+                                        <TableHead className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em] text-center">Status</TableHead>
+                                        <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('actions')}</TableHead>
                                     </TableRow>
 
                                 </TableHeader>
@@ -1446,9 +1504,9 @@ const GarageDashboard = () => {
                 </>
             ) : activeTab === 'inventory' ? (
                 <div className="space-y-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2 uppercase">
+                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
                                 <Package className="w-6 h-6 text-indigo-500" />
                                 {t('inventory')}
                             </h1>
@@ -1457,14 +1515,37 @@ const GarageDashboard = () => {
                                 {language === 'en' ? 'Manage stock levels and request part restocks' : 'Simamia kiwango cha vifaa na agiza vipya'}
                             </p>
                         </div>
-                        <Button
-                            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-semibold uppercase tracking-wider text-xs h-11 px-6"
 
-                            onClick={() => setIsAddProductDialogOpen(true)}
-                        >
-                            <Plus className="w-4 h-4 mr-2" />
-                            {t('add_product')}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+                                <Button
+                                    variant={inventoryViewMode === 'grid' ? 'secondary' : 'ghost'}
+                                    size="sm"
+                                    className={`h-8 w-8 p-0 ${inventoryViewMode === 'grid' ? 'bg-white shadow-sm' : ''} transition-all`}
+                                    onClick={() => setInventoryViewMode('grid')}
+                                    title="Grid View"
+                                >
+                                    <LayoutGrid className="h-4 w-4 text-slate-600" />
+                                </Button>
+                                <Button
+                                    variant={inventoryViewMode === 'list' ? 'secondary' : 'ghost'}
+                                    size="sm"
+                                    className={`h-8 w-8 p-0 ${inventoryViewMode === 'list' ? 'bg-white shadow-sm' : ''} transition-all`}
+                                    onClick={() => setInventoryViewMode('list')}
+                                    title="List View"
+                                >
+                                    <List className="h-4 w-4 text-slate-600" />
+                                </Button>
+                            </div>
+
+                            <Button
+                                className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-bold uppercase tracking-wider text-xs h-11 px-6"
+                                onClick={() => setIsAddProductDialogOpen(true)}
+                            >
+                                <Plus className="w-4 h-4 mr-2" />
+                                {t('add_product')}
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1491,7 +1572,7 @@ const GarageDashboard = () => {
                     <div className="grid gap-6 md:grid-cols-2">
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-slate-400 uppercase tracking-widest leading-none">{language === 'en' ? 'Catalog Items' : 'Orodha ya Vifaa'}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{language === 'en' ? 'Catalog Items' : 'Orodha ya Vifaa'}</CardTitle>
 
 
                                 <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
@@ -1507,7 +1588,7 @@ const GarageDashboard = () => {
 
                         <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow border-l-4 border-l-red-400">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-red-500 uppercase tracking-widest leading-none">{language === 'en' ? 'Low Stock Alerts' : 'Tahadhari ya Akiba Chini'}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold text-red-500 uppercase tracking-[0.15em] leading-none">{language === 'en' ? 'Low Stock Alerts' : 'Tahadhari ya Akiba Chini'}</CardTitle>
 
 
                                 <div className="p-2 bg-red-50 rounded-lg text-red-600">
@@ -1525,31 +1606,23 @@ const GarageDashboard = () => {
 
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {(inventory || [])
-                            .filter((item: any) => {
-                                const matchesNamCat = item.item_name.toLowerCase().includes(inventorySearch.toLowerCase()) ||
-                                    item.category.toLowerCase().includes(inventorySearch.toLowerCase());
-                                const matchesPN = (item.part_number || "").toLowerCase().includes(partNumberSearch.toLowerCase());
-
-                                if (inventorySearch && partNumberSearch) return matchesNamCat && matchesPN;
-                                return matchesNamCat && matchesPN; // This logic handles empty search terms correctly
-                            })
-                            .map((item: any) => {
+                    {inventoryViewMode === 'grid' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {filteredInventory.map((item: any) => {
                                 const isLow = (item.quantity || 0) <= (item.min_threshold || 0);
                                 return (
-                                    <div key={item.id} className={`p-5 rounded-2xl bg-white shadow-sm border-2 transition-all ${isLow ? 'border-red-100 bg-red-50/10' : 'border-slate-50 hover:border-indigo-100'} flex flex-col justify-between h-[210px]`}>
+                                    <div key={item.id} className={`p-5 rounded-xl bg-white shadow-sm border transition-all ${isLow ? 'border-red-200 bg-red-50/10' : 'border-slate-100 hover:border-indigo-100'} flex flex-col justify-between h-[210px]`}>
                                         <div className="flex justify-between items-start">
                                             <div className="space-y-1">
-                                                <h4 className="font-medium text-slate-700 text-lg leading-tight tracking-tight">{item.item_name}</h4>
+                                                <h4 className="font-bold text-slate-900 text-lg leading-tight tracking-tight">{item.item_name}</h4>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-slate-400 font-medium uppercase tracking-widest bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded">{item.category}</span>
+                                                    <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">{item.category}</span>
                                                     {item.part_number && (
-                                                        <span className="text-[10px] font-mono text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">PN: {item.part_number}</span>
+                                                        <span className="text-xs font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">PN: {item.part_number}</span>
                                                     )}
                                                 </div>
                                             </div>
-                                            <Badge className={`px-2.5 py-1 text-xs font-semibold ${isLow ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-500 hover:bg-green-600'}`}>
+                                            <Badge className={`px-2.5 py-1 text-xs font-bold ${isLow ? 'bg-red-500 animate-pulse' : 'bg-green-600'}`}>
                                                 {item.quantity} {item.unit_measure}
                                             </Badge>
                                         </div>
@@ -1558,7 +1631,7 @@ const GarageDashboard = () => {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="h-8 text-xs font-semibold border-amber-200 text-amber-600 hover:bg-amber-50 hover:border-amber-300 rounded-lg group"
+                                                className="h-8 text-xs font-bold border-amber-200 text-amber-600 hover:bg-amber-50 rounded-lg group"
                                                 onClick={() => {
                                                     setUsageForm({
                                                         item_id: item.id,
@@ -1571,7 +1644,7 @@ const GarageDashboard = () => {
                                                     setIsUsageDialogOpen(true);
                                                 }}
                                             >
-                                                <ShoppingCart className="w-3 h-3 mr-1" />
+                                                <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
                                                 {language === 'en' ? 'Issue' : 'Toa'}
                                             </Button>
 
@@ -1579,7 +1652,7 @@ const GarageDashboard = () => {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="h-8 text-xs font-semibold border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 rounded-lg group"
+                                                className="h-8 text-xs font-bold border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg group"
                                                 onClick={() => {
                                                     setReqType("General");
                                                     setReqTargetVehicleId(null);
@@ -1589,7 +1662,7 @@ const GarageDashboard = () => {
                                                     setIsRequisitionDialogOpen(true);
                                                 }}
                                             >
-                                                <TrendingUp className="w-3 h-3 mr-1" />
+                                                <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
                                                 {language === 'en' ? 'Restock' : 'Agiza'}
                                             </Button>
 
@@ -1597,7 +1670,7 @@ const GarageDashboard = () => {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
-                                                className="col-span-2 h-8 text-xs font-medium uppercase tracking-wider border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 rounded-lg"
+                                                className="col-span-2 h-8 text-[11px] font-semibold border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 rounded-lg"
                                                 onClick={() => {
                                                     setSelectedInventoryItem(item);
                                                     setUpdateQtyDetails({ quantity: item.quantity || 0 });
@@ -1611,13 +1684,116 @@ const GarageDashboard = () => {
                                     </div>
                                 );
                             })}
-                    </div>
+                        </div>
+                    ) : (
+                        <Card className="border shadow-sm bg-white overflow-hidden rounded-xl">
+                            <CardContent className="p-0">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-slate-50/50">
+                                            <TableHead className="py-4 px-6 text-xs font-semibold text-slate-500 uppercase tracking-tight">{language === 'en' ? 'Item Name' : 'Jina la Kifaa'}</TableHead>
+                                            <TableHead className="py-4 text-xs font-semibold text-slate-500 uppercase tracking-tight">{language === 'en' ? 'Category' : 'Kundi'}</TableHead>
+                                            <TableHead className="py-4 text-xs font-semibold text-slate-500 uppercase tracking-tight">{language === 'en' ? 'Part Number' : 'Namba ya Kipuri'}</TableHead>
+                                            <TableHead className="py-4 text-xs font-semibold text-slate-500 uppercase tracking-tight text-center">{language === 'en' ? 'Stock Level' : 'Kiwango cha Akiba'}</TableHead>
+                                            <TableHead className="py-4 px-6 text-right text-xs font-semibold text-slate-500 uppercase tracking-tight">{language === 'en' ? 'Actions' : 'Vitendo'}</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {filteredInventory.map((item: any) => {
+                                            const isLow = (item.quantity || 0) <= (item.min_threshold || 0);
+                                            return (
+                                                <TableRow key={item.id} className="group hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0">
+                                                    <TableCell className="py-4 px-6">
+                                                        <span className="font-bold text-slate-900 text-sm tracking-tight">{item.item_name}</span>
+                                                    </TableCell>
+                                                    <TableCell className="py-4">
+                                                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{item.category}</span>
+                                                    </TableCell>
+                                                    <TableCell className="py-4">
+                                                        <span className="font-mono text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded font-semibold italic">
+                                                            {item.part_number || '-'}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="py-4 text-center">
+                                                        <Badge className={`px-2.5 py-0.5 text-xs font-bold ${isLow ? 'bg-red-500' : 'bg-green-600'}`}>
+                                                            {item.quantity} {item.unit_measure}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="py-4 px-6 text-right">
+                                                        <div className="flex items-center justify-end gap-1.5">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-amber-600 hover:bg-amber-50 rounded-lg group"
+                                                                onClick={() => {
+                                                                    setUsageForm({
+                                                                        item_id: item.id,
+                                                                        item_name: item.item_name,
+                                                                        quantity: 1,
+                                                                        issued_to: "",
+                                                                        vehicle_id: "",
+                                                                        notes: ""
+                                                                    });
+                                                                    setIsUsageDialogOpen(true);
+                                                                }}
+                                                                title={language === 'en' ? 'Issue' : 'Toa'}
+                                                            >
+                                                                <ShoppingCart className="h-4 w-4" />
+                                                            </Button>
+
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-50 rounded-lg group"
+                                                                onClick={() => {
+                                                                    setReqType("General");
+                                                                    setReqTargetVehicleId(null);
+                                                                    setReqTargetJobId(null);
+                                                                    setIsSingleRestock(true);
+                                                                    setRequisitionItems([{ item_name: item.item_name, quantity: 5, item_id: item.id }]);
+                                                                    setIsRequisitionDialogOpen(true);
+                                                                }}
+                                                                title={language === 'en' ? 'Restock' : 'Agiza'}
+                                                            >
+                                                                <TrendingUp className="h-4 w-4" />
+                                                            </Button>
+
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 rounded-lg group"
+                                                                onClick={() => {
+                                                                    setSelectedInventoryItem(item);
+                                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
+                                                                    setIsUpdateQtyOpen(true);
+                                                                }}
+                                                                title={language === 'en' ? 'Update Count' : 'Sasisha Idadi'}
+                                                            >
+                                                                <Edit2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                        {filteredInventory.length === 0 && (
+                                            <TableRow>
+                                                <TableCell colSpan={5} className="h-32 text-center text-sm text-slate-400 italic">
+                                                    {language === 'en' ? 'No items found matching your search.' : 'Hakuna vifaa vilivyopatikana vinavyolingana na utafutaji wako.'}
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
             ) : activeTab === 'logs' ? (
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
+                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
                                 <HistoryIcon className="w-6 h-6 text-indigo-500" />
                                 Store Hub Activity
                             </h1>
@@ -1654,7 +1830,7 @@ const GarageDashboard = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <Card className="border-none shadow-sm bg-indigo-600 text-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-xs font-medium uppercase tracking-widest opacity-80">{language === 'en' ? 'Monthly Items Issued' : 'Matokeo ya Vifaa kwa Mwezi'}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold uppercase tracking-[0.15em] opacity-80">{language === 'en' ? 'Monthly Items Issued' : 'Matokeo ya Vifaa kwa Mwezi'}</CardTitle>
                                 <ShoppingCart className="h-4 w-4 opacity-80" />
                             </CardHeader>
                             <CardContent>
@@ -1671,7 +1847,7 @@ const GarageDashboard = () => {
 
                         <Card className="border-none shadow-sm bg-white">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-xs font-medium text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Active Requests' : 'Maombi Amilifu'}</CardTitle>
+                                <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Active Requests' : 'Maombi Amilifu'}</CardTitle>
                                 <ClipboardCheck className="h-4 w-4 text-indigo-400" />
                             </CardHeader>
                             <CardContent>
@@ -1686,14 +1862,14 @@ const GarageDashboard = () => {
 
                     <Tabs value={activeStoreTab} onValueChange={setActiveStoreTab} className="w-full">
                         <TabsList className="bg-slate-100/50 p-1 mb-6">
-                            <TabsTrigger value="requisitions" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
+                            <TabsTrigger value="requisitions" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-[10px] font-bold uppercase tracking-[0.15em]">
                                 <HistoryIcon className="w-4 h-4 mr-2" /> {t('requisitions')}
                             </TabsTrigger>
-                            <TabsTrigger value="issued" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider">
+                            <TabsTrigger value="issued" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-[10px] font-bold uppercase tracking-[0.15em]">
                                 <ShoppingCart className="w-4 h-4 mr-2" /> {t('issued_items')}
                             </TabsTrigger>
                             {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) && (
-                                <TabsTrigger value="approvals" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-xs font-semibold uppercase tracking-wider relative">
+                                <TabsTrigger value="approvals" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-[10px] font-bold uppercase tracking-[0.15em] relative">
                                     <ClipboardCheck className="w-4 h-4 mr-2" /> {t('approvals')}
                                     {(usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0 && (
                                         <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
@@ -1707,7 +1883,7 @@ const GarageDashboard = () => {
                         <TabsContent value="requisitions" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
                                 <CardHeader className="bg-slate-50/50 border-b">
-                                    <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] flex items-center gap-2">
                                         <HistoryIcon className="w-4 h-4 text-slate-400" />
                                         {language === 'en' ? 'Part Requisitions History' : 'Historia ya Maombi ya Vifaa'}
                                     </CardTitle>
@@ -1717,12 +1893,13 @@ const GarageDashboard = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50/30">
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Sent Date</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Type</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Item Requested</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Qty</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">Lead Time</TableHead>
-                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">Status</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Sent Date</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Type</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Item Requested</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Qty</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Lead Time</TableHead>
+                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Status</TableHead>
+                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -1743,7 +1920,15 @@ const GarageDashboard = () => {
                                                         <TableCell><Badge variant="outline" className="text-[10px] uppercase font-medium py-0 h-5 border-slate-200 text-slate-400 tracking-tighter">{req.request_type}</Badge></TableCell>
                                                         <TableCell className="font-medium text-slate-700 text-sm tracking-tight">
                                                             <div className="flex flex-col gap-1">
-                                                                <span>{req.item_name}</span>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span>{req.item_name}</span>
+                                                                    {req.vehicle && (
+                                                                        <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-200 bg-indigo-50/50 uppercase tracking-widest font-mono py-0 h-5 px-2 flex items-center gap-1.5 shadow-sm">
+                                                                            <Truck className="w-3 h-3" />
+                                                                            {getVehicleSpecificPlate(req.vehicle)}
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
                                                                 {req.original_quantity && req.original_quantity !== req.quantity_requested && (
                                                                     <Badge variant="outline" className="w-fit text-[9px] border-amber-200 text-amber-600 bg-amber-50 py-0 h-4">
                                                                         Partial of {req.original_quantity}
@@ -1773,6 +1958,40 @@ const GarageDashboard = () => {
                                                                 )}
                                                             </div>
                                                         </TableCell>
+                                                        <TableCell className="text-right">
+                                                            {req.status === 'Pending' ? (
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100"
+                                                                        onClick={() => {
+                                                                            setEditingReqItem({ id: req.id, item_name: req.item_name, quantity: req.quantity_requested });
+                                                                            setIsEditReqOpen(true);
+                                                                        }}
+                                                                        title={language === 'en' ? "Edit Requisition" : "Hariri Ombi"}
+                                                                    >
+                                                                        <Edit2 className="w-4 h-4" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                                                                        disabled={deleteRequisitionMutation.isPending}
+                                                                        onClick={() => {
+                                                                            if (window.confirm(language === 'en' ? "Are you sure you want to delete this pending requisition?" : "Una uhakika unataka kufuta ombi hili?")) {
+                                                                                deleteRequisitionMutation.mutate(req.id);
+                                                                            }
+                                                                        }}
+                                                                        title={language === 'en' ? "Delete Requisition" : "Futa Ombi"}
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                <Lock className="w-4 h-4 text-slate-300 ml-auto" title="Locked by Procurement" />
+                                                            )}
+                                                        </TableCell>
                                                     </TableRow>
                                                 );
                                             })}
@@ -1785,7 +2004,7 @@ const GarageDashboard = () => {
                         <TabsContent value="issued" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
                                 <CardHeader className="bg-slate-50/50 border-b">
-                                    <CardTitle className="text-xs font-semibold text-amber-600 uppercase tracking-widest flex items-center gap-2">
+                                    <CardTitle className="text-[10px] font-bold text-amber-600 uppercase tracking-[0.15em] flex items-center gap-2">
                                         <ShoppingCart className="w-4 h-4 text-amber-400" />
                                         {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][selectedMonth]} {selectedYear} Issued Items Report
                                     </CardTitle>
@@ -1795,13 +2014,13 @@ const GarageDashboard = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50/50">
-                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Date & Time' : 'Tarehe na Muda'}</TableHead>
-                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Issued To' : 'Ametolewa'}</TableHead>
-                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Item Taken' : 'Kifaa Kilichotolewa'}</TableHead>
-                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400 text-center">{language === 'en' ? 'Qty' : 'Idadi'}</TableHead>
-                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{t('vehicle')}</TableHead>
-                                                <TableHead className="text-[10px] font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Manager' : 'Msimamizi'}</TableHead>
-                                                <TableHead className="text-right text-[10px] font-medium uppercase tracking-widest text-slate-400">Status</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Date & Time' : 'Tarehe na Muda'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Issued To' : 'Ametolewa'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Item Taken' : 'Kifaa Kilichotolewa'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 text-center">{language === 'en' ? 'Qty' : 'Idadi'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('vehicle')}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Manager' : 'Msimamizi'}</TableHead>
+                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Status</TableHead>
                                             </TableRow>
 
                                         </TableHeader>
@@ -1860,7 +2079,7 @@ const GarageDashboard = () => {
                         <TabsContent value="approvals" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
                                 <CardHeader className="bg-indigo-50/50 border-b">
-                                    <CardTitle className="text-xs font-semibold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                                    <CardTitle className="text-[10px] font-bold text-indigo-600 uppercase tracking-[0.15em] flex items-center gap-2">
 
                                         <ClipboardCheck className="w-4 h-4 text-indigo-500" />
                                         {language === 'en' ? 'Pending Issuance Approvals' : 'Idhini za Matoleo Yanayosubiri'}
@@ -1872,12 +2091,12 @@ const GarageDashboard = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50/20">
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Requested' : 'Imeombwa'}</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Recipient' : 'Mpokeaji'}</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Item' : 'Kifaa'}</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400 text-center">{t('edit_qty')}</TableHead>
-                                                <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Target Vehicle' : 'Gari Linalokusudiwa'}</TableHead>
-                                                <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">{t('actions')}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Requested' : 'Imeombwa'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Recipient' : 'Mpokeaji'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Item' : 'Kifaa'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 text-center">{t('edit_qty')}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Target Vehicle' : 'Gari Linalokusudiwa'}</TableHead>
+                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('actions')}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -1977,19 +2196,19 @@ const GarageDashboard = () => {
                 <div className="space-y-6">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
-                            <h1 className="text-2xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
+                            <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
 
                                 <Trash2 className="w-6 h-6 text-rose-500" />
                                 {language === 'en' ? 'Garage Dustbin' : 'Pipa la Taka la Karakana'}
                             </h1>
-                            <p className="text-sm text-slate-500 font-medium">{language === 'en' ? 'Archived Maintenance Records & Job Cards' : 'Rekodi za Matengenezo na Kadi za Kazi Zilizohifadhiwa'}</p>
+                            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-[0.1em]">{language === 'en' ? 'Archived Maintenance Records & Job Cards' : 'Rekodi za Matengenezo na Kadi za Kazi Zilizohifadhiwa'}</p>
 
                         </div>
                     </div>
 
                     <Card className="border-none shadow-lg bg-white overflow-hidden">
                         <CardHeader className="bg-slate-50/50 border-b">
-                            <CardTitle className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                            <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] flex items-center gap-2">
                                 <HistoryIcon className="w-4 h-4 text-slate-400" />
                                 {language === 'en' ? 'Soft-Deleted Job Cards' : 'Kadi za Kazi Zilizofutwa kwa Muda'}
                             </CardTitle>
@@ -1999,10 +2218,10 @@ const GarageDashboard = () => {
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/30">
-                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Deleted Date' : 'Tarehe ya Kufutwa'}</TableHead>
-                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Vehicle' : 'Gari'}</TableHead>
-                                        <TableHead className="text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Original Faults' : 'Hitilafu za Awali'}</TableHead>
-                                        <TableHead className="text-right text-xs font-medium uppercase tracking-widest text-slate-400">{language === 'en' ? 'Actions' : 'Vitendo'}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Deleted Date' : 'Tarehe ya Kufutwa'}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Vehicle' : 'Gari'}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Original Faults' : 'Hitilafu za Awali'}</TableHead>
+                                        <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Actions' : 'Vitendo'}</TableHead>
                                     </TableRow>
 
                                 </TableHeader>
@@ -2059,7 +2278,7 @@ const GarageDashboard = () => {
             <Dialog open={isRequisitionDialogOpen} onOpenChange={setIsRequisitionDialogOpen}>
                 <DialogContent className="sm:max-w-[450px]">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 font-semibold text-slate-700">
+                        <DialogTitle className="flex items-center gap-2 font-bold text-slate-700 uppercase tracking-tight">
                             <Plus className="w-5 h-5 text-indigo-500" />
                             {isSingleRestock ? (language === 'en' ? "Request Part Restock" : "Omba Kipuri") : (language === 'en' ? "Create Batch Requisition" : "Tengeneza Ombi la Vipuri")}
                         </DialogTitle>
@@ -2068,7 +2287,7 @@ const GarageDashboard = () => {
                         {requisitionItems.map((item, idx) => (
                             <div key={idx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
                                 <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{language === 'en' ? 'Item' : 'Kipuri'} {idx + 1}</Label>
+                                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item' : 'Kipuri'} {idx + 1}</Label>
 
                                     <Input
                                         placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Ni nini kinahitajika? (mfano: Break Pads)"}
@@ -2082,7 +2301,7 @@ const GarageDashboard = () => {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
+                                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
 
                                     <Input
                                         type="number"
@@ -2158,18 +2377,71 @@ const GarageDashboard = () => {
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={isEditReqOpen} onOpenChange={setIsEditReqOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 font-bold text-slate-700 uppercase tracking-tight">
+                            <Edit2 className="w-5 h-5 text-indigo-500" />
+                            {language === 'en' ? 'Edit Pending Requisition' : 'Hariri Ombi Linalosubiri'}
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-500">
+                            {language === 'en' ? 'Update the details before procurement processes the request.' : 'Sasisha maelezo kabla ya manunuzi kushughulikia ombi.'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {editingReqItem && (
+                        <div className="grid gap-4 py-4">
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item Requested' : 'Kifaa Kilichoombwa'}</Label>
+                                <Input
+                                    value={editingReqItem.item_name}
+                                    onChange={(e) => setEditingReqItem({ ...editingReqItem, item_name: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
+                                <Input
+                                    type="number"
+                                    min="1"
+                                    value={editingReqItem.quantity}
+                                    onChange={(e) => setEditingReqItem({ ...editingReqItem, quantity: parseInt(e.target.value) || 1 })}
+                                />
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => {
+                            setIsEditReqOpen(false);
+                            setEditingReqItem(null);
+                        }}>
+                            {language === 'en' ? 'Cancel' : 'Ghairi'}
+                        </Button>
+                        <Button
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                            disabled={editRequisitionMutation.isPending || !editingReqItem?.item_name}
+                            onClick={() => {
+                                if (editingReqItem) {
+                                    editRequisitionMutation.mutate(editingReqItem);
+                                }
+                            }}
+                        >
+                            {editRequisitionMutation.isPending ? (language === 'en' ? 'Saving...' : 'Inahifadhi...') : (language === 'en' ? 'Save Changes' : 'Hifadhi Mabadiliko')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Daily Usage / Issuance Dialog */}
             <Dialog open={isUsageDialogOpen} onOpenChange={setIsUsageDialogOpen}>
                 <DialogContent className="sm:max-w-[420px]">
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 font-semibold text-slate-700">
+                        <DialogTitle className="flex items-center gap-2 font-bold text-slate-700 uppercase tracking-tight">
                             <ShoppingCart className="w-5 h-5 text-amber-500" />
                             {language === 'en' ? 'Issue Stock' : 'Toa Kipuri'}: {usageForm.item_name}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Quantity To Issue' : 'Idadi ya Kutolewa'}</Label>
+                            <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Quantity To Issue' : 'Idadi ya Kutolewa'}</Label>
                             <Input
                                 type="number"
                                 min={1}
@@ -2182,7 +2454,7 @@ const GarageDashboard = () => {
 
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Issued To (Personnel)' : 'Kimetolewa kwa (Mfanyakazi)'}</Label>
+                            <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Issued To (Personnel)' : 'Kimetolewa kwa (Mfanyakazi)'}</Label>
                             <Input
                                 placeholder={language === 'en' ? "Who is taking this item? (e.g. Mechanic Juma)" : "Ni nani anachukua kipuri hiki? (mfano: Fundi Juma)"}
                                 value={usageForm.issued_to}
@@ -2192,7 +2464,7 @@ const GarageDashboard = () => {
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Target Vehicle (Optional)' : 'Gari Linalolengwa (Si lazima)'}</Label>
+                            <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Target Vehicle (Optional)' : 'Gari Linalolengwa (Si lazima)'}</Label>
                             <Popover open={isVehiclePopoverOpen} onOpenChange={setIsVehiclePopoverOpen}>
                                 <PopoverTrigger asChild>
                                     <Button
@@ -2231,7 +2503,10 @@ const GarageDashboard = () => {
                                                     />
                                                     {language === 'en' ? "None (Not vehicle specific)" : "Hakuna (Haitaunganishwa na gari)"}
                                                 </CommandItem>
-                                                {(vehicles || []).map((v: any) => (
+                                                {(vehicles || []).filter((v: any) => 
+                                                    v.status === 'Maintenance' || 
+                                                    (jobCards || []).some((j: any) => j.vehicle_id === v.id && j.status !== 'Closed')
+                                                ).map((v: any) => (
                                                     <CommandItem
                                                         key={v.id}
                                                         value={v.plate_number}
@@ -2435,8 +2710,7 @@ const GarageDashboard = () => {
                     <div className="max-h-[75vh] overflow-y-auto pr-2 px-1 py-4 -mr-1">
                         <div className="space-y-6">
                             <div className="space-y-2">
-                                <Label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-
+                                <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
                                     <Truck className="w-3.5 h-3.5" />
                                     {language === 'en' ? 'Select Vehicle' : 'Chagua Gari'}
                                 </Label>
@@ -2478,46 +2752,7 @@ const GarageDashboard = () => {
                                 </Select>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label className="text-[11px] font-semibold text-slate-500 uppercase flex items-center gap-2">
-                                    <HistoryIcon className="w-3 h-3 text-indigo-500" />
-                                    {language === 'en' ? 'Service Package (Preventative Maintenance)' : 'Kifurushi cha Huduma (Matengenezo ya Kinga)'}
-                                </Label>
-
-                                <Select
-                                    value={selectedPackageId || "none"}
-                                    onValueChange={(val) => {
-                                        if (val === "none") {
-                                            setSelectedPackageId(null);
-                                            return;
-                                        }
-                                        const pkg = servicePackages?.find(p => p.id === val);
-                                        if (pkg) {
-                                            setSelectedPackageId(val);
-                                            const items = pkg.base_items as string[];
-                                            if (items && items.length > 0) {
-                                                setHorseFaults(items.map(desc => ({ description: desc })));
-                                                setPartnerFaults(items.map(desc => ({ description: desc })));
-                                            }
-                                        }
-                                    }}
-                                >
-                                    <SelectTrigger className="h-10 border-indigo-100 bg-indigo-50/10">
-                                        <SelectValue placeholder={language === 'en' ? "Select a maintenance package..." : "Chagua kifurushi cha matengenezo..."} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none" className="text-slate-400 italic">{language === 'en' ? 'No Package (Custom Repair)' : 'Hakuna Kifurushi (Ukarabati Maalum)'}</SelectItem>
-                                        {(servicePackages || []).map((pkg: any) => (
-                                            <SelectItem key={pkg.id} value={pkg.id}>
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium">{pkg.package_name}</span>
-                                                    <span className="text-[10px] text-slate-400">{pkg.category} • {pkg.recommended_interval}</span>
-                                                </div>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            {/* Service package removed as per user request to simplify fault logging */}
 
                             {isCoupled && (
                                 <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl">
@@ -2660,22 +2895,12 @@ const GarageDashboard = () => {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4 mt-4">
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Overall Priority' : 'Kipaumbele cha Jumla'}</Label>
-                                    <Select value={faultPriority} onValueChange={setFaultPriority}>
-                                        <SelectTrigger className="h-10 bg-white border-slate-200"><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="Routine">{language === 'en' ? 'Routine (Scheduled)' : 'Kawaida (Iliyopangwa)'}</SelectItem>
-                                            <SelectItem value="Urgent">{language === 'en' ? 'Urgent (Affects Operation)' : 'Haraka (Inaathiri Kazi)'}</SelectItem>
-                                            <SelectItem value="Critical">{language === 'en' ? 'Critical (Safety Hazard)' : 'Hatari sana (Tishio kwa Usalama)'}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Current Odometer (Optional)' : 'Odometer ya Sasa (Si lazima)'}</Label>
-                                    <Input type="number" placeholder="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} className="h-10" />
-                                </div>
+                            <div className="mt-4 space-y-2">
+                                <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {language === 'en' ? 'Current Odometer (Optional)' : 'Odometer ya Sasa (Si lazima)'}
+                                </Label>
+                                <Input type="number" placeholder="0" value={odometer} onChange={(e) => setOdometer(e.target.value)} className="h-10 border-slate-200" />
                             </div>
 
                         </div>

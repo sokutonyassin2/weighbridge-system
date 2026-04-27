@@ -38,7 +38,11 @@ import {
     Search,
     Check,
     ChevronsUpDown,
-    CreditCard
+    CreditCard,
+    FileCheck,
+    AlertCircle,
+    CheckCircle,
+    Printer
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -82,9 +86,10 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     }>({});
 
     const [activeCountries, setActiveCountries] = useState<string[]>(['TZ']);
+    const [settlements, setSettlements] = useState<any[]>([]);
+    const [auditLoading, setAuditLoading] = useState(false);
 
-    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
-    const isLocked = !isAdmin && (currentStatus === 'Approved' || currentStatus === 'Active' || currentStatus === 'Completed');
+
 
     // Trip Planning State (For New Sheets)
     const [tripData, setTripData] = useState({
@@ -130,6 +135,25 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         { item_name: "Driver Allowance", amount: "", category: "TZ", currency: "USD", nature: "Go & Return", is_extra: false }
     ]);
 
+    // Workflow lock (EVERYONE locked out after Approval/Activation for transparency)
+    const workflowLocked = currentStatus === 'Approved' || currentStatus === 'Active' || currentStatus === 'Completed';
+    
+    // Invoice field lock (Ensures citation cannot be changed once saved)
+    const isInvoiceCaptured = !!tripId && !!tripData.invoice_no;
+    
+    // Global lock for budget/planning sections
+    const isLocked = workflowLocked;
+
+    // 📅 Auto-capture Invoice Date
+    useEffect(() => {
+        if (tripData.invoice_no && !tripData.invoice_date) {
+            setTripData(prev => ({ 
+                ...prev, 
+                invoice_date: new Date().toISOString().split('T')[0] 
+            }));
+        }
+    }, [tripData.invoice_no, tripData.invoice_date]);
+
     // 💾 Auto-save to LocalStorage
     useEffect(() => {
         if (tripId) {
@@ -158,6 +182,30 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             }
         }
     }, [tripId]);
+
+    // Fetch Settlements for Audit (Superadmin only)
+    useEffect(() => {
+        if (!tripId || !isSuperAdmin) return;
+
+        const fetchSettlements = async () => {
+            setAuditLoading(true);
+            try {
+                const { data, error } = await supabase
+                    .from('logistics_trip_settlements')
+                    .select('*')
+                    .eq('trip_id', tripId);
+
+                if (error) throw error;
+                setSettlements(data || []);
+            } catch (err) {
+                console.error("Error fetching settlements:", err);
+            } finally {
+                setAuditLoading(false);
+            }
+        };
+
+        fetchSettlements();
+    }, [tripId, isSuperAdmin]);
 
     // ⚠️ Prevent accidental closing
     useEffect(() => {
@@ -525,9 +573,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const fuelTotalTZS = liters * pricePerLiter;
         const fuelTotalUSD = fuelTotalTZS / rate;
 
-        // Split budgeted vs extra expenses
-        const budgetedExpenses = expenses.filter(e => !e.is_extra);
-        const extraExpensesArr = expenses.filter(e => e.is_extra);
+        // Split budgeted vs extra expenses (EXCLUDE 'Fixed' from Trip Budget totals)
+        const budgetedExpenses = expenses.filter(e => !e.is_extra && e.category !== 'Fixed');
+        const extraExpensesArr = expenses.filter(e => e.is_extra && e.category !== 'Fixed');
 
         const buildCategoryTotals = (list: ExpenseItem[]) =>
             list.reduce((acc, curr) => {
@@ -544,6 +592,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const catTotals = buildCategoryTotals(budgetedExpenses);
         const extraCatTotals = buildCategoryTotals(extraExpensesArr);
 
+        // This represents the actual road variable costs
         const totalOperationalUSD = budgetedExpenses.reduce((sum, item) => {
             const amt = parseFloat(item.amount) || 0;
             return sum + (item.currency === 'USD' ? amt : amt / rate);
@@ -661,7 +710,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 total_expenses_usd: totals.totalExpensesUSD,
                 net_profit_usd: totals.netProfitUSD,
                 status: currentStatus,
-                reference_number: tripData.trip_number, // Auto-generated Trip ID
+                reference_number: tripData.trip_number, // Fix: This is the verified column name in the DB schema
                 license_no: tripData.license_no,
                 passport_no: tripData.passport_no,
                 active_countries: activeCountries, // PERSIST LAYOUT
@@ -1232,6 +1281,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         <span className="text-slate-900 font-bold">TShs {Math.round(amountTSh).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center gap-1 print:hidden w-full">
+                                        {category === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
                                         <span className="text-slate-300 font-bold text-[8px] shrink-0">TZS</span>
                                         <Input
                                             className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
@@ -1284,6 +1334,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
     return (
         <div id="print-logistics" className="space-y-8 w-full max-w-none pb-8 px-1 md:px-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* 🔒 INVOICE LOCK NOTIFICATION */}
+            {isLocked && (
+                <div className="bg-red-600 text-white p-4 rounded-2xl flex items-center justify-center gap-4 shadow-xl border-4 border-white/20 animate-in slide-in-from-top-4 print:hidden">
+                    <div className="bg-white/20 p-2 rounded-full">
+                        <ShieldCheck size={24} className="text-white" />
+                    </div>
+                    <div>
+                        <p className="text-sm font-black uppercase tracking-[0.1em]">⚠️ RECORD PERMANENTLY LOCKED: INVOICE GENERATED</p>
+                        <p className="text-[10px] font-bold opacity-80 uppercase">This record is finalized and cannot be modified by any user to ensure top-level financial integrity.</p>
+                    </div>
+                </div>
+            )}
             {/* 📄 Header for Printing Only */}
             <div className="hidden print:block p-4 border-b-2 border-slate-900 mb-6 bg-white">
                 <div className="flex justify-between items-center text-slate-900 font-bold">
@@ -1451,364 +1513,611 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </div>
                 )}
             </div>
-            {/* 📍 Section 1: Asset Assignment & Route Details */}
-            <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900">
-                <CardHeader className="bg-slate-50/80 border-b border-slate-200 py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
-                    <CardTitle className="text-[15px] font-bold text-slate-800 flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-lg text-primary print:hidden">
-                            <Navigation size={18} />
-                        </div>
-                        1. Asset Assignment & Route Details
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                        {/* LEFT COLUMN: Assets & IDs */}
-                        <div className="space-y-6">
-                            {/* NEW: Client Name (Mandatory) */}
-                            <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-                                    Client / Company Name <span className="text-red-500">*</span>
-                                </Label>
-                                <div className="relative group">
-                                    <div className="absolute left-3 top-3 text-primary opacity-50">
-                                        <Building2 size={16} />
-                                    </div>
-                                    <Input 
-                                        className="h-11 bg-white border-slate-200 pl-10 font-medium text-slate-700 shadow-sm focus:ring-primary/20"
-                                        value={tripData.client_name || ''}
-                                        onChange={(e) => setTripData({ ...tripData, client_name: e.target.value })}
-                                        placeholder="Who is paying for this trip?"
-                                        disabled={isLocked}
-                                    />
-                                </div>
-                                <p className="text-[9px] text-slate-400 font-medium italic">Used for automatic grouping of vehicles.</p>
-                            </div>
 
-                            <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-slate-500">Trip Reference Number</Label>
-                                <div className="relative">
-                                    <FileText size={16} className="absolute left-3 top-3 text-primary opacity-50" />
-                                    <Input 
-                                        className="h-11 bg-slate-50 border-slate-200 pl-10 font-semibold text-slate-900 shadow-sm"
-                                        value={tripData.trip_number}
-                                        onChange={(e) => setTripData({...tripData, trip_number: e.target.value})}
-                                        placeholder="Generating ID..."
-                                        readOnly={isLocked}
-                                    />
-                                </div>
-                            </div>
+            <Tabs defaultValue="planning" className="w-full">
+                <TabsList className={cn("grid w-full md:w-[400px]", isSuperAdmin ? "grid-cols-3" : "grid-cols-1 md:w-[150px]")}>
+                    <TabsTrigger value="planning">Planning</TabsTrigger>
+                    {isSuperAdmin && <TabsTrigger value="revenue">Revenue</TabsTrigger>}
+                    {isSuperAdmin && <TabsTrigger value="audit">Accountability</TabsTrigger>}
+                </TabsList>
 
-                            {/* 🧾 Invoice & Payment Tracking Row */}
-                            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <div className="p-1.5 bg-white rounded-md border border-slate-200 text-primary">
-                                        <CreditCard size={14} />
-                                    </div>
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice & Payment Management</span>
+                <TabsContent value="planning" className="mt-6">
+                    {/* 📍 Section 1: Asset Assignment & Route Details */}
+                    <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900">
+                        <CardHeader className="bg-slate-50/80 border-b border-slate-200 py-4 px-8 print:bg-white print:border-b-2 print:border-slate-900">
+                            <CardTitle className="text-[15px] font-bold text-slate-800 flex items-center gap-3">
+                                <div className="p-2 bg-primary/10 rounded-lg text-primary print:hidden">
+                                    <Navigation size={18} />
                                 </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
-                                        <Input
-                                            className="h-9 bg-white border-slate-200 text-xs font-bold text-slate-700"
-                                            placeholder="e.g. INV-2025-001"
-                                            value={tripData.invoice_no || ''}
-                                            onChange={(e) => setTripData({ ...tripData, invoice_no: e.target.value })}
-                                            disabled={isLocked && !isSuperAdmin && !isAdmin}
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
-                                        <Input
-                                            type="date"
-                                            className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700"
-                                            value={tripData.invoice_date || ''}
-                                            onChange={(e) => setTripData({ ...tripData, invoice_date: e.target.value })}
-                                            disabled={isLocked && !isSuperAdmin && !isAdmin}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Payment Status</Label>
-                                    <Select
-                                        value={tripData.payment_status}
-                                        onValueChange={(val) => setTripData({ ...tripData, payment_status: val })}
-                                        disabled={isLocked && !isSuperAdmin && !isAdmin}
-                                    >
-                                        <SelectTrigger className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-700">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`w-2 h-2 rounded-full ${
-                                                    tripData.payment_status === 'Paid' ? 'bg-emerald-500' : 
-                                                    tripData.payment_status === 'Partial' ? 'bg-amber-500' : 'bg-slate-300'
-                                                }`} />
-                                                <SelectValue />
+                                1. Asset Assignment & Route Details
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                {/* LEFT COLUMN: Assets & IDs */}
+                                <div className="space-y-6">
+                                    {/* NEW: Client Name (Mandatory) */}
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                                            Client / Company Name <span className="text-red-500">*</span>
+                                        </Label>
+                                        <div className="relative group">
+                                            <div className="absolute left-3 top-3 text-primary opacity-50">
+                                                <Building2 size={16} />
                                             </div>
-                                        </SelectTrigger>
-                                        <SelectContent className="z-[100]">
-                                            <SelectItem value="Pending">Pending / Unpaid</SelectItem>
-                                            <SelectItem value="Partial">Partial Payment</SelectItem>
-                                            <SelectItem value="Paid">Fully Paid</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500">Vehicle (Horse)</Label>
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                role="combobox"
+                                            <Input 
+                                                className="h-11 bg-white border-slate-200 pl-10 font-medium text-slate-700 shadow-sm focus:ring-primary/20"
+                                                value={tripData.client_name || ''}
+                                                onChange={(e) => setTripData({ ...tripData, client_name: e.target.value })}
+                                                placeholder="Who is paying for this trip?"
                                                 disabled={isLocked}
-                                                className={cn(
-                                                    "h-11 w-full justify-between bg-slate-50 border-slate-200 shadow-sm print:h-8 print:border-none print:p-0",
-                                                    !tripData.vehicle_id && "text-muted-foreground"
-                                                )}
+                                            />
+                                        </div>
+                                        <p className="text-[9px] text-slate-400 font-medium italic">Used for automatic grouping of vehicles.</p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-semibold text-slate-500">Trip Reference Number</Label>
+                                        <div className="relative">
+                                            <FileText size={16} className="absolute left-3 top-3 text-primary opacity-50" />
+                                            <Input 
+                                                className="h-11 bg-slate-50 border-slate-200 pl-10 font-semibold text-slate-900 shadow-sm"
+                                                value={tripData.trip_number}
+                                                onChange={(e) => setTripData({...tripData, trip_number: e.target.value})}
+                                                placeholder="Generating ID..."
+                                                readOnly={isLocked}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* 🧾 Invoice & Payment Tracking Row */}
+                                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <div className="p-1.5 bg-white rounded-md border border-slate-200 text-primary">
+                                                <CreditCard size={14} />
+                                            </div>
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice & Payment Management</span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
+                                                <Input
+                                                    className="h-9 bg-white border-slate-200 text-xs font-bold text-slate-700"
+                                                    placeholder="e.g. INV-2025-001"
+                                                    value={tripData.invoice_no || ''}
+                                                    onChange={(e) => setTripData({ ...tripData, invoice_no: e.target.value })}
+                                                    disabled={(isLocked || isInvoiceCaptured) && !isSuperAdmin}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
+                                                <Input
+                                                    type="date"
+                                                    className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700"
+                                                    value={tripData.invoice_date || ''}
+                                                    onChange={(e) => setTripData({ ...tripData, invoice_date: e.target.value })}
+                                                    disabled={(isLocked || isInvoiceCaptured) && !isSuperAdmin}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-bold text-slate-500 uppercase">Payment Status</Label>
+                                            <Select
+                                                value={tripData.payment_status}
+                                                onValueChange={(val) => setTripData({ ...tripData, payment_status: val })}
+                                                disabled={isLocked && !isSuperAdmin}
                                             >
-                                                {tripData.vehicle_id
-                                                    ? (fleet.find((v) => v.id === tripData.vehicle_id)?.vehicle_no || 'Unknown')
-                                                    : "Select Horse"}
-                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] sm:w-[300px] p-0 z-[100]" align="start">
-                                            <Command>
-                                                <CommandInput placeholder="Search vehicle..." />
-                                                <CommandList className="max-h-[350px]">
-                                                    <CommandEmpty>No vehicle found.</CommandEmpty>
-                                                    <CommandGroup>
-                                                        <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Horse / Tractor</div>
-                                                        {fleet
-                                                            .filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse')
-                                                            .map((v) => {
-                                                                const isBusy = v.assignment_status === 'Active';
+                                                <SelectTrigger className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-700">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`w-2 h-2 rounded-full ${
+                                                            tripData.payment_status === 'Paid' ? 'bg-emerald-500' : 
+                                                            tripData.payment_status === 'Partial' ? 'bg-amber-500' : 'bg-slate-300'
+                                                        }`} />
+                                                        <SelectValue />
+                                                    </div>
+                                                </SelectTrigger>
+                                                <SelectContent className="z-[100]">
+                                                    <SelectItem value="Pending">Pending / Unpaid</SelectItem>
+                                                    <SelectItem value="Partial">Partial Payment</SelectItem>
+                                                    <SelectItem value="Paid">Fully Paid</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold text-slate-500">Vehicle (Horse)</Label>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        variant="outline"
+                                                        role="combobox"
+                                                        disabled={isLocked && !isSuperAdmin}
+                                                        className={cn(
+                                                            "h-11 w-full justify-between bg-white border-slate-200 shadow-sm print:h-8 print:border-none print:p-0",
+                                                            !tripData.vehicle_id && "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        {tripData.vehicle_id
+                                                            ? (fleet.find((v) => v.id === tripData.vehicle_id)?.vehicle_no || 'Unknown')
+                                                            : "Select Horse"}
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] sm:w-[300px] p-0 z-[100]" align="start">
+                                                    <Command>
+                                                        <CommandInput placeholder="Search vehicle..." />
+                                                        <CommandList className="max-h-[350px]">
+                                                            <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                            <CommandGroup>
+                                                                <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Horse / Tractor</div>
+                                                                {fleet
+                                                                    .filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse')
+                                                                    .map((v) => {
+                                                                        const isBusy = v.assignment_status === 'Active';
+                                                                        return (
+                                                                        <CommandItem
+                                                                            key={v.id}
+                                                                            value={v.vehicle_no + " " + v.make_model}
+                                                                            disabled={isBusy}
+                                                                            onSelect={async () => {
+                                                                                if (isBusy) return;
+                                                                                
+                                                                                // Check for Active Coupling
+                                                                                const activeCoupling = couplings.find(c => c.horse_id === v.id);
+                                                                                if (!activeCoupling) {
+                                                                                    toast({
+                                                                                        variant: "destructive",
+                                                                                        title: "Trailer Link Missing",
+                                                                                        description: `${v.vehicle_no} is not linked to any trailer in the Registry. Please link them first.`
+                                                                                    });
+                                                                                    return;
+                                                                                }
+
+                                                                                const isTanker = v.asset_type?.toLowerCase().includes('tanker') || v.fleet_category?.toLowerCase() === 'tanker';
+                                                                                const journeyType = isTanker ? "Go Only (Return Empty)" : "Go & Return (Full Cycle)";
+                                                                                
+                                                                                // Generate Trip ID logic
+                                                                                const cleanHorse = v.vehicle_no.replace(/\s*[A-Z]+$/, "").trim();
+                                                                                const { count } = await supabase.from('logistics_trip_sheets' as any).select('*', { count: 'exact', head: true });
+                                                                                const { count: transitCount } = await supabase.from('logistics_transit_trips' as any).select('*', { count: 'exact', head: true });
+                                                                                const totalTrips = (count || 0) + (transitCount || 0);
+                                                                                const seq = String(totalTrips + 1).padStart(3, '0');
+                                                                                const newTripId = `${cleanHorse}/2025/G${seq}`;
+
+                                                                                // Auto-fill driver assigned to this vehicle
+                                                                                const assignedDriver = drivers.find((d: any) => d.assigned_vehicle_id === v.id);
+
+                                                                                setTripData({
+                                                                                    ...tripData,
+                                                                                    vehicle_id: v.id,
+                                                                                    trailer_id: activeCoupling.trailer_id,
+                                                                                    trip_number: newTripId,
+                                                                                    journey_type: journeyType,
+                                                                                    driver_id: assignedDriver ? assignedDriver.id : tripData.driver_id
+                                                                                });
+
+                                                                                const trailerFound = fleet.find(f => String(f.id).toLowerCase().trim() === String(activeCoupling.trailer_id).toLowerCase().trim());
+                                                                                const trailerDisplay = trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : activeCoupling.trailer_id;
+
+                                                                                toast({
+                                                                                    title: "Vehicle Assigned",
+                                                                                    description: `Linked with Trailer ${trailerDisplay}`
+                                                                                });
+                                                                            }}
+                                                                            className={cn(
+                                                                                "flex flex-col items-start gap-1 py-2.5 px-3 transition-all",
+                                                                                isBusy ? "opacity-40 cursor-not-allowed" : "hover:bg-slate-50"
+                                                                            )}
+                                                                        >
+                                                                            <div className="flex justify-between w-full items-center">
+                                                                                <span className="text-xs font-semibold text-slate-800 tracking-wide uppercase">{v.vehicle_no}</span>
+                                                                                <Badge variant="outline" className="text-[8px] font-bold uppercase py-0 px-1 border-slate-200 text-slate-400">{v.fleet_category || 'Local'}</Badge>
+                                                                            </div>
+                                                                            <span className="text-[10px] text-slate-400 uppercase tracking-wide">{v.asset_type || 'Truck'}</span>
+                                                                        </CommandItem>
+                                                                        );
+                                                                    })}
+                                                            </CommandGroup>
+                                                        </CommandList>
+                                                    </Command>
+                                                </PopoverContent>
+                                            </Popover>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold text-slate-500">Linked Trailer</Label>
+                                            <div className="relative group">
+                                                <div className="absolute left-3 top-2.5 text-primary opacity-50">
+                                                    <Package size={16} />
+                                                </div>
+                                                <Input
+                                                    className="h-11 bg-slate-100/50 border-slate-200 pl-10 font-medium text-slate-700 cursor-not-allowed shadow-inner"
+                                                    readOnly
+                                                    value={
+                                                        tripData.vehicle_id 
+                                                            ? (tripData.trailer_id && tripData.trailer_id !== 'none'
+                                                                ? trailerPlate
+                                                                : "No Coupling Found")
+                                                            : "Select Horse First..."
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* RIGHT COLUMN: Route & Cargo */}
+                                <div className="space-y-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold text-slate-500">Route Origin</Label>
+                                            <Input
+                                                className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
+                                                value={tripData.origin}
+                                                onChange={(e) => setTripData({ ...tripData, origin: e.target.value })}
+                                                disabled={isLocked}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold text-slate-500">Route Destination</Label>
+                                            <Input
+                                                className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700 ring-2 ring-primary/10"
+                                                value={tripData.destination}
+                                                onChange={(e) => setTripData({ ...tripData, destination: e.target.value })}
+                                                placeholder="Target City/Port"
+                                                disabled={isLocked}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-semibold text-slate-500">Cargo Description</Label>
+                                        <Input
+                                            className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700"
+                                            value={tripData.cargo_outbound}
+                                            onChange={(e) => setTripData({ ...tripData, cargo_outbound: e.target.value })}
+                                            placeholder="e.g. 30 Tons of Copper Ore"
+                                            disabled={isLocked}
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold text-slate-500">Agreed Duration (Days)</Label>
+                                            <Input
+                                                className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
+                                                type="number"
+                                                placeholder="e.g. 5"
+                                                value={tripData.agreed_days}
+                                                onChange={(e) => setTripData({ ...tripData, agreed_days: e.target.value })}
+                                                disabled={isLocked}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs font-semibold text-slate-500">Daily Penalty Fine (TShs)</Label>
+                                            <div className="relative">
+                                                <span className="absolute left-3 top-3 text-slate-400 font-semibold text-[10px]">TShs</span>
+                                                <Input
+                                                    className="pl-12 h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
+                                                    type="number"
+                                                    value={tripData.daily_fine_amount}
+                                                    onChange={(e) => setTripData({ ...tripData, daily_fine_amount: e.target.value })}
+                                                    placeholder="0"
+                                                    disabled={isLocked}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2 pt-4 border-t border-slate-100">
+                                        <Label className="text-xs font-semibold text-slate-500">Journey Type</Label>
+                                        <Select
+                                            value={tripData.journey_type}
+                                            onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
+                                            disabled={isLocked || (fleet.find(v => v.id === tripData.vehicle_id)?.asset_type?.toLowerCase().includes('tanker'))}
+                                        >
+                                            <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[100]">
+                                                <SelectItem value="Go & Return (Full Cycle)">Go & Return (Full Cycle)</SelectItem>
+                                                <SelectItem value="Go Only (Return Empty)">Go Only (Return Empty)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2 pt-4 border-t border-slate-100">
+                                        <Label className="text-xs font-semibold text-slate-500">Assigned Driver</Label>
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    disabled={isLocked}
+                                                    className={cn(
+                                                        "h-11 w-full justify-between bg-white border-slate-200 shadow-sm font-bold text-slate-800 ring-2 ring-primary/10 transition-all hover:bg-slate-50",
+                                                        !tripData.driver_id && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    {tripData.driver_id
+                                                        ? drivers.find(d => d.id === tripData.driver_id)?.full_name
+                                                        : "Assign Driver"}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] sm:w-[300px] p-0 z-[100]" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder="Search driver name..." />
+                                                    <CommandList className="max-h-[300px]">
+                                                        <CommandEmpty>No driver found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Company Drivers</div>
+                                                            {drivers.map(d => {
+                                                                const isExpired = d.license_expiry && new Date(d.license_expiry) < new Date();
                                                                 return (
-                                                                <CommandItem
-                                                                    key={v.id}
-                                                                    value={v.vehicle_no + " " + v.make_model}
-                                                                    disabled={isBusy}
-                                                                    onSelect={async () => {
-                                                                        if (isBusy) return;
-                                                                        
-                                                                        // Check for Active Coupling
-                                                                        const activeCoupling = couplings.find(c => c.horse_id === v.id);
-                                                                        if (!activeCoupling) {
-                                                                            toast({
-                                                                                variant: "destructive",
-                                                                                title: "Trailer Link Missing",
-                                                                                description: `${v.vehicle_no} is not linked to any trailer in the Registry. Please link them first.`
-                                                                            });
-                                                                            return;
-                                                                        }
-
-                                                                        const isTanker = v.asset_type?.toLowerCase().includes('tanker') || v.fleet_category?.toLowerCase() === 'tanker';
-                                                                        const journeyType = isTanker ? "Go Only (Return Empty)" : "Go & Return (Full Cycle)";
-                                                                        
-                                                                        // Generate Trip ID logic
-                                                                        const cleanHorse = v.vehicle_no.replace(/\s*[A-Z]+$/, "").trim();
-                                                                        const { count } = await supabase.from('logistics_trip_sheets' as any).select('*', { count: 'exact', head: true });
-                                                                        const { count: transitCount } = await supabase.from('logistics_transit_trips' as any).select('*', { count: 'exact', head: true });
-                                                                        const totalTrips = (count || 0) + (transitCount || 0);
-                                                                        const seq = String(totalTrips + 1).padStart(3, '0');
-                                                                        const newTripId = `${cleanHorse}/2025/G${seq}`;
-
-                                                                        // Auto-fill driver assigned to this vehicle
-                                                                        const assignedDriver = driverData.find((d: any) => d.assigned_vehicle_id === v.id);
-
-                                                                        setTripData({
-                                                                            ...tripData,
-                                                                            vehicle_id: v.id,
-                                                                            trailer_id: activeCoupling.trailer_id,
-                                                                            trip_number: newTripId,
-                                                                            journey_type: journeyType,
-                                                                            driver_id: assignedDriver ? assignedDriver.id : tripData.driver_id
-                                                                        });
-
-                                                                        const trailerFound = fleet.find(f => String(f.id).toLowerCase().trim() === String(activeCoupling.trailer_id).toLowerCase().trim());
-                                                                        const trailerDisplay = trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : activeCoupling.trailer_id;
-
-                                                                        toast({
-                                                                            title: "Vehicle Assigned",
-                                                                            description: `Linked with Trailer ${trailerDisplay}`
-                                                                        });
-                                                                    }}
-                                                                    className={cn(
-                                                                        "flex flex-col items-start gap-1 py-2.5 px-3 transition-all",
-                                                                        isBusy ? "opacity-40 cursor-not-allowed" : "hover:bg-slate-50"
-                                                                    )}
-                                                                >
-                                                                    <div className="flex justify-between w-full items-center">
-                                                                        <span className="text-xs font-semibold text-slate-800 tracking-wide uppercase">{v.vehicle_no}</span>
-                                                                        <Badge variant="outline" className="text-[8px] font-bold uppercase py-0 px-1 border-slate-200 text-slate-400">{v.fleet_category || 'Local'}</Badge>
-                                                                    </div>
-                                                                    <span className="text-[10px] text-slate-400 uppercase tracking-wide">{v.asset_type || 'Truck'}</span>
-                                                                </CommandItem>
+                                                                    <CommandItem
+                                                                        key={d.id}
+                                                                        value={d.full_name}
+                                                                        onSelect={() => setTripData({ ...tripData, driver_id: d.id })}
+                                                                        className="flex items-center gap-2 py-2.5 px-3"
+                                                                    >
+                                                                        <Check className={cn("h-4 w-4", d.id === tripData.driver_id ? "opacity-100" : "opacity-0")} />
+                                                                        <div className="flex flex-col flex-1">
+                                                                            <span className="text-sm font-medium text-slate-700">{d.full_name}</span>
+                                                                            {isExpired && (
+                                                                                <span className="text-[10px] font-bold text-red-500 uppercase tracking-wide">⚠ Licence Expired</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </CommandItem>
                                                                 );
                                                             })}
-                                                    </CommandGroup>
-                                                </CommandList>
-                                            </Command>
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500">Linked Trailer</Label>
-                                    <div className="relative group">
-                                        <div className="absolute left-3 top-2.5 text-primary opacity-50">
-                                            <Package size={16} />
-                                        </div>
-                                        <Input
-                                            className="h-11 bg-slate-100/50 border-slate-200 pl-10 font-medium text-slate-700 cursor-not-allowed shadow-inner"
-                                            readOnly
-                                            value={
-                                                tripData.vehicle_id 
-                                                    ? (tripData.trailer_id && tripData.trailer_id !== 'none'
-                                                        ? trailerPlate
-                                                        : "No Coupling Found")
-                                                    : "Select Horse First..."
-                                            }
-                                        />
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                     </div>
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-slate-500">Assigned Driver</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            role="combobox"
-                                            disabled={isLocked}
-                                            className={cn(
-                                                "h-11 w-full justify-between bg-white border-slate-200 shadow-sm font-medium text-slate-700 print:h-8 print:border-none print:p-0",
-                                                !tripData.driver_id && "text-muted-foreground"
-                                            )}
-                                        >
-                                            {tripData.driver_id
-                                                ? drivers.find(d => d.id === tripData.driver_id)?.full_name
-                                                : "Assign Driver"}
-                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] sm:w-[300px] p-0 z-[100]" align="start">
-                                        <Command>
-                                            <CommandInput placeholder="Search driver name..." />
-                                            <CommandList className="max-h-[300px]">
-                                                <CommandEmpty>No driver found.</CommandEmpty>
-                                                <CommandGroup>
-                                                    <div className="px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] bg-slate-50 border-y border-slate-100">Company Drivers</div>
-                                                    {drivers.map(d => {
-                                                        const isExpired = d.license_expiry && new Date(d.license_expiry) < new Date();
-                                                        return (
-                                                            <CommandItem
-                                                                key={d.id}
-                                                                value={d.full_name}
-                                                                onSelect={() => setTripData({ ...tripData, driver_id: d.id })}
-                                                                className="flex items-center gap-2 py-2.5 px-3"
-                                                            >
-                                                                <Check className={cn("h-4 w-4", d.id === tripData.driver_id ? "opacity-100" : "opacity-0")} />
-                                                                <div className="flex flex-col flex-1">
-                                                                    <span className="text-sm font-medium text-slate-700">{d.full_name}</span>
-                                                                    {isExpired && (
-                                                                        <span className="text-[10px] font-bold text-red-500 uppercase tracking-wide">⚠ Licence Expired</span>
-                                                                    )}
-                                                                </div>
-                                                            </CommandItem>
-                                                        );
-                                                    })}
-                                                </CommandGroup>
-                                            </CommandList>
-                                        </Command>
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                        </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
 
-                        {/* RIGHT COLUMN: Route & Cargo */}
-                        <div className="space-y-6">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500">Route Origin</Label>
-                                    <Input
-                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
-                                        value={tripData.origin}
-                                        onChange={(e) => setTripData({ ...tripData, origin: e.target.value })}
-                                        disabled={isLocked}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500">Route Destination</Label>
-                                    <Input
-                                        className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700 ring-2 ring-primary/10"
-                                        value={tripData.destination}
-                                        onChange={(e) => setTripData({ ...tripData, destination: e.target.value })}
-                                        placeholder="Target City/Port"
-                                        disabled={isLocked}
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-slate-500">Cargo Description</Label>
-                                <Input
-                                    className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700"
-                                    value={tripData.cargo_outbound}
-                                    onChange={(e) => setTripData({ ...tripData, cargo_outbound: e.target.value })}
-                                    placeholder="e.g. 30 Tons of Copper Ore"
-                                    disabled={isLocked}
-                                />
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-4">
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500">Agreed Duration (Days)</Label>
-                                    <Input
-                                        className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
-                                        type="number"
-                                        placeholder="e.g. 5"
-                                        value={tripData.agreed_days}
-                                        onChange={(e) => setTripData({ ...tripData, agreed_days: e.target.value })}
-                                        disabled={isLocked}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-500">Daily Penalty Fine (TShs)</Label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-3 text-slate-400 font-semibold text-[10px]">TShs</span>
-                                        <Input
-                                            className="pl-12 h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
-                                            type="number"
-                                            value={tripData.daily_fine_amount}
-                                            onChange={(e) => setTripData({ ...tripData, daily_fine_amount: e.target.value })}
-                                            placeholder="0"
+                {/* 💰 REVENUE DETAILS TAB */}
+                {isSuperAdmin && (
+                    <TabsContent value="revenue" className="mt-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        {/* Revenue Entry form - same as before */}
+                        <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
+                            <CardHeader className="bg-emerald-50/50 border-b border-emerald-100 py-4 px-8">
+                                <CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-3">
+                                    <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-600">
+                                        <TrendingUp size={18} />
+                                    </div>
+                                    Revenue Management
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-8 space-y-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-semibold text-slate-500 truncate">Revenue Type</Label>
+                                        <Select 
+                                            value={revenueData.revenue_type}
+                                            onValueChange={(val) => setRevenueData({...revenueData, revenue_type: val as any})}
                                             disabled={isLocked}
-                                        />
+                                        >
+                                            <SelectTrigger className="h-11 bg-white border-slate-200 font-medium">
+                                                <SelectValue placeholder="Select type" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="With Fuel">With Fuel</SelectItem>
+                                                <SelectItem value="Without Fuel">Without Fuel</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-xs font-semibold text-slate-500 truncate">Total Revenue</Label>
+                                        <div className="flex gap-2">
+                                            <Input 
+                                                className="h-11 font-bold text-slate-800 bg-white"
+                                                value={formatWithCommas(revenueData.revenue_amount)}
+                                                onChange={(e) => setRevenueData({...revenueData, revenue_amount: e.target.value})}
+                                                placeholder="0.00"
+                                                disabled={isLocked}
+                                            />
+                                            <Select 
+                                                value={revenueData.revenue_currency}
+                                                onValueChange={(val) => setRevenueData({...revenueData, revenue_currency: val as any})}
+                                                disabled={isLocked}
+                                            >
+                                                <SelectTrigger className="w-20 h-11">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="USD">USD</SelectItem>
+                                                    <SelectItem value="TZS">TZS</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="space-y-2 pt-4 border-t border-slate-100">
-                                <Label className="text-xs font-semibold text-slate-500">Journey Type</Label>
-                                <Select
-                                    value={tripData.journey_type}
-                                    onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
-                                    disabled={isLocked || (fleet.find(v => v.id === tripData.vehicle_id)?.asset_type?.toLowerCase().includes('tanker'))}
-                                >
-                                    <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="z-[100]">
-                                        <SelectItem value="Go & Return (Full Cycle)">Go & Return (Full Cycle)</SelectItem>
-                                        <SelectItem value="Go Only (Return Empty)">Go Only (Return Empty)</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                                
+
+                            </CardContent>
+                        </Card>
+
+                        {/* Live Profitability Forecast Card */}
+                        <Card className={`border-none shadow-xl overflow-hidden ring-1 ${totals.netProfitUSD < 0 ? 'bg-red-50 ring-red-200' : 'bg-emerald-50 ring-emerald-200'}`}>
+                            <CardHeader className={`border-b border-emerald-100 py-4 px-8 ${totals.netProfitUSD < 0 ? 'bg-red-100/30' : 'bg-emerald-100/30'}`}>
+                                <CardTitle className="text-sm font-bold text-slate-800 flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${totals.netProfitUSD < 0 ? 'bg-red-500/10 text-red-600' : 'bg-emerald-500/10 text-emerald-600'}`}>
+                                        <Calculator size={18} />
+                                    </div>
+                                    Profitability Analysis
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-8 space-y-6">
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center text-slate-600">
+                                        <span className="text-xs font-medium">Total Operational Budget:</span>
+                                        <span className="text-sm font-bold">TShs {Math.round(totals.totalExpensesTZS).toLocaleString()}</span>
+                                    </div>
+                                    {totals.extraExpensesUSD > 0 && (
+                                        <div className="flex justify-between items-center text-red-500">
+                                            <span className="text-xs font-semibold italic">Additional Expenses Incurred:</span>
+                                            <span className="text-sm font-bold">+ TShs {Math.round(totals.extraExpensesTZS).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    <Separator className="bg-slate-200" />
+                                    <div className="pt-2">
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="text-xs font-bold text-slate-800 uppercase tracking-tight">Projected Trip Profit</span>
+                                            <div className="text-right">
+                                                <p className={`text-4xl font-black ${totals.finalNetProfitUSD < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                    TShs {Math.round(totals.finalNetProfitUSD * (countryRates["TZ"] || 2700)).toLocaleString()}
+                                                </p>
+                                                <p className="text-[11px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
+                                                    ${totals.finalNetProfitUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
                         </div>
-                    </div>
-                </CardContent>
-            </Card>
+                    </TabsContent>
+                )}
+
+                {/* 🕵️‍♂️ ACCOUNTABILITY AUDIT TAB (Super Admin Only) */}
+                {isSuperAdmin && tripId && (
+                    <TabsContent value="audit" className="mt-6">
+                        <Card className="border-none shadow-2xl bg-white overflow-hidden ring-1 ring-primary/20">
+                            <CardHeader className="bg-slate-900 text-white py-6 px-8">
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <CardTitle className="text-xl font-black tracking-tight flex items-center gap-3">
+                                            <ShieldCheck className="text-primary h-6 w-6" />
+                                            Financial Reconciliation & Audit
+                                        </CardTitle>
+                                        <CardDescription className="text-slate-400 font-medium">Comparing official budget vs. actual receipts submitted by Clerk.</CardDescription>
+                                    </div>
+                                    <Badge className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border-emerald-500/50">
+                                        Verification Active
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-8">
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Left: Planning Pillar */}
+                                    <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 flex flex-col h-full">
+                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">I. Planned Disbursment</h4>
+                                        <div className="space-y-4 flex-1">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs font-medium text-slate-500">Original Budget</span>
+                                                <span className="text-sm font-bold text-slate-900">{Math.round(totals.totalExpensesTZS).toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs font-medium text-slate-500 italic">Extra Emergency Funds</span>
+                                                <span className="text-sm font-bold text-red-600">+{Math.round(totals.extraExpensesTZS).toLocaleString()}</span>
+                                            </div>
+                                            <Separator className="bg-slate-200 border-dashed" />
+                                            <div className="pt-2 flex justify-between items-baseline">
+                                                <span className="text-xs font-black text-slate-900 uppercase">Total Cash Given</span>
+                                                <div className="text-right">
+                                                    <p className="text-2xl font-black text-slate-900">
+                                                        {(Math.round(totals.totalExpensesTZS) + Math.round(totals.extraExpensesTZS)).toLocaleString()}
+                                                    </p>
+                                                    <p className="text-[9px] text-slate-400">TShs Total</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Center: Receipts Pillar */}
+                                    <div className="bg-white p-6 rounded-3xl border-2 border-primary/20 flex flex-col h-full shadow-inner shadow-slate-50">
+                                        <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-4">II. Justified (Receipts)</h4>
+                                        {auditLoading ? (
+                                            <div className="animate-pulse space-y-4">
+                                                <div className="h-4 bg-slate-100 rounded w-full"></div>
+                                                <div className="h-4 bg-slate-100 rounded w-5/6"></div>
+                                            </div>
+                                        ) : settlements.length === 0 ? (
+                                            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                                                <AlertCircle className="text-slate-300 h-8 w-8 mb-2" />
+                                                <p className="text-xs font-medium text-slate-400">No receipts have been entered by the Clerk yet.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4 flex-1">
+                                                <div className="max-h-[180px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                                    {settlements.map((s, idx) => (
+                                                        <div key={s.id} className="flex justify-between items-center py-1.5 border-b border-slate-50 last:border-none">
+                                                            <span className="text-[11px] font-medium text-slate-600 truncate max-w-[120px]">{s.receipt_description}</span>
+                                                            <span className="text-[11px] font-bold text-slate-900">{s.amount_tzs.toLocaleString()}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <Separator className="bg-primary/20" />
+                                                <div className="pt-2 flex justify-between items-baseline">
+                                                    <span className="text-xs font-black text-primary uppercase">Total Proven Spend</span>
+                                                    <div className="text-right">
+                                                        <p className="text-2xl font-black text-primary">
+                                                            {settlements.reduce((sum, s) => sum + (s.amount_tzs || 0), 0).toLocaleString()}
+                                                        </p>
+                                                        <p className="text-[9px] text-primary/60">TShs Total</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Right: The Gap (Verdict) */}
+                                    <div className={`p-6 rounded-3xl border flex flex-col h-full shadow-lg ${
+                                        (Math.round(totals.totalExpensesTZS) + Math.round(totals.extraExpensesTZS)) - settlements.reduce((sum, s) => sum + (s.amount_tzs || 0), 0) > 0 
+                                        ? 'bg-red-50 border-red-200' 
+                                        : 'bg-emerald-50 border-emerald-200'
+                                    }`}>
+                                        <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">III. Audit Gap/Balance</h4>
+                                        <div className="flex-1 flex flex-col justify-center items-center text-center">
+                                            {(() => {
+                                                const totalOut = Math.round(totals.totalExpensesTZS) + Math.round(totals.extraExpensesTZS);
+                                                const totalProven = settlements.reduce((sum, s) => sum + (s.amount_tzs || 0), 0);
+                                                const gap = totalOut - totalProven;
+
+                                                return (
+                                                    <>
+                                                        <div className={`p-4 rounded-full mb-4 ${gap > 0 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                            {gap > 0 ? <AlertCircle size={32} /> : <CheckCircle size={32} />}
+                                                        </div>
+                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Unaccounted Funds</p>
+                                                        <p className={`text-4xl font-black ${gap > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                                                            TShs {Math.abs(gap).toLocaleString()}
+                                                        </p>
+                                                        <p className="text-xs font-semibold text-slate-500 mt-3 max-w-[150px]">
+                                                            {gap > 0 
+                                                                ? "Driver must return this balance to the accounts office." 
+                                                                : "All funds are fully justified by receipts."}
+                                                        </p>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="mt-10 p-4 bg-slate-900/5 border border-slate-200 border-dashed rounded-2xl flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Audit Trail Active: Every change and viewing is logged for Superadmin transparency.</p>
+                                    </div>
+                                    <Button variant="ghost" size="sm" className="text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100" onClick={() => window.print()}>
+                                        <Printer size={14} className="mr-2" /> Print Audit Report
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                )}
+            </Tabs>
 
             {/* ⛽ Section 2: Fuel Allocation & Logic Calculator */}
             <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200 print:shadow-none print:ring-1 print:ring-slate-900 break-inside-avoid">
@@ -2071,8 +2380,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </Card>
                 )}
 
-                <Card className="border-none shadow-xl bg-slate-50 overflow-hidden ring-1 ring-slate-200">
+                <Card className="border-none shadow-xl bg-slate-50/50 overflow-hidden ring-1 ring-slate-200 border-dashed">
                     <CardHeader className="bg-slate-200/50 border-b py-4 px-8">
+                        <div className="flex items-center gap-2 mb-1">
+                            <ShieldCheck size={12} className="text-red-500" />
+                            <span className="text-[9px] font-bold text-red-500 uppercase tracking-widest">Informational / Non-Budgeted</span>
+                        </div>
                         <CardTitle className="text-xs font-bold flex items-center justify-between text-slate-800">
                             <div className="flex items-center gap-3">
                                 <span>Fixed Expenses</span>
@@ -2234,7 +2547,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     )}
 
                     {/* Save Plan (always visible unless Active/Completed) */}
-                    {currentStatus !== 'Active' && currentStatus !== 'Completed' && (
+                    {currentStatus !== 'Active' && currentStatus !== 'Completed' && !isLocked && (
                         <Button
                             size="lg"
                             className="font-black bg-primary hover:bg-primary/90 text-white px-8 md:px-12 h-12 rounded-xl shadow-xl active:scale-95 transition-all w-full md:w-auto"
@@ -2281,10 +2594,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             { id: 'Zambia', label: 'Zambia', color: 'green' },
                             { id: 'DRC', label: 'DR Congo', color: 'yellow' },
                             { id: 'Rwanda', label: 'Rwanda', color: 'purple' },
-                            { id: 'Burundi', label: 'Burundi', color: 'rose' },
-                            { id: 'Fixed', label: 'General / Fixed', color: 'slate' }
+                            { id: 'Burundi', label: 'Burundi', color: 'rose' }
                         ]
-                            .filter(c => c.id === 'Fixed' || activeCountries.includes(c.id))
+                            .filter(c => activeCountries.includes(c.id))
                             .map(country => {
                                 const extraForCountry = expenses
                                     .map((e, i) => ({ ...e, originalIndex: i }))
@@ -2344,6 +2656,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                             </SelectContent>
                                                         </Select>
                                                         <div className="flex items-center gap-1 w-28">
+                                                            {country.id === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50">NON-BUDGET</Badge>}
                                                             <span className="text-[8px] text-red-300 font-bold shrink-0">TZS</span>
                                                             <Input
                                                                 className="h-7 text-right text-[12px] font-medium text-red-700 bg-white border-red-100 focus-visible:ring-1 ring-red-300 w-full"

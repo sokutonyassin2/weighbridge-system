@@ -15,6 +15,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ["Inter", "sans-serif"],
+        dashboard: ["Outfit", "Inter", "sans-serif"],
         mono: ["JetBrains Mono", "monospace"],
       },
       colors: {

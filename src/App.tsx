@@ -37,6 +37,7 @@ import TripManagement from "./pages/logistics/TripManagement";
 import ComplianceCenter from "./pages/logistics/ComplianceCenter";
 import VehiclePerformance from "./pages/logistics/VehiclePerformance";
 import TransitTripSheetPage from "./pages/logistics/TransitTripSheetPage";
+import Reconciliation from "./pages/logistics/Reconciliation";
 import GarageDashboard from "./pages/garage/GarageDashboard";
 import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
 import InventoryReports from "./pages/garage/InventoryReports";
@@ -81,12 +82,15 @@ const App = () => {
         return <Navigate to="/logistics" replace />;
       case 'garage_manager':
       case 'mechanic':
-      case 'storekeeper':
         return <Navigate to="/garage" replace />;
+      case 'storekeeper':
+        return <Navigate to="/garage/store" replace />;
       case 'procurement_officer':
         return <Navigate to="/procurement" replace />;
       case 'procurement_cashier':
         return <Navigate to="/procurement/cashier-portal" replace />;
+      case 'audit_clerk':
+        return <Navigate to="/logistics/reconciliation" replace />;
       case 'observer':
         return <Navigate to="/guardian-eye" replace />;
       case 'operator':
@@ -433,6 +437,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <TripSheets />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/reconciliation"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'super_admin', 'audit_clerk']}>
+                  <Layout>
+                    <Reconciliation />
                   </Layout>
                 </ProtectedRoute>
               }

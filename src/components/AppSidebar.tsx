@@ -50,6 +50,7 @@ const logisticsItems = [
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["audit_clerk", "super_admin", "admin"] },
   { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
 ];
 
@@ -111,7 +112,7 @@ export function AppSidebar() {
 
   // Filter sections based on role
   const showWeighbridge = userRole === "super_admin" || userRole === "admin" || userRole === "operator" || userRole === "finance" || userRole === "cashier";
-  const showLogistics = userRole === "super_admin" || userRole === "admin" || userRole === "logistics_admin" || userRole === "logistics_manager" || userRole === "garage_manager";
+  const showLogistics = userRole === "super_admin" || userRole === "admin" || userRole === "logistics_admin" || userRole === "logistics_manager" || userRole === "garage_manager" || userRole === "audit_clerk";
   const showGarage = userRole === "super_admin" || userRole === "admin" || userRole === "garage_manager" || userRole === "mechanic" || userRole === "storekeeper";
   const showProcurement = userRole === "super_admin" || userRole === "admin" || userRole === "procurement_officer" || userRole === "finance" || userRole === "cashier" || userRole === "procurement_cashier";
   const showObserver = userRole === "super_admin" || userRole === "admin" || userRole === "observer";

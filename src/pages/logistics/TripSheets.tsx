@@ -46,12 +46,14 @@ import {
     CreditCard
 } from "lucide-react";
 import { TripSheet } from "@/components/logistics/TripSheet";
+import { LogisticsPaymentTracker } from "@/components/logistics/LogisticsPaymentTracker";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const TripSheets = () => {
     const { userRole, user, userProfile } = useAuth();
+    const [showFinanceTab, setShowFinanceTab] = useState(false);
     const { toast } = useToast();
     const [searchTerm, setSearchTerm] = useState("");
     
@@ -94,7 +96,7 @@ const TripSheets = () => {
                     return;
                 }
 
-                if (!trip.trip_number) {
+                if (!trip.reference_number) {
                     toast({
                         variant: "destructive",
                         title: "Approval Blocked",
@@ -275,7 +277,7 @@ const TripSheets = () => {
     });
 
     const filteredSheets = tripSheets?.filter(trip =>
-        trip.trip_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        trip.reference_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         trip.vehicle?.vehicle_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         trip.driver?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         trip.destination?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -312,7 +314,7 @@ const TripSheets = () => {
         acc[key].totals.expensesUSD += parseFloat(trip.total_expenses_usd) || 0;
         acc[key].totals.expensesTZS += parseFloat(trip.total_expenses_tzs) || 0;
         acc[key].totals.profitUSD += parseFloat(trip.net_profit_usd) || 0;
-        acc[key].totals.profitTZS += (parseFloat(trip.net_profit_usd) || 0) * rate;
+        acc[key].totals.profitTZS += revTZS - (parseFloat(trip.total_expenses_tzs) || 0);
 
         return acc;
     }, {} as Record<string, any>) || {};
@@ -381,11 +383,47 @@ const TripSheets = () => {
     }
 
     return (
-        <div className="p-4 md:p-6 space-y-6 animate-fade-in max-w-[1600px] mx-auto">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-xl font-bold tracking-tight text-slate-900">Transit Financials</h1>
-                    <p className="text-[11px] text-slate-500 font-medium whitespace-nowrap">Client Grouping & Logistics Budgeting</p>
+        <div className="p-4 md:p-6 space-y-6 animate-fade-in max-w-[1700px] mx-auto">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 items-end bg-white/50 p-3 px-5 rounded-2xl border border-slate-100 shadow-sm">
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-slate-900 text-white rounded-lg">
+                            <Folders size={14} />
+                        </div>
+                        <div>
+                             <h1 className="text-[13px] font-bold tracking-tight text-slate-900 uppercase">Transit Financials</h1>
+                             <p className="text-[8px] text-slate-500 font-bold uppercase tracking-[0.2em] opacity-60">Terminal Logistics Control</p>
+                        </div>
+                    </div>
+                    
+                    {/* Tab Navigation */}
+                    <div className="flex items-center gap-1 mt-4 bg-slate-100/80 p-1 rounded-xl w-fit">
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className={cn(
+                                "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
+                                !showFinanceTab ? "bg-white text-slate-900 shadow-sm shadow-slate-200" : "text-slate-500 hover:text-slate-900"
+                            )}
+                            onClick={() => setShowFinanceTab(false)}
+                        >
+                            Operations
+                        </Button>
+                        {(userRole === 'super_admin' || userRole === 'finance' || userRole === 'audit_clerk') && (
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className={cn(
+                                    "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
+                                    showFinanceTab ? "bg-emerald-600 text-white shadow-sm shadow-emerald-200" : "text-slate-500 hover:text-emerald-600 hover:bg-emerald-50"
+                                )}
+                                onClick={() => setShowFinanceTab(true)}
+                            >
+                                <CreditCard size={12} className="mr-1.5" />
+                                Accounts Tracking
+                            </Button>
+                        )}
+                    </div>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
                     <div className="relative flex-1 sm:w-64">
@@ -408,6 +446,10 @@ const TripSheets = () => {
                 </div>
             </div>
 
+            {showFinanceTab ? (
+                <LogisticsPaymentTracker searchTerm={searchTerm} />
+            ) : (
+                <Fragment>
             {/* Quick Stats Grid - More Compact */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="border-none bg-indigo-600 text-white shadow-lg overflow-hidden relative group/stats hover:shadow-xl transition-all">
@@ -565,9 +607,12 @@ const TripSheets = () => {
                                                 <TableCell colSpan={8} className="p-4 bg-slate-50/50">
                                                     <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
                                                         {group.trips.map((trip: any, tIndex: number) => {
-                                                            const isProfit = (trip.net_profit_usd || 0) >= 0;
+
                                                             const rate = trip.exchange_rate || 2700;
                                                             const revTSh = trip.revenue_currency === 'TZS' ? trip.revenue_amount : trip.revenue_amount * rate;
+                                                            const expTSh = trip.total_expenses_tzs || 0;
+                                                            const netTSh = revTSh - expTSh;
+                                                            const isProfit = netTSh >= 0;
                                                             
                                                             return (
                                                                 <div key={trip.id} className="relative group/card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6 overflow-hidden">
@@ -604,7 +649,7 @@ const TripSheets = () => {
                                                                                 </div>
                                                                                 <div className="h-1 w-1 rounded-full bg-slate-200" />
                                                                                 <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.1em]">
-                                                                                    Ref: {trip.trip_number}
+                                                                                    Ref: {trip.reference_number}
                                                                                 </div>
                                                                                 {trip.invoice_no && (
                                                                                     <>
@@ -664,7 +709,7 @@ const TripSheets = () => {
                                                                                         "block text-[15px] font-bold leading-snug",
                                                                                         isProfit ? "text-emerald-600" : "text-red-600"
                                                                                     )}>
-                                                                                        {formatTSh((trip.net_profit_usd || 0) * rate)}
+                                                                                        {formatTSh(netTSh)}
                                                                                     </span>
                                                                                     {isProfit ? <TrendingUp size={14} className="text-emerald-400" /> : <TrendingDown size={14} className="text-red-400" />}
                                                                                 </div>
@@ -787,7 +832,7 @@ const TripSheets = () => {
                             <div className="space-y-2">
                                 <Label className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Invoice Number</Label>
                                 <Input 
-                                    placeholder="REQ-2024-..." 
+                                    placeholder="SCL/2025/004" 
                                     value={batchData.invoice_no}
                                     onChange={(e) => setBatchData({...batchData, invoice_no: e.target.value})}
                                 />
@@ -870,6 +915,8 @@ const TripSheets = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+                </Fragment>
+            )}
         </div>
     );
 };

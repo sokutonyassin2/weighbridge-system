@@ -1594,9 +1594,10 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                 <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
                                                 <Input
                                                     type="date"
-                                                    className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700"
+                                                    className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700 cursor-pointer"
                                                     value={tripData.invoice_date || ''}
                                                     onChange={(e) => setTripData({ ...tripData, invoice_date: e.target.value })}
+                                                    onClick={(e) => e.currentTarget.showPicker()}
                                                     disabled={(isLocked || isInvoiceCaptured) && !isSuperAdmin}
                                                 />
                                             </div>
@@ -1677,7 +1678,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                                     return;
                                                                                 }
 
-                                                                                const isTanker = v.asset_type?.toLowerCase().includes('tanker') || v.fleet_category?.toLowerCase() === 'tanker';
+                                                                                const trailerFound = fleet.find(f => String(f.id).toLowerCase().trim() === String(activeCoupling.trailer_id).toLowerCase().trim());
+                                                                                const trailerIsTanker = trailerFound?.asset_type?.toLowerCase().includes('tanker') || trailerFound?.fleet_category?.toLowerCase() === 'tanker';
+                                                                                const isTanker = v.asset_type?.toLowerCase().includes('tanker') || v.fleet_category?.toLowerCase() === 'tanker' || trailerIsTanker;
                                                                                 const journeyType = isTanker ? "Go Only (Return Empty)" : "Go & Return (Full Cycle)";
                                                                                 
                                                                                 // Generate Trip ID logic
@@ -1686,7 +1689,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                                 const { count: transitCount } = await supabase.from('logistics_transit_trips' as any).select('*', { count: 'exact', head: true });
                                                                                 const totalTrips = (count || 0) + (transitCount || 0);
                                                                                 const seq = String(totalTrips + 1).padStart(3, '0');
-                                                                                const newTripId = `${cleanHorse}/2025/G${seq}`;
+                                                                                const legIndicator = isTanker ? "T" : "G";
+                                                                                const newTripId = `${cleanHorse}/2025/${legIndicator}${seq}`;
 
                                                                                 // Auto-fill driver assigned to this vehicle
                                                                                 const assignedDriver = drivers.find((d: any) => d.assigned_vehicle_id === v.id);
@@ -1700,7 +1704,6 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                                     driver_id: assignedDriver ? assignedDriver.id : tripData.driver_id
                                                                                 });
 
-                                                                                const trailerFound = fleet.find(f => String(f.id).toLowerCase().trim() === String(activeCoupling.trailer_id).toLowerCase().trim());
                                                                                 const trailerDisplay = trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : activeCoupling.trailer_id;
 
                                                                                 toast({

@@ -23,6 +23,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { TripSheet } from "@/components/logistics/TripSheet";
+import { TripTimeline } from "@/components/logistics/TripTimeline";
+import { Calendar as CalendarUI } from "@/components/ui/calendar";
 
 // Types
 type TripStatus = 'Planned' | 'Dispatched' | 'In Transit' | 'At Destination' | 'Returning' | 'Completed' | 'Cancelled';
@@ -49,9 +51,11 @@ const TripManagement = () => {
     const [isDriverPopoverOpen, setIsDriverPopoverOpen] = useState(false);
     const [isTrailerPopoverOpen, setIsTrailerPopoverOpen] = useState(false);
     const [selectedTripForSheet, setSelectedTripForSheet] = useState<any>(null);
+    const [isTimelineOpen, setIsTimelineOpen] = useState(false);
+    const [selectedTripForTimeline, setSelectedTripForTimeline] = useState<any>(null);
 
     // De-cluttering State
-    const [dateRange, setDateRange] = useState<"Today" | "Yesterday" | "7Days" | "All">("All");
+    const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
     const [activeView, setActiveView] = useState<"kanban" | "tabs">("kanban");
     const [collapsedColumns, setCollapsedColumns] = useState<Record<string, boolean>>({
         'Cancelled': true,
@@ -76,7 +80,7 @@ const TripManagement = () => {
 
     // Fetch Trips
     const { data: trips, isLoading } = useQuery({
-        queryKey: ["logistics_trips", dateRange],
+        queryKey: ["logistics_trips", selectedDate],
         queryFn: async () => {
             let query = supabase
                 .from("logistics_trips" as any)
@@ -87,24 +91,15 @@ const TripManagement = () => {
                     driver:logistics_drivers!driver_id(full_name)
                 `);
 
-            if (dateRange !== "All") {
-                const now = new Date();
-                let filterDate = new Date();
-
-                if (dateRange === "Today") {
-                    filterDate.setHours(0, 0, 0, 0);
-                } else if (dateRange === "Yesterday") {
-                    filterDate.setDate(now.getDate() - 1);
-                    filterDate.setHours(0, 0, 0, 0);
-                    const endOfYesterday = new Date(filterDate);
-                    endOfYesterday.setHours(23, 59, 59, 999);
-                    query = query.lte("created_at", endOfYesterday.toISOString());
-                } else if (dateRange === "7Days") {
-                    filterDate.setDate(now.getDate() - 7);
-                    filterDate.setHours(0, 0, 0, 0);
-                }
-
-                query = query.gte("created_at", filterDate.toISOString());
+            if (selectedDate) {
+                const startOfDay = new Date(selectedDate);
+                startOfDay.setHours(0, 0, 0, 0);
+                
+                const endOfDay = new Date(selectedDate);
+                endOfDay.setHours(23, 59, 59, 999);
+                
+                query = query.gte("created_at", startOfDay.toISOString());
+                query = query.lte("created_at", endOfDay.toISOString());
             }
 
             const { data, error } = await query.order("created_at", { ascending: false });
@@ -213,8 +208,25 @@ const TripManagement = () => {
             if (!tripData.vehicle_id || !tripData.driver_id || !tripData.destination) {
                 throw new Error("Please fill in all required fields.");
             }
+            
+            // Auto-generate Trip Number based on Vehicle, Year (2025), and Leg (G)
+            const vehicleData = fleet?.find(f => f.id === tripData.vehicle_id);
+            const vehicleNo = vehicleData?.vehicle_no || 'UNK';
+            
+            const { count } = await supabase
+                .from("logistics_trips" as any)
+                .select('*', { count: 'exact', head: true })
+                .eq('vehicle_id', tripData.vehicle_id);
+                
+            const sequence = (count || 0) + 1;
+            const paddedSequence = sequence.toString().padStart(3, '0');
+            const tripNumber = `TRIP:${vehicleNo}/2025/G${paddedSequence}`;
+            
             const formattedData = {
                 ...tripData,
+                trip_number: tripNumber,
+                leg_type: 'G',
+                leg_sequence: sequence,
                 trailer_id: tripData.trailer_id === "" ? null : tripData.trailer_id,
                 starting_km: Number(tripData.starting_km) || 0,
                 fuel_liters: Number(tripData.fuel_liters) || 0,
@@ -287,7 +299,33 @@ const TripManagement = () => {
             const now = new Date().toISOString();
             if (status === 'Dispatched') updates.departure_date = now;
             if (status === 'At Destination') updates.arrival_destination_date = now;
-            if (status === 'Returning') updates.return_trip_start_date = now;
+            if (status === 'Returning') {
+                // Update current Go trip to Completed
+                updates.status = 'Completed';
+                updates.completion_date = now;
+                
+                // Fetch the current trip to duplicate
+                const { data: currentTrip } = await supabase.from("logistics_trips" as any).select("*").eq("id", id).single();
+                
+                if (currentTrip) {
+                    let returnTripNumber = currentTrip.trip_number ? currentTrip.trip_number.replace('/G', '/R') : `TRIP:UNK/2025/R${currentTrip.leg_sequence ? currentTrip.leg_sequence.toString().padStart(3, '0') : '001'}`;
+                    
+                    await supabase.from("logistics_trips" as any).insert([{
+                        vehicle_id: currentTrip.vehicle_id,
+                        trailer_id: currentTrip.trailer_id,
+                        driver_id: currentTrip.driver_id,
+                        origin: currentTrip.destination,
+                        destination: currentTrip.origin,
+                        status: 'Returning',
+                        trip_number: returnTripNumber,
+                        leg_type: 'R',
+                        leg_sequence: currentTrip.leg_sequence || 1,
+                        parent_trip_id: currentTrip.id,
+                        starting_km: currentTrip.starting_km,
+                        return_trip_start_date: now
+                    }]);
+                }
+            }
             if (status === 'Completed') {
                 updates.completion_date = now;
                 if (podFile) {
@@ -374,6 +412,7 @@ const TripManagement = () => {
                                             {status === 'Planned' && <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-blue-600" onClick={(e) => { e.stopPropagation(); setTripToEdit(trip); setIsEditDialogOpen(true); }}><Pencil className="h-4 w-4" /></Button>}
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-primary" onClick={(e) => { e.stopPropagation(); handlePrintTrip(trip); }}><Printer className="h-4 w-4" /></Button>
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-emerald-600" onClick={(e) => { e.stopPropagation(); setSelectedTripForSheet(trip); }}><DollarSign className="h-4 w-4" /></Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-amber-600" onClick={(e) => { e.stopPropagation(); setSelectedTripForTimeline(trip); setIsTimelineOpen(true); }}><Clock className="h-4 w-4" /></Button>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -533,10 +572,28 @@ const TripManagement = () => {
                                         <Button variant={activeView === "tabs" ? "secondary" : "ghost"} size="sm" className={cn("h-8 flex-1 sm:flex-none px-4 rounded-lg text-xs font-bold transition-all duration-300", activeView === "tabs" && "shadow-sm border bg-white")} onClick={() => setActiveView("tabs")}>Tabs</Button>
                                     </div>
                                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                                        <Select value={dateRange} onValueChange={(v: any) => setDateRange(v)}>
-                                            <SelectTrigger className="flex-1 sm:w-[150px] h-10 text-xs font-bold bg-white/80 border-slate-200 rounded-xl shadow-sm"><Calendar className="w-3.5 h-3.5 mr-2 text-primary" /><SelectValue /></SelectTrigger>
-                                            <SelectContent className="rounded-xl"><SelectItem value="Today">Today</SelectItem><SelectItem value="Yesterday">Yesterday</SelectItem><SelectItem value="7Days">Last 7 Days</SelectItem><SelectItem value="All">All</SelectItem></SelectContent>
-                                        </Select>
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button variant="outline" className={cn("flex-1 sm:w-[150px] h-10 text-xs font-bold bg-white/80 border-slate-200 rounded-xl shadow-sm justify-start text-left", !selectedDate && "text-slate-500")}>
+                                                    <Calendar className="w-3.5 h-3.5 mr-2 text-primary shrink-0" />
+                                                    {selectedDate ? format(selectedDate, "MMM dd, yyyy") : <span>Filter by Date</span>}
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0 rounded-2xl border-slate-200 shadow-xl" align="end">
+                                                <CalendarUI
+                                                    mode="single"
+                                                    selected={selectedDate}
+                                                    onSelect={setSelectedDate}
+                                                    initialFocus
+                                                    className="p-3"
+                                                />
+                                                {selectedDate && (
+                                                    <div className="p-3 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+                                                        <Button variant="ghost" size="sm" className="w-full text-xs font-bold text-slate-500 hover:text-slate-900" onClick={() => setSelectedDate(undefined)}>Clear Filter</Button>
+                                                    </div>
+                                                )}
+                                            </PopoverContent>
+                                        </Popover>
                                         <Button onClick={() => setIsCreateDialogOpen(true)} className="flex-1 sm:flex-none h-10 font-bold bg-slate-900 rounded-xl whitespace-nowrap"><Plus className="w-4 h-4 mr-0 sm:mr-2" /><span className="hidden sm:inline">Plan New Trip</span><span className="sm:hidden">Plan</span></Button>
                                     </div>
                                     <div className="relative w-full sm:w-48 lg:w-64"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><Input placeholder="Search..." className="h-10 pl-10 text-xs bg-white/80 rounded-xl w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
@@ -576,6 +633,7 @@ const TripManagement = () => {
                                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-primary" onClick={() => handlePrintTrip(trip)}><Printer className="h-3.5 w-3.5" /></Button>
                                                                     {status === 'Planned' && <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" onClick={() => { setTripToEdit(trip); setIsEditDialogOpen(true); }}><Pencil className="h-3.5 w-3.5" /></Button>}
                                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => setSelectedTripForSheet(trip)}><DollarSign className="h-3.5 w-3.5" /></Button>
+                                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" onClick={() => { setSelectedTripForTimeline(trip); setIsTimelineOpen(true); }}><Clock className="h-3.5 w-3.5" /></Button>
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-2 font-medium text-slate-700">{trip.origin} <span className="text-slate-300">→</span> {trip.destination}</div>
@@ -792,6 +850,18 @@ const TripManagement = () => {
                 </DialogContent>
             </Dialog>
 
+            {/* Trip Timeline Dialog */}
+            <Dialog open={isTimelineOpen} onOpenChange={setIsTimelineOpen}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    {selectedTripForTimeline && (
+                        <TripTimeline 
+                            tripId={selectedTripForTimeline.id} 
+                            vehicleNo={selectedTripForTimeline.vehicle?.vehicle_no}
+                            tripNumber={selectedTripForTimeline.trip_number}
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
 
             {/* Clean & Professional Print View (A4/A5 Compatible) */}
             {selectedTripForPrint && (

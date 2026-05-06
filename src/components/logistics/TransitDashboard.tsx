@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -14,7 +14,7 @@ import {
     RefreshCw, BarChart3, CalendarDays, MapPin, AlertTriangle,
     CheckCircle2, X, Edit2, ChevronDown, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -67,15 +67,16 @@ const emptyForm = () => ({
     checkpoint_3_name: "",
     checkpoint_3_arrival_date: "",
     checkpoint_3_departure_date: "",
+    borders: [] as { name: string; arrival: string; departure: string }[],
+    hq_arrival_date: "",
     standing_charges: "",
     arrive_offloading_site_date: "",
     offloading_date: "",
     selected_vehicle_id: "",
-    is_tanker: false,
     leg_type: "G" as "G" | "R",
     source_sheet_id: "",
     trip_number: "",
-    trip_number: "",
+    invoice_no: "",
     client_name: "",
     nature: "Go & Return",
 });
@@ -93,6 +94,7 @@ const TransitDashboard = () => {
     const [selectedTripDetails, setSelectedTripDetails] = useState<any>(null);
     const [form, setForm] = useState(emptyForm());
     const [yearFilter, setYearFilter] = useState("All");
+    const [activeTab, setActiveTab] = useState<"ALL" | "OUTBOUND" | "BACKLOAD" | "TANKERS" | "ARCHIVE">("ALL");
 
     // ─── Fetch Data ───────────────────────────────────────────────────────────
     const { data: fleet = [] } = useQuery({
@@ -112,7 +114,7 @@ const TransitDashboard = () => {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
-                .select("*, vehicle:vehicle_id(vehicle_no, asset_type), trailer:trailer_id(vehicle_no), driver:driver_id(full_name, license_no, id_number)")
+                .select("*, vehicle:vehicle_id(vehicle_no, asset_type), trailer:trailer_id(vehicle_no, trailer_number), driver:driver_id(full_name, license_no, id_number)")
                 .in("status", ["Approved", "Active"])
                 .order("created_at", { ascending: false });
             if (error) console.error("Error fetching approved trips:", error);
@@ -167,35 +169,41 @@ const TransitDashboard = () => {
                 loading_date: data.loading_date || null,
                 dispatch_date: data.dispatch_date || null,
                 
-                checkpoint_1_name: data.checkpoint_1_name || null,
-                checkpoint_1_arrival_date: data.checkpoint_1_arrival_date || null,
-                checkpoint_1_departure_date: data.checkpoint_1_departure_date || null,
-                days_at_checkpoint_1: daysBetween(data.checkpoint_1_arrival_date, data.checkpoint_1_departure_date),
+                checkpoint_1_name: data.borders?.[0]?.name || null,
+                checkpoint_1_arrival_date: data.borders?.[0]?.arrival || null,
+                checkpoint_1_departure_date: data.borders?.[0]?.departure || null,
+                days_at_checkpoint_1: daysBetween(data.borders?.[0]?.arrival, data.borders?.[0]?.departure),
                 
-                checkpoint_2_name: data.checkpoint_2_name || null,
-                checkpoint_2_arrival_date: data.checkpoint_2_arrival_date || null,
-                checkpoint_2_departure_date: data.checkpoint_2_departure_date || null,
-                days_at_checkpoint_2: daysBetween(data.checkpoint_2_arrival_date, data.checkpoint_2_departure_date),
+                checkpoint_2_name: data.borders?.[1]?.name || null,
+                checkpoint_2_arrival_date: data.borders?.[1]?.arrival || null,
+                checkpoint_2_departure_date: data.borders?.[1]?.departure || null,
+                days_at_checkpoint_2: daysBetween(data.borders?.[1]?.arrival, data.borders?.[1]?.departure),
                 
-                checkpoint_3_name: data.checkpoint_3_name || null,
-                checkpoint_3_arrival_date: data.checkpoint_3_arrival_date || null,
-                checkpoint_3_departure_date: data.checkpoint_3_departure_date || null,
-                days_at_checkpoint_3: daysBetween(data.checkpoint_3_arrival_date, data.checkpoint_3_departure_date),
+                checkpoint_3_name: data.borders?.[2]?.name || null,
+                checkpoint_3_arrival_date: data.borders?.[2]?.arrival || null,
+                checkpoint_3_departure_date: data.borders?.[2]?.departure || null,
+                days_at_checkpoint_3: daysBetween(data.borders?.[2]?.arrival, data.borders?.[2]?.departure),
+                hq_arrival_date: data.hq_arrival_date || null,
                 standing_charges: Number(data.standing_charges) || 0,
                 arrive_offloading_site_date: data.arrive_offloading_site_date || null,
                 offloading_date: data.offloading_date || null,
-                is_tanker: data.is_tanker,
                 leg_type: data.leg_type,
                 nature: data.nature || null,
                 trip_sheet_id: data.source_sheet_id || null,
-                total_trip_days: daysBetween(data.dispatch_date, data.offloading_date || new Date().toISOString().slice(0, 10)),
+                total_trip_days: daysBetween(
+                    data.arrival_loading_date || data.loading_date || data.dispatch_date, 
+                    data.hq_arrival_date || new Date().toISOString().slice(0, 10)
+                ),
                 contact_no: data.contact_no || null,
                 passport_no: data.passport_no || null,
                 license_no: data.license_no || null,
                 location: data.location || null,
                 bl_number: data.bl_number || null,
                 container_no: data.container_no || null,
+                borders_data: data.borders || [],
                 cargo: data.cargo || null,
+                invoice_no: data.invoice_no || null,
+                reference_number: data.trip_number || null,
             };
 
             if (editingTrip) {
@@ -226,8 +234,25 @@ const TransitDashboard = () => {
 
     // ─── Grouped & Filtered trips ──────────────────────────────────────────────
     const filtered = trips.filter((t: any) => {
-        const term = search.toLowerCase();
-        return !search || t.truck_no?.toLowerCase().includes(term) || t.trip_id?.toLowerCase().includes(term) || t.driver_name?.toLowerCase().includes(term) || t.destination?.toLowerCase().includes(term) || t.client_name?.toLowerCase().includes(term) || t.cargo?.toLowerCase().includes(term);
+        const matchesSearch = !search || 
+            (t.truck_no?.toLowerCase().includes(search.toLowerCase()) ||
+             t.trip_id?.toLowerCase().includes(search.toLowerCase()) ||
+             t.driver_name?.toLowerCase().includes(search.toLowerCase()) ||
+             t.destination?.toLowerCase().includes(search.toLowerCase()) ||
+             t.client_name?.toLowerCase().includes(search.toLowerCase()) ||
+             t.cargo?.toLowerCase().includes(search.toLowerCase()));
+        
+        const matchesStatus = statusFilter === "All" || t.status === statusFilter;
+        
+        // Tab Filtering Logic
+        let matchesTab = true;
+        if (activeTab === "OUTBOUND") matchesTab = t.leg_type === "G" && !t.is_tanker && t.status !== "Completed";
+        else if (activeTab === "BACKLOAD") matchesTab = t.leg_type === "R" && t.status !== "Completed";
+        else if (activeTab === "TANKERS") matchesTab = (t.is_tanker === true || (t.trip_id && t.trip_id.includes('/T')));
+        else if (activeTab === "ARCHIVE") matchesTab = t.status === "Completed";
+        else if (activeTab === "ALL") matchesTab = t.status !== "Completed"; 
+
+        return matchesSearch && matchesStatus && matchesTab;
     });
 
     const groupedByClient = filtered.reduce((acc, trip) => {
@@ -257,18 +282,42 @@ const TransitDashboard = () => {
 
     return (
         <div className="space-y-4">
+            {/* Premium Sub-Navigation Tabs */}
+            <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-2xl border border-slate-200 w-fit">
+                {[
+                    { id: "ALL", label: "Active Fleet", icon: Truck },
+                    { id: "OUTBOUND", label: "Outbound (G)", icon: ArrowRight },
+                    { id: "BACKLOAD", label: "Backload (R)", icon: RefreshCcw },
+                    { id: "TANKERS", label: "Tankers (T)", icon: FileUp },
+                    { id: "ARCHIVE", label: "Archive", icon: CheckCircle2 },
+                ].map((tab) => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id as any)}
+                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 ${
+                            activeTab === tab.id 
+                            ? "bg-white text-[#1a3a5c] shadow-sm border border-slate-200" 
+                            : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                        }`}
+                    >
+                        <tab.icon size={13} className={activeTab === tab.id ? "text-indigo-600" : "text-slate-300"} />
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                    { label: "Total Trips", value: stats.total, icon: Globe, color: "text-blue-600 bg-blue-50" },
-                    { label: "Active", value: stats.active, icon: Truck, color: "text-amber-600 bg-amber-50" },
+                    { label: "Total Assets", value: stats.total, icon: Globe, color: "text-blue-600 bg-blue-50" },
+                    { label: "Active Now", value: stats.active, icon: Truck, color: "text-amber-600 bg-amber-50" },
                     { label: "Completed", value: stats.completed, icon: CheckCircle2, color: "text-emerald-600 bg-emerald-50" },
-                    { label: "Avg Trip Days", value: stats.avgDays.toFixed(1), icon: CalendarDays, color: "text-violet-600 bg-violet-50" },
+                    { label: "Avg Cycle", value: stats.avgDays.toFixed(1), icon: CalendarDays, color: "text-violet-600 bg-violet-50" },
                 ].map(s => (
-                    <div key={s.label} className="flex items-center gap-3 p-3 rounded-xl border bg-white shadow-sm">
-                        <div className={`p-2 rounded-lg ${s.color}`}><s.icon className="w-4 h-4" /></div>
+                    <div key={s.label} className="flex items-center gap-3 p-4 rounded-2xl border bg-white shadow-sm border-slate-100">
+                        <div className={`p-2.5 rounded-xl ${s.color}`}><s.icon className="w-5 h-5" /></div>
                         <div>
-                            <div className="text-xs text-slate-500 font-medium">{s.label}</div>
-                            <div className="text-xl font-bold text-slate-800">{s.value}</div>
+                            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{s.label}</div>
+                            <div className="text-2xl font-black text-slate-800 tracking-tighter">{s.value}</div>
                         </div>
                     </div>
                 ))}
@@ -305,15 +354,16 @@ const TransitDashboard = () => {
                                 <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Arr. Loading</th>
                                 <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Loading Dt</th>
                                 <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 bg-blue-50 text-blue-700">DISPATCHED</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Point 1</th>
-                                <th className="px-2 py-3 text-center font-semibold border-r border-slate-200">P1 Days</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Point 2</th>
-                                <th className="px-2 py-3 text-center font-semibold border-r border-slate-200">P2 Days</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Point 3</th>
-                                <th className="px-2 py-3 text-center font-semibold border-r border-slate-200">P3 Days</th>
+                                {Array.from({ length: Math.max(3, ...trips.map(t => (t.borders_data || []).length)) }).map((_, i) => (
+                                    <Fragment key={i}>
+                                        <th className={`px-3 py-3 text-left font-semibold border-r border-slate-200 ${i === 0 ? 'bg-indigo-50 text-indigo-700' : i === 1 ? 'bg-violet-50 text-violet-700' : i === 2 ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-700'}`}>Border {i + 1} (Logistics)</th>
+                                        <th className={`px-2 py-3 text-center font-semibold border-r border-slate-200 ${i === 0 ? 'bg-indigo-50 text-indigo-700' : i === 1 ? 'bg-violet-50 text-violet-700' : i === 2 ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-700'}`}>B{i + 1} Days</th>
+                                    </Fragment>
+                                ))}
                                 <th className="px-3 py-3 text-right font-semibold border-r border-slate-200">Standing $</th>
                                 <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Arrived Site</th>
                                 <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 bg-emerald-50 text-emerald-700 whitespace-nowrap">OFFLOADED</th>
+                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 bg-emerald-50 text-emerald-700">HQ Arrival</th>
                                 <th className="px-3 py-3 text-center font-semibold border-r border-slate-200">Total Cycle</th>
                                 <th className="px-3 py-3 text-center font-semibold">Manage</th>
                             </tr>
@@ -385,76 +435,142 @@ const TransitDashboard = () => {
                                                             </Badge>
                                                         </td>
                                                         <td className="px-3 py-3 text-slate-700 font-medium border-r border-slate-50">{t.destination}</td>
-                                                        <td className="px-3 py-3 text-slate-400 border-r border-slate-50">{fmt(t.arrival_loading_date)}</td>
-                                                        <td className="px-3 py-3 text-slate-400 border-r border-slate-50">{fmt(t.loading_date)}</td>
-                                                        <td className="px-3 py-3 text-blue-700 font-medium border-r border-blue-50 bg-blue-50/30">{fmt(t.dispatch_date)}</td>
-                                                        <td className="px-3 py-3 text-slate-500 border-r border-slate-50 leading-tight">
-                                                            {t.checkpoint_1_name && <span className="block text-[10px] font-semibold text-indigo-600 mb-0.5">{t.checkpoint_1_name}</span>}
-                                                            {fmt(t.checkpoint_1_arrival_date)}
+                                                        <td className="px-3 py-3 text-slate-400 border-r border-slate-50 bg-slate-50/20">{fmt(t.arrival_loading_date)}</td>
+                                                        <td className="px-3 py-3 text-slate-400 border-r border-slate-50 bg-slate-50/20">{fmt(t.loading_date)}</td>
+                                                        <td className="px-3 py-3 text-blue-700 font-medium border-r border-blue-50 bg-blue-50/30">
+                                                            {fmt(t.dispatch_date)}
+                                                            {t.arrival_loading_date && t.dispatch_date && (
+                                                                <span className="block mt-1 text-[10px] font-bold text-blue-600 bg-white px-1.5 py-0.5 rounded border border-blue-100 shadow-sm w-fit">
+                                                                    {differenceInDays(new Date(t.dispatch_date), new Date(t.arrival_loading_date))} days loading
+                                                                </span>
+                                                            )}
                                                         </td>
-                                                        <td className="px-3 py-3 text-center border-r border-slate-50">
-                                                            {t.days_at_checkpoint_1 != null && <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${t.days_at_checkpoint_1 > 3 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-500'}`}>{t.days_at_checkpoint_1} days</span>}
-                                                        </td>
-                                                        <td className="px-3 py-3 text-slate-500 border-r border-slate-50 leading-tight">
-                                                            {t.checkpoint_2_name && <span className="block text-[10px] font-semibold text-violet-600 mb-0.5">{t.checkpoint_2_name}</span>}
-                                                            {fmt(t.checkpoint_2_arrival_date)}
-                                                        </td>
-                                                        <td className="px-3 py-3 text-center border-r border-slate-50">
-                                                            {t.days_at_checkpoint_2 != null && <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${t.days_at_checkpoint_2 > 3 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-500'}`}>{t.days_at_checkpoint_2} days</span>}
-                                                        </td>
-                                                        <td className="px-3 py-3 text-slate-500 border-r border-slate-50 leading-tight">
-                                                            {t.checkpoint_3_name && <span className="block text-[10px] font-semibold text-fuchsia-600 mb-0.5">{t.checkpoint_3_name}</span>}
-                                                            {fmt(t.checkpoint_3_arrival_date)}
-                                                        </td>
-                                                        <td className="px-3 py-3 text-center border-r border-slate-50">
-                                                            {t.days_at_checkpoint_3 != null && <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${t.days_at_checkpoint_3 > 3 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-500'}`}>{t.days_at_checkpoint_3} days</span>}
-                                                        </td>
+                                                        {Array.from({ length: Math.max(3, ...trips.map(tr => (tr.borders_data || []).length)) }).map((_, i) => {
+                                                            const b = t.borders_data?.[i] || (i === 0 ? { name: t.checkpoint_1_name, arrival: t.checkpoint_1_arrival_date, departure: t.checkpoint_1_departure_date } : i === 1 ? { name: t.checkpoint_2_name, arrival: t.checkpoint_2_arrival_date, departure: t.checkpoint_2_departure_date } : i === 2 ? { name: t.checkpoint_3_name, arrival: t.checkpoint_3_arrival_date, departure: t.checkpoint_3_departure_date } : null);
+                                                            const days = b?.arrival && b?.departure ? daysBetween(b.arrival, b.departure) : (i === 0 ? t.days_at_checkpoint_1 : i === 1 ? t.days_at_checkpoint_2 : i === 2 ? t.days_at_checkpoint_3 : null);
+                                                            
+                                                            return (
+                                                                <Fragment key={i}>
+                                                                    <td className={`px-3 py-3 border-r border-slate-50 leading-tight ${i === 0 ? 'text-indigo-700 bg-indigo-50/10' : i === 1 ? 'text-violet-700 bg-violet-50/10' : i === 2 ? 'text-fuchsia-700 bg-fuchsia-50/10' : 'text-slate-700 bg-slate-50/10'}`}>
+                                                                        {b?.name && <span className="block text-[10px] font-semibold mb-0.5">{b.name}</span>}
+                                                                        <div className="flex flex-col gap-0.5">
+                                                                            <span className="text-[10px]"><span className="text-slate-400">Arr:</span> {fmt(b?.arrival)}</span>
+                                                                            {b?.crossing && <span className="text-[10px] font-bold text-indigo-600"><span className="text-slate-400 font-medium">Cross:</span> {fmt(b.crossing)}</span>}
+                                                                            {b?.departure && <span className="text-[10px] text-slate-400 font-medium">Dep: {fmt(b.departure)}</span>}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className={`px-3 py-3 text-center border-r border-slate-50 ${i === 0 ? 'bg-indigo-50/10' : i === 1 ? 'bg-violet-50/10' : i === 2 ? 'bg-fuchsia-50/10' : 'bg-slate-50/10'}`}>
+                                                                        {days != null && <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${days > 3 ? 'bg-red-50 text-red-600' : 'bg-white text-slate-500 border border-slate-200'}`}>{days} days</span>}
+                                                                    </td>
+                                                                </Fragment>
+                                                            );
+                                                        })}
                                                         <td className="px-3 py-3 text-right font-medium text-amber-600 border-r border-slate-50 tabular-nums">
                                                             {t.standing_charges > 0 ? `$${Number(t.standing_charges).toLocaleString()}` : "—"}
                                                         </td>
                                                         <td className="px-3 py-3 text-slate-500 border-r border-slate-50">{fmt(t.arrive_offloading_site_date)}</td>
                                                         <td className="px-3 py-3 text-emerald-700 font-medium border-r border-emerald-50 bg-emerald-50/30">{fmt(t.offloading_date)}</td>
-                                                        <td className="px-3 py-3 text-center border-r border-slate-50">
-                                                            {t.total_trip_days != null && <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-1 rounded">{t.total_trip_days} days</span>}
+                                                        <td className="px-3 py-3 text-emerald-700 border-r border-emerald-50 bg-emerald-50/10 leading-tight">
+                                                            {fmt(t.hq_arrival_date)}
+                                                        </td>
+                                                        <td className="px-3 py-3 text-center border-r border-slate-50 min-w-[120px]">
+                                                            <div className="flex flex-col items-center gap-1.5">
+                                                                {t.total_trip_days != null && (
+                                                                    <span className="font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 leading-none">
+                                                                        {t.total_trip_days} <span className="text-[9px] text-slate-400 font-medium uppercase">Days</span>
+                                                                    </span>
+                                                                )}
+                                                                {t.leg_type === "R" && trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G')) && (
+                                                                    <div className="flex flex-col items-center p-1.5 bg-emerald-50 rounded-lg border border-emerald-100 shadow-sm">
+                                                                        <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Round Trip Total</span>
+                                                                        <span className="text-sm font-black text-emerald-700 tabular-nums">
+                                                                            {(t.total_trip_days || 0) + (trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G'))?.total_trip_days || 0)} <span className="text-[9px] uppercase">DYS</span>
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                                {t.leg_type === "G" && trips.find(x => x.trip_id === t.trip_id.replace('/G', '/R')) && (
+                                                                    <div className="flex flex-col items-center p-1.5 bg-emerald-50 rounded-lg border border-emerald-100 shadow-sm">
+                                                                        <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Round Trip Total</span>
+                                                                        <span className="text-sm font-black text-emerald-700 tabular-nums">
+                                                                            {(t.total_trip_days || 0) + (trips.find(x => x.trip_id === t.trip_id.replace('/G', '/R'))?.total_trip_days || 0)} <span className="text-[9px] uppercase">DYS</span>
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                         <td className="px-3 py-3 text-center">
-                                                            <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <div className="flex items-center justify-center gap-2">
                                                                 {t.nature === "Go & Return" && t.leg_type === "G" && (t.status === "Offloading" || t.status === "Completed") && (
                                                                     <Button variant="outline" size="icon" title="Initiate Return Leg" className="h-8 w-8 rounded-lg border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100" onClick={() => {
-                                                                        if(confirm(`Initiate Return Leg for ${t.truck_no}? This will duplicate the route and set leg to Return.`)) {
-                                                                            const returnTripId = t.trip_id.replace('/G', '/R');
-                                                                            const payload = { ...t };
+                                                                        if(confirm(`Initiate Return Leg for ${t.truck_no}? This will reverse the route and set destination to Dar Es Salaam.`)) {
+                                                                            const isTanker = t.is_tanker || (t.trip_id && t.trip_id.includes('/T'));
+                                                                            const returnTripId = isTanker ? t.trip_id : t.trip_id.replace('/G', '/R');
+                                                                            
+                                                                            // Reverse borders
+                                                                            const reversedBorders = (t.borders_data || []).map((b: any) => ({
+                                                                                ...b,
+                                                                                arrival: "",
+                                                                                crossing: "",
+                                                                                departure: ""
+                                                                            })).reverse();
+
+                                                                            const payload = { 
+                                                                                ...t,
+                                                                                trip_id: returnTripId,
+                                                                                leg_type: "R",
+                                                                                status: "Positioning",
+                                                                                destination: "Dar Es Salaam",
+                                                                                borders_data: reversedBorders,
+                                                                                cargo: isTanker ? "EMPTY RETURN" : t.cargo,
+                                                                                // Reset journey specific dates
+                                                                                dispatch_date: null,
+                                                                                arrival_loading_date: null,
+                                                                                loading_date: null,
+                                                                                checkpoint_1_arrival_date: null,
+                                                                                checkpoint_1_departure_date: null,
+                                                                                checkpoint_2_arrival_date: null,
+                                                                                checkpoint_2_departure_date: null,
+                                                                                checkpoint_3_arrival_date: null,
+                                                                                checkpoint_3_departure_date: null,
+                                                                                arrive_offloading_site_date: null,
+                                                                                offloading_date: null,
+                                                                                hq_arrival_date: null,
+                                                                                total_trip_days: null,
+                                                                                standing_charges: 0
+                                                                            };
                                                                             delete payload.id;
                                                                             delete payload.created_at;
                                                                             
-                                                                            payload.trip_id = returnTripId;
-                                                                            payload.leg_type = "R";
-                                                                            payload.status = "Positioning";
-                                                                            payload.dispatch_date = null;
-                                                                            payload.arrival_loading_date = null;
-                                                                            payload.loading_date = null;
-                                                                            payload.checkpoint_1_arrival_date = null;
-                                                                            payload.checkpoint_1_departure_date = null;
-                                                                            payload.days_at_checkpoint_1 = null;
-                                                                            payload.checkpoint_2_arrival_date = null;
-                                                                            payload.checkpoint_2_departure_date = null;
-                                                                            payload.days_at_checkpoint_2 = null;
-                                                                            payload.checkpoint_3_arrival_date = null;
-                                                                            payload.checkpoint_3_departure_date = null;
-                                                                            payload.days_at_checkpoint_3 = null;
-                                                                            payload.arrive_offloading_site_date = null;
-                                                                            payload.offloading_date = null;
-                                                                            payload.total_trip_days = null;
-                                                                            
                                                                             supabase.from("logistics_transit_trips").insert([payload]).then(({error}) => {
                                                                                 if(error) toast({ title: "Error spawning return leg", variant: "destructive" });
-                                                                                else { toast({ title: "Return Leg Spawned!" }); qc.invalidateQueries({ queryKey: ["transit_trips"] }); }
+                                                                                else { 
+                                                                                    toast({ title: "Return Leg Spawned!" }); 
+                                                                                    qc.invalidateQueries({ queryKey: ["transit_trips"] }); 
+                                                                                }
                                                                             });
                                                                         }
                                                                     }}><RefreshCcw size={14} /></Button>
                                                                 )}
                                                                 <Button variant="outline" size="icon" title="View Ledger" className="h-8 w-8 rounded-lg border-slate-200" onClick={() => navigate(`/logistics/transit-sheet/${t.id}`)}><FileText size={14} /></Button>
-                                                                <Button variant="outline" size="icon" title="Edit Record" className="h-8 w-8 rounded-lg border-slate-200 text-blue-600" onClick={() => { setEditingTrip(t); setForm({ ...emptyForm(), ...t, selected_vehicle_id: "", standing_charges: t.standing_charges?.toString() || "" }); setIsFormOpen(true); }}><Edit2 size={14} /></Button>
+                                                                <Button variant="outline" size="icon" title="Edit Record" className="h-8 w-8 rounded-lg border-slate-200 text-blue-600" onClick={() => { 
+                                                                    setEditingTrip(t); 
+                                                                    let borders = t.borders_data || [];
+                                                                    if (borders.length === 0) {
+                                                                        if (t.checkpoint_1_name || t.checkpoint_1_arrival_date) borders.push({ name: t.checkpoint_1_name || "", arrival: t.checkpoint_1_arrival_date || "", crossing: "", departure: t.checkpoint_1_departure_date || "" });
+                                                                        if (t.checkpoint_2_name || t.checkpoint_2_arrival_date) borders.push({ name: t.checkpoint_2_name || "", arrival: t.checkpoint_2_arrival_date || "", crossing: "", departure: t.checkpoint_2_departure_date || "" });
+                                                                        if (t.checkpoint_3_name || t.checkpoint_3_arrival_date) borders.push({ name: t.checkpoint_3_name || "", arrival: t.checkpoint_3_arrival_date || "", crossing: "", departure: t.checkpoint_3_departure_date || "" });
+                                                                    }
+                                                                    
+                                                                    setForm({ 
+                                                                        ...emptyForm(), 
+                                                                        ...t, 
+                                                                        selected_vehicle_id: "", 
+                                                                        standing_charges: t.standing_charges?.toString() || "",
+                                                                        borders,
+                                                                        hq_arrival_date: t.hq_arrival_date || ""
+                                                                    }); 
+                                                                    setIsFormOpen(true); 
+                                                                }}><Edit2 size={14} /></Button>
                                                                 <Button variant="outline" size="icon" title="Delete" className="h-8 w-8 rounded-lg border-slate-200 text-red-600" onClick={() => { if(confirm("Permanently delete?")) deleteMutation.mutate(t.id); }}><X size={14} /></Button>
                                                             </div>
                                                         </td>
@@ -472,24 +588,25 @@ const TransitDashboard = () => {
 
             <Dialog open={isFormOpen} onOpenChange={o => { if(!o) { setIsFormOpen(false); setEditingTrip(null); } }}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl p-0 border-none shadow-2xl">
-                    <div className="p-6 bg-[#1a3a5c] text-white">
-                        <DialogHeader>
-                            <DialogTitle className="text-2xl font-black uppercase tracking-tight">{editingTrip ? "Edit Mission Record" : "Deploy New Transit Assets"}</DialogTitle>
-                            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Configure Mission Parameters & Border Logistics</p>
-                        </DialogHeader>
-                    </div>
+                    <DialogHeader className="bg-[#1e3a5f] text-white p-8 rounded-t-3xl relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent)] pointer-events-none" />
+                        <DialogTitle className="text-3xl font-black tracking-tighter uppercase mb-1">{editingTrip ? "Edit Mission Record" : "Deploy New Transit Assets"}</DialogTitle>
+                        <DialogDescription className="text-blue-200 text-[11px] font-bold tracking-[0.2em] uppercase opacity-80">
+                            Configure Mission Parameters & Border Logistics
+                        </DialogDescription>
+                    </DialogHeader>
 
                     <div className="p-8 space-y-8 bg-white">
                         {!editingTrip && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200">
                                 <div className="space-y-3">
-                                    <Label className="text-sm font-semibold text-slate-700">1. Select Approved Mission Plan</Label>
+                                    <Label className="text-sm font-bold text-slate-700">1. Select Approved Mission Plan</Label>
                                     <Select onValueChange={(v) => {
                                         const t = approvedTrips.find(x => x.id === v);
                                         if(t) setForm(f => ({ 
                                             ...f, 
                                             truck_no: t.vehicle?.vehicle_no || "", 
-                                            trailer_no: t.trailer?.vehicle_no || "", 
+                                            trailer_no: t.trailer?.vehicle_no || t.trailer?.trailer_number || "", 
                                             driver_name: t.driver?.full_name || "",
                                             license_no: t.driver?.license_no || "",
                                             passport_no: t.driver?.id_number || "",
@@ -500,7 +617,8 @@ const TransitDashboard = () => {
                                             container_no: t.container_no || "",
                                             nature: t.journey_type || "Go & Return",
                                             source_sheet_id: t.id, 
-                                            trip_number: t.reference_number || ""
+                                            trip_number: t.reference_number || "",
+                                            invoice_no: t.invoice_no || ""
                                         }));
                                     }}>
                                         <SelectTrigger className="h-12 bg-white rounded-xl shadow-sm border-slate-200"><SelectValue placeholder="Mission Plans..." /></SelectTrigger>
@@ -522,9 +640,7 @@ const TransitDashboard = () => {
                                                 ...f,
                                                 destination: route.destination,
                                                 nature: route.nature || f.nature,
-                                                checkpoint_1_name: ms[0] || "",
-                                                checkpoint_2_name: ms[1] || "",
-                                                checkpoint_3_name: ms[2] || ""
+                                                borders: (ms || []).map((m: any) => ({ name: m, arrival: "", crossing: "", departure: "" }))
                                             }));
                                         }
                                     }}>
@@ -540,6 +656,22 @@ const TransitDashboard = () => {
                         )}
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {/* Row 0 - Trip Identification */}
+                            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 mb-2">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-slate-600">Trip Ref / Number</Label>
+                                    <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium">
+                                        {form.trip_number || "No Reference Selected"}
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-semibold text-slate-600">Associated Invoice</Label>
+                                    <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium">
+                                        {form.invoice_no || "No Invoice Found"}
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Row 1 - Basics */}
                             <div className="space-y-2 md:col-span-2"><Label className="text-xs font-semibold text-slate-600">Client / Convoy Entity *</Label><Input className="h-11 rounded-xl bg-slate-50 border-slate-200" value={form.client_name} onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Status *</Label>
@@ -550,7 +682,7 @@ const TransitDashboard = () => {
                             </div>
 
                             {/* Row 2 - Asset & Crew Details */}
-                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-4">Asset & Crew Details</div>
+                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-6">Asset & Crew Details</div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Truck Reg *</Label><Input className="h-11 rounded-xl bg-slate-50 border-slate-200" value={form.truck_no} onChange={e => setForm(f => ({ ...f, truck_no: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Trailer Reg</Label><Input className="h-11 rounded-xl bg-slate-50 border-slate-200" value={form.trailer_no} onChange={e => setForm(f => ({ ...f, trailer_no: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Contact No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.contact_no} onChange={e => setForm(f => ({ ...f, contact_no: e.target.value }))} /></div>
@@ -560,7 +692,7 @@ const TransitDashboard = () => {
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Passport No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.passport_no} onChange={e => setForm(f => ({ ...f, passport_no: e.target.value }))} /></div>
 
                             {/* Row 3 - Cargo & Logistics */}
-                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-4">Consignment Logistics</div>
+                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-8">Consignment Logistics</div>
                             <div className="space-y-2 md:col-span-3"><Label className="text-xs font-semibold text-slate-600">Cargo Description</Label><Input placeholder="e.g. Copper Cathodes" className="h-11 rounded-xl border-slate-200 bg-slate-50" value={form.cargo} onChange={e => setForm(f => ({ ...f, cargo: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">BL / Consignment No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.bl_number} onChange={e => setForm(f => ({ ...f, bl_number: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Container No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.container_no} onChange={e => setForm(f => ({ ...f, container_no: e.target.value }))} /></div>
@@ -585,67 +717,95 @@ const TransitDashboard = () => {
                             </div>
 
                             <div className="space-y-1.5 md:col-span-2">
+                                <Label className="text-xs font-semibold text-slate-600">Arrival for Loading</Label>
+                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-amber-200 bg-amber-50/10 font-medium text-xs" value={form.arrival_loading_date} onChange={e => setForm(f => ({ ...f, arrival_loading_date: e.target.value }))} />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                                <Label className="text-xs font-semibold text-slate-600">Loading Date</Label>
+                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-amber-200 bg-amber-50/10 font-medium text-xs" value={form.loading_date} onChange={e => setForm(f => ({ ...f, loading_date: e.target.value }))} />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
                                 <Label className="text-xs font-semibold text-slate-600">Dispatch Date</Label>
-                                <Input type="date" className="h-9 text-xs rounded-lg" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))} />
+                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-blue-200 bg-blue-50/30 font-medium text-xs" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))} />
                             </div>
-                            <div className="md:col-span-4"></div>
 
-                            {/* Checkpoint 1 */}
-                            <div className="space-y-1.5 md:col-span-2">
-                                <Label className="text-xs font-semibold text-indigo-600">Checkpoint 1 Name</Label>
-                                <Input placeholder="e.g. Tunduma (TZ), Namanga..." className="h-9 text-xs border-indigo-200" value={form.checkpoint_1_name} onChange={e => setForm(f => ({ ...f, checkpoint_1_name: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-xs font-semibold text-slate-500">Arrival Date</Label>
-                                <Input type="date" className="h-9 text-xs" value={form.checkpoint_1_arrival_date} onChange={e => setForm(f => ({ ...f, checkpoint_1_arrival_date: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-xs font-semibold text-slate-500">Departure Date</Label>
-                                <Input type="date" className="h-9 text-xs" value={form.checkpoint_1_departure_date} onChange={e => setForm(f => ({ ...f, checkpoint_1_departure_date: e.target.value }))} />
-                            </div>
-                            <div className="md:col-span-2"></div>
+                            {/* Dynamic Borders */}
+                            <div className="md:col-span-6 space-y-4 pt-4 border-t border-slate-100">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-sm font-bold text-slate-700">Routing Checkpoints & Timeline</Label>
+                                    <Button type="button" variant="outline" size="sm" className="h-8 text-[10px] font-black border-indigo-200 text-indigo-600 rounded-lg hover:bg-indigo-50" onClick={() => setForm(f => ({ ...f, borders: [...(f.borders || []), { name: "", arrival: "", crossing: "", departure: "" }] }))}>+ ADD BORDER</Button>
+                                </div>
+                                
+                                { (form.borders || []).map((border, idx) => (
+                                    <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50/50 rounded-xl border border-slate-100 relative group">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-slate-600">Border Point {idx + 1}</Label>
+                                            <Input placeholder="e.g. Tunduma" className="h-10 rounded-lg bg-white border-slate-200 text-xs" value={border.name} onChange={e => {
+                                                const val = e.target.value;
+                                                setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, name: val } : b) }));
+                                            }} />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-slate-600">Arrival</Label>
+                                            <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg bg-white border-slate-200 text-xs" value={border.arrival} onChange={e => {
+                                                const val = e.target.value;
+                                                setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, arrival: val } : b) }));
+                                            }} />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-indigo-600">Crossing Date</Label>
+                                            <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-indigo-100 bg-white text-xs" value={border.crossing} onChange={e => {
+                                                const val = e.target.value;
+                                                setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, crossing: val } : b) }));
+                                            }} />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-slate-600">Departure</Label>
+                                            <div className="flex gap-2">
+                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg bg-white border-slate-200 text-xs" value={border.departure} onChange={e => {
+                                                    const val = e.target.value;
+                                                    setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, departure: val } : b) }));
+                                                }} />
+                                                <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg" onClick={() => {
+                                                    setForm(f => ({ ...f, borders: f.borders.filter((_, i) => i !== idx) }));
+                                                }}><X size={14} /></Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
 
-                            {/* Checkpoint 2 */}
-                            <div className="space-y-1.5 md:col-span-2">
-                                <Label className="text-xs font-semibold text-violet-600">Checkpoint 2 Name</Label>
-                                <Input placeholder="(Optional)" className="h-9 text-xs border-violet-200" value={form.checkpoint_2_name} onChange={e => setForm(f => ({ ...f, checkpoint_2_name: e.target.value }))} />
+                                {form.borders.length === 0 && (
+                                    <div className="text-center py-6 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase">No intermediate borders added</p>
+                                    </div>
+                                )}
                             </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase">Arr</Label>
-                                <Input type="date" className="h-9 text-xs" value={form.checkpoint_2_arrival_date} onChange={e => setForm(f => ({ ...f, checkpoint_2_arrival_date: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase">Dep</Label>
-                                <Input type="date" className="h-9 text-xs" value={form.checkpoint_2_departure_date} onChange={e => setForm(f => ({ ...f, checkpoint_2_departure_date: e.target.value }))} />
-                            </div>
-                            <div className="md:col-span-2"></div>
 
-                            {/* Checkpoint 3 */}
-                            <div className="space-y-1.5 md:col-span-2">
-                                <Label className="text-xs font-semibold text-fuchsia-600">Checkpoint 3 Name</Label>
-                                <Input placeholder="(Optional)" className="h-9 text-xs border-fuchsia-200" value={form.checkpoint_3_name} onChange={e => setForm(f => ({ ...f, checkpoint_3_name: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase">Arr</Label>
-                                <Input type="date" className="h-9 text-xs" value={form.checkpoint_3_arrival_date} onChange={e => setForm(f => ({ ...f, checkpoint_3_arrival_date: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold text-slate-400 uppercase">Dep</Label>
-                                <Input type="date" className="h-9 text-xs" value={form.checkpoint_3_departure_date} onChange={e => setForm(f => ({ ...f, checkpoint_3_departure_date: e.target.value }))} />
-                            </div>
-                            <div className="md:col-span-2"></div>
-
-                            {/* Offloading */}
-                            <div className="space-y-1.5 md:col-span-2 pt-4 border-t border-slate-200">
-                                <Label className="text-xs font-semibold text-emerald-600">Site Arrival & Offload</Label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <Input type="date" className="h-9 text-xs" placeholder="Arr" value={form.arrive_offloading_site_date} onChange={e => setForm(f => ({ ...f, arrive_offloading_site_date: e.target.value }))} />
-                                    <Input type="date" className="h-9 text-xs" placeholder="Off" value={form.offloading_date} onChange={e => setForm(f => ({ ...f, offloading_date: e.target.value }))} />
+                            {/* Mission Conclusion Logistics */}
+                            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-200">
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-600">Arrival at Site</Label>
+                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 bg-slate-50/50 rounded-lg border-slate-200 text-xs" value={form.arrive_offloading_site_date} onChange={e => setForm(f => ({ ...f, arrive_offloading_site_date: e.target.value }))} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-600">Offloading Completion</Label>
+                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 bg-slate-50/50 rounded-lg border-slate-200 text-xs" value={form.offloading_date} onChange={e => setForm(f => ({ ...f, offloading_date: e.target.value }))} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-amber-600">Standing Chg ($)</Label>
+                                    <Input type="number" className="h-10 rounded-lg border-amber-100 bg-amber-50/50 font-medium text-amber-700 text-xs" value={form.standing_charges} onChange={e => setForm(f => ({ ...f, standing_charges: e.target.value }))} />
                                 </div>
                             </div>
-                            <div className="space-y-1.5 pt-4 border-t border-slate-200">
-                                <Label className="text-[10px] font-bold text-amber-600 uppercase">Standing Chg ($)</Label>
-                                <Input type="number" className="h-9 text-xs border-amber-200 bg-amber-50 font-bold" value={form.standing_charges} onChange={e => setForm(f => ({ ...f, standing_charges: e.target.value }))} />
+
+                            {/* Final Return to HQ - Dedicated Row */}
+                            <div className="md:col-span-3 pt-4">
+                                <div className="bg-emerald-50/20 p-4 rounded-xl border border-emerald-100/50 flex items-center justify-between gap-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        <Label className="text-xs font-semibold text-emerald-700 whitespace-nowrap">Final HQ Return</Label>
+                                    </div>
+                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-emerald-100 bg-white text-emerald-800 font-medium text-xs max-w-[200px]" value={form.hq_arrival_date} onChange={e => setForm(f => ({ ...f, hq_arrival_date: e.target.value }))} />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -664,7 +824,7 @@ const TransitDashboard = () => {
                                             route_name: name,
                                             destination: form.destination,
                                             nature: form.nature,
-                                            milestones: [form.checkpoint_1_name, form.checkpoint_2_name, form.checkpoint_3_name].filter(Boolean)
+                                            milestones: (form.borders || []).map(b => b.name).filter(Boolean)
                                         };
                                         let error;
                                         if (existing) {
@@ -697,14 +857,28 @@ const TransitDashboard = () => {
                 <SheetContent className="w-[400px] sm:w-[540px] bg-white border-l border-slate-200 p-0 overflow-y-auto z-[100]">
                     {selectedTripDetails && (
                         <div className="flex flex-col h-full bg-slate-50/50">
-                            <div className="p-6 bg-[#1a3a5c] text-white rounded-b-3xl shadow-sm">
+                            <div className="p-6 bg-[#1a3a5c] text-white rounded-b-3xl shadow-sm relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10" />
                                 <SheetHeader>
                                     <div className="flex items-center gap-3 mb-2">
                                         <Badge className="bg-amber-500 hover:bg-amber-600 text-[10px] font-black border-none">{selectedTripDetails.status}</Badge>
                                         <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{selectedTripDetails.nature} / {selectedTripDetails.leg_type === "G" ? "OUTBOUND" : "RETURN"}</span>
                                     </div>
-                                    <SheetTitle className="text-2xl font-black text-white text-left">{selectedTripDetails.trip_id}</SheetTitle>
+                                    <SheetTitle className="text-2xl font-black text-white text-left tracking-tighter leading-none mb-1">
+                                        {selectedTripDetails.trip_id}
+                                    </SheetTitle>
                                     <p className="text-slate-300 text-sm font-medium text-left">{selectedTripDetails.client_name}</p>
+                                    
+                                    <div className="flex gap-4 mt-4 pt-4 border-t border-white/10">
+                                        <div>
+                                            <Label className="text-[9px] text-slate-400 uppercase font-black">Trip Ref</Label>
+                                            <div className="text-xs font-bold text-emerald-400">{selectedTripDetails.reference_number || "—"}</div>
+                                        </div>
+                                        <div>
+                                            <Label className="text-[9px] text-slate-400 uppercase font-black">Associated Invoice</Label>
+                                            <div className="text-xs font-bold text-emerald-400">{selectedTripDetails.invoice_no || "—"}</div>
+                                        </div>
+                                    </div>
                                 </SheetHeader>
                             </div>
                             
@@ -740,6 +914,55 @@ const TransitDashboard = () => {
                                         <div className="font-black text-amber-900 mt-1 italic uppercase tracking-tight">
                                             {selectedTripDetails.location || "No recent active pings from driver..."}
                                         </div>
+                                    </div>
+                                </div>
+
+                                {/* Dynamic Timeline */}
+                                <div>
+                                    <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 flex items-center gap-2"><CalendarDays size={14} /> Transit Timeline</h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: "Dispatch", date: selectedTripDetails.dispatch_date, color: "blue" },
+                                            ...(selectedTripDetails.borders_data || []).map((b: any) => ({
+                                                label: b.name || "Border Crossing",
+                                                date: b.arrival,
+                                                crossing: b.crossing,
+                                                dep: b.departure,
+                                                color: "indigo"
+                                            })),
+                                            { label: "Offloading Site", date: selectedTripDetails.arrive_offloading_site_date, color: "orange" },
+                                            { label: "Final Offload", date: selectedTripDetails.offloading_date, color: "emerald" },
+                                            { label: "Final HQ Arrival", date: selectedTripDetails.hq_arrival_date, color: "emerald" },
+                                        ].filter(x => x.date).map((item, i) => (
+                                            <div key={i} className="flex gap-4 relative">
+                                                <div className="flex flex-col items-center">
+                                                    <div className={`w-3 h-3 rounded-full bg-${item.color.split(' ')[0]}-500 z-10 shadow-[0_0_8px_rgba(0,0,0,0.1)]`} />
+                                                    <div className="w-0.5 h-full bg-slate-200 absolute top-3" />
+                                                </div>
+                                                <div className="pb-4 flex-1">
+                                                    <div className="flex justify-between items-start">
+                                                        <div className={`text-[10px] uppercase font-bold text-${item.color.split(' ')[0]}-600`}>{item.label}</div>
+                                                        <div className="text-[10px] font-bold text-slate-400">{fmt(item.date)}</div>
+                                                    </div>
+                                                    <div className="text-sm font-black text-slate-800">{fmt(item.date)}</div>
+                                                    {item.crossing && (
+                                                        <div className="text-[10px] font-black text-indigo-600 mt-1 bg-indigo-50 px-2 py-0.5 rounded w-fit border border-indigo-100 flex items-center gap-1">
+                                                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                                                            CROSSING: {fmt(item.crossing)}
+                                                        </div>
+                                                    )}
+                                                    {item.dep && (
+                                                        <div className="text-[10px] text-slate-400 font-medium mt-0.5 flex items-center gap-1">
+                                                            <ArrowRight size={10} className="text-slate-300" /> 
+                                                            Departed: {fmt(item.dep)}
+                                                            {item.date && item.dep && (
+                                                                <span className="text-indigo-600 ml-1 font-bold">({daysBetween(item.date, item.dep)} days)</span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>

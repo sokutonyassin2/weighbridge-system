@@ -2,6 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { ArrowLeft, Printer, Globe } from "lucide-react";
 import { format } from "date-fns";
 
@@ -27,6 +28,24 @@ const TransitTripSheetPage = () => {
             return data as any;
         },
         enabled: !!id
+    });
+
+    const { data: linkedTrip } = useQuery({
+        queryKey: ["linked_trip", trip?.trip_id],
+        queryFn: async () => {
+            if (!trip || !trip.trip_id) return null;
+            const isReturn = trip.leg_type === "R";
+            const targetTripId = isReturn ? trip.trip_id.replace('/R', '/G') : trip.trip_id.replace('/G', '/R');
+            
+            const { data, error } = await supabase
+                .from("logistics_transit_trips" as any)
+                .select("*")
+                .eq("trip_id", targetTripId)
+                .single();
+            if (error) return null;
+            return data as any;
+        },
+        enabled: !!trip?.trip_id && trip.leg_type !== undefined
     });
 
     if (isLoading) {
@@ -74,91 +93,115 @@ const TransitTripSheetPage = () => {
             </div>
 
             {/* ─── Full-Page Trip Sheet (A4 optimized) ─── */}
-            <div className="print:pt-0 pt-16 min-h-screen bg-slate-100 print:bg-white text-slate-900">
-                <div className="max-w-[210mm] mx-auto bg-white shadow-xl print:shadow-none print:max-w-none p-10 print:p-8 space-y-8 font-sans">
+            <div className="print:pt-0 pt-16 min-h-screen bg-slate-50 print:bg-white text-slate-900 font-['Outfit']">
+                <div className="max-w-[210mm] mx-auto bg-white shadow-xl print:shadow-none print:max-w-none p-12 print:p-8 space-y-10">
 
                     {/* Clean Header */}
-                    <div className="border-t-2 border-slate-900 pt-6 flex justify-between items-start mb-8">
+                    <div className="border-t-[1px] border-slate-200 pt-8 flex justify-between items-start mb-8">
                         <div>
-                            <h1 className="text-3xl font-bold tracking-tight uppercase">Transit Trip Sheet</h1>
-                            <p className="text-sm font-medium text-slate-500 mt-1">Polytra International Logistics</p>
+                            <h1 className="text-3xl font-bold tracking-tight text-[#1a3a5c]">Transit Trip Sheet</h1>
+                            <p className="text-xs font-medium text-slate-400 mt-1 uppercase tracking-[0.2em]">Polytra International Logistics</p>
                         </div>
                         <div className="text-right">
-                            <div className="text-xl font-bold font-mono tracking-tight">{trip.trip_id}</div>
-                            <p className={`inline-block mt-2 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${trip.is_tanker ? "bg-blue-50 text-blue-700 border border-blue-100" : trip.leg_type === "G" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-rose-50 text-rose-700 border border-rose-100"}`}>
-                                {trip.is_tanker ? "TANKER — OUTBOUND" : trip.leg_type === "G" ? "FLATBED — OUTBOUND" : "FLATBED — RETURN"}
-                            </p>
-                            <p className="text-[10px] font-medium text-slate-400 mt-3 italic">Generated: {format(new Date(), "dd MMM yyyy, HH:mm")}</p>
+                            <div className="text-xl font-bold text-slate-800">{trip.trip_id}</div>
+                            <div className="flex flex-col items-end gap-1.5 mt-2">
+                                <p className={`inline-block px-3 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${trip.is_tanker ? "bg-blue-50 text-blue-600 border border-blue-100" : trip.leg_type === "G" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-rose-50 text-rose-600 border border-rose-100"}`}>
+                                    {trip.is_tanker ? "Tanker — Outbound" : trip.leg_type === "G" ? "Flatbed — Outbound" : "Flatbed — Return"}
+                                </p>
+                                <div className="text-[9px] font-medium text-slate-400 italic">
+                                    Generated: {format(new Date(), "dd MMM yyyy, HH:mm")}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Quick Context Bar */}
+                    <div className="grid grid-cols-2 gap-8 bg-slate-50/50 p-8 rounded-3xl border border-slate-100">
+                        <div>
+                            <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1 block">Trip Reference / Number</Label>
+                            <div className="text-base font-semibold text-slate-700">{trip.reference_number || "—"}</div>
+                        </div>
+                        <div>
+                            <Label className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1 block">Associated Invoice</Label>
+                            <div className="text-base font-semibold text-slate-700">{trip.invoice_no || "—"}</div>
                         </div>
                     </div>
 
                     {/* Section 1: Vehicle & Driver */}
                     <section className="space-y-4">
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100 pb-2">
-                            VEHICLE & DRIVER INFORMATION
+                        <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1a3a5c] border-b-2 border-slate-100 pb-2">
+                            Asset & Crew Details
                         </h2>
                         <div className="grid grid-cols-3 gap-x-12 gap-y-6 text-sm">
-                            <InfoRow label="Truck No." value={trip.truck_no} />
-                            <InfoRow label="Trailer No." value={trip.trailer_no} />
-                            <InfoRow label="Status" value={trip.status} bold />
-                            <InfoRow label="Driver Name" value={trip.driver_name} />
+                            <InfoRow label="Truck No." value={trip.truck_no} bold />
+                            <InfoRow label="Trailer No." value={trip.trailer_no} bold />
+                            <InfoRow label="Current Status" value={trip.status} bold />
+                            <InfoRow label="Driver Name" value={trip.driver_name} bold />
                             <InfoRow label="Licence No." value={trip.license_no} />
                             <InfoRow label="Passport No." value={trip.passport_no} />
-                            <InfoRow label="Contact" value={trip.contact_no} />
-                            <InfoRow label="Location" value={trip.location} />
-                            <InfoRow label="Destination" value={trip.destination} bold />
+                            <InfoRow label="Contact" value={trip.contact_no} bold />
+                            <InfoRow label="Current Location" value={trip.location} />
+                            <InfoRow label="Final Destination" value={trip.destination} bold />
                         </div>
                     </section>
 
                     {/* Section 2: Cargo & Documentation */}
                     <section className="space-y-4">
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100 pb-2">
-                            CARGO & DOCUMENTATION
+                        <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1a3a5c] border-b-2 border-slate-100 pb-2">
+                            Consignment Logistics
                         </h2>
                         <div className="grid grid-cols-3 gap-x-12 gap-y-6 text-sm">
-                            <InfoRow label="Cargo" value={trip.cargo} bold />
-                            <InfoRow label="BL Number" value={trip.bl_number} mono />
-                            <InfoRow label="Container No." value={trip.container_no} mono />
+                            <InfoRow label="Cargo Description" value={trip.cargo} bold />
+                            <InfoRow label="BL / Consignment" value={trip.bl_number} mono bold />
+                            <InfoRow label="Container No." value={trip.container_no} mono bold />
                         </div>
                     </section>
 
                     {/* Section 3: Milestone Dates */}
                     <section className="space-y-4">
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100 pb-2">
-                            TRIP TIMELINE
+                        <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1a3a5c] border-b-2 border-slate-100 pb-2">
+                            Official Transit Timeline
                         </h2>
-                        <div className="overflow-hidden rounded-xl border border-slate-200">
+                        <div className="overflow-hidden rounded-2xl border border-slate-200">
                             <table className="w-full text-sm border-collapse">
                                 <thead>
-                                    <tr className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-widest border-b border-slate-200">
-                                        <th className="px-6 py-3 text-left font-bold">Milestone Event</th>
-                                        <th className="px-6 py-3 text-left font-bold">Scheduled Date</th>
-                                        <th className="px-6 py-3 text-left font-bold">Operational Notes</th>
+                                    <tr className="bg-slate-50 text-slate-500 text-[10px] font-black uppercase tracking-widest border-b border-slate-200">
+                                        <th className="px-6 py-4 text-left">Milestone Event</th>
+                                        <th className="px-6 py-4 text-left">Timeline Date</th>
+                                        <th className="px-6 py-4 text-left">Notes / Duration</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     <TimelineRow milestone="Arrival at Loading Site" date={trip.arrival_loading_date} />
-                                    <TimelineRow milestone="Loading Date" date={trip.loading_date} />
-                                    <TimelineRow milestone="Dispatch Date" date={trip.dispatch_date} />
+                                    <TimelineRow milestone="Loading Completion" date={trip.loading_date} />
+                                    <TimelineRow milestone="Official Dispatch" date={trip.dispatch_date} highlight />
+                                    
+                                    {(trip.borders_data || []).map((border: any, idx: number) => (
+                                        <div key={idx} className="contents">
+                                            <TimelineRow 
+                                                milestone={`${border.name || `Border ${idx+1}`} — Arrival`} 
+                                                date={border.arrival} 
+                                            />
+                                            <TimelineRow 
+                                                milestone={`${border.name || `Border ${idx+1}`} — Crossing`} 
+                                                date={border.crossing} 
+                                                highlight
+                                            />
+                                            <TimelineRow 
+                                                milestone={`${border.name || `Border ${idx+1}`} — Departure`} 
+                                                date={border.departure}
+                                                note={border.arrival && border.departure ? `${daysBetween(border.arrival, border.departure)} day(s) stay` : ""}
+                                            />
+                                        </div>
+                                    ))}
+
+                                    <TimelineRow milestone="Arrival at Offloading Site" date={trip.arrive_offloading_site_date} />
                                     <TimelineRow
-                                        milestone="Tunduma Border — Arrival"
-                                        date={trip.tunduma_arrival_date}
-                                        note={trip.days_at_tunduma != null ? `${trip.days_at_tunduma} day(s) at border` : undefined}
-                                    />
-                                    <TimelineRow milestone="Tunduma Border — Departure" date={trip.tunduma_departure_date} />
-                                    <TimelineRow milestone="Border Crossing Date" date={trip.crossing_date} />
-                                    <TimelineRow
-                                        milestone="Nakonde Border — Arrival"
-                                        date={trip.nakonde_arrival_date}
-                                        note={trip.days_at_nakonde != null ? `${trip.days_at_nakonde} day(s) at border` : undefined}
-                                    />
-                                    <TimelineRow milestone="Nakonde Border — Departure" date={trip.nakonde_departure_date} />
-                                    <TimelineRow milestone="Arrive at Offloading Site" date={trip.arrive_offloading_site_date} />
-                                    <TimelineRow
-                                        milestone="Offloading Date"
+                                        milestone="Final Offloading"
                                         date={trip.offloading_date}
                                         highlight={trip.status === "Completed"}
                                     />
+                                    <TimelineRow milestone="Final HQ Return" date={trip.hq_arrival_date} highlight />
                                 </tbody>
                             </table>
                         </div>
@@ -166,19 +209,17 @@ const TransitTripSheetPage = () => {
 
                     {/* Section 4: Trip Summary Metrics */}
                     <section className="space-y-4">
-                        <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400 border-b border-slate-100 pb-2">
-                            TRIP SUMMARY METRICS
+                        <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-[#1a3a5c] border-b-2 border-slate-100 pb-2">
+                            Trip Efficiency Metrics
                         </h2>
                         <div className="grid grid-cols-4 gap-4">
                             <SummaryCard
-                                label="Days Tunduma"
-                                value={trip.days_at_tunduma != null ? `${trip.days_at_tunduma}` : "—"}
-                                warn={trip.days_at_tunduma > 3}
+                                label="Borders Crossed"
+                                value={`${(trip.borders_data || []).length}`}
                             />
                             <SummaryCard
-                                label="Days Nakonde"
-                                value={trip.days_at_nakonde != null ? `${trip.days_at_nakonde}` : "—"}
-                                warn={trip.days_at_nakonde > 3}
+                                label="Transit Leg"
+                                value={trip.nature === "Go & Return" ? "ROUND" : "SINGLE"}
                             />
                             <SummaryCard
                                 label="Standing Chg"
@@ -186,10 +227,19 @@ const TransitTripSheetPage = () => {
                                 warn={trip.standing_charges > 0}
                             />
                             <SummaryCard
-                                label="Total Trip Days"
-                                value={trip.total_trip_days != null ? `${trip.total_trip_days}` : "—"}
+                                label="Total Leg Days"
+                                value={trip.total_trip_days ? `${trip.total_trip_days} Days` : `${goDays || "—"} Days`}
+                                note="Official transit duration"
                                 highlight
                             />
+                            {linkedTrip && (
+                                <SummaryCard
+                                    label="Total Round Trip"
+                                    value={`${(trip.total_trip_days || 0) + (linkedTrip.total_trip_days || 0)} Days`}
+                                    note={`Combined with ${linkedTrip.trip_id}`}
+                                    highlight
+                                />
+                            )}
                         </div>
                     </section>
 
@@ -223,25 +273,25 @@ const TransitTripSheetPage = () => {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 const InfoRow = ({ label, value, bold, mono }: { label: string; value?: any; bold?: boolean; mono?: boolean }) => (
     <div>
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
-        <p className={`text-slate-800 mt-0.5 ${bold ? "font-bold" : ""} ${mono ? "font-mono" : ""}`}>
-            {value || <span className="text-slate-300">—</span>}
+        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">{label}</p>
+        <p className={`text-slate-700 ${bold ? "font-bold text-sm" : "font-medium text-sm"} ${mono ? "font-mono" : ""}`}>
+            {value || <span className="text-slate-300">Not Provided</span>}
         </p>
     </div>
 );
 
 const TimelineRow = ({ milestone, date, note, highlight }: { milestone: string; date?: any; note?: string; highlight?: boolean }) => (
-    <tr className={`text-sm ${highlight ? "bg-emerald-50" : ""}`}>
-        <td className="px-4 py-2.5 font-medium text-slate-700">{milestone}</td>
-        <td className="px-4 py-2.5 font-mono text-slate-800 font-bold">{fmt(date)}</td>
-        <td className="px-4 py-2.5 text-slate-400 text-xs">{note || ""}</td>
+    <tr className={`text-sm ${highlight ? "bg-slate-50/80" : ""}`}>
+        <td className="px-6 py-4 font-semibold text-slate-600">{milestone}</td>
+        <td className="px-6 py-4 font-bold text-slate-800">{fmt(date)}</td>
+        <td className="px-6 py-4 text-slate-400 text-[11px] font-medium">{note || ""}</td>
     </tr>
 );
 
 const SummaryCard = ({ label, value, warn, highlight }: { label: string; value: string; warn?: boolean; highlight?: boolean }) => (
-    <div className={`rounded-xl p-4 text-center border-2 ${highlight ? "border-[#1a3a5c] bg-blue-50" : warn ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{label}</p>
-        <p className={`text-xl font-black ${highlight ? "text-[#1a3a5c]" : warn ? "text-amber-700" : "text-slate-700"}`}>{value}</p>
+    <div className={`rounded-2xl p-6 text-center border transition-all ${highlight ? "border-slate-200 bg-white shadow-sm" : warn ? "border-amber-200 bg-amber-50/30" : "border-slate-100 bg-slate-50/50"}`}>
+        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-2">{label}</p>
+        <p className={`text-xl font-bold ${highlight ? "text-[#1a3a5c]" : warn ? "text-amber-600" : "text-slate-700"}`}>{value}</p>
     </div>
 );
 

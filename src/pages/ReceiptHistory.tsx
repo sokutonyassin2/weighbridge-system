@@ -482,6 +482,18 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                                     <span>{Number(data.payload).toLocaleString()} kg</span>
                                 </div>
                             )}
+
+                            {/* Payment Display Section */}
+                            {(data.payment_amount > 0 || data.price > 0) && (
+                                <div className="mt-4 pt-4 border-t border-slate-200">
+                                    <div className="flex justify-between items-center bg-green-50/50 p-3 rounded-xl border border-green-100">
+                                        <span className="text-xs font-black text-green-700 uppercase tracking-widest">Amount Paid:</span>
+                                        <span className="font-black text-green-800 text-xl">
+                                            TZS {Number(data.payment_amount || data.price).toLocaleString()}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 

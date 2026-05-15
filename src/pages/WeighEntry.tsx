@@ -1123,77 +1123,56 @@ Please process payment in Cashier section first.`,
               </div>
 
               <div className="space-y-4 mb-6 print:mb-4 text-slate-900 px-4">
-                <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                <div className="grid grid-cols-2 gap-x-12 gap-y-4">
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Entry ID</p>
-                    <p className="font-bold font-mono text-base text-slate-900">{printData.wb_number ? getShortEntryId(printData.id, printData.wb_number) : 'N/A'}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Entry ID</p>
+                    <p className="font-bold font-mono text-lg text-slate-900">{printData.wb_number ? getShortEntryId(printData.id, printData.wb_number) : 'N/A'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Weigh Time</p>
-                    <p className="font-bold text-slate-900">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Weigh Time</p>
+                    <p className="font-bold text-slate-900 text-sm">
                       {format(new Date(printData.weigh_time), "dd/MM/yyyy HH:mm:ss")}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Vehicle Plate</p>
-                    <p className="font-bold text-xl text-slate-900">{printData.vehicle_no}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Plate</p>
+                    <p className="font-black text-2xl text-slate-950 tracking-tighter leading-none">{printData.vehicle_no}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Vehicle Type</p>
-                    <p className="font-bold text-slate-900">{printData.vehicle_type_name}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Type</p>
+                    <p className="font-bold text-slate-900 text-sm">{printData.vehicle_type_name}</p>
                   </div>
+                  
+                  <div className="col-span-2 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+                    <div>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Driver Name</p>
+                      <p className="font-bold text-slate-800 text-sm">{printData.driver_name || "N/A"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Customer / Farmer</p>
+                      <p className="font-bold text-slate-800 text-sm">{printData.customer_farmer_name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Item / Product</p>
+                      <p className="font-bold text-slate-800 text-sm">{printData.item_name || "N/A"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Source / Destination</p>
+                      <p className="font-bold text-slate-800 text-sm">{printData.source_destination || "N/A"}</p>
+                    </div>
+                  </div>
+
                   <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Category</p>
-                    <p className="font-bold text-slate-700">{printData.category}</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Shift Operator</p>
+                    <p className="font-bold text-slate-700 text-xs">{printData.weighed_by}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Driver</p>
-                    <p className="font-bold text-slate-700">{printData.driver_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Shift Operator</p>
-                    <p className="font-bold text-slate-700">{printData.weighed_by}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Weigh Status</p>
-                    <p className="font-bold text-slate-900">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Weigh Status</p>
+                    <p className="font-black text-slate-900 text-xs uppercase tracking-tighter bg-slate-100 px-2 py-0.5 rounded inline-block">
                       {printData.isSecondWeigh ? "Second Weigh Complete" : "First Weigh Complete"}
                     </p>
                   </div>
                 </div>
-
-                {/* MV Vehicle Extra Details - Cargo/Commodity Information */}
-                {printData.category?.startsWith('MV-') && (
-                  <div className="mt-4 pt-4 border-t border-dashed border-muted-foreground">
-                    <p className="text-sm font-semibold text-muted-foreground mb-3">Cargo/Commodity Details:</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {printData.customer_farmer_name && (
-                        <div>
-                          <p className="text-xs text-muted-foreground">Customer/Farmer</p>
-                          <p className="font-bold print:text-lg">{printData.customer_farmer_name}</p>
-                        </div>
-                      )}
-                      {printData.item_name && (
-                        <div>
-                          <p className="text-xs text-muted-foreground">Item/Commodity</p>
-                          <p className="font-bold print:text-lg">{printData.item_name}</p>
-                        </div>
-                      )}
-                      {printData.source_destination && (
-                        <div className="col-span-2">
-                          <p className="text-xs text-muted-foreground">Source/Destination</p>
-                          <p className="font-bold print:text-lg">{printData.source_destination}</p>
-                        </div>
-                      )}
-                      {printData.cargo_description && (
-                        <div className="col-span-2">
-                          <p className="text-xs text-muted-foreground">Cargo Description</p>
-                          <p className="font-bold print:text-lg">{printData.cargo_description}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
 
               <div className="mt-6 border-y-2 border-slate-900 py-6 print:mt-4 print:py-4">

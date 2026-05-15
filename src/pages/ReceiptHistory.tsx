@@ -376,28 +376,48 @@ const ReceiptPreview = ({ data }: { data: any }) => {
                         </div>
 
                         <div className="space-y-4 mb-8 print:mb-4 text-slate-900 px-4">
-                            <div className="grid grid-cols-2 gap-x-12 gap-y-6">
+                            <div className="grid grid-cols-2 gap-x-12 gap-y-4">
                                 <div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Entry ID</p>
                                     <p className="font-bold font-mono text-lg text-slate-900">{getShortEntryId(data.id, data.wb_number)}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Date & Time</p>
-                                    <p className="font-bold text-slate-900">
+                                    <p className="font-bold text-slate-900 text-sm">
                                         {format(new Date(data.weigh_time), "dd/MM/yyyy HH:mm:ss")}
                                     </p>
                                 </div>
                                 <div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Plate</p>
-                                    <p className="font-black text-2xl text-slate-950 tracking-tighter">{data.vehicle_no}</p>
+                                    <p className="font-black text-2xl text-slate-950 tracking-tighter leading-none">{data.vehicle_no}</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Product Details</p>
-                                    <p className="font-bold text-slate-900">{data.vehicle_types?.type_name || data.category}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vehicle Type</p>
+                                    <p className="font-bold text-slate-900 text-sm">{data.vehicle_types?.type_name || data.category}</p>
                                 </div>
+                                
+                                <div className="col-span-2 grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+                                    <div>
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Driver Name</p>
+                                        <p className="font-bold text-slate-800 text-sm">{data.driver_name || "N/A"}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Customer / Farmer</p>
+                                        <p className="font-bold text-slate-800 text-sm">{data.customer_farmer_name || "N/A"}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Item / Product</p>
+                                        <p className="font-bold text-slate-800 text-sm">{data.item_name || "N/A"}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Source / Destination</p>
+                                        <p className="font-bold text-slate-800 text-sm">{data.source_destination || "N/A"}</p>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Shift Operator</p>
-                                    <p className="font-bold text-slate-700">{data.weighed_by}</p>
+                                    <p className="font-bold text-slate-700 text-xs">{data.weighed_by}</p>
                                 </div>
                             </div>
 

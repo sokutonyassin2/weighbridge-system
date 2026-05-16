@@ -1235,6 +1235,10 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         <div className="w-40 text-right pr-4">Amount (TZS)</div>
                         {category === 'Zambia' ? (
                             <div className="w-20 text-right">ZMW</div>
+                        ) : category === 'Rwanda' ? (
+                            <div className="w-20 text-right">RWF</div>
+                        ) : category === 'Burundi' ? (
+                            <div className="w-20 text-right">BIF</div>
                         ) : (
                             <div className="w-20 text-right">USD</div>
                         )}
@@ -1245,8 +1249,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         const amountTSh = parseFloat(item.amount) || 0;
                         const tzRate = countryRates["TZ"] || 2700;
                         const zambiaRate = countryRates["Zambia"] || 100;
+                        const rwandaRate = countryRates["Rwanda"] || 2;
+                        const burundiRate = countryRates["Burundi"] || 1;
                         const amountUSD = amountTSh / tzRate;
                         const amountZMW = amountTSh / zambiaRate;
+                        const amountRWF = amountTSh / rwandaRate;
+                        const amountBIF = amountTSh / burundiRate;
 
                         return (
                             <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
@@ -1301,6 +1309,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
                                         <p className="text-[10px] font-bold text-emerald-600">
                                             K{Math.round(amountZMW).toLocaleString()}
+                                        </p>
+                                    </div>
+                                ) : category === 'Rwanda' ? (
+                                    <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
+                                        <p className="text-[10px] font-bold text-purple-600">
+                                            RWF {Math.round(amountRWF).toLocaleString()}
+                                        </p>
+                                    </div>
+                                ) : category === 'Burundi' ? (
+                                    <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
+                                        <p className="text-[10px] font-bold text-rose-600">
+                                            BIF {Math.round(amountBIF).toLocaleString()}
                                         </p>
                                     </div>
                                 ) : (
@@ -1412,6 +1432,36 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         type="number"
                                         value={countryRates["DRC"]}
                                         onChange={(e) => setCountryRates({ ...countryRates, "DRC": parseFloat(e.target.value) || 0 })}
+                                        disabled={isLocked}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        {activeCountries.includes('Rwanda') && (
+                            <div className="space-y-1 flex-1 min-w-[120px] animate-in slide-in-from-left-2">
+                                <Label className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">Rwanda (1 RWF = TZS)</Label>
+                                <div className="relative">
+                                    <span className="absolute left-2.5 top-2 text-slate-400 font-medium text-[10px]">RWF 1 =</span>
+                                    <Input
+                                        className="pl-14 h-8 bg-slate-50/50 border-slate-200 font-normal text-slate-700 text-xs focus-visible:ring-1 ring-purple-500"
+                                        type="number"
+                                        value={countryRates["Rwanda"]}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "Rwanda": parseFloat(e.target.value) || 0 })}
+                                        disabled={isLocked}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        {activeCountries.includes('Burundi') && (
+                            <div className="space-y-1 flex-1 min-w-[120px] animate-in slide-in-from-left-2">
+                                <Label className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">Burundi (1 BIF = TZS)</Label>
+                                <div className="relative">
+                                    <span className="absolute left-2.5 top-2 text-slate-400 font-medium text-[10px]">BIF 1 =</span>
+                                    <Input
+                                        className="pl-12 h-8 bg-slate-50/50 border-slate-200 font-normal text-slate-700 text-xs focus-visible:ring-1 ring-rose-500"
+                                        type="number"
+                                        value={countryRates["Burundi"]}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "Burundi": parseFloat(e.target.value) || 0 })}
                                         disabled={isLocked}
                                     />
                                 </div>
@@ -2343,10 +2393,26 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
                         <CardHeader className="bg-purple-50/50 border-b py-4 px-8">
                             <CardTitle className="text-xs font-semibold flex items-center justify-between text-purple-900">
-                                <span>Rwanda Operations</span>
-                                <div className="flex gap-2 text-[10px]">
-                                    <span className="text-slate-400">SUBTOTAL:</span>
-                                    <span className="text-purple-700 font-black">${(totals.categoryTotals['Rwanda']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                <div className="flex items-center gap-3">
+                                    <span>Rwanda Operations</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => addExpense('Rwanda')} 
+                                        className="h-6 px-2 text-[10px] text-purple-600 hover:text-purple-700 hover:bg-purple-100/50 border border-purple-200/50 print:hidden" 
+                                        disabled={isLocked}
+                                    >
+                                        <Plus size={10} className="mr-1" /> Add Item
+                                    </Button>
+                                </div>
+                                <div className="flex flex-col items-end gap-0.5">
+                                    <div className="flex gap-2 text-[10px] items-baseline">
+                                        <span className="text-slate-400 font-semibold uppercase tracking-wider">TZS Subtotal:</span>
+                                        <span className="text-purple-700 font-bold">{Math.round(totals.categoryTotals['Rwanda']?.tzs || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
+                                        <span className="text-purple-600 font-bold">RWF: {Math.round((totals.categoryTotals['Rwanda']?.tzs || 0) / (countryRates["Rwanda"] || 2)).toLocaleString()}</span>
+                                    </div>
                                 </div>
                             </CardTitle>
                         </CardHeader>
@@ -2372,9 +2438,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         <Plus size={10} className="mr-1" /> Add Item
                                     </Button>
                                 </div>
-                                <div className="flex gap-2 text-[10px]">
-                                    <span className="text-slate-400">SUBTOTAL:</span>
-                                    <span className="text-rose-700 font-black">${(totals.categoryTotals['Burundi']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                <div className="flex flex-col items-end gap-0.5">
+                                    <div className="flex gap-2 text-[10px] items-baseline">
+                                        <span className="text-slate-400 font-semibold uppercase tracking-wider">TZS Subtotal:</span>
+                                        <span className="text-rose-700 font-bold">{Math.round(totals.categoryTotals['Burundi']?.tzs || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
+                                        <span className="text-rose-600 font-bold">BIF: {Math.round((totals.categoryTotals['Burundi']?.tzs || 0) / (countryRates["Burundi"] || 1)).toLocaleString()}</span>
+                                    </div>
                                 </div>
                             </CardTitle>
                         </CardHeader>

@@ -1212,7 +1212,6 @@ const ProcurementDashboard = () => {
                                             <TableCell colSpan={5} className="h-40 text-center text-slate-400 italic">No suppliers registered. Add one to link purchases.</TableCell>
                                         </TableRow>
                                     ) : (suppliers || []).map((s: any) => (
-                                    ) : (suppliers || []).map((s: any) => (
                                         <React.Fragment key={s.id}>
                                             <TableRow className={expandedSupplierId === s.id ? "bg-slate-50/50" : ""}>
                                                 <TableCell className="font-semibold text-slate-700">

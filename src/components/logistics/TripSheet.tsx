@@ -1233,17 +1233,20 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         <div className="flex-[8] min-w-[200px]">Expense Description</div>
                         <div className="w-28 text-center">Nature</div>
                         <div className="w-40 text-right pr-4">Amount (TZS)</div>
-                        <div className="w-20 text-right">USD</div>
-                        {category === 'Zambia' && <div className="w-20 text-right">ZMW</div>}
+                        {category === 'Zambia' ? (
+                            <div className="w-20 text-right">ZMW</div>
+                        ) : (
+                            <div className="w-20 text-right">USD</div>
+                        )}
                         <div className="w-6"></div>
                     </div>
 
                     {filteredExpenses.map((item) => {
                         const amountTSh = parseFloat(item.amount) || 0;
                         const tzRate = countryRates["TZ"] || 2700;
-                        const zambiaRate = countryRates["Zambia"] || 25.5;
+                        const zambiaRate = countryRates["Zambia"] || 100;
                         const amountUSD = amountTSh / tzRate;
-                        const amountZMW = amountUSD * zambiaRate;
+                        const amountZMW = amountTSh / zambiaRate;
 
                         return (
                             <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
@@ -1294,16 +1297,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     </div>
                                 </div>
                                 
-                                <div className="w-20 text-right print:hidden shrink-0">
-                                    <p className="text-[11px] font-semibold text-slate-400">
-                                        ${Math.round(amountUSD).toLocaleString()}
-                                    </p>
-                                </div>
-
-                                {category === 'Zambia' && (
+                                {category === 'Zambia' ? (
                                     <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
-                                        <p className="text-[10px] font-bold text-emerald-600/70">
+                                        <p className="text-[10px] font-bold text-emerald-600">
                                             K{Math.round(amountZMW).toLocaleString()}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="w-20 text-right print:hidden shrink-0">
+                                        <p className="text-[11px] font-semibold text-slate-400">
+                                            ${Math.round(amountUSD).toLocaleString()}
                                         </p>
                                     </div>
                                 )}
@@ -1386,9 +1389,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         </div>
                         {activeCountries.includes('Zambia') && (
                             <div className="space-y-1 flex-1 min-w-[120px] animate-in slide-in-from-left-2">
-                                <Label className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">Zambia (ZMW)</Label>
+                                <Label className="text-[8px] font-medium text-slate-400 uppercase tracking-tighter">Zambia (1 ZMW = TZS)</Label>
                                 <div className="relative">
-                                    <span className="absolute left-2.5 top-2 text-slate-400 font-medium text-[10px]">$1 =</span>
+                                    <span className="absolute left-2.5 top-2 text-slate-400 font-medium text-[10px]">K1 =</span>
                                     <Input
                                         className="pl-8 h-8 bg-slate-50/50 border-slate-200 font-normal text-slate-700 text-xs focus-visible:ring-1 ring-emerald-500"
                                         type="number"
@@ -2292,9 +2295,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         <span className="text-green-700 font-bold">{Math.round(totals.categoryTotals['Zambia']?.tzs || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex gap-2 text-[10px] items-baseline font-medium text-slate-400">
-                                        <span>USD: ${(totals.categoryTotals['Zambia']?.usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                                        <span className="mx-1 opacity-30">|</span>
-                                        <span className="text-green-600">ZMW: {Math.round((totals.categoryTotals['Zambia']?.usd || 0) * (countryRates["Zambia"] || 25.5)).toLocaleString()}</span>
+                                        <span className="text-green-600 font-bold">ZMW: {Math.round((totals.categoryTotals['Zambia']?.tzs || 0) / (countryRates["Zambia"] || 100)).toLocaleString()}</span>
                                     </div>
                                 </div>
                             </CardTitle>

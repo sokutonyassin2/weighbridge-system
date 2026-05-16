@@ -413,6 +413,7 @@ const TripManagement = () => {
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-primary" onClick={(e) => { e.stopPropagation(); handlePrintTrip(trip); }}><Printer className="h-4 w-4" /></Button>
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-emerald-600" onClick={(e) => { e.stopPropagation(); setSelectedTripForSheet(trip); }}><DollarSign className="h-4 w-4" /></Button>
                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-amber-600" onClick={(e) => { e.stopPropagation(); setSelectedTripForTimeline(trip); setIsTimelineOpen(true); }}><Clock className="h-4 w-4" /></Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600" disabled={deleteTripMutation.isPending} onClick={(e) => { e.stopPropagation(); if (window.confirm("Are you sure you want to delete this trip?")) { deleteTripMutation.mutate(trip.id); } }}><Trash2 className="h-4 w-4" /></Button>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -431,12 +432,13 @@ const TripManagement = () => {
                                         </div>
                                     </div>
                                     <div className="pt-1">
-                                        {status === 'Planned' && <Button size="sm" className="w-full h-7 text-xs bg-indigo-600 hover:bg-indigo-700" onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'Dispatched' })}>Dispatch <Navigation className="w-3 h-3 ml-2" /></Button>}
-                                        {status === 'Dispatched' && <Button size="sm" className="w-full h-7 text-xs bg-blue-600 hover:bg-blue-700" onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'In Transit' })}>Start Transit <ArrowRight className="w-3 h-3 ml-2" /></Button>}
-                                        {status === 'In Transit' && <Button size="sm" className="w-full h-7 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'At Destination' })}>Arrived <MapPin className="w-3 h-3 ml-2" /></Button>}
-                                        {status === 'At Destination' && <Button size="sm" className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700" onClick={() => updateStatusMutation.mutate({ id: trip.id, status: 'Returning' })}>Return <RefreshCw className="w-3 h-3 ml-2" /></Button>}
+                                        {status === 'Planned' && <Button size="sm" disabled={updateStatusMutation.isPending} className="w-full h-7 text-xs bg-indigo-600 hover:bg-indigo-700" onClick={(e) => { e.stopPropagation(); updateStatusMutation.mutate({ id: trip.id, status: 'Dispatched' }); }}>Dispatch <Navigation className="w-3 h-3 ml-2" /></Button>}
+                                        {status === 'Dispatched' && <Button size="sm" disabled={updateStatusMutation.isPending} className="w-full h-7 text-xs bg-blue-600 hover:bg-blue-700" onClick={(e) => { e.stopPropagation(); updateStatusMutation.mutate({ id: trip.id, status: 'In Transit' }); }}>Start Transit <ArrowRight className="w-3 h-3 ml-2" /></Button>}
+                                        {status === 'In Transit' && <Button size="sm" disabled={updateStatusMutation.isPending} className="w-full h-7 text-xs bg-emerald-600 hover:bg-emerald-700" onClick={(e) => { e.stopPropagation(); updateStatusMutation.mutate({ id: trip.id, status: 'At Destination' }); }}>Arrived <MapPin className="w-3 h-3 ml-2" /></Button>}
+                                        {status === 'At Destination' && <Button size="sm" disabled={updateStatusMutation.isPending} className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700" onClick={(e) => { e.stopPropagation(); updateStatusMutation.mutate({ id: trip.id, status: 'Returning' }); }}>Return <RefreshCw className="w-3 h-3 ml-2" /></Button>}
                                         {status === 'Returning' && (
-                                            <Button size="sm" className="w-full h-7 text-xs bg-slate-800 hover:bg-slate-900" onClick={() => {
+                                            <Button size="sm" disabled={updateStatusMutation.isPending} className="w-full h-7 text-xs bg-slate-800 hover:bg-slate-900" onClick={(e) => {
+                                                e.stopPropagation();
                                                 setSelectedTripForCompletion(trip);
                                                 setCompletionData({
                                                     closing_km: trip.closing_km?.toString() || "",
@@ -634,6 +636,7 @@ const TripManagement = () => {
                                                                     {status === 'Planned' && <Button variant="ghost" size="icon" className="h-7 w-7 text-blue-500" onClick={() => { setTripToEdit(trip); setIsEditDialogOpen(true); }}><Pencil className="h-3.5 w-3.5" /></Button>}
                                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-600" onClick={() => setSelectedTripForSheet(trip)}><DollarSign className="h-3.5 w-3.5" /></Button>
                                                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" onClick={() => { setSelectedTripForTimeline(trip); setIsTimelineOpen(true); }}><Clock className="h-3.5 w-3.5" /></Button>
+                                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-red-600" disabled={deleteTripMutation.isPending} onClick={() => { if (window.confirm("Are you sure you want to delete this trip?")) { deleteTripMutation.mutate(trip.id); } }}><Trash2 className="h-3.5 w-3.5" /></Button>
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-2 font-medium text-slate-700">{trip.origin} <span className="text-slate-300">→</span> {trip.destination}</div>
@@ -641,7 +644,7 @@ const TripManagement = () => {
                                                                 <Truck className="w-3.5 h-3.5 text-primary" /> <span className="font-semibold">{trip.vehicle?.vehicle_no}</span>
                                                                 <User className="w-3.5 h-3.5 text-slate-400 ml-2" /> <span className="truncate">{trip.driver?.full_name}</span>
                                                             </div>
-                                                            <Button size="sm" className={`w-full font-medium h-9 ${status === 'Completed' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200 opacity-70' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'}`} onClick={() => {
+                                                            <Button size="sm" disabled={updateStatusMutation.isPending || status === 'Completed'} className={`w-full font-medium h-9 ${status === 'Completed' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200 opacity-70' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'}`} onClick={() => {
                                                                 if (status === 'Returning') {
                                                                     setSelectedTripForCompletion(trip);
                                                                     setCompletionData({
@@ -811,7 +814,7 @@ const TripManagement = () => {
                             </div>
                         </div>
                     </div>
-                    <DialogFooter><Button className="w-full font-bold h-11" onClick={() => createTripMutation.mutate(newTrip)}>Plan & Confirm Trip</Button></DialogFooter>
+                    <DialogFooter><Button className="w-full font-bold h-11" disabled={createTripMutation.isPending} onClick={() => createTripMutation.mutate(newTrip)}>{createTripMutation.isPending ? "Planning..." : "Plan & Confirm Trip"}</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
 
@@ -830,7 +833,7 @@ const TripManagement = () => {
                              <div className="space-y-1.5 text-right"><Label className="text-emerald-600 font-bold uppercase text-[10px] tracking-wider block text-right">ALLOWANCE (TSHS)</Label><Input type="number" placeholder="Enter amount..." value={tripToEdit?.trip_allowance} onChange={(e) => setTripToEdit({ ...tripToEdit, trip_allowance: e.target.value })} className="text-right" /></div>
                         </div>
                     </div>
-                    <DialogFooter><Button className="w-full font-bold h-11 bg-blue-600 hover:bg-blue-700" onClick={() => editTripMutation.mutate(tripToEdit)}>Save Changes</Button></DialogFooter>
+                    <DialogFooter><Button className="w-full font-bold h-11 bg-blue-600 hover:bg-blue-700" disabled={editTripMutation.isPending} onClick={() => editTripMutation.mutate(tripToEdit)}>{editTripMutation.isPending ? "Saving..." : "Save Changes"}</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
 
@@ -846,7 +849,7 @@ const TripManagement = () => {
                         </div>
                         <div className="space-y-1.5"><Label className="text-blue-600 font-bold uppercase text-[10px] tracking-wider">RETURN CARGO</Label><Input placeholder="Cargo details..." value={completionData.return_cargo} onChange={(e) => setCompletionData({ ...completionData, return_cargo: e.target.value })} /></div>
                     </div>
-                    <DialogFooter><Button className="w-full font-bold h-11 bg-slate-900 hover:bg-slate-800" onClick={() => { if (!completionData.closing_km) return; updateStatusMutation.mutate({ id: selectedTripForCompletion.id, status: 'Completed', completionData }); setIsCompletionDialogOpen(false); }}>Confirm Finish</Button></DialogFooter>
+                    <DialogFooter><Button className="w-full font-bold h-11 bg-slate-900 hover:bg-slate-800" disabled={updateStatusMutation.isPending} onClick={() => { if (!completionData.closing_km) return; updateStatusMutation.mutate({ id: selectedTripForCompletion.id, status: 'Completed', completionData }); setIsCompletionDialogOpen(false); }}>{updateStatusMutation.isPending ? "Confirming..." : "Confirm Finish"}</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
 

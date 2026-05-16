@@ -252,7 +252,7 @@ const ManagementApprovals = () => {
 
                                                 <div className="space-y-1">
                                                     <Label className="text-[10px] uppercase text-slate-500 font-semibold">Supplier & Payment</Label>
-                                                    <p className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Vendor'}</p>
+                                                    <p className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Supplier'}</p>
                                                     <p className="text-[10px] text-slate-500 truncate max-w-[150px]">{req.payment_details?.bank_name} {req.payment_details?.account_number}</p>
                                                 </div>
 

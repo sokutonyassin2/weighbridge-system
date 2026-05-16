@@ -298,7 +298,7 @@ const CashierPaymentPortal = () => {
                                         <TableRow className="bg-slate-50/50">
                                             <TableHead className="text-xs font-bold py-4 pl-6">PO Number</TableHead>
                                             <TableHead className="text-xs font-bold">Item & Qty</TableHead>
-                                            <TableHead className="text-xs font-bold">Vendor</TableHead>
+                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
                                             <TableHead className="text-xs font-bold">Amount</TableHead>
                                             <TableHead className="text-right text-xs font-bold pr-6">Action</TableHead>
                                         </TableRow>
@@ -326,7 +326,7 @@ const CashierPaymentPortal = () => {
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-sm">
-                                                        {item.garage_suppliers?.name || 'Manual Vendor'}
+                                                        {item.garage_suppliers?.name || 'Manual Supplier'}
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="flex flex-col">
@@ -379,7 +379,7 @@ const CashierPaymentPortal = () => {
                                         <TableRow className="bg-slate-50/50">
                                             <TableHead className="text-xs font-bold py-4 pl-6">Reference</TableHead>
                                             <TableHead className="text-xs font-bold">Item & PO</TableHead>
-                                            <TableHead className="text-xs font-bold">Vendor</TableHead>
+                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
                                             <TableHead className="text-xs font-bold text-right pr-6">Action</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -406,7 +406,7 @@ const CashierPaymentPortal = () => {
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-sm">
-                                                        {item.garage_suppliers?.name || 'Manual Vendor'}
+                                                        {item.garage_suppliers?.name || 'Manual Supplier'}
                                                     </TableCell>
                                                     <TableCell className="text-right pr-6">
                                                         <Button
@@ -449,7 +449,7 @@ const CashierPaymentPortal = () => {
                                         <TableRow>
                                             <TableHead className="text-xs font-bold py-3 pl-6">Reference</TableHead>
                                             <TableHead className="text-xs font-bold">Item & PO</TableHead>
-                                            <TableHead className="text-xs font-bold">Vendor</TableHead>
+                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
                                             <TableHead className="text-xs font-bold text-right pr-6">Amount Paid</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -536,7 +536,7 @@ const CashierPaymentPortal = () => {
                                             <TableHead className="text-xs font-bold py-3 pl-6">Date</TableHead>
                                             <TableHead className="text-xs font-bold">Reference</TableHead>
                                             <TableHead className="text-xs font-bold">Item & PO</TableHead>
-                                            <TableHead className="text-xs font-bold">Vendor</TableHead>
+                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
                                             <TableHead className="text-right text-xs font-bold pr-6">Amount Paid</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -603,7 +603,7 @@ const CashierPaymentPortal = () => {
                             <div className="flex justify-between items-start">
                                 <div className="space-y-1">
                                     <p className="text-xs font-bold text-slate-500 uppercase">Payable To</p>
-                                    <p className="font-bold text-slate-900">{selectedReq?.garage_suppliers?.name || 'Manual Vendor'}</p>
+                                    <p className="font-bold text-slate-900">{selectedReq?.garage_suppliers?.name || 'Manual Supplier'}</p>
                                 </div>
                                 <div className="text-right space-y-1">
                                     <p className="text-xs font-bold text-slate-500 uppercase">PO Number</p>

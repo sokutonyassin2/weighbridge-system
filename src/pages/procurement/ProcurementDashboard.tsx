@@ -146,7 +146,7 @@ const ProcurementDashboard = () => {
     const { data: suppliers } = useQuery({
         queryKey: ["procurement-suppliers"],
         queryFn: async () => {
-            const { data, error } = await sb.from("garage_suppliers").select("id, name").order("name");
+            const { data, error } = await sb.from("garage_suppliers").select("*").order("name");
             if (error) throw error;
             return data;
         }
@@ -293,18 +293,20 @@ const ProcurementDashboard = () => {
 
     const addSupplierMutation = useMutation({
         mutationFn: async (supplier: any) => {
-            const { error } = await sb.from("garage_suppliers").insert([supplier]);
+            // Remove customCategory before sending to DB as it doesn't exist in the schema
+            const { customCategory, ...dbSupplier } = supplier;
+            const { error } = await sb.from("garage_suppliers").insert([dbSupplier]);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
-            toast({ title: "Supplier Added", description: "New vendor registered." });
+            toast({ title: "Supplier Added", description: "New supplier registered." });
             setIsAddSupplierOpen(false);
             setNewSupplier({ name: "", contact_person: "", phone: ["", ""], email: "", category: "General Spare Parts", location: "", customCategory: "" });
             setShowCustomCategory(false);
         },
         onError: (error: any) => {
-            console.error("Vendor Registration Error:", error);
+            console.error("Supplier Registration Error:", error);
             toast({
                 variant: "destructive",
                 title: "Registration Failed",
@@ -320,7 +322,7 @@ const ProcurementDashboard = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
-            toast({ title: "Supplier Deleted", description: "Vendor removed from directory." });
+            toast({ title: "Supplier Deleted", description: "Supplier removed from directory." });
         }
     });
 
@@ -353,7 +355,7 @@ const ProcurementDashboard = () => {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
-            toast({ title: "Supplier Updated", description: "Vendor records saved." });
+            toast({ title: "Supplier Updated", description: "Supplier records saved." });
             setIsEditSupplierOpen(false);
             setEditingSupplier(null);
         }
@@ -1189,8 +1191,8 @@ const ProcurementDashboard = () => {
                 <TabsContent value="suppliers" className="mt-6">
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
                         <CardHeader className="flex flex-row items-center justify-between border-b pb-4 bg-slate-50/50">
-                            <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Vendor & Supplier Directory</CardTitle>
-                            <Button onClick={() => setIsAddSupplierOpen(true)} className="h-8 bg-blue-900 text-[10px] font-semibold uppercase"><Plus className="w-3 h-3 mr-2" /> Add Supplier</Button>
+                    <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Supplier Directory</CardTitle>
+                    <Button onClick={() => setIsAddSupplierOpen(true)} className="h-8 bg-blue-900 text-[10px] font-semibold uppercase"><Plus className="w-3 h-3 mr-2" /> Add Supplier</Button>
                         </CardHeader>
                         <CardContent className="p-0">
                             <Table>
@@ -1357,7 +1359,7 @@ const ProcurementDashboard = () => {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <span className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Vendor'}</span>
+                                                    <span className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Supplier'}</span>
                                                 </TableCell>
                                                 <TableCell>
                                                     {req.vehicle && (
@@ -1418,7 +1420,7 @@ const ProcurementDashboard = () => {
                                 onValueChange={(val) => setApprovalDetails({ ...approvalDetails, supplier_id: val })}
                             >
                                 <SelectTrigger className="h-10 text-xs">
-                                    <SelectValue placeholder="Choose Vendor..." />
+                                    <SelectValue placeholder="Choose Supplier..." />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {(suppliers || []).map((s: any) => (
@@ -1549,7 +1551,7 @@ const ProcurementDashboard = () => {
                     <DialogHeader>
                         <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                             <Users className="w-5 h-5 text-blue-900" />
-                            Register New Vendor
+                            Register New Supplier
                         </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -1682,7 +1684,7 @@ const ProcurementDashboard = () => {
                                 });
                             }}
                         >
-                            {addSupplierMutation.isPending ? "Registering..." : "Register Vendor"}
+                            {addSupplierMutation.isPending ? "Registering..." : "Register Supplier"}
                         </Button>
                     </DialogFooter>
                 </DialogContent >
@@ -1700,9 +1702,9 @@ const ProcurementDashboard = () => {
                     {editingSupplier && (
                         <div className="grid gap-4 py-4">
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Company Name</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Supplier Name</Label>
                                 <Input
-                                    placeholder="Vendor Name"
+                                    placeholder="Supplier Name"
                                     className="h-10 text-sm font-semibold text-blue-900"
                                     value={editingSupplier.name}
                                     onChange={(e) => setEditingSupplier({ ...editingSupplier, name: e.target.value })}
@@ -2170,13 +2172,13 @@ const ProcurementDashboard = () => {
                         {/* PO Finalization Details */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Vendor / Supplier</Label>
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Supplier Details</Label>
                                 <Select
                                     value={groupedPODetails.supplier_id}
                                     onValueChange={(val) => setGroupedPODetails({ ...groupedPODetails, supplier_id: val })}
                                 >
                                     <SelectTrigger className="h-11 border-slate-200 shadow-sm">
-                                        <SelectValue placeholder="Select Vendor" />
+                                        <SelectValue placeholder="Select Supplier" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {(suppliers || []).map((s: any) => (

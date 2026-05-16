@@ -168,6 +168,7 @@ const ProcurementDashboard = () => {
     const [editingSupplier, setEditingSupplier] = useState<any>(null);
     const [editPhones, setEditPhones] = useState<string[]>([]);
     const [showCustomCategory, setShowCustomCategory] = useState(false);
+    const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
     const [reqStatusFilter, setReqStatusFilter] = useState<'Pending' | 'Awaiting Approval' | 'Approved' | 'Paid' | 'Purchased' | 'Delivered' | 'Revoked' | 'All'>('Pending');
 
     const formatDate = (dateString: string | null) => {
@@ -1211,104 +1212,149 @@ const ProcurementDashboard = () => {
                                             <TableCell colSpan={5} className="h-40 text-center text-slate-400 italic">No suppliers registered. Add one to link purchases.</TableCell>
                                         </TableRow>
                                     ) : (suppliers || []).map((s: any) => (
-                                        <TableRow key={s.id}>
-                                            <TableCell className="font-semibold text-slate-700">{s.name}</TableCell>
-                                            <TableCell className="text-sm">{s.contact_person}</TableCell>
-                                            <TableCell className="text-[11px] text-slate-500">{s.phone} / {s.email}</TableCell>
-                                            <TableCell><Badge variant="outline" className="text-[10px] font-semibold uppercase">{s.category}</Badge></TableCell>
-                                            <TableCell className="text-right px-6">
-                                                <div className="flex justify-end gap-2">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-blue-900"
-                                                        onClick={() => {
-                                                            setEditingSupplier(s);
-                                                            const phones = s.phone ? s.phone.split(",").map((p: string) => p.trim()) : ["", ""];
-                                                            setEditPhones(phones.length >= 2 ? phones : [...phones, ""]);
-                                                            setIsEditSupplierOpen(true);
-                                                        }}
-                                                    >
-                                                        <FileCheck className="w-4 h-4" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
-                                                        onClick={() => {
-                                                            if (confirm(`Are you sure you want to delete ${s.name}? This will also delete their payment methods.`)) {
-                                                                deleteSupplierMutation.mutate(s.id);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <XCircle className="w-4 h-4" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-8 text-[10px] font-semibold uppercase border-blue-100 text-blue-900 hover:bg-blue-50"
-                                                        onClick={() => {
-                                                            setSelectedSupplierForPayment(s);
-                                                            setIsAddPaymentMethodOpen(true);
-                                                        }}
-                                                    >
-                                                        <Plus className="w-3 h-3 mr-1" /> Add Payment info
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
+                                    ) : (suppliers || []).map((s: any) => (
+                                        <React.Fragment key={s.id}>
+                                            <TableRow className={expandedSupplierId === s.id ? "bg-slate-50/50" : ""}>
+                                                <TableCell className="font-semibold text-slate-700">
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 w-6 p-0 hover:bg-slate-200"
+                                                            onClick={() => setExpandedSupplierId(expandedSupplierId === s.id ? null : s.id)}
+                                                        >
+                                                            {expandedSupplierId === s.id ? <ChevronDown className="w-4 h-4 text-blue-900" /> : <ArrowRight className="w-4 h-4 text-slate-400" />}
+                                                        </Button>
+                                                        {s.name}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-sm">{s.contact_person}</TableCell>
+                                                <TableCell className="text-[11px] text-slate-500">{s.phone} / {s.email}</TableCell>
+                                                <TableCell><Badge variant="outline" className="text-[10px] font-semibold uppercase">{s.category}</Badge></TableCell>
+                                                <TableCell className="text-right px-6">
+                                                    <div className="flex justify-end gap-2">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className={`h-8 text-[10px] font-semibold uppercase border-blue-100 ${expandedSupplierId === s.id ? 'bg-blue-900 text-white hover:bg-black' : 'text-blue-900 hover:bg-blue-50'}`}
+                                                            onClick={() => setExpandedSupplierId(expandedSupplierId === s.id ? null : s.id)}
+                                                        >
+                                                            {expandedSupplierId === s.id ? 'Hide Accounts' : 'View Accounts'}
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-blue-900"
+                                                            onClick={() => {
+                                                                setEditingSupplier(s);
+                                                                const phones = s.phone ? s.phone.split(",").map((p: string) => p.trim()) : ["", ""];
+                                                                setEditPhones(phones.length >= 2 ? phones : [...phones, ""]);
+                                                                setIsEditSupplierOpen(true);
+                                                            }}
+                                                        >
+                                                            <FileCheck className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
+                                                            onClick={() => {
+                                                                if (confirm(`Are you sure you want to delete ${s.name}? This will also delete their payment methods.`)) {
+                                                                    deleteSupplierMutation.mutate(s.id);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <XCircle className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-8 text-[10px] font-semibold uppercase border-blue-100 text-blue-900 hover:bg-blue-50"
+                                                            onClick={() => {
+                                                                setSelectedSupplierForPayment(s);
+                                                                setIsAddPaymentMethodOpen(true);
+                                                            }}
+                                                        >
+                                                            <Plus className="w-3 h-3 mr-1" /> Add Payment info
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                            {/* Expandable Payment Methods Section */}
+                                            {expandedSupplierId === s.id && (
+                                                <TableRow className="bg-slate-50/30 border-t-0">
+                                                    <TableCell colSpan={5} className="p-0">
+                                                        <div className="p-6 pt-2 pb-8 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                            <div className="flex items-center justify-between mb-4 border-b pb-2 border-slate-200/60">
+                                                                <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                                                                    <Building2 className="w-3 h-3" /> Registered Accounts for {s.name}
+                                                                </h4>
+                                                            </div>
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                {(allPaymentMethods || []).filter((pm: any) => pm.supplier_id === s.id).length === 0 ? (
+                                                                    <div className="col-span-3 py-8 text-center bg-white/50 rounded-lg border border-dashed border-slate-200">
+                                                                        <p className="text-[11px] text-slate-400 italic">No payment accounts found for this supplier.</p>
+                                                                        <Button 
+                                                                            variant="link" 
+                                                                            className="text-[10px] font-bold uppercase text-blue-900"
+                                                                            onClick={() => {
+                                                                                setSelectedSupplierForPayment(s);
+                                                                                setIsAddPaymentMethodOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            + Create First Account
+                                                                        </Button>
+                                                                    </div>
+                                                                ) : (allPaymentMethods || []).filter((pm: any) => pm.supplier_id === s.id).map((pm: any) => (
+                                                                    <div key={pm.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex items-start gap-3 group relative hover:border-blue-200 transition-colors">
+                                                                        <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-blue-900">
+                                                                            {pm.method_type === 'Bank' ? <Building2 className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
+                                                                        </div>
+                                                                        <div className="flex-1">
+                                                                            <div className="flex justify-between items-start">
+                                                                                <p className="text-[10px] font-semibold text-slate-400 uppercase">{pm.method_type}</p>
+                                                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="sm"
+                                                                                        className="h-6 w-6 p-0 text-slate-400 hover:text-blue-900"
+                                                                                        onClick={() => {
+                                                                                            setEditingPaymentMethod(pm);
+                                                                                            setIsEditPaymentMethodOpen(true);
+                                                                                        }}
+                                                                                    >
+                                                                                        <FileCheck className="w-3 h-3" />
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="sm"
+                                                                                        className="h-6 w-6 p-0 text-slate-400 hover:text-red-600"
+                                                                                        onClick={() => {
+                                                                                            if (confirm("Delete this payment method?")) {
+                                                                                                deletePaymentMethodMutation.mutate(pm.id);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <XCircle className="w-3 h-3" />
+                                                                                    </Button>
+                                                                                </div>
+                                                                            </div>
+                                                                            <p className="text-xs font-bold text-slate-800">{pm.method_type === 'Mobile Money' ? 'Network' : 'Bank'}: {pm.bank_name || 'N/A'}</p>
+                                                                            <p className="text-[11px] text-slate-600 font-mono font-bold bg-slate-50 px-2 py-0.5 rounded mt-1 inline-block">
+                                                                                {pm.method_type === 'Mobile Money' ? 'Lipa #' : 'Acc #'}: {pm.account_number}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </React.Fragment>
                                     ))}
                                 </TableBody>
                             </Table>
-                            <div className="p-4 border-t bg-slate-50/30">
-                                <h4 className="text-[10px] font-semibold uppercase text-slate-400 mb-3 tracking-widest">Registered Payment Modes</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {(allPaymentMethods || []).map((pm: any) => {
-                                        const supplier = (suppliers || []).find((s: any) => s.id === pm.supplier_id);
-                                        return (
-                                            <div key={pm.id} className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm flex items-start gap-3 group relative">
-                                                <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-blue-900">
-                                                    {pm.method_type === 'Bank' ? <Building2 className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
-                                                </div>
-                                                <div className="flex-1">
-                                                    <div className="flex justify-between items-start">
-                                                        <p className="text-[10px] font-semibold text-slate-400 uppercase">{supplier?.name || 'Unknown'}</p>
-                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-6 w-6 p-0 text-slate-400 hover:text-blue-900"
-                                                                onClick={() => {
-                                                                    setEditingPaymentMethod(pm);
-                                                                    setIsEditPaymentMethodOpen(true);
-                                                                }}
-                                                            >
-                                                                <FileCheck className="w-3 h-3" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-6 w-6 p-0 text-slate-400 hover:text-red-600"
-                                                                onClick={() => {
-                                                                    if (confirm("Delete this payment method?")) {
-                                                                        deletePaymentMethodMutation.mutate(pm.id);
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <XCircle className="w-3 h-3" />
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                    <p className="text-xs font-semibold text-slate-800">{pm.method_type === 'Mobile Money' ? 'Network' : 'Bank'}: {pm.bank_name || 'N/A'}</p>
-                                                    <p className="text-[11px] text-slate-500 font-mono">
-                                                        {pm.method_type === 'Mobile Money' ? 'Lipa #' : 'Acc #'}: {pm.account_number}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>

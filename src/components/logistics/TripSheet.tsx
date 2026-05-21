@@ -122,12 +122,32 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         fuel_amount: '0' // Total fuel cost in USD (calculated)
     });
 
-    const [countryRates, setCountryRates] = useState<Record<string, number>>({
-        "TZ": 2700,
-        "Zambia": 25.5,
-        "DRC": 1.0,
-        "Rwanda": 1250,
-        "Burundi": 2850
+    const [countryRates, setCountryRates] = useState<Record<string, number>>(() => {
+        try {
+            const savedRates = localStorage.getItem('latest_market_rates');
+            if (savedRates) {
+                const parsed = JSON.parse(savedRates);
+                if (Object.keys(parsed).length > 0) {
+                    return {
+                        "TZ": parsed["TZ"] || 2700,
+                        "Zambia": parsed["Zambia"] || 25.5,
+                        "DRC": parsed["DRC"] || 1.0,
+                        "Rwanda": parsed["Rwanda"] || 1250,
+                        "Burundi": parsed["Burundi"] || 2850,
+                        ...parsed
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn("Could not load latest_market_rates");
+        }
+        return {
+            "TZ": 2700,
+            "Zambia": 25.5,
+            "DRC": 1.0,
+            "Rwanda": 1250,
+            "Burundi": 2850
+        };
     });
 
     // Expenses State
@@ -411,15 +431,26 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     const expenseData = expenseRes.data;
                     if (expenseData && expenseData.length > 0) {
                         const rate = parseFloat(doc.exchange_rate) || 2700;
-                        const docExpenses = (expenseData as any[]).map(e => ({
-                            id: e.id,
-                            item_name: e.item_name,
-                            amount: e.currency === 'USD' ? (parseFloat(e.amount) * rate).toString() : e.amount.toString(),
-                            category: e.category,
-                            currency: 'TZS',
-                            nature: e.nature || e.category,
-                            is_extra: e.is_extra || false
-                        })) as ExpenseItem[];
+                        const docExpenses = (expenseData as any[]).map(e => {
+                            let amountInUI = parseFloat(e.amount) || 0;
+                            if (e.currency === 'USD') {
+                                amountInUI = amountInUI * rate;
+                            } else {
+                                if (e.category === 'Zambia') amountInUI = amountInUI / (doc.country_rates?.["Zambia"] || 100);
+                                else if (e.category === 'DRC') amountInUI = amountInUI / (doc.country_rates?.["DRC"] || 1.0);
+                                else if (e.category === 'Rwanda') amountInUI = amountInUI / (doc.country_rates?.["Rwanda"] || 2);
+                                else if (e.category === 'Burundi') amountInUI = amountInUI / (doc.country_rates?.["Burundi"] || 1);
+                            }
+                            return {
+                                id: e.id,
+                                item_name: e.item_name,
+                                amount: amountInUI.toString(),
+                                category: e.category,
+                                currency: 'TZS',
+                                nature: e.nature || e.category,
+                                is_extra: e.is_extra || false
+                            };
+                        }) as ExpenseItem[];
 
                         setExpenses(docExpenses);
 
@@ -464,9 +495,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     const docExpenses = (expenseData as any[]).map(e => {
                         const rate = parseFloat(doc.exchange_rate) || 2700;
                         const isUSD = e.currency === 'USD';
+                        let amountInUI = parseFloat(e.amount) || 0;
+                        if (isUSD) {
+                            amountInUI = amountInUI * rate;
+                        } else {
+                            if (normalizeCategory(e.category) === 'Zambia') amountInUI = amountInUI / (doc.country_rates?.["Zambia"] || 100);
+                            else if (normalizeCategory(e.category) === 'DRC') amountInUI = amountInUI / (doc.country_rates?.["DRC"] || 1.0);
+                            else if (normalizeCategory(e.category) === 'Rwanda') amountInUI = amountInUI / (doc.country_rates?.["Rwanda"] || 2);
+                            else if (normalizeCategory(e.category) === 'Burundi') amountInUI = amountInUI / (doc.country_rates?.["Burundi"] || 1);
+                        }
                         return {
                             item_name: e.item_name || e.description || "",
-                            amount: isUSD ? (parseFloat(e.amount) * rate).toString() : e.amount.toString(),
+                            amount: amountInUI.toString(),
                             category: normalizeCategory(e.category),
                             currency: 'TZS'
                         };
@@ -534,10 +574,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const draft = {
             tripData,
             revenueData,
-            expenses
+            expenses,
+            countryRates
         };
         localStorage.setItem('trip_sheet_draft', JSON.stringify(draft));
-    }, [tripData, revenueData, expenses, tripId, isLoading]);
+        localStorage.setItem('latest_market_rates', JSON.stringify(countryRates));
+    }, [tripData, revenueData, expenses, countryRates, tripId, isLoading]);
 
     // Load Persistence
     useEffect(() => {
@@ -549,6 +591,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 setTripData(prev => ({ ...prev, ...parsed.tripData }));
                 setRevenueData(prev => ({ ...prev, ...parsed.revenueData }));
                 setExpenses(parsed.expenses || []);
+                if (parsed.countryRates) {
+                    setCountryRates(parsed.countryRates);
+                }
 
                 // Auto-enable countries that have expenses from draft
                 const countriesWithData = [...new Set((parsed.expenses || []).map((e: ExpenseItem) => e.category))].filter(c => c !== 'Fixed');
@@ -580,8 +625,31 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const buildCategoryTotals = (list: ExpenseItem[]) =>
             list.reduce((acc, curr) => {
                 const amt = parseFloat(curr.amount) || 0;
-                const inUSD = curr.currency === 'USD' ? amt : amt / rate;
-                const inTZS = curr.currency === 'TZS' ? amt : amt * rate;
+                let inTZS = 0;
+                let inUSD = 0;
+                
+                if (curr.currency === 'USD') {
+                    inUSD = amt;
+                    inTZS = amt * rate;
+                } else {
+                    if (curr.category === 'TZ' || curr.category === 'Fixed') {
+                        inTZS = amt;
+                        inUSD = amt / rate;
+                    } else if (curr.category === 'Zambia') {
+                        inTZS = amt * (countryRates["Zambia"] || 100);
+                        inUSD = inTZS / rate;
+                    } else if (curr.category === 'DRC') {
+                        inTZS = amt * (countryRates["DRC"] || 1.0);
+                        inUSD = inTZS / rate;
+                    } else if (curr.category === 'Rwanda') {
+                        inTZS = amt * (countryRates["Rwanda"] || 2);
+                        inUSD = inTZS / rate;
+                    } else if (curr.category === 'Burundi') {
+                        inTZS = amt * (countryRates["Burundi"] || 1);
+                        inUSD = inTZS / rate;
+                    }
+                }
+                
                 acc[curr.category] = {
                     usd: (acc[curr.category]?.usd || 0) + inUSD,
                     tzs: (acc[curr.category]?.tzs || 0) + inTZS
@@ -593,15 +661,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const extraCatTotals = buildCategoryTotals(extraExpensesArr);
 
         // This represents the actual road variable costs
-        const totalOperationalUSD = budgetedExpenses.reduce((sum, item) => {
-            const amt = parseFloat(item.amount) || 0;
-            return sum + (item.currency === 'USD' ? amt : amt / rate);
-        }, 0);
-
-        const totalExtraUSD = extraExpensesArr.reduce((sum, item) => {
-            const amt = parseFloat(item.amount) || 0;
-            return sum + (item.currency === 'USD' ? amt : amt / rate);
-        }, 0);
+        const totalOperationalUSD = Object.values(catTotals).reduce((sum, cat) => sum + cat.usd, 0);
+        const totalExtraUSD = Object.values(extraCatTotals).reduce((sum, cat) => sum + cat.usd, 0);
 
         const revenueAmount = parseFloat(revenueData.revenue_amount) || 0;
         const revenueInUSD = revenueData.revenue_currency === 'USD'
@@ -759,16 +820,25 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             if (expenses.length > 0) {
                 const { error: expensesError } = await supabase
                     .from('logistics_trip_expenses' as any)
-                    .insert(expenses.map(e => ({
-                        trip_sheet_id: activeSheetId,
-                        category: e.category,
-                        nature: e.nature || e.category,
-                        item_name: e.item_name,
-                        description: e.item_name,
-                        amount: parseFloat(e.amount.toString().replace(/,/g, '')) || 0,
-                        currency: e.currency,
-                        is_extra: e.is_extra || false
-                    })));
+                    .insert(expenses.map(e => {
+                        let amountToSave = parseFloat(e.amount.toString().replace(/,/g, '')) || 0;
+                        if (e.currency !== 'USD') {
+                            if (e.category === 'Zambia') amountToSave = amountToSave * (countryRates["Zambia"] || 100);
+                            else if (e.category === 'DRC') amountToSave = amountToSave * (countryRates["DRC"] || 1.0);
+                            else if (e.category === 'Rwanda') amountToSave = amountToSave * (countryRates["Rwanda"] || 2);
+                            else if (e.category === 'Burundi') amountToSave = amountToSave * (countryRates["Burundi"] || 1);
+                        }
+                        return {
+                            trip_sheet_id: activeSheetId,
+                            category: e.category,
+                            nature: e.nature || e.category,
+                            item_name: e.item_name,
+                            description: e.item_name,
+                            amount: amountToSave,
+                            currency: e.currency,
+                            is_extra: e.is_extra || false
+                        };
+                    }));
 
                 if (expensesError) {
                     if (!tripId) {
@@ -1232,29 +1302,77 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
                         <div className="flex-[8] min-w-[200px]">Expense Description</div>
                         <div className="w-28 text-center">Nature</div>
-                        <div className="w-40 text-right pr-4">Amount (TZS)</div>
-                        {category === 'Zambia' ? (
-                            <div className="w-20 text-right">ZMW</div>
+                        {category === 'TZ' ? (
+                            <div className="w-40 text-right pr-4">Amount (TZS)</div>
+                        ) : category === 'Zambia' ? (
+                            <div className="w-40 text-right pr-4">Amount (ZMW)</div>
+                        ) : category === 'DRC' ? (
+                            <div className="w-40 text-right pr-4">Amount (USD)</div>
                         ) : category === 'Rwanda' ? (
-                            <div className="w-20 text-right">RWF</div>
+                            <div className="w-40 text-right pr-4">Amount (RWF)</div>
                         ) : category === 'Burundi' ? (
-                            <div className="w-20 text-right">BIF</div>
+                            <div className="w-40 text-right pr-4">Amount (BIF)</div>
                         ) : (
+                            <div className="w-40 text-right pr-4">Amount</div>
+                        )}
+                        {category === 'TZ' ? (
                             <div className="w-20 text-right">USD</div>
+                        ) : (
+                            <div className="w-20 text-right">TZS</div>
                         )}
                         <div className="w-6"></div>
                     </div>
 
                     {filteredExpenses.map((item) => {
-                        const amountTSh = parseFloat(item.amount) || 0;
+                        const inputAmount = parseFloat(item.amount) || 0;
                         const tzRate = countryRates["TZ"] || 2700;
                         const zambiaRate = countryRates["Zambia"] || 100;
                         const rwandaRate = countryRates["Rwanda"] || 2;
                         const burundiRate = countryRates["Burundi"] || 1;
-                        const amountUSD = amountTSh / tzRate;
-                        const amountZMW = amountTSh / zambiaRate;
-                        const amountRWF = amountTSh / rwandaRate;
-                        const amountBIF = amountTSh / burundiRate;
+                        const drcRate = countryRates["DRC"] || 1.0;
+
+                        let amountTSh = 0;
+                        let amountUSD = 0;
+                        let amountZMW = 0;
+                        let amountRWF = 0;
+                        let amountBIF = 0;
+                        let amountDRC = 0;
+
+                        if (item.currency === 'USD') {
+                            amountTSh = inputAmount * tzRate;
+                            amountUSD = inputAmount;
+                            amountZMW = amountTSh / zambiaRate;
+                            amountRWF = amountTSh / rwandaRate;
+                            amountBIF = amountTSh / burundiRate;
+                            amountDRC = amountTSh / drcRate;
+                        } else {
+                            if (category === 'TZ' || category === 'Fixed') {
+                                amountTSh = inputAmount;
+                                amountUSD = inputAmount / tzRate;
+                            } else if (category === 'Zambia') {
+                                amountTSh = inputAmount * zambiaRate;
+                                amountZMW = inputAmount;
+                                amountUSD = amountTSh / tzRate;
+                            } else if (category === 'DRC') {
+                                amountTSh = inputAmount * drcRate;
+                                amountDRC = inputAmount;
+                                amountUSD = amountTSh / tzRate;
+                            } else if (category === 'Rwanda') {
+                                amountTSh = inputAmount * rwandaRate;
+                                amountRWF = inputAmount;
+                                amountUSD = amountTSh / tzRate;
+                            } else if (category === 'Burundi') {
+                                amountTSh = inputAmount * burundiRate;
+                                amountBIF = inputAmount;
+                                amountUSD = amountTSh / tzRate;
+                            }
+                        }
+
+                        const inputCurrencyLabel = category === 'TZ' ? 'TZS' :
+                                                   category === 'Zambia' ? 'ZMW' :
+                                                   category === 'DRC' ? 'USD' :
+                                                   category === 'Rwanda' ? 'RWF' :
+                                                   category === 'Burundi' ? 'BIF' : 'TZS';
 
                         return (
                             <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
@@ -1289,11 +1407,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                                 <div className="w-40 flex items-center gap-1 print:w-fit">
                                     <div className="hidden print:flex items-center justify-end gap-2 text-[9px] whitespace-nowrap">
-                                        <span className="text-slate-900 font-bold">TShs {Math.round(amountTSh).toLocaleString()}</span>
+                                        <span className="text-slate-900 font-bold">{inputCurrencyLabel} {Math.round(inputAmount).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center gap-1 print:hidden w-full">
                                         {category === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
-                                        <span className="text-slate-300 font-bold text-[8px] shrink-0">TZS</span>
+                                        <span className="text-slate-300 font-bold text-[8px] shrink-0">{inputCurrencyLabel}</span>
                                         <Input
                                             className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
                                             type="text"
@@ -1305,28 +1423,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     </div>
                                 </div>
                                 
-                                {category === 'Zambia' ? (
-                                    <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
-                                        <p className="text-[10px] font-bold text-emerald-600">
-                                            K{Math.round(amountZMW).toLocaleString()}
-                                        </p>
-                                    </div>
-                                ) : category === 'Rwanda' ? (
-                                    <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
-                                        <p className="text-[10px] font-bold text-purple-600">
-                                            RWF {Math.round(amountRWF).toLocaleString()}
-                                        </p>
-                                    </div>
-                                ) : category === 'Burundi' ? (
-                                    <div className="w-20 text-right print:hidden animate-in slide-in-from-right-2 shrink-0">
-                                        <p className="text-[10px] font-bold text-rose-600">
-                                            BIF {Math.round(amountBIF).toLocaleString()}
+                                {category === 'TZ' ? (
+                                    <div className="w-20 text-right print:hidden shrink-0">
+                                        <p className="text-[11px] font-semibold text-slate-400">
+                                            ${Math.round(amountUSD).toLocaleString()}
                                         </p>
                                     </div>
                                 ) : (
                                     <div className="w-20 text-right print:hidden shrink-0">
-                                        <p className="text-[11px] font-semibold text-slate-400">
-                                            ${Math.round(amountUSD).toLocaleString()}
+                                        <p className="text-[10px] font-bold text-slate-600">
+                                            TShs {Math.round(amountTSh).toLocaleString()}
                                         </p>
                                     </div>
                                 )}

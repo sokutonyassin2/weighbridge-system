@@ -289,7 +289,7 @@ const ManagementApprovals = () => {
 
             {/* ACTION DIALOG */}
             <Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen}>
-                <DialogContent className="sm:max-w-[600px]">
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
                             <Receipt className="w-6 h-6 text-indigo-600" />
@@ -412,7 +412,7 @@ const ManagementApprovals = () => {
                         </div>
                     </div>
 
-                    <DialogFooter className="gap-2 pt-2">
+                    <DialogFooter className="gap-2 sticky bottom-0 bg-white p-4 border-t z-10 -mx-6 -mb-6 mt-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
                         <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)}>Cancel</Button>
                         <Button
                             className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase"

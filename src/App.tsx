@@ -521,6 +521,26 @@ const App = () => {
               }
             />
             <Route
+              path="/garage/equipment"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/garage/lifecycle"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <GarageDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/garage/attendance"
               element={
                 <ProtectedRoute>

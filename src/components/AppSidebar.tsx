@@ -56,6 +56,8 @@ const logisticsItems = [
 
 const garageItems = [
   { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
+  { title: "Vehicle Equipment", url: "/garage/equipment", icon: FileCheck, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
+  { title: "Lifecycle Analytics", url: "/garage/lifecycle", icon: Activity, roles: ["admin", "super_admin", "garage_manager", "finance", "storekeeper"] },
   { title: "Parts & Store", url: "/garage/store", icon: Package, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
   { title: "Requisition Logs", url: "/garage/logs", icon: History, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
   { title: "Archived / Dustbin", url: "/garage/deleted", icon: Trash2, roles: ["admin", "super_admin", "garage_manager"] },
@@ -251,7 +253,7 @@ export function AppSidebar() {
 
         {/* WEIGHBRIDGE SECTION */}
         {showWeighbridge && (
-          <Collapsible defaultOpen className="group/collapsible">
+          <Collapsible className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -288,7 +290,7 @@ export function AppSidebar() {
 
         {/* LOGISTICS SECTION */}
         {filteredLogistics.length > 0 && (
-          <Collapsible defaultOpen={userRole?.includes('logistics')} className="group/collapsible">
+          <Collapsible className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -325,7 +327,7 @@ export function AppSidebar() {
 
         {/* GARAGE SECTION */}
         {filteredGarage.length > 0 && (
-          <Collapsible defaultOpen={userRole?.includes('mechanic')} className="group/collapsible">
+          <Collapsible className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -362,7 +364,7 @@ export function AppSidebar() {
 
         {/* PROCUREMENT SECTION */}
         {filteredProcurement.length > 0 && (
-          <Collapsible defaultOpen={userRole === 'cashier' || userRole === 'procurement_officer'} className="group/collapsible">
+          <Collapsible className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -399,7 +401,7 @@ export function AppSidebar() {
 
         {/* FINANCE SECTION */}
         {filteredFinance.length > 0 && (
-          <Collapsible defaultOpen={userRole === 'finance'} className="group/collapsible">
+          <Collapsible className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">

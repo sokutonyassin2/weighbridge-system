@@ -13,19 +13,18 @@ import { useToast } from "@/hooks/use-toast";
 const ProcurementReports = () => {
     const sb = supabase as any;
     const { toast } = useToast();
-    const [dateRange, setDateRange] = useState("current_month");
+    const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+    const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
 
     // Fetch Report Data
     const { data: reportData, isLoading } = useQuery({
-        queryKey: ["procurement-reports", dateRange],
+        queryKey: ["procurement-reports", startDate, endDate],
         queryFn: async () => {
-            let start = startOfMonth(new Date());
-            let end = endOfMonth(new Date());
-
-            if (dateRange === "last_month") {
-                start = startOfMonth(subMonths(new Date(), 1));
-                end = endOfMonth(subMonths(new Date(), 1));
-            }
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
 
             const { data, error } = await sb
                 .from("garage_requisitions")
@@ -60,17 +59,22 @@ const ProcurementReports = () => {
                     <p className="text-slate-500 text-sm">Comprehensive analytics for requisitions, approvals, and payouts.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Select value={dateRange} onValueChange={setDateRange}>
-                        <SelectTrigger className="w-[180px] bg-white">
-                            <Calendar className="w-4 h-4 mr-2 text-slate-400" />
-                            <SelectValue placeholder="Select Range" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="current_month">Current Month</SelectItem>
-                            <SelectItem value="last_month">Last Month</SelectItem>
-                            <SelectItem value="last_3_months">Last 3 Months</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <div className="flex items-center bg-white border rounded-md px-3 h-10 shadow-sm focus-within:ring-1 focus-within:ring-slate-900 transition-shadow">
+                        <Calendar className="w-4 h-4 mr-2 text-slate-400" />
+                        <input 
+                            type="date" 
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="bg-transparent border-none outline-none text-[13px] font-medium text-slate-700 cursor-pointer w-32"
+                        />
+                        <span className="text-slate-300 mx-2">-</span>
+                        <input 
+                            type="date" 
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="bg-transparent border-none outline-none text-[13px] font-medium text-slate-700 cursor-pointer w-32"
+                        />
+                    </div>
                     <Button variant="outline" className="gap-2 bg-white" onClick={() => toast({ title: "Export Started", description: "Your report is being generated..." })}>
                         <Download className="w-4 h-4" />
                         Export PDF

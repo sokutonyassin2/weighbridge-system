@@ -20,6 +20,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import VehicleEquipment from "./VehicleEquipment";
+import VehicleLifecycle from "./VehicleLifecycle";
 
 const translations = {
     en: {
@@ -124,11 +126,13 @@ const GarageDashboard = () => {
     const t = (key: keyof typeof translations.en) => translations[language][key] || key;
 
     // Initial state based on URL
-    const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted">(
+    const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted" | "equipment" | "lifecycle">(
         location.pathname === "/garage/store" ? "inventory" :
             location.pathname === "/garage/logs" ? "logs" :
                 location.pathname === "/garage/deleted" ? "deleted" :
-                    (userRole === "storekeeper") ? "inventory" : "jobs"
+                    location.pathname === "/garage/equipment" ? "equipment" :
+                        location.pathname === "/garage/lifecycle" ? "lifecycle" :
+                            (userRole === "storekeeper") ? "inventory" : "jobs"
     );
 
     // Sync tab with URL changes
@@ -139,6 +143,10 @@ const GarageDashboard = () => {
             setActiveTab("logs");
         } else if (location.pathname === "/garage/deleted") {
             setActiveTab("deleted");
+        } else if (location.pathname === "/garage/equipment") {
+            setActiveTab("equipment");
+        } else if (location.pathname === "/garage/lifecycle") {
+            setActiveTab("lifecycle");
         } else if (location.pathname === "/garage") {
             setActiveTab("jobs");
         }
@@ -1103,7 +1111,7 @@ const GarageDashboard = () => {
                         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                             <Wrench className="w-8 h-8 text-indigo-600" />
                             <div className="flex flex-col">
-                                <span className="text-slate-900 leading-tight">{t('garage_title')}</span>
+                                <span className="text-slate-700 leading-tight">{t('garage_title')}</span>
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mt-0.5">{t('garage_subtitle')}</span>
                             </div>
                         </h1>
@@ -1130,142 +1138,169 @@ const GarageDashboard = () => {
                 </div>
             )}
 
+            {/* Language toggle for storekeeper-accessible tabs: Equipment, Lifecycle, Inventory */}
+            {(activeTab === 'equipment' || activeTab === 'lifecycle' || activeTab === 'inventory') && (
+                <div className="flex items-center justify-end pb-2 border-b border-slate-100">
+                    <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full border border-slate-100 shadow-sm">
+                        <Label htmlFor="language-toggle-alt" className="text-[10px] font-semibold uppercase tracking-tighter text-slate-500">English</Label>
+                        <Switch
+                            id="language-toggle-alt"
+                            checked={language === 'sw'}
+                            onCheckedChange={(checked) => setLanguage(checked ? 'sw' : 'en')}
+                            className="data-[state=checked]:bg-indigo-600"
+                        />
+                        <Label htmlFor="language-toggle-alt" className="text-[10px] font-semibold uppercase tracking-tighter text-slate-500">Swahili</Label>
+                    </div>
+                </div>
+            )}
+
             {/* Dashboard Stats */}
             {activeTab === 'jobs' ? (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{t('active_jobs')}</CardTitle>
-                                <div className="p-2 bg-indigo-50 rounded-lg">
-                                    <Truck className="h-4 w-4 text-indigo-500" />
+                    {/* TOP ROW: Metrics */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        {/* 1. Active Jobs */}
+                        <Card className="border border-slate-100 shadow-sm bg-white hover:shadow-md transition-all">
+                            <CardContent className="p-4 flex flex-col justify-between h-full">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase">{t('active_jobs')}</span>
+                                    <div className="h-6 w-6 rounded-full bg-indigo-50 flex items-center justify-center">
+                                        <Truck className="h-3.5 w-3.5 text-indigo-500" />
+                                    </div>
                                 </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold text-slate-900">
-
-                                    {(() => {
-                                        const activeJobs = jobCards?.filter(j => j.status !== 'Closed') || [];
-                                        const uniqueVehicles = new Set(activeJobs.map(j => j.vehicle_id));
-                                        return uniqueVehicles.size;
-                                    })()}
-                                </div>
-                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Live on the floor' : 'Gerezani sasa'}</p>
-
-                            </CardContent>
-                        </Card>
-                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all border-l-4 border-l-red-500">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold text-red-500 uppercase tracking-[0.15em] leading-none">{t('critical_faults')}</CardTitle>
-                                <div className="p-2 bg-red-50 rounded-lg">
-                                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold text-red-600">
-
-
-                                    {(() => {
-                                        const criticalJobs = jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed') || [];
-                                        const uniqueVehicles = new Set(criticalJobs.map(j => j.vehicle_id));
-                                        return uniqueVehicles.size;
-                                    })()}
+                                <div>
+                                    <div className="text-2xl font-bold text-slate-800 leading-none">
+                                        {(() => {
+                                            const activeJobs = jobCards?.filter(j => j.status !== 'Closed') || [];
+                                            const uniqueVehicles = new Set(activeJobs.map(j => j.vehicle_id));
+                                            return uniqueVehicles.size;
+                                        })()}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Live on the floor' : 'Gerezani sasa'}</p>
                                 </div>
                             </CardContent>
                         </Card>
-                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-all">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{t('pending_issues')}</CardTitle>
-                                <div className="p-2 bg-amber-50 rounded-lg">
-                                    <Clock className="h-4 w-4 text-amber-500" />
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold text-slate-900">
 
-                                    {(() => {
-                                        const pendingJobs = jobCards?.filter(j =>
-                                            j.status === 'Closed' &&
-                                            (j.requires_followup || j.fault_list?.some((f: any) => ['Partial', 'Not Repaired'].includes(f.status)))
-                                        ) || [];
-                                        const uniqueVehicles = new Set(pendingJobs.map(j => j.vehicle_id));
-                                        return uniqueVehicles.size;
-                                    })()}
+                        {/* 2. Critical Faults */}
+                        <Card className="border border-red-100 shadow-sm bg-white hover:shadow-md transition-all border-l-4 border-l-red-500">
+                            <CardContent className="p-4 flex flex-col justify-between h-full">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] font-bold text-red-500 uppercase">{t('critical_faults')}</span>
+                                    <div className="h-6 w-6 rounded-full bg-red-50 flex items-center justify-center">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                                    </div>
                                 </div>
-                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Needs follow-up' : 'Yanahitaji ufuatiliaji'}</p>
-
+                                <div>
+                                    <div className="text-2xl font-bold text-red-600 leading-none">
+                                        {(() => {
+                                            const criticalJobs = jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed') || [];
+                                            const uniqueVehicles = new Set(criticalJobs.map(j => j.vehicle_id));
+                                            return uniqueVehicles.size;
+                                        })()}
+                                    </div>
+                                </div>
                             </CardContent>
                         </Card>
 
-                        {/* NEW: Manager Issuance Approvals Notification */}
-                        {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) && (
+                        {/* 3. Pending Issues */}
+                        <Card className="border border-slate-100 shadow-sm bg-white hover:shadow-md transition-all">
+                            <CardContent className="p-4 flex flex-col justify-between h-full">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase">{t('pending_issues')}</span>
+                                    <div className="h-6 w-6 rounded-full bg-amber-50 flex items-center justify-center">
+                                        <Clock className="h-3.5 w-3.5 text-amber-500" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-bold text-slate-800 leading-none">
+                                        {(() => {
+                                            const pendingJobs = jobCards?.filter(j =>
+                                                j.status === 'Closed' &&
+                                                (j.requires_followup || j.fault_list?.some((f: any) => ['Partial', 'Not Repaired'].includes(f.status)))
+                                            ) || [];
+                                            const uniqueVehicles = new Set(pendingJobs.map(j => j.vehicle_id));
+                                            return uniqueVehicles.size;
+                                        })()}
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Needs follow-up' : 'Yanahitaji ufuatiliaji'}</p>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* 4. Manager Issuance Approvals */}
+                        {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) ? (
                             <Card
-                                className={`border-none shadow-sm transition-all cursor-pointer hover:shadow-md ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0)
-                                    ? "bg-indigo-600 text-white"
-                                    : "bg-white text-slate-900"
+                                className={`border shadow-sm transition-all cursor-pointer hover:shadow-md ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0)
+                                    ? "bg-indigo-600 text-white border-indigo-600"
+                                    : "bg-white text-slate-900 border-slate-100"
                                     }`}
                                 onClick={() => {
                                     setActiveTab('logs');
                                     setActiveStoreTab('approvals');
                                 }}
                             >
-                                <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
-                                    <CardTitle className={`text-[11px] font-bold uppercase tracking-[0.15em] ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>{language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}</CardTitle>
-                                    <ClipboardCheck className={`h-4 w-4 ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-white" : "text-indigo-500"}`} />
-                                </CardHeader>
-
-                                <CardContent>
-                                    <div className="text-2xl font-semibold">
-                                        {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
+                                <CardContent className="p-4 flex flex-col justify-between h-full">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className={`text-[11px] font-bold uppercase ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>
+                                            {language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}
+                                        </span>
+                                        <div className={`h-6 w-6 rounded-full flex items-center justify-center ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "bg-indigo-500/50" : "bg-slate-50"}`}>
+                                            <ClipboardCheck className={`h-3.5 w-3.5 ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-white" : "text-slate-400"}`} />
+                                        </div>
                                     </div>
-
-                                    <p className={`text-[11px] mt-1 font-medium italic ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100/80" : "text-slate-400"}`}>
-                                        {language === 'en' ? 'Requires manager review' : 'Inahitaji uhakiki wa meneja'}
-                                    </p>
+                                    <div>
+                                        <div className="text-2xl font-bold leading-none">
+                                            {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
+                                        </div>
+                                        <p className={`text-[10px] mt-1 font-medium ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100/80" : "text-slate-400"}`}>
+                                            {language === 'en' ? 'Requires manager review' : 'Inahitaji uhakiki wa meneja'}
+                                        </p>
+                                    </div>
                                 </CardContent>
                             </Card>
-
+                        ) : (
+                            <div className="hidden lg:block"></div>
                         )}
+                    </div>
 
-                        {/* Recent Activity Feed for Accountability */}
-                        <Card className="border-none shadow-sm bg-white md:row-span-2 lg:row-span-1">
-                            <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-50 bg-slate-50/50">
-                                <CardTitle className="text-[11px] font-bold text-slate-700 uppercase tracking-[0.15em] flex items-center gap-2">
+                    {/* BOTTOM ROW: Feeds & Alerts */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
+                        {/* Accountability Feed */}
+                        <Card className="border border-slate-100 shadow-sm bg-white lg:col-span-1 h-full">
+                            <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between border-b border-slate-50">
+                                <CardTitle className="text-[11px] font-bold text-slate-600 uppercase flex items-center gap-2">
                                     <HistoryIcon className="h-3.5 w-3.5 text-indigo-500" />
                                     {language === 'en' ? 'Accountability Feed' : 'Mlisho wa Uwajibikaji'}
                                 </CardTitle>
-                                <Badge variant="outline" className="text-[9px] bg-white font-semibold">{language === 'en' ? 'Live' : 'Mubashara'}</Badge>
+                                <Badge variant="outline" className="text-[9px] font-semibold text-indigo-600 border-indigo-200 bg-indigo-50 px-1.5 py-0">Live</Badge>
                             </CardHeader>
-
                             <CardContent className="p-0">
-                                <ScrollArea className="h-[120px] px-4 py-2">
-                                    <div className="space-y-3">
+                                <ScrollArea className="h-[140px] px-4 py-2">
+                                    <div className="space-y-2.5">
                                         {(usageLogs || []).slice(0, 10).map((log: any) => (
-                                            <div key={log.id} className="flex gap-3 items-start border-l-2 border-indigo-100 pl-3 py-0.5">
+                                            <div key={log.id} className="flex gap-2 items-start border-l-2 border-indigo-100 pl-2 py-0.5">
                                                 <div className="flex flex-col flex-1">
                                                     <div className="flex justify-between items-center">
-                                                        <span className="text-[11px] font-semibold text-slate-700">{log.issued_to || (language === 'en' ? "Staff" : "Mfanyakazi")}</span>
-                                                        <span className="text-[9px] text-slate-400">
+                                                        <span className="text-[10px] font-bold text-slate-700">{log.issued_to || (language === 'en' ? "Staff" : "Mfanyakazi")}</span>
+                                                        <span className="text-[9px] text-slate-400 font-medium">
                                                             {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
-                                                    <p className="text-[10px] text-slate-500 leading-tight">
-                                                        {language === 'en' ? 'Took' : 'Alichukua'} <span className="text-indigo-600 font-medium">{log.quantity_used} {log.item_name}</span> {language === 'en' ? 'for' : 'kwa'} <span className="text-slate-700 font-semibold">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || (language === 'en' ? "General" : "Jumla")}</span>
+                                                    <p className="text-[10px] text-slate-500 leading-snug mt-0.5">
+                                                        Took <span className="text-indigo-600 font-semibold">{log.quantity_used} {log.item_name}</span> for <span className="text-slate-700 font-bold">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || "General"}</span>
                                                     </p>
                                                 </div>
                                             </div>
                                         ))}
-
                                         {(!usageLogs || usageLogs.length === 0) && (
-                                            <p className="text-[10px] text-slate-400 italic text-center py-4">{language === 'en' ? 'No recent activity logged' : 'Hakuna shughuli ya karibuni'}</p>
+                                            <p className="text-[10px] text-slate-400 italic text-center py-4">No recent activity</p>
                                         )}
-
                                     </div>
                                 </ScrollArea>
                             </CardContent>
                         </Card>
 
-                        {/* Status Recovery Card - Only shows if vehicles are stuck */}
+                        {/* Status Recovery Card */}
                         {(() => {
                             const stuckVehicles = (vehicles || []).filter(v =>
                                 v.status === 'Maintenance' &&
@@ -1273,35 +1308,35 @@ const GarageDashboard = () => {
                             );
                             if (stuckVehicles.length === 0) return null;
                             return (
-                                <Card className="border-indigo-200 shadow-sm bg-indigo-50/30 md:col-span-2 lg:col-span-4">
-                                    <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
-                                        <CardTitle className="text-[11px] font-medium text-indigo-700 uppercase tracking-widest flex items-center gap-2">
-                                            <AlertTriangle className="h-3 w-3" /> {language === 'en' ? 'Status Recovery Needed' : 'Urejeshaji wa Hali Unahitajika'}
+                                <Card className="border border-amber-200 shadow-sm bg-amber-50/50 lg:col-span-2 h-full">
+                                    <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between border-b border-amber-100/50">
+                                        <CardTitle className="text-[11px] font-bold text-amber-700 uppercase flex items-center gap-2">
+                                            <AlertTriangle className="h-3.5 w-3.5" /> {language === 'en' ? 'Status Recovery Needed' : 'Urejeshaji wa Hali Unahitajika'}
                                         </CardTitle>
                                     </CardHeader>
 
-                                    <CardContent className="px-4 pb-4">
-                                        <div className="space-y-2">
-                                            {stuckVehicles.map(v => (
-                                                <div key={v.id} className="flex items-center justify-between p-2 bg-white border border-indigo-100 rounded-lg">
-                                                    <div className="flex flex-col">
-                                                        <span className="text-[11px] font-semibold text-slate-800">{v.plate_number}</span>
-                                                        <span className="text-[11px] text-slate-500 font-medium">{language === 'en' ? "Stuck in 'Maintenance' with no job card" : "Ikwama kwenye 'Matengenezo' bila kadi ya kazi"}</span>
+                                    <CardContent className="p-3">
+                                        <ScrollArea className="h-[128px]">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pr-3">
+                                                {stuckVehicles.map(v => (
+                                                    <div key={v.id} className="flex items-center justify-between p-2 bg-white border border-amber-100 rounded-md shadow-sm">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[11px] font-bold text-slate-800">{v.plate_number}</span>
+                                                            <span className="text-[9px] text-slate-500 font-medium">Stuck without active job</span>
+                                                        </div>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-6 px-2 text-[9px] font-semibold border-amber-200 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
+                                                            onClick={() => forceReleaseMutation.mutate(v.id)}
+                                                            disabled={forceReleaseMutation.isPending}
+                                                        >
+                                                            {forceReleaseMutation.isPending ? "Fixing..." : "Unlock"}
+                                                        </Button>
                                                     </div>
-
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className="h-7 text-[10px] border-indigo-200 text-indigo-600 hover:bg-indigo-600 hover:text-white"
-                                                        onClick={() => forceReleaseMutation.mutate(v.id)}
-                                                        disabled={forceReleaseMutation.isPending}
-                                                    >
-                                                        {forceReleaseMutation.isPending ? (language === 'en' ? "Fixing..." : "Kurekebisha...") : (language === 'en' ? "Unlock Unit" : "Fungua Kitengo")}
-                                                    </Button>
-
-                                                </div>
-                                            ))}
-                                        </div>
+                                                ))}
+                                            </div>
+                                        </ScrollArea>
                                     </CardContent>
                                 </Card>
                             );
@@ -2271,6 +2306,10 @@ const GarageDashboard = () => {
                         </CardContent>
                     </Card>
                 </div>
+            ) : activeTab === 'equipment' ? (
+                <VehicleEquipment language={language} vehicles={vehicles} />
+            ) : activeTab === 'lifecycle' ? (
+                <VehicleLifecycle language={language} vehicles={vehicles} />
             ) : null}
 
 

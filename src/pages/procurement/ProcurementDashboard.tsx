@@ -442,11 +442,16 @@ const ProcurementDashboard = () => {
 
     const createReqMutation = useMutation({
         mutationFn: async (req: typeof newReq) => {
+            const userResponse = await sb.auth.getUser();
+            const userId = userResponse.data.user?.id;
+
             const { data, error } = await sb.from("garage_requisitions").insert([{
                 item_name: req.item_name,
                 quantity_requested: req.quantity,
                 target_company: req.target_company,
-                status: 'Pending'
+                status: 'Pending',
+                request_type: 'General',
+                requested_by: userId
             }]).select();
             if (error) throw error;
             return data;
@@ -456,6 +461,14 @@ const ProcurementDashboard = () => {
             toast({ title: "Requisition Created", description: `Internal request for ${newReq.target_company} logged.` });
             setIsCreateReqOpen(false);
             setNewReq({ item_name: "", quantity: 1, target_company: "SudEnergy Logistics" });
+        },
+        onError: (error: any) => {
+            console.error("Create Requisition Error:", error);
+            toast({ 
+                variant: "destructive", 
+                title: "Failed to Send Request", 
+                description: error.message || "An error occurred while creating the requisition." 
+            });
         }
     });
 
@@ -1439,7 +1452,7 @@ const ProcurementDashboard = () => {
 
             {/* Professional Approval Dialog */}
             < Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen} >
-                <DialogContent className="sm:max-w-[500px]">
+                <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
                     <DialogHeader>
                         <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                             <Receipt className="w-5 h-5 text-blue-900" />
@@ -1565,7 +1578,7 @@ const ProcurementDashboard = () => {
                             />
                         </div>
                     )}
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="gap-2 sticky bottom-0 bg-white p-4 border-t z-10 -mx-6 -mb-6 mt-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
                         <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)} className="h-11 font-semibold uppercase text-[11px] flex-1">Cancel</Button>
 
                         <Button

@@ -1521,7 +1521,7 @@ Please process payment in Cashier section first.`,
                       <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
                         <AlertTriangle className="h-4 w-4 text-amber-500" />
                         <p className="text-xs font-bold text-amber-900 dark:text-amber-100">
-                          Automatic mode active - manual typing is disabled.
+                          Automatic Capture Only.
                         </p>
                       </div>
                     )}

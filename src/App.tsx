@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Layout } from "./components/Layout";
 import { AuthProvider } from "./contexts/AuthContext";
+import { LanguageProvider } from "./contexts/LanguageContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useEffect } from 'react';
@@ -107,7 +108,8 @@ const App = () => {
         <Sonner />
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
-            <Routes>
+            <LanguageProvider>
+              <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route
               path="/"
@@ -592,6 +594,7 @@ const App = () => {
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
+            </LanguageProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

@@ -1,6 +1,7 @@
 import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye, Trash2 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -55,7 +56,7 @@ const logisticsItems = [
 ];
 
 const garageItems = [
-  { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
+  { title: "Garage Command", url: "/garage", icon: Wrench, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
   { title: "Vehicle Equipment", url: "/garage/equipment", icon: FileCheck, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
   { title: "Lifecycle Analytics", url: "/garage/lifecycle", icon: Activity, roles: ["admin", "super_admin", "garage_manager", "finance", "storekeeper"] },
   { title: "Parts & Store", url: "/garage/store", icon: Package, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
@@ -92,6 +93,7 @@ const getCurrentShift = () => {
 export function AppSidebar() {
   const { state } = useSidebar();
   const { userRole, userProfile, signOut } = useAuth();
+  const { language } = useLanguage();
   const location = useLocation();
   const isCollapsed = state === "collapsed";
   const [currentShift, setCurrentShift] = useState(getCurrentShift());
@@ -338,24 +340,31 @@ export function AppSidebar() {
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarMenu>
-                  {filteredGarage.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild tooltip={item.title}>
-                        <NavLink
-                          to={item.url}
-                          className={({ isActive }) =>
-                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
-                              ? "bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-lg scale-[1.02]"
-                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
-                            }`
-                          }
-                        >
-                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                    {filteredGarage.map((item) => {
+                      let displayTitle = item.title;
+                      if (language === 'sw') {
+                        if (item.title === "Vehicle Equipment") displayTitle = "Vifaa vya Gari";
+                        if (item.title === "Lifecycle Analytics") displayTitle = "Uchambuzi wa Maisha";
+                      }
+                      return (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton asChild tooltip={displayTitle}>
+                          <NavLink
+                            to={item.url}
+                            className={({ isActive }) =>
+                              `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                                ? "bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-lg scale-[1.02]"
+                                : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                              }`
+                            }
+                          >
+                            <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                            <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{displayTitle}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      );
+                    })}
                 </SidebarMenu>
               </CollapsibleContent>
             </SidebarGroup>

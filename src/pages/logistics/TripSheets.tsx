@@ -45,15 +45,16 @@ import {
     Route as RouteIcon,
     CreditCard
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { TripSheet } from "@/components/logistics/TripSheet";
 import { LogisticsPaymentTracker } from "@/components/logistics/LogisticsPaymentTracker";
-import { useAuth } from "@/contexts/AuthContext";
+import { CompletedTripsHistory } from "@/components/logistics/CompletedTripsHistory";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const TripSheets = () => {
     const { userRole, user, userProfile } = useAuth();
-    const [showFinanceTab, setShowFinanceTab] = useState(false);
+    const [activeTab, setActiveTab] = useState<'operations' | 'finance' | 'history'>('operations');
     const { toast } = useToast();
     const [searchTerm, setSearchTerm] = useState("");
     
@@ -284,7 +285,7 @@ const TripSheets = () => {
         trip.client_name?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const groupedTrips = filteredSheets?.reduce((acc, trip) => {
+    const groupedTrips = filteredSheets?.filter(t => t.status !== 'Completed')?.reduce((acc, trip) => {
         const client = trip.client_name || 'Individual / Unspecified';
         const key = client;
         
@@ -403,11 +404,22 @@ const TripSheets = () => {
                             size="sm" 
                             className={cn(
                                 "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
-                                !showFinanceTab ? "bg-white text-slate-900 shadow-sm shadow-slate-200" : "text-slate-500 hover:text-slate-900"
+                                activeTab === 'operations' ? "bg-white text-slate-900 shadow-sm shadow-slate-200" : "text-slate-500 hover:text-slate-900"
                             )}
-                            onClick={() => setShowFinanceTab(false)}
+                            onClick={() => setActiveTab('operations')}
                         >
                             Operations
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className={cn(
+                                "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
+                                activeTab === 'history' ? "bg-slate-800 text-white shadow-sm shadow-slate-900" : "text-slate-500 hover:text-slate-900"
+                            )}
+                            onClick={() => setActiveTab('history')}
+                        >
+                            History & Completed
                         </Button>
                         {(userRole === 'super_admin' || userRole === 'finance' || userRole === 'audit_clerk') && (
                             <Button 
@@ -415,9 +427,9 @@ const TripSheets = () => {
                                 size="sm" 
                                 className={cn(
                                     "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
-                                    showFinanceTab ? "bg-emerald-600 text-white shadow-sm shadow-emerald-200" : "text-slate-500 hover:text-emerald-600 hover:bg-emerald-50"
+                                    activeTab === 'finance' ? "bg-emerald-600 text-white shadow-sm shadow-emerald-200" : "text-slate-500 hover:text-emerald-600 hover:bg-emerald-50"
                                 )}
-                                onClick={() => setShowFinanceTab(true)}
+                                onClick={() => setActiveTab('finance')}
                             >
                                 <CreditCard size={12} className="mr-1.5" />
                                 Accounts Tracking
@@ -446,8 +458,10 @@ const TripSheets = () => {
                 </div>
             </div>
 
-            {showFinanceTab ? (
+            {activeTab === 'finance' ? (
                 <LogisticsPaymentTracker searchTerm={searchTerm} />
+            ) : activeTab === 'history' ? (
+                <CompletedTripsHistory tripSheets={tripSheets || []} searchTerm={searchTerm} />
             ) : (
                 <Fragment>
             {/* Quick Stats Grid - More Compact */}

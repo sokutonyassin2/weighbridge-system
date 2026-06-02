@@ -108,48 +108,60 @@ export const LogisticsPaymentTracker = ({ searchTerm = "" }: { searchTerm?: stri
         const invoiceGroups: Record<string, any> = {};
 
         tripData.forEach(trip => {
-            const inv = trip.invoice_no;
             const clientName = trip.client_name || "Unknown Client";
-            
-            // Search Filter
-            if (searchTerm && !inv.toLowerCase().includes(searchTerm.toLowerCase()) && !clientName.toLowerCase().includes(searchTerm.toLowerCase())) {
-                return;
-            }
-
-            if (!invoiceGroups[inv]) {
-                invoiceGroups[inv] = {
-                    invoice_no: inv,
-                    invoice_date: trip.invoice_date,
-                    client: clientName,
-                    total_revenue: 0,
-                    total_journey_costs: 0,
-                    trips: []
-                };
-            }
-            
             const rate = parseFloat(trip.exchange_rate) || 2700;
-            const rev = parseFloat(trip.revenue_amount) || 0;
-            const revTSh = trip.revenue_currency === 'TZS' ? rev : rev * rate;
 
-            // Calculate Journey Costs (excluding Fixed)
-            const tripExpenses = (trip.expenses as any[]) || [];
-            const journeyCostsTSh = tripExpenses
-                .filter(e => e.category !== 'Fixed')
-                .reduce((sum, e) => {
-                    const amt = parseFloat(e.amount) || 0;
-                    return sum + (e.currency === 'TZS' ? amt : amt * rate);
-                }, 0);
-            
-            invoiceGroups[inv].total_revenue += revTSh;
-            invoiceGroups[inv].total_journey_costs += journeyCostsTSh;
-            
-            invoiceGroups[inv].trips.push({
-                ...trip,
-                revTSh,
-                journeyCostsTSh,
-                margin: revTSh - journeyCostsTSh,
-                marginUSD: (revTSh - journeyCostsTSh) / rate
-            });
+            const processInvoice = (inv: string, isReturn: boolean) => {
+                if (!inv) return;
+
+                // Search Filter
+                if (searchTerm && !inv.toLowerCase().includes(searchTerm.toLowerCase()) && !clientName.toLowerCase().includes(searchTerm.toLowerCase())) {
+                    return;
+                }
+
+                if (!invoiceGroups[inv]) {
+                    invoiceGroups[inv] = {
+                        invoice_no: inv,
+                        invoice_date: isReturn ? trip.return_invoice_date : trip.invoice_date,
+                        client: clientName,
+                        total_revenue: 0,
+                        total_journey_costs: 0,
+                        trips: []
+                    };
+                }
+
+                const revAmountRaw = isReturn ? trip.return_revenue_amount : trip.revenue_amount;
+                const revCurrency = isReturn ? trip.return_revenue_currency : trip.revenue_currency;
+                const rev = parseFloat(revAmountRaw) || 0;
+                const revTSh = revCurrency === 'TZS' ? rev : rev * rate;
+
+                // Journey Costs (only assign to outbound to prevent double counting, unless it's ONLY a return trip)
+                let journeyCostsTSh = 0;
+                if (!isReturn) {
+                    const tripExpenses = (trip.expenses as any[]) || [];
+                    journeyCostsTSh = tripExpenses
+                        .filter(e => e.category !== 'Fixed')
+                        .reduce((sum, e) => {
+                            const amt = parseFloat(e.amount) || 0;
+                            return sum + (e.currency === 'TZS' ? amt : amt * rate);
+                        }, 0);
+                }
+
+                invoiceGroups[inv].total_revenue += revTSh;
+                invoiceGroups[inv].total_journey_costs += journeyCostsTSh;
+                
+                invoiceGroups[inv].trips.push({
+                    ...trip,
+                    isReturnInvoice: isReturn,
+                    revTSh,
+                    journeyCostsTSh,
+                    margin: revTSh - journeyCostsTSh,
+                    marginUSD: (revTSh - journeyCostsTSh) / rate
+                });
+            };
+
+            if (trip.invoice_no) processInvoice(trip.invoice_no, false);
+            if (trip.journey_type?.includes('Go & Return') && trip.return_invoice_no) processInvoice(trip.return_invoice_no, true);
         });
 
         const sortedInvoices = Object.values(invoiceGroups).sort((a: any, b: any) => 

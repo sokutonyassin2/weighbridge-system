@@ -109,7 +109,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         daily_fine_amount: "",
         invoice_no: "",
         invoice_date: "",
-        payment_status: "Pending" as "Pending" | "Paid" | "Partial" | "Overdue"
+        payment_status: "Pending" as "Pending" | "Paid" | "Partial" | "Overdue",
+        return_cargo: "",
+        return_revenue_amount: "",
+        return_revenue_currency: "TZS",
+        return_invoice_no: "",
+        return_invoice_date: "",
+        return_payment_status: "Pending" as "Pending" | "Paid" | "Partial" | "Overdue"
     });
 
     // Summary State
@@ -396,7 +402,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         daily_fine_amount: (doc.daily_fine_amount || '').toString(),
                         invoice_no: doc.invoice_no || "",
                         invoice_date: doc.invoice_date || "",
-                        payment_status: doc.payment_status || "Pending"
+                        payment_status: doc.payment_status || "Pending",
+                        return_cargo: doc.return_cargo || "",
+                        return_revenue_amount: (doc.return_revenue_amount || '').toString(),
+                        return_revenue_currency: doc.return_revenue_currency || "TZS",
+                        return_invoice_no: doc.return_invoice_no || "",
+                        return_invoice_date: doc.return_invoice_date || "",
+                        return_payment_status: doc.return_payment_status || "Pending"
                     });
 
                     setRevenueData({
@@ -542,7 +554,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             daily_fine_amount: (doc.daily_fine_amount || '').toString(),
             invoice_no: doc.invoice_no || "",
             invoice_date: doc.invoice_date || "",
-            payment_status: doc.payment_status || "Pending"
+            payment_status: doc.payment_status || "Pending",
+            return_cargo: doc.return_cargo || "",
+            return_revenue_amount: (doc.return_revenue_amount || '').toString(),
+            return_revenue_currency: doc.return_revenue_currency || "TZS",
+            return_invoice_no: doc.return_invoice_no || "",
+            return_invoice_date: doc.return_invoice_date || "",
+            return_payment_status: doc.return_payment_status || "Pending"
         });
         setRevenueData({
             revenue_type: doc.revenue_type || 'Without Fuel',
@@ -778,6 +796,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 invoice_no: tripData.invoice_no,
                 invoice_date: tripData.invoice_date || null,
                 payment_status: tripData.payment_status,
+                return_cargo: tripData.return_cargo || null,
+                return_revenue_amount: tripData.return_revenue_amount ? parseFloat(tripData.return_revenue_amount) : null,
+                return_revenue_currency: tripData.return_revenue_currency,
+                return_invoice_no: tripData.return_invoice_no || null,
+                return_invoice_date: tripData.return_invoice_date || null,
+                return_payment_status: tripData.return_payment_status,
                 updated_at: new Date().toISOString()
             } as any;
 
@@ -1740,25 +1764,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
-                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
-                                                <Input
-                                                    className="h-9 bg-white border-slate-200 text-xs font-bold text-slate-700"
-                                                    placeholder="e.g. INV-2025-001"
-                                                    value={tripData.invoice_no || ''}
-                                                    onChange={(e) => setTripData({ ...tripData, invoice_no: e.target.value })}
-                                                    disabled={(isLocked || isInvoiceCaptured) && !isSuperAdmin}
-                                                />
+                                                <div className="flex items-center gap-1.5">
+                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
+                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
+                                                </div>
+                                                <div className="h-9 px-3 rounded-lg bg-slate-100 border border-slate-200 flex items-center text-xs font-bold text-slate-700 select-none">
+                                                    {tripData.invoice_no || <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
+                                                </div>
                                             </div>
                                             <div className="space-y-1.5">
-                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
-                                                <Input
-                                                    type="date"
-                                                    className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-700 cursor-pointer"
-                                                    value={tripData.invoice_date || ''}
-                                                    onChange={(e) => setTripData({ ...tripData, invoice_date: e.target.value })}
-                                                    onClick={(e) => e.currentTarget.showPicker()}
-                                                    disabled={(isLocked || isInvoiceCaptured) && !isSuperAdmin}
-                                                />
+                                                <div className="flex items-center gap-1.5">
+                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
+                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
+                                                </div>
+                                                <div className="h-9 px-3 rounded-lg bg-slate-100 border border-slate-200 flex items-center text-xs font-medium text-slate-700 select-none">
+                                                    {tripData.invoice_date ? new Date(tripData.invoice_date).toLocaleDateString() : <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1786,6 +1807,97 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             </Select>
                                         </div>
                                     </div>
+
+                                    {/* 🔄 Return Journey & Invoicing Section (Only for Go & Return) */}
+                                    {tripData.journey_type?.includes('Go & Return') && (
+                                        <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <div className="p-1.5 bg-white rounded-md border border-indigo-200 text-indigo-600">
+                                                    <CreditCard size={14} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Return Journey & Invoicing</span>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <div className="flex items-center gap-1.5">
+                                                    <Label className="text-xs font-semibold text-slate-500">Return Cargo Description</Label>
+                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
+                                                </div>
+                                                <div className="h-11 px-3 rounded-lg bg-slate-100 border border-indigo-100 flex items-center text-sm font-medium text-slate-700 select-none">
+                                                    {tripData.return_cargo || <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Invoice Number</Label>
+                                                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
+                                                    </div>
+                                                    <div className="h-9 px-3 rounded-lg bg-slate-100 border border-indigo-100 flex items-center text-xs font-bold text-slate-700 select-none">
+                                                        {tripData.return_invoice_no || <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Invoice Date</Label>
+                                                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
+                                                    </div>
+                                                    <div className="h-9 px-3 rounded-lg bg-slate-100 border border-indigo-100 flex items-center text-xs font-medium text-slate-700 select-none">
+                                                        {tripData.return_invoice_date ? new Date(tripData.return_invoice_date).toLocaleDateString() : <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Revenue (Gross)</Label>
+                                                    <div className="relative">
+                                                        <select
+                                                            className="absolute left-0 top-0 h-full w-16 bg-transparent border-none text-xs font-bold text-slate-600 focus:ring-0 cursor-pointer px-2"
+                                                            value={tripData.return_revenue_currency}
+                                                            onChange={(e) => setTripData({ ...tripData, return_revenue_currency: e.target.value })}
+                                                            disabled={isLocked}
+                                                        >
+                                                            <option value="TZS">TZS</option>
+                                                            <option value="USD">USD</option>
+                                                        </select>
+                                                        <Input
+                                                            type="number"
+                                                            className="pl-16 h-9 bg-white border-indigo-100 text-xs font-bold text-slate-700"
+                                                            placeholder="0.00"
+                                                            value={tripData.return_revenue_amount || ''}
+                                                            onChange={(e) => setTripData({ ...tripData, return_revenue_amount: e.target.value })}
+                                                            disabled={isLocked}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Payment Status</Label>
+                                                    <Select
+                                                        value={tripData.return_payment_status || "Pending"}
+                                                        onValueChange={(val) => setTripData({ ...tripData, return_payment_status: val })}
+                                                        disabled={isLocked && !isSuperAdmin}
+                                                    >
+                                                        <SelectTrigger className="h-9 bg-white border-indigo-100 text-xs font-semibold text-slate-700">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`w-2 h-2 rounded-full ${
+                                                                    tripData.return_payment_status === 'Paid' ? 'bg-emerald-500' : 
+                                                                    tripData.return_payment_status === 'Partial' ? 'bg-amber-500' : 'bg-slate-300'
+                                                                }`} />
+                                                                <SelectValue />
+                                                            </div>
+                                                        </SelectTrigger>
+                                                        <SelectContent className="z-[100]">
+                                                            <SelectItem value="Pending">Pending / Unpaid</SelectItem>
+                                                            <SelectItem value="Partial">Partial Payment</SelectItem>
+                                                            <SelectItem value="Paid">Fully Paid</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         <div className="space-y-2">

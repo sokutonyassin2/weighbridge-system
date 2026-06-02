@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
@@ -119,7 +120,7 @@ const GarageDashboard = () => {
     const [adjustedQty, setAdjustedQty] = useState(1);
     const [selectedUsageToApprove, setSelectedUsageToApprove] = useState<any>(null);
     const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
-    const [language, setLanguage] = useState<'en' | 'sw'>('en');
+    const { language, setLanguage } = useLanguage();
     const [inventoryViewMode, setInventoryViewMode] = useState<"list" | "grid">("list");
 
 
@@ -156,6 +157,8 @@ const GarageDashboard = () => {
     const [isEditReqOpen, setIsEditReqOpen] = useState(false);
     const [editingReqItem, setEditingReqItem] = useState<{ id: string; item_name: string; quantity: number } | null>(null);
     const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
+    const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
+    const [editProduct, setEditProduct] = useState({ id: "", item_name: "", part_number: "", category: "Parts", quantity: 0, unit_measure: "pcs", min_threshold: 5 });
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
     const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string }[]>([{ item_name: "", quantity: 1 }]);
@@ -364,6 +367,32 @@ const GarageDashboard = () => {
             });
         },
         onError: (err: any) => toast({ variant: "destructive", title: "Add Failed", description: err.message })
+    });
+
+    const editProductMutation = useMutation({
+        mutationFn: async (product: any) => {
+            const { id, ...updates } = product;
+            const { error } = await sb.from("garage_inventory").update(updates).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
+            toast({ title: "Product Updated", description: "The item has been updated." });
+            setIsEditProductDialogOpen(false);
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Update Failed", description: err.message })
+    });
+
+    const deleteProductMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_inventory").delete().eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
+            toast({ title: "Product Deleted", description: "The item has been removed." });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Delete Failed", description: err.message })
     });
 
     const updateQuantityMutation = useMutation({
@@ -1365,10 +1394,11 @@ const GarageDashboard = () => {
                                     <TableRow className="bg-slate-50/50">
                                         <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Job No' : 'Namba ya Kazi'}</TableHead>
                                         <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('vehicle')}</TableHead>
-                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('mechanic')}</TableHead>
-                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 text-center">{language === 'en' ? 'Open Date' : 'Tarehe iliyofunguliwa'}</TableHead>
                                         <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Primary Issue' : 'Tatizo Kuu'}</TableHead>
-                                        <TableHead className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em] text-center">Status</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Task Progress' : 'Maendeleo ya Kazi'}</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Priority' : 'Kipaumbele'}</TableHead>
+                                        <TableHead className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em]">Status</TableHead>
+                                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Open Date' : 'Tarehe iliyofunguliwa'}</TableHead>
                                         <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('actions')}</TableHead>
                                     </TableRow>
 
@@ -1546,9 +1576,7 @@ const GarageDashboard = () => {
                                 {t('inventory')}
                             </h1>
 
-                            <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight italic">
-                                {language === 'en' ? 'Manage stock levels and request part restocks' : 'Simamia kiwango cha vifaa na agiza vipya'}
-                            </p>
+
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -1604,41 +1632,26 @@ const GarageDashboard = () => {
                         </div>
                     </div>
 
-                    <div className="grid gap-6 md:grid-cols-2">
-                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{language === 'en' ? 'Catalog Items' : 'Orodha ya Vifaa'}</CardTitle>
+                    <div className="flex flex-wrap gap-3">
+                        <div className="flex items-center gap-3 bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 hover:shadow-md transition-shadow">
+                            <div className="p-2 bg-indigo-50 rounded-lg flex-shrink-0">
+                                <Package className="h-4 w-4 text-indigo-600" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] leading-none">{language === 'en' ? 'Catalog Items' : 'Orodha ya Vifaa'}</p>
+                                <p className="text-2xl font-bold text-slate-900 mt-0.5">{inventory?.length || 0}</p>
+                            </div>
+                        </div>
 
-
-                                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
-                                    <Package className="h-4 w-4" />
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold text-slate-900">{inventory?.length || 0}</div>
-
-                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Unique products registered' : 'Aina za vifaa vilivyosajiliwa'}</p>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="border-none shadow-sm bg-white hover:shadow-md transition-shadow border-l-4 border-l-red-400">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold text-red-500 uppercase tracking-[0.15em] leading-none">{language === 'en' ? 'Low Stock Alerts' : 'Tahadhari ya Akiba Chini'}</CardTitle>
-
-
-                                <div className="p-2 bg-red-50 rounded-lg text-red-600">
-                                    <AlertTriangle className="h-4 w-4" />
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold text-red-600">
-
-                                    {(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}
-                                </div>
-                                <p className="text-[11px] text-slate-400 mt-1 font-semibold italic tracking-tight">{language === 'en' ? 'Items below threshold' : 'Vifaa vilivyopungua akiba'}</p>
-                            </CardContent>
-                        </Card>
-
+                        <div className="flex items-center gap-3 bg-white rounded-xl border border-red-100 shadow-sm px-4 py-3 hover:shadow-md transition-shadow">
+                            <div className="p-2 bg-red-50 rounded-lg flex-shrink-0">
+                                <AlertTriangle className="h-4 w-4 text-red-600" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-red-500 uppercase tracking-[0.15em] leading-none">{language === 'en' ? 'Low Stock Alerts' : 'Tahadhari'}</p>
+                                <p className="text-2xl font-bold text-red-600 mt-0.5">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</p>
+                            </div>
+                        </div>
                     </div>
 
                     {inventoryViewMode === 'grid' ? (
@@ -1713,6 +1726,32 @@ const GarageDashboard = () => {
                                                 }}
                                             >
                                                 {language === 'en' ? 'Update Physical count' : 'Sasisha idadi halisi'}
+                                            </Button>
+
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 text-[11px] font-semibold border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 rounded-lg"
+                                                onClick={() => {
+                                                    setEditProduct(item);
+                                                    setIsEditProductDialogOpen(true);
+                                                }}
+                                            >
+                                                <Settings className="w-3.5 h-3.5 mr-1.5" />
+                                                {language === 'en' ? 'Edit' : 'Hariri'}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 text-[11px] font-semibold border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600 rounded-lg"
+                                                onClick={() => {
+                                                    if (window.confirm(language === 'en' ? "Are you sure you want to delete this product?" : "Una uhakika unataka kufuta kipuri hiki?")) {
+                                                        deleteProductMutation.mutate(item.id);
+                                                    }
+                                                }}
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                                                {language === 'en' ? 'Delete' : 'Futa'}
                                             </Button>
 
                                         </div>
@@ -1805,6 +1844,33 @@ const GarageDashboard = () => {
                                                                 title={language === 'en' ? 'Update Count' : 'Sasisha Idadi'}
                                                             >
                                                                 <Edit2 className="h-4 w-4" />
+                                                            </Button>
+
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 rounded-lg group"
+                                                                onClick={() => {
+                                                                    setEditProduct(item);
+                                                                    setIsEditProductDialogOpen(true);
+                                                                }}
+                                                                title={language === 'en' ? 'Edit Product' : 'Hariri Kipuri'}
+                                                            >
+                                                                <Settings className="h-4 w-4" />
+                                                            </Button>
+
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-lg group"
+                                                                onClick={() => {
+                                                                    if (window.confirm(language === 'en' ? "Are you sure you want to delete this product?" : "Una uhakika unataka kufuta kipuri hiki?")) {
+                                                                        deleteProductMutation.mutate(item.id);
+                                                                    }
+                                                                }}
+                                                                title={language === 'en' ? 'Delete Product' : 'Futa Kipuri'}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
                                                             </Button>
                                                         </div>
                                                     </TableCell>
@@ -2683,6 +2749,84 @@ const GarageDashboard = () => {
                             onClick={() => addProductMutation.mutate(newProduct)}
                         >
                             {addProductMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (language === 'en' ? "Registry Product" : "Sajili Kipuri")}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Edit Product Dialog */}
+            <Dialog open={isEditProductDialogOpen} onOpenChange={setIsEditProductDialogOpen}>
+                <DialogContent className="sm:max-w-[450px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 font-semibold">
+                            <Settings className="w-5 h-5 text-indigo-500" />
+                            {language === 'en' ? 'Edit Product' : 'Hariri Kipuri'}
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Product Name' : 'Jina la Kipuri'}</Label>
+                                <Input
+                                    value={editProduct.item_name}
+                                    onChange={(e) => setEditProduct({ ...editProduct, item_name: e.target.value })}
+                                    className="h-10"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Part Number' : 'Namba ya Kipuri'}</Label>
+                                <Input
+                                    value={editProduct.part_number}
+                                    onChange={(e) => setEditProduct({ ...editProduct, part_number: e.target.value })}
+                                    className="h-10 font-mono"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Category' : 'Kundi'}</Label>
+                                <Select value={editProduct.category} onValueChange={(val) => setEditProduct({ ...editProduct, category: val })}>
+                                    <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="Parts">{language === 'en' ? 'Parts' : 'Vipuri'}</SelectItem>
+                                        <SelectItem value="Fluids">{language === 'en' ? 'Fluids' : 'Maji/Mafuta'}</SelectItem>
+                                        <SelectItem value="Tools">{language === 'en' ? 'Tools' : 'Zana'}</SelectItem>
+                                        <SelectItem value="General">{language === 'en' ? 'General' : 'Jumla'}</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Unit measure' : 'Kipimo'}</Label>
+                                <Input
+                                    value={editProduct.unit_measure}
+                                    onChange={(e) => setEditProduct({ ...editProduct, unit_measure: e.target.value })}
+                                    className="h-10"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Min Threshold' : "Kiwango cha Chini"}</Label>
+                                <div className="relative">
+                                    <AlertTriangle className="absolute left-3 top-3 h-4 w-4 text-amber-500" />
+                                    <Input
+                                        type="number"
+                                        value={editProduct.min_threshold}
+                                        onChange={(e) => setEditProduct({ ...editProduct, min_threshold: parseInt(e.target.value) || 0 })}
+                                        className="h-10 pl-10"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditProductDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
+                        <Button
+                            className="bg-indigo-600 hover:bg-indigo-700 h-10 font-semibold"
+                            disabled={!editProduct.item_name || editProductMutation.isPending}
+                            onClick={() => editProductMutation.mutate(editProduct)}
+                        >
+                            {editProductMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (language === 'en' ? "Save Changes" : "Hifadhi Mabadiliko")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

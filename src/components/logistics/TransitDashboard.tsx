@@ -77,6 +77,9 @@ const emptyForm = () => ({
     source_sheet_id: "",
     trip_number: "",
     invoice_no: "",
+    return_invoice_no: "",
+    return_revenue_amount: "",
+    return_invoice_date: "",
     client_name: "",
     nature: "Go & Return",
 });
@@ -115,7 +118,7 @@ const TransitDashboard = () => {
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
                 .select("*, vehicle:vehicle_id(vehicle_no, asset_type), trailer:trailer_id(vehicle_no, trailer_number), driver:driver_id(full_name, license_no, id_number)")
-                .in("status", ["Approved", "Active"])
+                .in("status", ["Approved", "Active", "Completed"])
                 .order("created_at", { ascending: false });
             if (error) console.error("Error fetching approved trips:", error);
             return (data || []) as any[];
@@ -130,7 +133,7 @@ const TransitDashboard = () => {
         }
     });
 
-    const { data: trips = [], isLoading } = useQuery({
+    const { data: trips = [], isLoading, isError, error: tripsError } = useQuery({
         queryKey: ["transit_trips", yearFilter, statusFilter],
         queryFn: async () => {
             let q = supabase
@@ -139,7 +142,10 @@ const TransitDashboard = () => {
                 .order("created_at", { ascending: false });
             if (statusFilter !== "All") q = q.eq("status", statusFilter);
             const { data, error } = await q;
-            if (error) throw error;
+            if (error) {
+                console.error("TRANSIT TRIPS FETCH ERROR:", error);
+                throw error;
+            }
             return (data || []) as any[];
         }
     });
@@ -155,7 +161,7 @@ const TransitDashboard = () => {
     const saveMutation = useMutation({
         mutationFn: async (data: any) => {
             const truckNo = fleet.find((f: any) => f.id === data.selected_vehicle_id)?.vehicle_no || data.truck_no;
-            let tripId = data.trip_number || generateTripId(truckNo, data.leg_type);
+            let tripId = data.trip_id || generateTripId(truckNo, data.leg_type);
 
             const payload: any = {
                 client_name: data.client_name || null,
@@ -219,11 +225,32 @@ const TransitDashboard = () => {
                 await supabase.from("logistics_trip_sheets" as any).update({ status: "Active", activated_at: new Date().toISOString() }).eq("id", vars.source_sheet_id);
                 qc.invalidateQueries({ queryKey: ["approved_trip_sheets"] });
             }
+            
+            // Sync return invoice + revenue amount + date back to the original trip sheet when saving a Return leg
+            if (vars.leg_type === "R" && (vars.return_invoice_no || vars.return_revenue_amount || vars.return_invoice_date)) {
+                const tripSheetId = vars.source_sheet_id || (vars as any).trip_sheet_id;
+                if (tripSheetId) {
+                    const syncPayload: any = {};
+                    if (vars.return_invoice_no) syncPayload.return_invoice_no = vars.return_invoice_no;
+                    if (vars.return_invoice_date) syncPayload.return_invoice_date = vars.return_invoice_date;
+                    if (vars.return_revenue_amount) {
+                        syncPayload.return_revenue_amount = parseFloat(vars.return_revenue_amount);
+                        syncPayload.return_revenue_currency = "USD";
+                    }
+                    await supabase.from("logistics_trip_sheets" as any).update(syncPayload).eq("id", tripSheetId);
+                    qc.invalidateQueries({ queryKey: ["approved_trip_sheets"] });
+                    qc.invalidateQueries({ queryKey: ["trip_sheet"] });
+                }
+            }
+
             qc.invalidateQueries({ queryKey: ["transit_trips"] });
             setIsFormOpen(false);
             setEditingTrip(null);
             setForm(emptyForm());
             toast({ title: "Success", description: "Record saved successfully." });
+        },
+        onError: (error: any) => {
+            toast({ title: "Error Saving", description: error.message || "Failed to save record.", variant: "destructive" });
         }
     });
 
@@ -276,7 +303,7 @@ const TransitDashboard = () => {
     const stats = {
         total: trips.length,
         active: trips.filter((t: any) => !["Completed", "Cancelled"].includes(t.status)).length,
-        completed: trips.filter((t: any) => t.status === "Completed").length,
+        completed: trips.filter((t: any) => t.status === "Completed" && !(t.nature === "Go & Return" && t.leg_type === "G")).length,
         avgDays: trips.filter((t: any) => t.total_trip_days).reduce((a: number, b: any) => a + (b.total_trip_days || 0), 0) / Math.max(trips.filter((t: any) => t.total_trip_days).length, 1),
     };
 
@@ -371,6 +398,8 @@ const TransitDashboard = () => {
                         <tbody>
                             {isLoading ? (
                                 <tr><td colSpan={30} className="text-center py-24 text-slate-500 text-sm">Loading transit data...</td></tr>
+                            ) : isError ? (
+                                <tr><td colSpan={30} className="text-center py-24 text-red-500 font-bold text-sm">Error: {(tripsError as any)?.message || JSON.stringify(tripsError)}</td></tr>
                             ) : filtered.length === 0 ? (
                                 <tr><td colSpan={30} className="text-center py-24 text-slate-400 text-sm">No active transit assets found</td></tr>
                             ) : (
@@ -542,7 +571,10 @@ const TransitDashboard = () => {
                                                                             delete payload.created_at;
                                                                             
                                                                             supabase.from("logistics_transit_trips").insert([payload]).then(({error}) => {
-                                                                                if(error) toast({ title: "Error spawning return leg", variant: "destructive" });
+                                                                                if(error) {
+                                                                                    console.error("Spawn error:", error);
+                                                                                    toast({ title: "Error spawning return leg", description: error.message, variant: "destructive" });
+                                                                                }
                                                                                 else { 
                                                                                     toast({ title: "Return Leg Spawned!" }); 
                                                                                     qc.invalidateQueries({ queryKey: ["transit_trips"] }); 
@@ -561,13 +593,59 @@ const TransitDashboard = () => {
                                                                         if (t.checkpoint_3_name || t.checkpoint_3_arrival_date) borders.push({ name: t.checkpoint_3_name || "", arrival: t.checkpoint_3_arrival_date || "", crossing: "", departure: t.checkpoint_3_departure_date || "" });
                                                                     }
                                                                     
+                                                                    // Auto-heal corrupted return legs & missing Go leg details
+                                                                    let recoveredSourceId = t.trip_sheet_id;
+                                                                    let recoveredTripNumber = t.reference_number;
+                                                                    let recoveredInvoiceNo = t.invoice_no;
+                                                                    let recoveredClientName = t.client_name;
+                                                                    let recoveredReturnInvoiceNo = t.return_invoice_no;
+                                                                    
+                                                                    if (t.leg_type === "R") {
+                                                                        let gLeg = trips.find((x: any) => x.trip_id === t.trip_id.replace('/R', '/G'));
+                                                                        if (!gLeg) {
+                                                                            // Fallback: Find the most recent Go leg for the same truck
+                                                                            gLeg = trips.find((x: any) => x.leg_type === "G" && x.truck_no === t.truck_no);
+                                                                        }
+                                                                        if (gLeg) {
+                                                                            recoveredSourceId = recoveredSourceId || gLeg.trip_sheet_id;
+                                                                            recoveredTripNumber = recoveredTripNumber || gLeg.reference_number;
+                                                                            recoveredInvoiceNo = recoveredInvoiceNo || gLeg.invoice_no;
+                                                                            recoveredClientName = recoveredClientName || gLeg.client_name;
+                                                                            recoveredReturnInvoiceNo = recoveredReturnInvoiceNo || gLeg.return_invoice_no;
+                                                                        }
+                                                                    }
+
+                                                                    // Fallback to original Trip Sheet data if fields are still missing
+                                                                    let originalSheet = recoveredSourceId ? approvedTrips.find(x => x.id === recoveredSourceId) : null;
+                                                                    if (!originalSheet) {
+                                                                        originalSheet = approvedTrips.find((x: any) => 
+                                                                            x.vehicle?.vehicle_no?.trim() === t.truck_no?.trim() || 
+                                                                            x.truck_no?.trim() === t.truck_no?.trim()
+                                                                        );
+                                                                    }
+
+                                                                    if (originalSheet) {
+                                                                        recoveredSourceId = recoveredSourceId || originalSheet.id;
+                                                                        recoveredTripNumber = recoveredTripNumber || originalSheet.reference_number;
+                                                                        recoveredInvoiceNo = recoveredInvoiceNo || originalSheet.invoice_no;
+                                                                        recoveredClientName = recoveredClientName || originalSheet.client_name;
+                                                                        recoveredReturnInvoiceNo = recoveredReturnInvoiceNo || originalSheet.return_invoice_no;
+                                                                    }
+
                                                                     setForm({ 
                                                                         ...emptyForm(), 
                                                                         ...t, 
+                                                                        client_name: recoveredClientName || "",
                                                                         selected_vehicle_id: "", 
                                                                         standing_charges: t.standing_charges?.toString() || "",
                                                                         borders,
-                                                                        hq_arrival_date: t.hq_arrival_date || ""
+                                                                        hq_arrival_date: t.hq_arrival_date || "",
+                                                                        return_invoice_no: recoveredReturnInvoiceNo || "",
+                                                                        return_revenue_amount: t.return_revenue_amount?.toString() || "",
+                                                                        return_invoice_date: t.return_invoice_date || "",
+                                                                        trip_number: recoveredTripNumber || "",
+                                                                        invoice_no: recoveredInvoiceNo || "",
+                                                                        source_sheet_id: recoveredSourceId || ""
                                                                     }); 
                                                                     setIsFormOpen(true); 
                                                                 }}><Edit2 size={14} /></Button>
@@ -618,7 +696,8 @@ const TransitDashboard = () => {
                                             nature: t.journey_type || "Go & Return",
                                             source_sheet_id: t.id, 
                                             trip_number: t.reference_number || "",
-                                            invoice_no: t.invoice_no || ""
+                                            invoice_no: t.invoice_no || "",
+                                            return_invoice_no: t.return_invoice_no || ""
                                         }));
                                     }}>
                                         <SelectTrigger className="h-12 bg-white rounded-xl shadow-sm border-slate-200"><SelectValue placeholder="Mission Plans..." /></SelectTrigger>
@@ -660,16 +739,84 @@ const TransitDashboard = () => {
                             <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 mb-2">
                                 <div className="space-y-2">
                                     <Label className="text-xs font-semibold text-slate-600">Trip Ref / Number</Label>
-                                    <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium">
-                                        {form.trip_number || "No Reference Selected"}
+                                    <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium gap-2">
+                                        {form.trip_id || form.trip_number || "No Reference Selected"}
+                                        {(form.leg_type === "R" || (editingTrip?.leg_type === "R")) && (
+                                            <span className="ml-auto text-[9px] font-black px-2 py-1 rounded-full bg-rose-100 text-rose-600 uppercase tracking-wider">Return Leg</span>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-600">Associated Invoice</Label>
+                                    <Label className="text-xs font-semibold text-slate-600">
+                                        {(form.leg_type === "R" || editingTrip?.leg_type === "R") ? "Go Invoice (Outbound)" : "Associated Invoice"}
+                                    </Label>
                                     <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium">
                                         {form.invoice_no || "No Invoice Found"}
                                     </div>
                                 </div>
+                                {/* Return Invoice — only shown for Return legs */}
+                                {(form.leg_type === "R" || editingTrip?.leg_type === "R") && (
+                                    <div className="md:col-span-2 space-y-3">
+                                        {/* Client Name — read-only display */}
+                                        {form.client_name && (
+                                            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg border border-indigo-100">
+                                                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-wider">Client:</span>
+                                                <span className="text-sm font-bold text-indigo-700">{form.client_name}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center gap-2">
+                                            <Label className="text-xs font-bold text-amber-700">Return Invoice No. *</Label>
+                                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 uppercase tracking-wider">Enter after offloading</span>
+                                        </div>
+                                        {/* Split: Invoice No | Revenue Amount */}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {/* Left: Invoice Number */}
+                                            <div className="relative">
+                                                <Input
+                                                    placeholder="e.g. INV-2025-R001"
+                                                    className="h-12 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 font-semibold text-sm placeholder:text-amber-300 focus:border-amber-500 focus:ring-amber-200 pr-28"
+                                                    value={form.return_invoice_no || ""}
+                                                    onChange={e => setForm(f => ({ ...f, return_invoice_no: e.target.value }))}
+                                                />
+                                                {form.return_invoice_no && (
+                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">✓ SET</span>
+                                                )}
+                                            </div>
+                                            {/* Right: Revenue Amount (USD) with TZS conversion */}
+                                            <div className="space-y-0.5">
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400">$</span>
+                                                    <Input
+                                                        type="number"
+                                                        placeholder="0.00  (USD amount)"
+                                                        className="h-12 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 font-semibold text-sm placeholder:text-amber-300 focus:border-amber-500 focus:ring-amber-200 pl-7"
+                                                        value={form.return_revenue_amount || ""}
+                                                        onChange={e => setForm(f => ({ ...f, return_revenue_amount: e.target.value }))}
+                                                    />
+                                                </div>
+                                                {form.return_revenue_amount && parseFloat(form.return_revenue_amount) > 0 && (
+                                                    <p className="text-[10px] text-slate-500 font-medium pl-1">
+                                                        ≈ TShs {(parseFloat(form.return_revenue_amount) * 2700).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {/* Return Invoice Date */}
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs font-semibold text-amber-700">Return Invoice Date</Label>
+                                            <Input
+                                                type="date"
+                                                onClick={(e) => (e.target as HTMLInputElement).showPicker()}
+                                                className="cursor-pointer h-10 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 font-medium text-xs"
+                                                value={form.return_invoice_date || ""}
+                                                onChange={e => setForm(f => ({ ...f, return_invoice_date: e.target.value }))}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] text-amber-600 font-medium">
+                                            💡 Invoice, amount &amp; date will be saved back to the original Trip Sheet automatically.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Row 1 - Basics */}

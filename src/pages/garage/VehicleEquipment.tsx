@@ -377,7 +377,7 @@ export default function VehicleEquipment({ language, vehicles = [] }: VehicleEqu
 
   const openEditModal = (item: any) => {
     setEditingItem(item);
-    if (["Spare Tyre", "Fire Extinguisher 9kg", "Reflector Triangle (Pair)", "Mechanical Jack", "Wheel Spanner", "First Aid Kit", "Tool Box"].includes(item.item_name)) {
+    if (["Spare Tyre", "Fire Extinguisher 9kg", "Reflector Triangle (Pair)", "Mechanical Jack", "Wheel Spanner", "First Aid Kit", "Tool Box", "Wheel Chooks (Vigingi)", "Presure Gauge (Kipimia Upepo)", "Belts (Mikanda ya Mzigo)", "Tarpaulin (Turubai) 40Ft", "Chains & Binder", "Air Pipes (Mpira wa Upepo)"].includes(item.item_name)) {
       setPresetItem(item.item_name);
       setCustomItem("");
     } else {
@@ -815,6 +815,12 @@ export default function VehicleEquipment({ language, vehicles = [] }: VehicleEqu
                   <SelectItem value="Wheel Spanner">Wheel Spanner</SelectItem>
                   <SelectItem value="First Aid Kit">First Aid Kit</SelectItem>
                   <SelectItem value="Tool Box">Tool Box</SelectItem>
+                  <SelectItem value="Wheel Chooks (Vigingi)">Wheel Chooks (Vigingi)</SelectItem>
+                  <SelectItem value="Presure Gauge (Kipimia Upepo)">Presure Gauge (Kipimia Upepo)</SelectItem>
+                  <SelectItem value="Belts (Mikanda ya Mzigo)">Belts (Mikanda ya Mzigo)</SelectItem>
+                  <SelectItem value="Tarpaulin (Turubai) 40Ft">Tarpaulin (Turubai) 40Ft</SelectItem>
+                  <SelectItem value="Chains & Binder">Chains & Binder</SelectItem>
+                  <SelectItem value="Air Pipes (Mpira wa Upepo)">Air Pipes (Mpira wa Upepo)</SelectItem>
                   <SelectItem value="Custom">Custom / Other Item</SelectItem>
                 </SelectContent>
               </Select>
@@ -925,6 +931,12 @@ export default function VehicleEquipment({ language, vehicles = [] }: VehicleEqu
                   <SelectItem value="Wheel Spanner">Wheel Spanner</SelectItem>
                   <SelectItem value="First Aid Kit">First Aid Kit</SelectItem>
                   <SelectItem value="Tool Box">Tool Box</SelectItem>
+                  <SelectItem value="Wheel Chooks (Vigingi)">Wheel Chooks (Vigingi)</SelectItem>
+                  <SelectItem value="Presure Gauge (Kipimia Upepo)">Presure Gauge (Kipimia Upepo)</SelectItem>
+                  <SelectItem value="Belts (Mikanda ya Mzigo)">Belts (Mikanda ya Mzigo)</SelectItem>
+                  <SelectItem value="Tarpaulin (Turubai) 40Ft">Tarpaulin (Turubai) 40Ft</SelectItem>
+                  <SelectItem value="Chains & Binder">Chains & Binder</SelectItem>
+                  <SelectItem value="Air Pipes (Mpira wa Upepo)">Air Pipes (Mpira wa Upepo)</SelectItem>
                   <SelectItem value="Custom">Custom / Other Item</SelectItem>
                 </SelectContent>
               </Select>

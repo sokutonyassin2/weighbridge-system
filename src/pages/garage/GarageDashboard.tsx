@@ -2636,9 +2636,9 @@ const GarageDashboard = () => {
 
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Usage Notes' : 'Maelezo ya Matumizi'}</Label>
+                            <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Usage Notes / Destination Dept' : 'Maelezo ya Matumizi / Idara Inayokwenda'}</Label>
                             <Textarea
-                                placeholder={language === 'en' ? "Brief reason or task details..." : "Sababu fupi au maelezo ya kazi..."}
+                                placeholder={language === 'en' ? "Brief reason, task details, or destination department..." : "Sababu fupi, maelezo ya kazi, au idara inayokwenda..."}
                                 value={usageForm.notes}
                                 onChange={(e) => setUsageForm({ ...usageForm, notes: e.target.value })}
                                 className="min-h-[80px]"
@@ -2693,7 +2693,7 @@ const GarageDashboard = () => {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Category' : 'Kundi'}</Label>
-                                <Select value={newProduct.category} onValueChange={(val) => setNewProduct({ ...newProduct, category: val })}>
+                                <Select value={newProduct.category} onValueChange={(val) => setNewProduct({ ...newProduct, category: val, unit_measure: val === 'Fluids' ? 'Liters' : newProduct.unit_measure })}>
                                     <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="Parts">{language === 'en' ? 'Parts' : 'Vipuri'}</SelectItem>
@@ -2785,7 +2785,7 @@ const GarageDashboard = () => {
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label className="text-sm font-semibold text-slate-500 uppercase">{language === 'en' ? 'Category' : 'Kundi'}</Label>
-                                <Select value={editProduct.category} onValueChange={(val) => setEditProduct({ ...editProduct, category: val })}>
+                                <Select value={editProduct.category} onValueChange={(val) => setEditProduct({ ...editProduct, category: val, unit_measure: val === 'Fluids' ? 'Liters' : editProduct.unit_measure })}>
                                     <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="Parts">{language === 'en' ? 'Parts' : 'Vipuri'}</SelectItem>

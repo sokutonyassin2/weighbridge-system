@@ -317,8 +317,7 @@ const GarageDashboard = () => {
             const { data, error } = await sb
                 .from("garage_inventory")
                 .select("*")
-                .order("item_name")
-                .limit(50);
+                .order("item_name");
             if (error) throw error;
             return data;
         },
@@ -385,6 +384,13 @@ const GarageDashboard = () => {
 
     const deleteProductMutation = useMutation({
         mutationFn: async (id: string) => {
+            // Delete associated usage logs to satisfy foreign key constraints
+            await sb.from("garage_inventory_usage").delete().eq("item_id", id);
+            
+            // Delete associated requisitions to satisfy foreign key constraints
+            await sb.from("garage_requisitions").delete().eq("item_id", id);
+            
+            // Finally delete the inventory item
             const { error } = await sb.from("garage_inventory").delete().eq("id", id);
             if (error) throw error;
         },
@@ -793,7 +799,7 @@ const GarageDashboard = () => {
         mutationFn: async ({ faultId, status, mechanicId }: { faultId: string, status?: string, mechanicId?: string }) => {
             const updates: any = {};
             if (status) updates.status = status;
-            if (mechanicId) updates.mechanic_id = mechanicId;
+            if (mechanicId) updates.mechanic_id = mechanicId === "unassigned" ? null : mechanicId;
 
             const { error, data } = await sb.from("garage_job_faults").update(updates).eq("id", faultId).select();
             if (error) {

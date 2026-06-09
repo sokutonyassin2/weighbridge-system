@@ -63,7 +63,7 @@ const garageItems = [
   { title: "Requisition Logs", url: "/garage/logs", icon: History, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
   { title: "Archived / Dustbin", url: "/garage/deleted", icon: Trash2, roles: ["admin", "super_admin", "garage_manager"] },
   { title: "Inventory Reports", url: "/garage/inventory-reports", icon: BarChart3, roles: ["admin", "super_admin", "garage_manager", "finance", "storekeeper"] },
-  { title: "Staff Attendance", url: "/garage/attendance", icon: UserCheck, roles: ["mechanic", "admin", "super_admin", "garage_manager"] },
+  { title: "Staff Attendance", url: "/garage/attendance", icon: UserCheck, roles: ["mechanic", "admin", "super_admin", "garage_manager", "storekeeper"] },
 ];
 
 const procurementItems = [

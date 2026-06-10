@@ -749,17 +749,19 @@ const ProcurementDashboard = () => {
                                 <div className="text-2xl font-semibold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
                             </CardContent>
                         </Card>
-                        <Card className="border-none shadow-sm bg-blue-900 text-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
-                                <TrendingUp className="h-4 w-4 text-indigo-200" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-semibold">
-                                    {(inventory || []).reduce((acc: number, item: any) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0).toLocaleString()}
-                                </div>
-                            </CardContent>
-                        </Card>
+                        {(userRole === 'admin' || userRole === 'super_admin') && (
+                            <Card className="border-none shadow-sm bg-blue-900 text-white">
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                    <CardTitle className="text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
+                                    <TrendingUp className="h-4 w-4 text-indigo-200" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-semibold">
+                                        {(inventory || []).reduce((acc: number, item: any) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0).toLocaleString()}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
                     </div>
 
                     <Card className="border-none shadow-sm bg-white overflow-hidden">

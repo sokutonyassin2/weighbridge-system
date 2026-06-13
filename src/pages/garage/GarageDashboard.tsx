@@ -91,6 +91,24 @@ const translations = {
     }
 };
 
+const errorTranslations: Record<string, string> = {
+    "One or both units already have an active job card. Please finish the existing job before logging a new one.": "Moja au vitengo vyote viwili tayari vina kadi ya kazi. Tafadhali kamilisha kazi iliyopo kabla ya kusajili mpya.",
+    "This vehicle already has an active job card. Please add faults to the existing job instead.": "Gari hili tayari lina kadi ya kazi. Tafadhali ongeza hitilafu kwenye kazi iliyopo badala yake.",
+    "Cannot delete job card: Associated requisitions have already been approved or paid.": "Huwezi kufuta kadi ya kazi: Maombi ya vifaa yaliyohusishwa tayari yameidhinishwa au kulipwa.",
+    "Cannot delete: This requisition is no longer pending and has been picked up by Procurement.": "Huwezi kufuta: Ombi hili halisubiri tena na limeshachukuliwa na Idara ya Ununuzi.",
+    "Cannot edit: This requisition is no longer pending and has been picked up by Procurement.": "Huwezi kuhariri: Ombi hili halisubiri tena na limeshachukuliwa na Idara ya Ununuzi.",
+    "Description is required": "Maelezo yanahitajika",
+    "Vehicle not found": "Gari halijapatikana",
+    "Data mismatch: One of the units not found.": "Hitilafu ya data: Kimoja cha vitengo hakijapatikana."
+};
+
+const getLocalizedError = (msg: string, lang: string) => {
+    if (lang === 'sw' && msg && errorTranslations[msg]) {
+        return errorTranslations[msg];
+    }
+    return msg || "Unknown error";
+};
+
 const GarageDashboard = () => {
     const sb = supabase as any;
     const { toast } = useToast();
@@ -111,6 +129,9 @@ const GarageDashboard = () => {
     const [approvalNotes, setApprovalNotes] = useState("");
     const [releaseNotes, setReleaseNotes] = useState("");
     const [jobToRelease, setJobToRelease] = useState<any>(null);
+    const [isAddExtraFaultOpen, setIsAddExtraFaultOpen] = useState(false);
+    const [extraFaultDescription, setExtraFaultDescription] = useState("");
+    const [extraFaultTargetJobId, setExtraFaultTargetJobId] = useState<string | null>(null);
     const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
     const [isQualityCheckOpen, setIsQualityCheckOpen] = useState(false);
     const [qualityCheckAnswers, setQualityCheckAnswers] = useState<Record<string, boolean>>({});
@@ -365,7 +386,7 @@ const GarageDashboard = () => {
                 min_threshold: 5
             });
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Add Failed", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Add Failed", description: getLocalizedError(err.message, language) })
     });
 
     const editProductMutation = useMutation({
@@ -379,7 +400,7 @@ const GarageDashboard = () => {
             toast({ title: "Product Updated", description: "The item has been updated." });
             setIsEditProductDialogOpen(false);
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Update Failed", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Update Failed", description: getLocalizedError(err.message, language) })
     });
 
     const deleteProductMutation = useMutation({
@@ -398,7 +419,7 @@ const GarageDashboard = () => {
             queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
             toast({ title: "Product Deleted", description: "The item has been removed." });
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Delete Failed", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Delete Failed", description: getLocalizedError(err.message, language) })
     });
 
     const updateQuantityMutation = useMutation({
@@ -438,7 +459,7 @@ const GarageDashboard = () => {
             setUsageForm({ item_id: "", item_name: "", quantity: 1, issued_to: "", vehicle_id: "", notes: "" });
             toast({ title: "Equipment Issued", description: "Store activity has been recorded." });
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Usage Error", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Usage Error", description: getLocalizedError(err.message, language) })
     });
 
     // Fetch Usage Logs
@@ -479,7 +500,7 @@ const GarageDashboard = () => {
                 description: variables.status === 'Approved' ? "Inventory has been updated." : "Request removed."
             });
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Action Failed", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Action Failed", description: getLocalizedError(err.message, language) })
     });
 
     const createRequisitionMutation = useMutation({
@@ -500,7 +521,7 @@ const GarageDashboard = () => {
             setIsRequisitionDialogOpen(false);
             setRequisitionItems([{ item_name: "", quantity: 1 }]);
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Submission Error", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Submission Error", description: getLocalizedError(err.message, language) })
     });
 
     const editRequisitionMutation = useMutation({
@@ -523,7 +544,7 @@ const GarageDashboard = () => {
             setIsEditReqOpen(false);
             setEditingReqItem(null);
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Update Error", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Update Error", description: getLocalizedError(err.message, language) })
     });
 
     const deleteRequisitionMutation = useMutation({
@@ -544,7 +565,7 @@ const GarageDashboard = () => {
             queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
             toast({ title: "Requisition Deleted", description: "The request has been removed." });
         },
-        onError: (err: any) => toast({ variant: "destructive", title: "Delete Error", description: err.message })
+        onError: (err: any) => toast({ variant: "destructive", title: "Delete Error", description: getLocalizedError(err.message, language) })
     });
 
     const logFaultMutation = useMutation({
@@ -651,7 +672,7 @@ const GarageDashboard = () => {
             queryClient.invalidateQueries({ queryKey: ["garage-job-cards"] });
             queryClient.invalidateQueries({ queryKey: ["garage-vehicles"] });
         },
-        onError: (error: any) => toast({ variant: "destructive", title: "Cannot Log Fault", description: error.message })
+        onError: (error: any) => toast({ variant: "destructive", title: "Cannot Log Fault", description: getLocalizedError(error.message, language) })
     });
 
     const resetForm = () => {
@@ -734,7 +755,7 @@ const GarageDashboard = () => {
             toast({
                 variant: "destructive",
                 title: "Action Blocked",
-                description: error.message || "Failed to move job to Dustbin."
+                description: getLocalizedError(error.message, language) || "Failed to move job to Dustbin."
             });
         }
     });
@@ -764,6 +785,46 @@ const GarageDashboard = () => {
             queryClient.invalidateQueries({ queryKey: ["garage-vehicles"] });
             queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
         }
+    });
+
+    const addExtraFaultMutation = useMutation({
+        mutationFn: async () => {
+            if (!extraFaultTargetJobId || !extraFaultDescription.trim()) throw new Error("Description is required");
+            
+            const cat = "General";
+            const name = extraFaultDescription.trim();
+            let faultTypeId;
+            
+            const existing = (faultTypes || []).find((f: any) =>
+                (f.category || "").toLowerCase() === cat.toLowerCase() &&
+                (f.fault_name || "").toLowerCase() === name.toLowerCase()
+            );
+            
+            if (existing) {
+                faultTypeId = existing.id;
+            } else {
+                const { data: b, error: e } = await sb.from("garage_fault_types").insert([{ category: cat, fault_name: name }]).select().single();
+                if (e) throw e;
+                faultTypeId = b.id;
+            }
+
+            const { error: fe } = await sb.from("garage_job_faults").insert([{
+                job_id: extraFaultTargetJobId,
+                fault_type_id: faultTypeId,
+                mechanic_notes: name,
+                status: 'Pending'
+            }]);
+            
+            if (fe) throw fe;
+        },
+        onSuccess: () => {
+            toast({ title: "Task Added", description: "The new fault has been added to the job card." });
+            setIsAddExtraFaultOpen(false);
+            setExtraFaultDescription("");
+            setExtraFaultTargetJobId(null);
+            queryClient.invalidateQueries({ queryKey: ["garage-job-cards"] });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Add Failed", description: getLocalizedError(err.message, language) })
     });
 
     const { data: deletedJobCards, isLoading: isLoadingDeletedJobs } = useQuery({
@@ -849,7 +910,7 @@ const GarageDashboard = () => {
                 setSelectedJobForTasks(context.previousSelectedJob);
             }
             const errorMsg = err?.message || err?.error_description || "Failed to update status";
-            toast({ variant: "destructive", title: "Error", description: errorMsg });
+            toast({ variant: "destructive", title: "Error", description: getLocalizedError(errorMsg, language) });
         },
         onSettled: () => {
             // Always refetch after error or success to ensure consistency
@@ -916,7 +977,7 @@ const GarageDashboard = () => {
             toast({ title: "Vehicle Released", description: "Maintenance record closed successfully" });
         },
         onError: (error: any) => {
-            toast({ variant: "destructive", title: "Release Failed", description: error.message });
+            toast({ variant: "destructive", title: "Release Failed", description: getLocalizedError(error.message, language) });
         }
     });
 
@@ -3154,20 +3215,34 @@ const GarageDashboard = () => {
                                             <Badge variant="outline" className="bg-white text-slate-700 border-slate-200 font-mono text-[13px] h-7 px-2.5">
                                                 {getVehicleSpecificPlate(selectedJobForTasks?.vehicle)}
                                             </Badge>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 text-[10px] text-indigo-600 ml-auto border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
-
-                                                onClick={() => {
-                                                    setReqType("Job");
-                                                    setReqTargetVehicleId(selectedJobForTasks.vehicle_id);
-                                                    setReqTargetJobId(selectedJobForTasks.id);
-                                                    setIsRequisitionDialogOpen(true);
-                                                }}
-                                            >
-                                                <ShoppingCart className="w-3 h-3 mr-1.5" /> Request Item
-                                            </Button>
+                                            <div className="ml-auto flex items-center gap-2">
+                                                {selectedJobForTasks?.status !== 'Closed' && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
+                                                        onClick={() => {
+                                                            setExtraFaultTargetJobId(selectedJobForTasks.id);
+                                                            setIsAddExtraFaultOpen(true);
+                                                        }}
+                                                    >
+                                                        <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Task' : 'Ongeza Kazi'}
+                                                    </Button>
+                                                )}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
+                                                    onClick={() => {
+                                                        setReqType("Job");
+                                                        setReqTargetVehicleId(selectedJobForTasks.vehicle_id);
+                                                        setReqTargetJobId(selectedJobForTasks.id);
+                                                        setIsRequisitionDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <ShoppingCart className="w-3 h-3 mr-1.5" /> Request Item
+                                                </Button>
+                                            </div>
                                         </div>
                                         <div className="divide-y">
                                             {selectedJobForTasks?.fault_list?.length > 0 ? selectedJobForTasks.fault_list.map((f: any) => (
@@ -3215,21 +3290,34 @@ const GarageDashboard = () => {
                                                     {getVehicleSpecificPlate(partnerJob.vehicle)}
                                                 </Badge>
                                                 <span className="text-[10px] text-indigo-500 font-medium uppercase tracking-wider">Coupled Unit</span>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-7 text-[10px] text-indigo-600 ml-auto border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
-
-                                                    onClick={() => {
-                                                        setReqType("Job");
-                                                        setReqTargetVehicleId(partnerJob.vehicle_id);
-                                                        setReqTargetJobId(partnerJob.id);
-                                                        setIsRequisitionDialogOpen(true);
-                                                    }}
-                                                >
-                                                    <ShoppingCart className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Request Item' : 'Omba Kifaa'}
-                                                </Button>
-
+                                                <div className="ml-auto flex items-center gap-2">
+                                                    {partnerJob.status !== 'Closed' && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="h-7 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
+                                                            onClick={() => {
+                                                                setExtraFaultTargetJobId(partnerJob.id);
+                                                                setIsAddExtraFaultOpen(true);
+                                                            }}
+                                                        >
+                                                            <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Task' : 'Ongeza Kazi'}
+                                                        </Button>
+                                                    )}
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-7 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
+                                                        onClick={() => {
+                                                            setReqType("Job");
+                                                            setReqTargetVehicleId(partnerJob.vehicle_id);
+                                                            setReqTargetJobId(partnerJob.id);
+                                                            setIsRequisitionDialogOpen(true);
+                                                        }}
+                                                    >
+                                                        <ShoppingCart className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Request Item' : 'Omba Kifaa'}
+                                                    </Button>
+                                                </div>
                                             </div>
                                             <div className="divide-y">
                                                 {partnerJob.fault_list?.length > 0 ? partnerJob.fault_list.map((f: any) => (

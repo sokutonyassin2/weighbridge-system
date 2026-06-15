@@ -143,6 +143,7 @@ const GarageDashboard = () => {
     const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
     const { language, setLanguage } = useLanguage();
     const [inventoryViewMode, setInventoryViewMode] = useState<"list" | "grid">("list");
+    const [jobViewTab, setJobViewTab] = useState<'active' | 'closed'>('active');
 
 
     const t = (key: keyof typeof translations.en) => translations[language][key] || key;
@@ -1441,16 +1442,33 @@ const GarageDashboard = () => {
 
                     <Card className="border-none shadow-lg bg-white">
                         <CardHeader>
-                            <div className="flex items-center justify-between">
-                                <CardTitle className="text-sm font-bold text-slate-700 uppercase tracking-[0.15em] flex items-center gap-2">{language === 'en' ? 'Active Job Cards' : 'Kadi za Kazi Amilifu'}</CardTitle>
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <CardTitle className="text-sm font-bold text-slate-700 uppercase tracking-[0.15em] flex items-center gap-2">{language === 'en' ? 'Job Cards' : 'Kadi za Kazi'}</CardTitle>
 
-                                <div className="flex w-full max-w-sm items-center space-x-2">
-                                    <Input
-                                        placeholder={language === 'en' ? "Search jobs..." : "Tafuta kazi..."}
-                                        className="h-8 w-[150px] lg:w-[250px]"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                    />
+                                <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="flex bg-slate-100 p-1 rounded-md">
+                                        <button
+                                            onClick={() => setJobViewTab('active')}
+                                            className={`px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${jobViewTab === 'active' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            {language === 'en' ? 'Active Jobs' : 'Kazi Amilifu'}
+                                        </button>
+                                        <button
+                                            onClick={() => setJobViewTab('closed')}
+                                            className={`px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${jobViewTab === 'closed' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            {language === 'en' ? 'Closed History' : 'Historia Zilizofungwa'}
+                                        </button>
+                                    </div>
+
+                                    <div className="flex w-full max-w-sm items-center">
+                                        <Input
+                                            placeholder={language === 'en' ? "Search jobs..." : "Tafuta kazi..."}
+                                            className="h-9 w-[150px] lg:w-[250px]"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </CardHeader>
@@ -1477,11 +1495,22 @@ const GarageDashboard = () => {
                                             const processedIds = new Set();
                                             const rows = [];
 
-                                            const filteredJobs = (jobCards || []).filter((j: any) =>
-                                                String(j.job_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                                (j.vehicle?.plate_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                                (j.fault_list || []).some((f: any) => (f.mechanic_notes || "").toLowerCase().includes(searchTerm.toLowerCase()))
-                                            );
+                                            const filteredJobs = (jobCards || []).filter((j: any) => {
+                                                const pair = (couplings || []).find((c: any) => c.horse_id === j.vehicle_id || c.trailer_id === j.vehicle_id);
+                                                let partner = null;
+                                                if (pair) {
+                                                    const pId = pair.horse_id === j.vehicle_id ? pair.trailer_id : pair.horse_id;
+                                                    partner = jobCards?.find((p: any) => p.vehicle_id === pId && p.id !== j.id);
+                                                }
+                                                const isActive = j.status !== 'Closed' || (partner && partner.status !== 'Closed');
+                                                
+                                                if (jobViewTab === 'active' && !isActive) return false;
+                                                if (jobViewTab === 'closed' && isActive) return false;
+
+                                                return String(j.job_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                                    (j.vehicle?.plate_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                                    (j.fault_list || []).some((f: any) => (f.mechanic_notes || "").toLowerCase().includes(searchTerm.toLowerCase()));
+                                            });
 
                                             for (const job of filteredJobs) {
                                                 if (processedIds.has(job.id)) continue;
@@ -1522,8 +1551,25 @@ const GarageDashboard = () => {
                                                 });
                                             }
 
-                                            return rows.map((job: any) => (
-                                                <TableRow key={job.id} className="hover:bg-slate-50/50">
+                                            let currentMonth = "";
+                                            return rows.flatMap((job: any) => {
+                                                const elements = [];
+                                                const jobMonth = new Date(job.opened_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                                const isNewMonth = jobViewTab === 'closed' && jobMonth !== currentMonth;
+                                                
+                                                if (isNewMonth) {
+                                                    currentMonth = jobMonth;
+                                                    elements.push(
+                                                        <TableRow key={`month-${jobMonth}`} className="bg-indigo-50/50 hover:bg-indigo-50/50 border-y border-indigo-100">
+                                                            <TableCell colSpan={8} className="py-3 text-xs font-bold text-indigo-800 uppercase tracking-widest pl-4">
+                                                                {jobMonth}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                }
+
+                                                elements.push(
+                                                    <TableRow key={job.id} className="hover:bg-slate-50/50">
                                                     <TableCell className="text-[13px] font-medium text-slate-700">{job.job_number}</TableCell>
                                                     <TableCell className="text-[13px] font-medium text-slate-700">{job.vehicle?.plate_number}</TableCell>
                                                     <TableCell>
@@ -1623,10 +1669,12 @@ const GarageDashboard = () => {
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
-                                            ));
+                                                );
+                                                return elements;
+                                            });
                                         })()
                                     ) : (
-                                        <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">{language === 'en' ? "No active maintenance jobs found." : "Hakuna kazi za matengenezo zilizopatikana."}</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">{language === 'en' ? "No job cards found." : "Hakuna kadi za kazi zilizopatikana."}</TableCell></TableRow>
                                     )}
 
                                 </TableBody>

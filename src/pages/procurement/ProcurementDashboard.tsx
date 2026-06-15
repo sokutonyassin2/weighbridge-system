@@ -679,25 +679,25 @@ const ProcurementDashboard = () => {
     };
 
     return (
-        <div className="space-y-6 p-6 animate-fade-in bg-slate-50/30 min-h-screen">
-            <div className="flex items-center justify-between">
+        <div className="space-y-4 md:space-y-6 p-4 md:p-6 animate-fade-in bg-slate-50/30 min-h-screen max-w-[100vw] overflow-x-hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-semibold tracking-tight text-slate-900 flex items-center gap-2">
-                        <Building2 className="w-6 h-6 text-blue-900" />
+                    <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900 flex flex-wrap items-center gap-2">
+                        <Building2 className="w-5 h-5 md:w-6 md:h-6 text-blue-900" />
                         Procurement Command
-                        <Badge className="ml-2 bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-semibold animate-pulse">Live Syncing</Badge>
+                        <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-semibold animate-pulse mt-1 md:mt-0">Live Syncing</Badge>
                     </h1>
-                    <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Purchase Order (PO) Management & Strategic Sourcing</p>
+                    <p className="text-xs md:text-sm text-slate-500 mt-1 font-medium tracking-tight">Purchase Order (PO) Management & Strategic Sourcing</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
                     {(isLoadingRequisitions || isLoadingInventory) && (
                         <div className="flex items-center gap-2 text-blue-950 text-xs font-semibold animate-pulse">
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Fetching Data...
                         </div>
                     )}
-                    <div className="flex gap-2">
-                        <Button onClick={() => setIsCreateReqOpen(true)} className="bg-blue-900 hover:bg-black text-xs font-medium h-9 uppercase tracking-wider">
+                    <div className="flex gap-2 w-full md:w-auto">
+                        <Button onClick={() => setIsCreateReqOpen(true)} className="bg-blue-900 hover:bg-black text-xs font-medium h-9 uppercase tracking-wider w-full md:w-auto">
                             <Plus className="w-4 h-4 mr-1" /> New Requisition
                         </Button>
                     </div>
@@ -705,58 +705,58 @@ const ProcurementDashboard = () => {
             </div>
 
             <Tabs defaultValue="requisitions" className="w-full" onValueChange={setActiveTab}>
-                <TabsList className="bg-white border-b border-slate-200 w-full justify-start rounded-none h-12 p-0 gap-8">
-                    <TabsTrigger value="requisitions" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium uppercase tracking-widest">
-                        <FileText className="w-4 h-4 mr-2" /> Requisitions
+                <TabsList className="bg-white border-b border-slate-200 w-full justify-start rounded-none h-auto overflow-x-auto hide-scrollbar flex-nowrap p-0 gap-4 md:gap-8">
+                    <TabsTrigger value="requisitions" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-2 md:px-4 text-[10px] md:text-xs font-medium uppercase tracking-widest whitespace-nowrap">
+                        <FileText className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> Requisitions
                     </TabsTrigger>
-                    <TabsTrigger value="suppliers" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium">
-                        <Users className="w-4 h-4 mr-2" /> Suppliers
+                    <TabsTrigger value="suppliers" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-2 md:px-4 text-[10px] md:text-xs font-medium whitespace-nowrap">
+                        <Users className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> Suppliers
                     </TabsTrigger>
                     {(userRole === 'storekeeper' || userRole === 'admin' || userRole === 'super_admin') && (
-                        <TabsTrigger value="arrivals" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-4 text-xs font-medium">
-                            <Truck className="w-4 h-4 mr-2" /> Store Arrivals
+                        <TabsTrigger value="arrivals" className="data-[state=active]:border-blue-900 data-[state=active]:text-blue-900 border-b-2 border-transparent rounded-none h-12 px-2 md:px-4 text-[10px] md:text-xs font-medium whitespace-nowrap">
+                            <Truck className="w-3 h-3 md:w-4 md:h-4 mr-1 md:mr-2" /> Store Arrivals
                         </TabsTrigger>
                     )}
                 </TabsList>
 
                 <TabsContent value="requisitions" className="mt-6 space-y-6">
                     {/* Stats */}
-                    <div className="grid gap-6 md:grid-cols-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6">
                         <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Pending Actions</CardTitle>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
+                                <CardTitle className="text-[10px] md:text-[11px] font-medium text-slate-500 uppercase tracking-widest">Pending Actions</CardTitle>
                                 <AlertCircle className="h-4 w-4 text-amber-500" />
                             </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.status === 'Pending').length}</div>
+                            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                                <div className="text-xl md:text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.status === 'Pending').length}</div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">PO's Issued</CardTitle>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
+                                <CardTitle className="text-[10px] md:text-[11px] font-medium text-slate-500 uppercase tracking-widest">PO's Issued</CardTitle>
                                 <FileCheck className="h-4 w-4 text-blue-950" />
                             </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.po_number).length}</div>
+                            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                                <div className="text-xl md:text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.po_number).length}</div>
                             </CardContent>
                         </Card>
                         <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[11px] font-medium text-slate-500 uppercase tracking-widest">Low Stock Alert</CardTitle>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
+                                <CardTitle className="text-[10px] md:text-[11px] font-medium text-slate-500 uppercase tracking-widest">Low Stock Alert</CardTitle>
                                 <Package className="h-4 w-4 text-red-500" />
                             </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-semibold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
+                            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                                <div className="text-xl md:text-2xl font-semibold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
                             </CardContent>
                         </Card>
                         {(userRole === 'admin' || userRole === 'super_admin') && (
                             <Card className="border-none shadow-sm bg-blue-900 text-white">
-                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <CardTitle className="text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
+                                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
+                                    <CardTitle className="text-[10px] md:text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
                                     <TrendingUp className="h-4 w-4 text-indigo-200" />
                                 </CardHeader>
-                                <CardContent>
-                                    <div className="text-2xl font-semibold">
+                                <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                                    <div className="text-xl md:text-2xl font-semibold">
                                         {(inventory || []).reduce((acc: number, item: any) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0).toLocaleString()}
                                     </div>
                                 </CardContent>
@@ -766,18 +766,18 @@ const ProcurementDashboard = () => {
 
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
                         <CardHeader className="flex flex-col border-b bg-slate-50/50 p-0">
-                            <div className="flex flex-row items-center justify-between px-6 py-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between px-4 md:px-6 py-4 gap-4">
                                 <div className="flex items-center gap-3">
                                     <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Audit Trail: Requisitions & POs</CardTitle>
                                     <Badge variant="outline" className="bg-slate-100/50 text-slate-500 border-slate-200 text-[10px] font-mono">
                                         Total: {requisitions?.length || 0} Records
                                     </Badge>
                                 </div>
-                                <div className="relative w-64">
+                                <div className="relative w-full sm:w-64">
                                     <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
                                     <Input
                                         placeholder="Search by item, company, or PO..."
-                                        className="pl-8 h-8 text-[11px] bg-white border-slate-200"
+                                        className="pl-8 h-8 text-[11px] bg-white border-slate-200 w-full"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
@@ -785,12 +785,12 @@ const ProcurementDashboard = () => {
                             </div>
 
                             {/* Status Sub-Tabs */}
-                            <div className="flex px-6 border-t border-slate-200 bg-white">
+                            <div className="flex px-4 md:px-6 border-t border-slate-200 bg-white overflow-x-auto hide-scrollbar">
                                 {['Pending', 'Approved', 'Purchased', 'All'].map((status) => (
                                     <button
                                         key={status}
                                         onClick={() => setReqStatusFilter(status as any)}
-                                        className={`px-4 py-3 text-[10px] uppercase font-bold tracking-wider transition-all border-b-2 hover:text-blue-900 ${reqStatusFilter === status
+                                        className={`px-3 md:px-4 py-3 text-[9px] md:text-[10px] uppercase font-bold tracking-wider transition-all border-b-2 hover:text-blue-900 whitespace-nowrap flex-shrink-0 ${reqStatusFilter === status
                                             ? 'border-blue-900 text-blue-900'
                                             : 'border-transparent text-slate-400'
                                             }`}
@@ -810,8 +810,8 @@ const ProcurementDashboard = () => {
                                 ))}
                             </div>
                         </CardHeader>
-                        <CardContent className="p-0">
-                            <Table>
+                        <CardContent className="p-0 overflow-x-auto">
+                            <Table className="min-w-[800px]">
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/40 border-b">
                                         <TableHead className="w-[40px] px-4">

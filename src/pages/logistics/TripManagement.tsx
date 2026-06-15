@@ -176,6 +176,24 @@ const TripManagement = () => {
         }
     });
 
+    // Fetch predefined route locations
+    const { data: routeLocations } = useQuery({
+        queryKey: ["logistics-routes"],
+        queryFn: async () => {
+            const { data } = await supabase
+                .from("logistics_routes" as any)
+                .select("*")
+                .eq("is_active", true)
+                .order("location_name", { ascending: true });
+            return (data || []) as any[];
+        }
+    });
+
+    const [isOriginPopoverOpen, setIsOriginPopoverOpen] = useState(false);
+    const [isDestPopoverOpen, setIsDestPopoverOpen] = useState(false);
+    const [isEditOriginPopoverOpen, setIsEditOriginPopoverOpen] = useState(false);
+    const [isEditDestPopoverOpen, setIsEditDestPopoverOpen] = useState(false);
+
     // Filtered Resources (Only show available ones)
     const availableVehicles = fleet?.map(v => {
         const typeInfo = assetTypes?.find(t => t.name === v.asset_type);
@@ -679,8 +697,60 @@ const TripManagement = () => {
                     <DialogHeader><DialogTitle>Plan New Trip</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">ORIGIN</Label><Input value={newTrip.origin} onChange={(e) => setNewTrip({ ...newTrip, origin: e.target.value })} /></div>
-                            <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">DESTINATION *</Label><Input placeholder="City/Port" value={newTrip.destination} onChange={(e) => setNewTrip({ ...newTrip, destination: e.target.value })} /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">ORIGIN</Label>
+                                <Popover open={isOriginPopoverOpen} onOpenChange={setIsOriginPopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className={cn("w-full justify-between h-10 px-3 font-normal border-slate-200", !newTrip.origin && "text-slate-400")}>
+                                            <span className="truncate">{newTrip.origin || "Select origin..."}</span>
+                                            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] sm:w-[300px] z-[100]" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search location..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No location found.</CommandEmpty>
+                                                <CommandGroup className="max-h-[200px] overflow-auto">
+                                                    {(routeLocations || []).map((r: any) => (
+                                                        <CommandItem key={r.id} value={r.location_name} onSelect={(v) => { setNewTrip({ ...newTrip, origin: v.toUpperCase() }); setIsOriginPopoverOpen(false); }} className="text-sm">
+                                                            <Check className={cn("mr-2 h-3 w-3", newTrip.origin?.toUpperCase() === r.location_name?.toUpperCase() ? "opacity-100" : "opacity-0")} />
+                                                            {r.location_name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">DESTINATION *</Label>
+                                <Popover open={isDestPopoverOpen} onOpenChange={setIsDestPopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className={cn("w-full justify-between h-10 px-3 font-normal border-slate-200", !newTrip.destination && "text-slate-400")}>
+                                            <span className="truncate">{newTrip.destination || "Select destination..."}</span>
+                                            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] sm:w-[300px] z-[100]" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search location..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No location found.</CommandEmpty>
+                                                <CommandGroup className="max-h-[200px] overflow-auto">
+                                                    {(routeLocations || []).map((r: any) => (
+                                                        <CommandItem key={r.id} value={r.location_name} onSelect={(v) => { setNewTrip({ ...newTrip, destination: v.toUpperCase() }); setIsDestPopoverOpen(false); }} className="text-sm">
+                                                            <Check className={cn("mr-2 h-3 w-3", newTrip.destination?.toUpperCase() === r.location_name?.toUpperCase() ? "opacity-100" : "opacity-0")} />
+                                                            {r.location_name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1.5">
@@ -824,8 +894,60 @@ const TripManagement = () => {
                     <DialogHeader><DialogTitle>Edit Trip: {tripToEdit?.trip_number}</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">ORIGIN</Label><Input value={tripToEdit?.origin} onChange={(e) => setTripToEdit({ ...tripToEdit, origin: e.target.value })} /></div>
-                            <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">DESTINATION *</Label><Input placeholder="City/Port" value={tripToEdit?.destination} onChange={(e) => setTripToEdit({ ...tripToEdit, destination: e.target.value })} /></div>
+                            <div className="space-y-1.5">
+                                <Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">ORIGIN</Label>
+                                <Popover open={isEditOriginPopoverOpen} onOpenChange={setIsEditOriginPopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className={cn("w-full justify-between h-10 px-3 font-normal border-slate-200", !tripToEdit?.origin && "text-slate-400")}>
+                                            <span className="truncate">{tripToEdit?.origin || "Select origin..."}</span>
+                                            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] sm:w-[300px] z-[100]" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search location..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No location found.</CommandEmpty>
+                                                <CommandGroup className="max-h-[200px] overflow-auto">
+                                                    {(routeLocations || []).map((r: any) => (
+                                                        <CommandItem key={r.id} value={r.location_name} onSelect={(v) => { setTripToEdit({ ...tripToEdit, origin: v.toUpperCase() }); setIsEditOriginPopoverOpen(false); }} className="text-sm">
+                                                            <Check className={cn("mr-2 h-3 w-3", tripToEdit?.origin?.toUpperCase() === r.location_name?.toUpperCase() ? "opacity-100" : "opacity-0")} />
+                                                            {r.location_name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">DESTINATION *</Label>
+                                <Popover open={isEditDestPopoverOpen} onOpenChange={setIsEditDestPopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" className={cn("w-full justify-between h-10 px-3 font-normal border-slate-200", !tripToEdit?.destination && "text-slate-400")}>
+                                            <span className="truncate">{tripToEdit?.destination || "Select destination..."}</span>
+                                            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] sm:w-[300px] z-[100]" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search location..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No location found.</CommandEmpty>
+                                                <CommandGroup className="max-h-[200px] overflow-auto">
+                                                    {(routeLocations || []).map((r: any) => (
+                                                        <CommandItem key={r.id} value={r.location_name} onSelect={(v) => { setTripToEdit({ ...tripToEdit, destination: v.toUpperCase() }); setIsEditDestPopoverOpen(false); }} className="text-sm">
+                                                            <Check className={cn("mr-2 h-3 w-3", tripToEdit?.destination?.toUpperCase() === r.location_name?.toUpperCase() ? "opacity-100" : "opacity-0")} />
+                                                            {r.location_name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
                         </div>
                         <div className="space-y-1.5"><Label className="text-slate-500 font-bold uppercase text-[10px] tracking-wider">OUTBOUND CARGO</Label><Input placeholder="Cargo details..." value={tripToEdit?.cargo_outbound} onChange={(e) => setTripToEdit({ ...tripToEdit, cargo_outbound: e.target.value })} /></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">

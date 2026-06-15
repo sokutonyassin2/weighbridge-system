@@ -1,4 +1,4 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye, Trash2 } from "lucide-react";
+import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye, Trash2, CreditCard } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -51,6 +51,7 @@ const logisticsItems = [
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Trip Invoices", url: "/logistics/invoices", icon: CreditCard, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["audit_clerk", "super_admin", "admin"] },
   { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
 ];

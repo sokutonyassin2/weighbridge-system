@@ -39,6 +39,7 @@ import ComplianceCenter from "./pages/logistics/ComplianceCenter";
 import VehiclePerformance from "./pages/logistics/VehiclePerformance";
 import TransitTripSheetPage from "./pages/logistics/TransitTripSheetPage";
 import Reconciliation from "./pages/logistics/Reconciliation";
+import TripInvoices from "./pages/logistics/TripInvoices";
 import GarageDashboard from "./pages/garage/GarageDashboard";
 import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
 import InventoryReports from "./pages/garage/InventoryReports";
@@ -439,6 +440,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <TripSheets />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/invoices"
+              element={
+                <ProtectedRoute allowedRoles={['logistics_admin', 'logistics_manager', 'admin', 'super_admin']}>
+                  <Layout>
+                    <TripInvoices />
                   </Layout>
                 </ProtectedRoute>
               }

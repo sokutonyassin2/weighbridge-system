@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -42,13 +43,299 @@ import {
     FileCheck,
     AlertCircle,
     CheckCircle,
-    Printer
+    Printer,
+    Settings2
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
+function ManageExpensesDialog() {
+    const [open, setOpen] = useState(false);
+    const [newItem, setNewItem] = useState("");
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    const { data: items, isLoading } = useQuery({
+        queryKey: ["logistics-expense-items"],
+        queryFn: async () => {
+            const { data, error } = await supabase.from("logistics_expense_items").select("*").order("item_name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
+    const handleAdd = async () => {
+        if (!newItem.trim()) return;
+        try {
+            const { error } = await supabase.from("logistics_expense_items").insert([{ item_name: newItem.trim() }]);
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: ["logistics-expense-items"] });
+            setNewItem("");
+            toast({ title: "Expense item added" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Failed to add", description: error.message });
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        try {
+            const { error } = await supabase.from("logistics_expense_items").delete().eq("id", id);
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: ["logistics-expense-items"] });
+            toast({ title: "Expense item removed" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Failed to delete", description: error.message });
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-7 text-[10px] font-semibold border-dashed text-slate-500 hover:text-slate-800">
+                    <Settings2 className="w-3 h-3 mr-1" />
+                    Manage Expenses List
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                    <DialogTitle>Manage Expense Items</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="flex items-center gap-2">
+                        <Input
+                            placeholder="New expense description..."
+                            value={newItem}
+                            onChange={(e) => setNewItem(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                        />
+                        <Button onClick={handleAdd} size="icon"><Plus className="w-4 h-4" /></Button>
+                    </div>
+                    <div className="max-h-[300px] overflow-auto border rounded-md divide-y">
+                        {isLoading ? (
+                            <div className="p-4 text-center text-sm text-slate-500">Loading...</div>
+                        ) : (
+                            items?.map((item) => (
+                                <div key={item.id} className="flex items-center justify-between p-2 hover:bg-slate-50">
+                                    <span className="text-sm font-medium">{item.item_name}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-destructive" onClick={() => handleDelete(item.id)}>
+                                        <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function ExpenseCombobox({ 
+    value, 
+    onChange, 
+    disabled, 
+    items 
+}: { 
+    value: string; 
+    onChange: (val: string) => void; 
+    disabled: boolean; 
+    items: any[]; 
+}) {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    disabled={disabled}
+                    className={cn("w-full h-7 justify-between bg-slate-50/20 border-none hover:bg-slate-100 font-normal !text-[12px] print:hidden", !value && "text-slate-400")}
+                >
+                    <span className="truncate">{value || "Select expense..."}</span>
+                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[300px] p-0 z-[100]" align="start">
+                <Command>
+                    <CommandInput placeholder="Search expense..." className="h-8 text-xs" />
+                    <CommandList>
+                        <CommandEmpty>No expense item found.</CommandEmpty>
+                        <CommandGroup className="max-h-[250px] overflow-auto">
+                            {items.map((expItem) => (
+                                <CommandItem
+                                    key={expItem.id}
+                                    value={expItem.item_name}
+                                    onSelect={(currentValue) => {
+                                        onChange(currentValue);
+                                        setOpen(false);
+                                    }}
+                                    className="text-xs"
+                                >
+                                    <Check
+                                        className={cn(
+                                            "mr-2 h-3 w-3",
+                                            value === expItem.item_name ? "opacity-100" : "opacity-0"
+                                        )}
+                                    />
+                                    {expItem.item_name}
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+function RouteCombobox({ 
+    value, 
+    onChange, 
+    disabled,
+    placeholder,
+    items 
+}: { 
+    value: string; 
+    onChange: (val: string) => void; 
+    disabled: boolean;
+    placeholder?: string;
+    items: any[]; 
+}) {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    disabled={disabled}
+                    className={cn("w-full h-11 justify-between bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700 hover:bg-slate-100", !value && "text-slate-400")}
+                >
+                    <span className="truncate">{value || (placeholder ?? "Select location...")}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[300px] p-0 z-[100]" align="start">
+                <Command>
+                    <CommandInput placeholder="Search location..." className="h-8 text-xs" />
+                    <CommandList>
+                        <CommandEmpty>No location found.</CommandEmpty>
+                        <CommandGroup className="max-h-[250px] overflow-auto">
+                            {items.map((route) => (
+                                <CommandItem
+                                    key={route.id}
+                                    value={route.location_name}
+                                    onSelect={(currentValue) => {
+                                        onChange(currentValue.toUpperCase());
+                                        setOpen(false);
+                                    }}
+                                    className="text-xs"
+                                >
+                                    <Check
+                                        className={cn(
+                                            "mr-2 h-3 w-3",
+                                            value?.toUpperCase() === route.location_name?.toUpperCase() ? "opacity-100" : "opacity-0"
+                                        )}
+                                    />
+                                    {route.location_name}
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+function ManageRoutesDialog() {
+    const [open, setOpen] = useState(false);
+    const [newLocation, setNewLocation] = useState("");
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    const { data: routes, isLoading } = useQuery({
+        queryKey: ["logistics-routes"],
+        queryFn: async () => {
+            const { data, error } = await supabase.from("logistics_routes" as any).select("*").order("location_name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
+    const handleAdd = async () => {
+        if (!newLocation.trim()) return;
+        try {
+            const { error } = await supabase.from("logistics_routes" as any).insert([{ location_name: newLocation.trim().toUpperCase() }]);
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: ["logistics-routes"] });
+            setNewLocation("");
+            toast({ title: "Route location added" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Failed to add", description: error.message });
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        try {
+            const { error } = await supabase.from("logistics_routes" as any).delete().eq("id", id);
+            if (error) throw error;
+            queryClient.invalidateQueries({ queryKey: ["logistics-routes"] });
+            toast({ title: "Route location removed" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Failed to delete", description: error.message });
+        }
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-[10px] font-semibold border-dashed text-slate-500 hover:text-slate-800">
+                    <Settings2 className="w-3 h-3 mr-1" />
+                    Manage Routes List
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                    <DialogTitle>Manage Route Locations</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="flex items-center gap-2">
+                        <Input
+                            placeholder="New location name..."
+                            value={newLocation}
+                            onChange={(e) => setNewLocation(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                        />
+                        <Button onClick={handleAdd} size="icon"><Plus className="w-4 h-4" /></Button>
+                    </div>
+                    <div className="max-h-[300px] overflow-auto border rounded-md divide-y">
+                        {isLoading ? (
+                            <div className="p-4 text-center text-sm text-slate-500">Loading...</div>
+                        ) : (
+                            routes?.map((route: any) => (
+                                <div key={route.id} className="flex items-center justify-between p-2 hover:bg-slate-50">
+                                    <span className="text-sm font-medium">{route.location_name}</span>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-slate-400 hover:text-destructive" onClick={() => handleDelete(route.id)}>
+                                        <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 interface TripSheetProps {
     tripId?: string;
@@ -154,6 +441,33 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             "Rwanda": 1250,
             "Burundi": 2850
         };
+    });
+    // Predefined Expense Items Query
+    const { data: expenseItemsList } = useQuery({
+        queryKey: ["logistics-expense-items"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_expense_items")
+                .select("*")
+                .eq("is_active", true)
+                .order("item_name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
+    // Predefined Routes Query
+    const { data: routesList } = useQuery({
+        queryKey: ["logistics-routes"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_routes" as any)
+                .select("*")
+                .eq("is_active", true)
+                .order("location_name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
     });
 
     // Expenses State
@@ -1326,23 +1640,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
                         <div className="flex-[8] min-w-[200px]">Expense Description</div>
                         <div className="w-28 text-center">Nature</div>
-                        {category === 'TZ' ? (
-                            <div className="w-40 text-right pr-4">Amount (TZS)</div>
-                        ) : category === 'Zambia' ? (
-                            <div className="w-40 text-right pr-4">Amount (ZMW)</div>
-                        ) : category === 'DRC' ? (
-                            <div className="w-40 text-right pr-4">Amount (USD)</div>
-                        ) : category === 'Rwanda' ? (
-                            <div className="w-40 text-right pr-4">Amount (RWF)</div>
-                        ) : category === 'Burundi' ? (
-                            <div className="w-40 text-right pr-4">Amount (BIF)</div>
-                        ) : (
-                            <div className="w-40 text-right pr-4">Amount</div>
-                        )}
+                        <div className="w-40 text-right pr-4">Currency & Amount</div>
                         {category === 'TZ' ? (
                             <div className="w-20 text-right">USD</div>
                         ) : (
-                            <div className="w-20 text-right">TZS</div>
+                            <div className="w-20 text-right">TZS Equiv.</div>
                         )}
                         <div className="w-6"></div>
                     </div>
@@ -1402,12 +1704,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
                                 <div className="flex-[8] min-w-[200px]">
                                     <div className="hidden print:block text-[9px] font-medium text-slate-700">{item.item_name}</div>
-                                    <Input
-                                        className="h-7 bg-slate-50/20 border-none focus-visible:ring-1 ring-slate-100 font-normal !text-[12px] text-slate-700 placeholder:text-slate-300 print:hidden"
-                                        placeholder="Description..."
+                                    <ExpenseCombobox
                                         value={item.item_name}
-                                        onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                        onChange={(val) => updateExpense(item.originalIndex, 'item_name', val)}
                                         disabled={isLocked}
+                                        items={expenseItemsList || []}
                                     />
                                 </div>
 
@@ -1431,11 +1732,25 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                                 <div className="w-40 flex items-center gap-1 print:w-fit">
                                     <div className="hidden print:flex items-center justify-end gap-2 text-[9px] whitespace-nowrap">
-                                        <span className="text-slate-900 font-bold">{inputCurrencyLabel} {Math.round(inputAmount).toLocaleString()}</span>
+                                        <span className="text-slate-900 font-bold">{item.currency === 'USD' ? 'USD' : inputCurrencyLabel} {Math.round(inputAmount).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center gap-1 print:hidden w-full">
                                         {category === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
-                                        <span className="text-slate-300 font-bold text-[8px] shrink-0">{inputCurrencyLabel}</span>
+                                        <Select
+                                            value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
+                                            onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val === inputCurrencyLabel ? null : val)}
+                                            disabled={isLocked}
+                                        >
+                                            <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-slate-100 border-none shadow-none px-1.5 text-slate-500 hover:bg-slate-200 focus:ring-0">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[100]">
+                                                <SelectItem value={inputCurrencyLabel} className="text-xs font-bold">{inputCurrencyLabel}</SelectItem>
+                                                {inputCurrencyLabel !== 'USD' && (
+                                                    <SelectItem value="USD" className="text-xs font-bold text-emerald-700">USD $</SelectItem>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
                                         <Input
                                             className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
                                             type="text"
@@ -1603,29 +1918,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 <div className="bg-slate-900 p-3 rounded-xl shadow-lg">
                     <div className="flex justify-between items-start mb-2">
                         <p className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">Gross Revenue</p>
-                        <Select
-                            value={revenueData.revenue_currency}
-                            onValueChange={(v: any) => setRevenueData({ ...revenueData, revenue_currency: v })}
-                            disabled={isLocked}
-                        >
-                            <SelectTrigger className="w-16 h-6 bg-slate-800 border-none text-white text-[9px] font-semibold">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="z-[100]">
-                                <SelectItem value="USD">USD</SelectItem>
-                                <SelectItem value="TZS">TZS</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <div className="px-2 py-0.5 bg-slate-800 rounded text-white text-[9px] font-semibold uppercase">
+                            {revenueData.revenue_currency}
+                        </div>
                     </div>
                     <div className="relative">
                         <span className="absolute left-2.5 top-2.5 text-slate-400 font-bold text-[10px]">{revenueData.revenue_currency === 'TZS' ? 'TShs' : 'USD'}.</span>
-                        <Input
-                            className="h-9 border-none bg-slate-800/50 text-white font-bold text-lg pl-12 focus-visible:ring-1 ring-primary w-full"
-                            type="number"
-                            value={revenueData.revenue_amount}
-                            onChange={(e) => setRevenueData({ ...revenueData, revenue_amount: e.target.value })}
-                            disabled={isLocked}
-                        />
+                        <div className="h-9 rounded-md bg-slate-800/50 text-white font-bold text-lg pl-12 flex items-center w-full select-none cursor-not-allowed opacity-80">
+                            {revenueData.revenue_amount ? Number(revenueData.revenue_amount).toLocaleString() : '0'}
+                        </div>
                     </div>
                     <p className="text-[9px] font-medium text-slate-500 mt-1.5 text-right">
                         {revenueData.revenue_currency === 'TZS' 
@@ -1753,151 +2054,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         </div>
                                     </div>
 
-                                    {/* 🧾 Invoice & Payment Tracking Row */}
-                                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <div className="p-1.5 bg-white rounded-md border border-slate-200 text-primary">
-                                                <CreditCard size={14} />
-                                            </div>
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Invoice & Payment Management</span>
-                                        </div>
 
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div className="space-y-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Number</Label>
-                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
-                                                </div>
-                                                <div className="h-9 px-3 rounded-lg bg-slate-100 border border-slate-200 flex items-center text-xs font-bold text-slate-700 select-none">
-                                                    {tripData.invoice_no || <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
-                                                </div>
-                                            </div>
-                                            <div className="space-y-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Invoice Date</Label>
-                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
-                                                </div>
-                                                <div className="h-9 px-3 rounded-lg bg-slate-100 border border-slate-200 flex items-center text-xs font-medium text-slate-700 select-none">
-                                                    {tripData.invoice_date ? new Date(tripData.invoice_date).toLocaleDateString() : <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <Label className="text-[10px] font-bold text-slate-500 uppercase">Payment Status</Label>
-                                            <Select
-                                                value={tripData.payment_status}
-                                                onValueChange={(val) => setTripData({ ...tripData, payment_status: val })}
-                                                disabled={isLocked && !isSuperAdmin}
-                                            >
-                                                <SelectTrigger className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-700">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className={`w-2 h-2 rounded-full ${
-                                                            tripData.payment_status === 'Paid' ? 'bg-emerald-500' : 
-                                                            tripData.payment_status === 'Partial' ? 'bg-amber-500' : 'bg-slate-300'
-                                                        }`} />
-                                                        <SelectValue />
-                                                    </div>
-                                                </SelectTrigger>
-                                                <SelectContent className="z-[100]">
-                                                    <SelectItem value="Pending">Pending / Unpaid</SelectItem>
-                                                    <SelectItem value="Partial">Partial Payment</SelectItem>
-                                                    <SelectItem value="Paid">Fully Paid</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-
-                                    {/* 🔄 Return Journey & Invoicing Section (Only for Go & Return) */}
-                                    {tripData.journey_type?.includes('Go & Return') && (
-                                        <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <div className="p-1.5 bg-white rounded-md border border-indigo-200 text-indigo-600">
-                                                    <CreditCard size={14} />
-                                                </div>
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Return Journey & Invoicing</span>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <div className="flex items-center gap-1.5">
-                                                    <Label className="text-xs font-semibold text-slate-500">Return Cargo Description</Label>
-                                                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
-                                                </div>
-                                                <div className="h-11 px-3 rounded-lg bg-slate-100 border border-indigo-100 flex items-center text-sm font-medium text-slate-700 select-none">
-                                                    {tripData.return_cargo || <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="space-y-1.5">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Invoice Number</Label>
-                                                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
-                                                    </div>
-                                                    <div className="h-9 px-3 rounded-lg bg-slate-100 border border-indigo-100 flex items-center text-xs font-bold text-slate-700 select-none">
-                                                        {tripData.return_invoice_no || <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1.5">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Invoice Date</Label>
-                                                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 uppercase">Auto-filled</span>
-                                                    </div>
-                                                    <div className="h-9 px-3 rounded-lg bg-slate-100 border border-indigo-100 flex items-center text-xs font-medium text-slate-700 select-none">
-                                                        {tripData.return_invoice_date ? new Date(tripData.return_invoice_date).toLocaleDateString() : <span className="text-slate-400 font-normal italic">Entered from Transit Dashboard</span>}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Revenue (Gross)</Label>
-                                                    <div className="relative">
-                                                        <select
-                                                            className="absolute left-0 top-0 h-full w-16 bg-transparent border-none text-xs font-bold text-slate-600 focus:ring-0 cursor-pointer px-2"
-                                                            value={tripData.return_revenue_currency}
-                                                            onChange={(e) => setTripData({ ...tripData, return_revenue_currency: e.target.value })}
-                                                            disabled={isLocked}
-                                                        >
-                                                            <option value="TZS">TZS</option>
-                                                            <option value="USD">USD</option>
-                                                        </select>
-                                                        <Input
-                                                            type="number"
-                                                            className="pl-16 h-9 bg-white border-indigo-100 text-xs font-bold text-slate-700"
-                                                            placeholder="0.00"
-                                                            value={tripData.return_revenue_amount || ''}
-                                                            onChange={(e) => setTripData({ ...tripData, return_revenue_amount: e.target.value })}
-                                                            disabled={isLocked}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Payment Status</Label>
-                                                    <Select
-                                                        value={tripData.return_payment_status || "Pending"}
-                                                        onValueChange={(val) => setTripData({ ...tripData, return_payment_status: val })}
-                                                        disabled={isLocked && !isSuperAdmin}
-                                                    >
-                                                        <SelectTrigger className="h-9 bg-white border-indigo-100 text-xs font-semibold text-slate-700">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className={`w-2 h-2 rounded-full ${
-                                                                    tripData.return_payment_status === 'Paid' ? 'bg-emerald-500' : 
-                                                                    tripData.return_payment_status === 'Partial' ? 'bg-amber-500' : 'bg-slate-300'
-                                                                }`} />
-                                                                <SelectValue />
-                                                            </div>
-                                                        </SelectTrigger>
-                                                        <SelectContent className="z-[100]">
-                                                            <SelectItem value="Pending">Pending / Unpaid</SelectItem>
-                                                            <SelectItem value="Partial">Partial Payment</SelectItem>
-                                                            <SelectItem value="Paid">Fully Paid</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         <div className="space-y-2">
@@ -2027,22 +2184,26 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 <div className="space-y-6">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <Label className="text-xs font-semibold text-slate-500">Route Origin</Label>
-                                            <Input
-                                                className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700"
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-xs font-semibold text-slate-500">Route Origin</Label>
+                                                <ManageRoutesDialog />
+                                            </div>
+                                            <RouteCombobox
                                                 value={tripData.origin}
-                                                onChange={(e) => setTripData({ ...tripData, origin: e.target.value })}
+                                                onChange={(val) => setTripData({ ...tripData, origin: val })}
                                                 disabled={isLocked}
+                                                placeholder="Select Origin..."
+                                                items={routesList || []}
                                             />
                                         </div>
                                         <div className="space-y-2">
                                             <Label className="text-xs font-semibold text-slate-500">Route Destination</Label>
-                                            <Input
-                                                className="h-11 bg-white border-slate-200 shadow-sm font-medium text-slate-700 ring-2 ring-primary/10"
+                                            <RouteCombobox
                                                 value={tripData.destination}
-                                                onChange={(e) => setTripData({ ...tripData, destination: e.target.value })}
-                                                placeholder="Target City/Port"
+                                                onChange={(val) => setTripData({ ...tripData, destination: val })}
                                                 disabled={isLocked}
+                                                placeholder="Target City/Port"
+                                                items={routesList || []}
                                             />
                                         </div>
                                     </div>
@@ -2475,10 +2636,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
             {/* 🌍 Section 3: Regional Expense Breakdown */}
             <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-200 print:hidden mb-6">
-                <p className="text-[10px] font-semibold text-slate-500 mb-4 flex items-center gap-2">
-                    <Globe size={12} />
-                    Regional Scope: Select countries involved in this journey
-                </p>
+                <div className="flex justify-between items-center mb-4">
+                    <p className="text-[10px] font-semibold text-slate-500 flex items-center gap-2 m-0">
+                        <Globe size={12} />
+                        Regional Scope: Select countries involved in this journey
+                    </p>
+                    <ManageExpensesDialog />
+                </div>
                 <div className="flex flex-wrap gap-2">
                     {[
                         { id: 'TZ', name: 'Tanzania' },

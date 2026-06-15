@@ -25,8 +25,6 @@ import {
 } from "@/components/ui/select";
 import {
     Search,
-    TrendingUp,
-    TrendingDown,
     ArrowRight,
     Plus,
     Truck,
@@ -205,6 +203,15 @@ const TripSheets = () => {
         if (!window.confirm("Are you sure you want to delete this trip sheet? This action cannot be undone.")) return;
 
         try {
+            // Delete associated transit trip details first to satisfy foreign key constraints
+            const { error: transitError } = await supabase
+                .from('logistics_transit_trips' as any)
+                .delete()
+                .eq('trip_sheet_id', tripId);
+
+            if (transitError) throw transitError;
+
+            // Then delete the main trip sheet record
             const { error } = await supabase
                 .from('logistics_trip_sheets' as any)
                 .delete()
@@ -232,13 +239,6 @@ const TripSheets = () => {
         const num = parseFloat(val);
         if (isNaN(num)) return "TShs. 0";
         return `TShs. ${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-    };
-
-    const formatUSD = (val: any) => {
-        if (val === undefined || val === null || val === "") return "$0.00 USD";
-        const num = parseFloat(val);
-        if (isNaN(num)) return "$0.00 USD";
-        return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
     };
 
     const { data: tripSheets, isLoading, isError, error: queryError, refetch } = useQuery({
@@ -421,20 +421,6 @@ const TripSheets = () => {
                         >
                             History & Completed
                         </Button>
-                        {(userRole === 'super_admin' || userRole === 'finance' || userRole === 'audit_clerk') && (
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className={cn(
-                                    "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
-                                    activeTab === 'finance' ? "bg-emerald-600 text-white shadow-sm shadow-emerald-200" : "text-slate-500 hover:text-emerald-600 hover:bg-emerald-50"
-                                )}
-                                onClick={() => setActiveTab('finance')}
-                            >
-                                <CreditCard size={12} className="mr-1.5" />
-                                Accounts Tracking
-                            </Button>
-                        )}
                     </div>
                 </div>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
@@ -458,57 +444,10 @@ const TripSheets = () => {
                 </div>
             </div>
 
-            {activeTab === 'finance' ? (
-                <LogisticsPaymentTracker searchTerm={searchTerm} />
-            ) : activeTab === 'history' ? (
+            {activeTab === 'history' ? (
                 <CompletedTripsHistory tripSheets={tripSheets || []} searchTerm={searchTerm} />
             ) : (
                 <Fragment>
-            {/* Quick Stats Grid - More Compact */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card className="border-none bg-indigo-600 text-white shadow-lg overflow-hidden relative group/stats hover:shadow-xl transition-all">
-                    <div className="absolute right-0 top-0 p-4 opacity-10">
-                        <TrendingUp size={64} />
-                    </div>
-                    <CardHeader className="pb-0.5 pt-4">
-                        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-100/70">Total Revenue Projection</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pb-4">
-                        <div className="text-xl font-bold">TShs { (tripSheets?.filter((t: any) => t.status !== 'Planned').reduce((sum: number, t: any) => sum + (parseFloat(t.net_profit_usd || 0) + (parseFloat(t.total_expenses_usd || 0))), 0) * (tripSheets?.[0]?.exchange_rate || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 }) }</div>
-                        <div className="text-[10px] font-bold text-indigo-100 mt-0.5 opacity-70 uppercase tracking-widest">
-                            Approx. {formatUSD(tripSheets?.filter((t: any) => t.status !== 'Planned').reduce((sum: number, t: any) => sum + (parseFloat(t.net_profit_usd || 0) + (parseFloat(t.total_expenses_usd || 0))), 0))}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border border-slate-200 bg-white shadow-sm overflow-hidden relative group/stats hover:shadow-md transition-all">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-orange-500" />
-                    <CardHeader className="pb-0.5 pt-4">
-                        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Total Logistics Expenses</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pb-4">
-                        <div className="text-xl font-bold text-slate-900 tabular-nums">TShs { (tripSheets?.filter((t: any) => t.status !== 'Planned').reduce((sum: number, t: any) => sum + (parseFloat(t.total_expenses_usd) || 0), 0) * (tripSheets?.[0]?.exchange_rate || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 }) }</div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                            <TrendingDown size={10} className="text-orange-400" />
-                            <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest leading-none">Approx. {formatUSD(tripSheets?.filter((t: any) => t.status !== 'Planned').reduce((sum: number, t: any) => sum + (parseFloat(t.total_expenses_usd) || 0), 0))}</div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border border-slate-200 bg-white shadow-sm overflow-hidden relative group/stats hover:shadow-md transition-all">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />
-                    <CardHeader className="pb-0.5 pt-4">
-                        <CardTitle className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Estimated Net Surplus</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pb-4">
-                        <div className="text-xl font-bold text-emerald-600 tabular-nums">TShs { (tripSheets?.filter((t: any) => t.status !== 'Planned').reduce((sum: number, t: any) => sum + (parseFloat(t.net_profit_usd) || 0), 0) * (tripSheets?.[0]?.exchange_rate || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 }) }</div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                            <ShieldCheck size={10} className="text-emerald-400" />
-                            <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest leading-none">Approx. {formatUSD(tripSheets?.filter((t: any) => t.status !== 'Planned').reduce((sum: number, t: any) => sum + (parseFloat(t.net_profit_usd) || 0), 0))}</div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
 
             <Card className="border border-slate-200 shadow-xl bg-white overflow-hidden rounded-2xl">
                 <div className="overflow-x-auto">
@@ -519,24 +458,21 @@ const TripSheets = () => {
                             <TableHead className="text-xs font-semibold text-slate-500 py-4">Vehicle Trip Details</TableHead>
                             <TableHead className="text-xs font-semibold text-slate-500">Current Status</TableHead>
                             <TableHead className="text-xs font-semibold text-slate-500">Asset Allocation</TableHead>
-                            <TableHead className="text-right text-xs font-semibold text-slate-500 whitespace-nowrap">Gross Rev (TShs)</TableHead>
-                            <TableHead className="text-right text-xs font-semibold text-slate-500 whitespace-nowrap">Expenses (TShs)</TableHead>
-                            <TableHead className="text-right text-xs font-semibold text-slate-500 whitespace-nowrap">Est. Profit (TShs)</TableHead>
                             <TableHead className="w-16"></TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
-                            <TableRow><TableCell colSpan={8} className="text-center py-24 text-slate-400 font-bold uppercase tracking-widest text-[10px]">Loading Secure Records...</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={5} className="text-center py-24 text-slate-400 font-bold uppercase tracking-widest text-[10px]">Loading Secure Records...</TableCell></TableRow>
                         ) : isError ? (
-                            <TableRow><TableCell colSpan={8} className="text-center py-24">
+                            <TableRow><TableCell colSpan={5} className="text-center py-24">
                                 <div className="flex flex-col items-center gap-2 text-red-500 italic">
                                     <AlertTriangle size={24} />
                                     <span className="font-bold text-xs uppercase tracking-tight">Sync Error: {(queryError as any)?.message}</span>
                                 </div>
                             </TableCell></TableRow>
                         ) : (!filteredSheets || filteredSheets.length === 0) ? (
-                            <TableRow><TableCell colSpan={8} className="text-center py-24">
+                            <TableRow><TableCell colSpan={5} className="text-center py-24">
                                 <Truck size={32} className="mx-auto text-slate-200 mb-3" />
                                 <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">No Transit Records Found</p>
                             </TableCell></TableRow>
@@ -593,32 +529,12 @@ const TripSheets = () => {
                                                     </div>
                                                 </div>
                                             </TableCell>
-                                            <TableCell className="text-right py-4">
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 opacity-60">Revenue</span>
-                                                    <span className="text-sm font-bold text-slate-900 leading-none">{formatTSh(group.totals.revenueUSD * (tripSheets?.[0]?.exchange_rate || 2700))}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-right py-4">
-                                                <div className="flex flex-col items-end">
-                                                    <span className="text-[9px] text-orange-400 font-bold uppercase tracking-widest mb-1 opacity-60">Expenses</span>
-                                                    <span className="text-sm font-bold text-orange-600 leading-none">{formatTSh(group.totals.expensesUSD * (tripSheets?.[0]?.exchange_rate || 2700))}</span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-right py-4">
-                                                <div className="flex flex-col items-end pr-4">
-                                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mb-1 opacity-60">Combined Profit</span>
-                                                    <span className={`text-base font-bold leading-none ${totalProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                        {formatTSh(totalProfit)}
-                                                    </span>
-                                                </div>
-                                            </TableCell>
                                             <TableCell />
                                         </TableRow>
 
                                         {isExpanded && (
                                             <TableRow className="bg-slate-50/30 hover:bg-slate-50/30 transition-none border-none">
-                                                <TableCell colSpan={8} className="p-4 bg-slate-50/50">
+                                                <TableCell colSpan={5} className="p-4 bg-slate-50/50">
                                                     <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
                                                         {group.trips.map((trip: any, tIndex: number) => {
 
@@ -685,55 +601,7 @@ const TripSheets = () => {
                                                                         </div>
                                                                     </div>
 
-                                                                    {/* 2. Financial Breakdown (3 Pillars) */}
-                                                                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 sm:gap-10 bg-slate-50/50 px-4 sm:px-6 py-3 rounded-xl border border-slate-100">
-                                                                        {/* Revenue */}
-                                                                        <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-4 sm:gap-0.5">
-                                                                            <span className="block text-[8px] text-slate-400 font-bold uppercase tracking-[0.2em] leading-none">Gross Rev</span>
-                                                                            <div className="text-right sm:text-left">
-                                                                                <span className="block text-[13px] font-bold text-slate-900 leading-snug">{formatTSh(revTSh)}</span>
-                                                                                <span className="block text-[9px] font-medium text-slate-400 leading-none">${formatUSD(revTSh / rate).replace('$','')} USD</span>
-                                                                            </div>
-                                                                        </div>
-
-                                                                        <div className="hidden sm:block h-8 w-px bg-slate-200" />
-                                                                        <Separator className="sm:hidden bg-slate-200" />
-
-                                                                        {/* Expenses */}
-                                                                        <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-4 sm:gap-0.5">
-                                                                            <span className="block text-[8px] text-orange-400 font-bold uppercase tracking-[0.2em] leading-none">Expenses</span>
-                                                                            <div className="text-right sm:text-left">
-                                                                                <span className="block text-[13px] font-bold text-orange-600 leading-snug">{formatTSh(trip.total_expenses_tzs)}</span>
-                                                                                <span className="block text-[9px] font-medium text-orange-300 leading-none">${formatUSD(trip.total_expenses_usd).replace('$','')} USD</span>
-                                                                            </div>
-                                                                        </div>
-
-                                                                        <div className="hidden sm:block h-8 w-px bg-slate-200" />
-                                                                        <Separator className="sm:hidden bg-slate-200" />
-
-                                                                        {/* Profit */}
-                                                                        <div className="flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-start gap-4 sm:gap-0.5">
-                                                                            <span className={cn(
-                                                                                "block text-[8px] font-bold uppercase tracking-[0.2em] leading-none",
-                                                                                isProfit ? "text-emerald-400" : "text-red-400"
-                                                                            )}>Net Profit</span>
-                                                                            <div className="text-right sm:text-left">
-                                                                                <div className="flex items-center gap-1.5">
-                                                                                    <span className={cn(
-                                                                                        "block text-[15px] font-bold leading-snug",
-                                                                                        isProfit ? "text-emerald-600" : "text-red-600"
-                                                                                    )}>
-                                                                                        {formatTSh(netTSh)}
-                                                                                    </span>
-                                                                                    {isProfit ? <TrendingUp size={14} className="text-emerald-400" /> : <TrendingDown size={14} className="text-red-400" />}
-                                                                                </div>
-                                                                                <span className={cn(
-                                                                                    "block text-[9px] font-medium leading-none opacity-70",
-                                                                                    isProfit ? "text-emerald-500" : "text-red-400"
-                                                                                )}>${formatUSD(trip.net_profit_usd).replace('$','')} USD</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
+                                                                    {/* Removed Profit Indicator to keep it operational */}
 
                                                                     {/* 3. Actions Section */}
                                                                     <div className="flex items-center gap-2 pl-0 sm:pl-4 border-l-0 sm:border-l border-slate-100 flex-wrap sm:flex-nowrap">

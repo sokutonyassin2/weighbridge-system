@@ -3587,18 +3587,29 @@ const GarageDashboard = () => {
 
 
                         <div className="space-y-4">
-                            {(qualityDefinitions || []).map((def: any) => (
-                                <div
-                                    key={def.id}
-                                    className="flex items-start gap-3 p-3 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-                                    onClick={() => setQualityCheckAnswers(prev => ({ ...prev, [def.check_key]: !prev[def.check_key] }))}
-                                >
-                                    <div className={`mt-0.5 h-5 w-5 rounded border flex items-center justify-center transition-colors ${qualityCheckAnswers[def.check_key] ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300'}`}>
-                                        {qualityCheckAnswers[def.check_key] && <CheckCircle2 className="w-3 h-3 text-white" />}
-                                    </div>
-                                    <span className="text-sm font-medium text-slate-700">{def.label}</span>
+                            <div
+                                className="flex items-start gap-3 p-3 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                                onClick={() => setQualityCheckAnswers(prev => ({ ...prev, work_verified: !prev.work_verified }))}
+                            >
+                                <div className={`mt-0.5 h-5 w-5 rounded border flex items-center justify-center transition-colors ${qualityCheckAnswers.work_verified ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300'}`}>
+                                    {qualityCheckAnswers.work_verified && <CheckCircle2 className="w-3 h-3 text-white" />}
                                 </div>
-                            ))}
+                                <span className="text-sm font-medium text-slate-700">
+                                    {language === 'en' ? 'All requested repairs have been satisfactorily completed.' : 'Matengenezo yote yaliyoombwa yamekamilika kwa kuridhisha.'}
+                                </span>
+                            </div>
+
+                            <div
+                                className="flex items-start gap-3 p-3 border rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                                onClick={() => setQualityCheckAnswers(prev => ({ ...prev, safety_verified: !prev.safety_verified }))}
+                            >
+                                <div className={`mt-0.5 h-5 w-5 rounded border flex items-center justify-center transition-colors ${qualityCheckAnswers.safety_verified ? 'bg-green-600 border-green-600' : 'bg-white border-slate-300'}`}>
+                                    {qualityCheckAnswers.safety_verified && <CheckCircle2 className="w-3 h-3 text-white" />}
+                                </div>
+                                <span className="text-sm font-medium text-slate-700">
+                                    {language === 'en' ? 'Vehicle is safe for operation and released back to logistics.' : 'Gari liko salama kwa matumizi na linaruhusiwa kurudi kwenye usafirishaji.'}
+                                </span>
+                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -3618,7 +3629,7 @@ const GarageDashboard = () => {
 
                         <Button
                             disabled={
-                                !(qualityDefinitions || []).every(def => qualityCheckAnswers[def.check_key] === true) ||
+                                !qualityCheckAnswers.work_verified || !qualityCheckAnswers.safety_verified ||
                                 releaseVehicleMutation.isPending
                             }
                             className="bg-green-600 hover:bg-green-700 text-white"

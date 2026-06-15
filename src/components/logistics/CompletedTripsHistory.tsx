@@ -5,10 +5,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { MapPin, Truck, Calendar, History, ArrowRight } from "lucide-react";
 
 export const CompletedTripsHistory = ({ tripSheets, searchTerm }: { tripSheets: any[], searchTerm: string }) => {
-    // Only completed trips
+    // Only fully closed/paid trips
     const completedTrips = useMemo(() => {
         if (!tripSheets) return [];
-        return tripSheets.filter(t => t.status === 'Completed');
+        return tripSheets.filter(t => {
+            const isOutboundPaid = t.payment_status === 'Paid';
+            const isReturnPaid = !t.journey_type?.includes('Go & Return') || t.return_payment_status === 'Paid';
+            return isOutboundPaid && isReturnPaid;
+        });
     }, [tripSheets]);
 
     // Apply search filter
@@ -34,7 +38,7 @@ export const CompletedTripsHistory = ({ tripSheets, searchTerm }: { tripSheets: 
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">No Completed Trips Yet</h3>
                 <p className="text-slate-500 max-w-md mx-auto text-sm">
-                    Once a vehicle fully completes its journey, it will be moved here for historical tracking.
+                    Trips will automatically appear here once they are completely finalized and fully paid in the Trip Invoices module.
                 </p>
             </div>
         );
@@ -128,14 +132,29 @@ export const CompletedTripsHistory = ({ tripSheets, searchTerm }: { tripSheets: 
                                                 <span className="text-sm font-black text-emerald-600">
                                                     {trip.revenue_currency === 'USD' ? `$${parseFloat(trip.revenue_amount || 0).toLocaleString()} USD` : formatTSh(trip.revenue_amount)}
                                                 </span>
-                                                {trip.journey_type?.includes('Go & Return') && trip.return_revenue_amount && (
+                                                                    {trip.journey_type?.includes('Go & Return') && trip.return_revenue_amount && (
                                                     <span className="text-xs font-bold text-indigo-600">
                                                         + {trip.return_revenue_currency === 'USD' ? `$${parseFloat(trip.return_revenue_amount).toLocaleString()} USD` : formatTSh(trip.return_revenue_amount)} <span className="text-[9px] uppercase tracking-wider opacity-60">(Return)</span>
                                                     </span>
                                                 )}
-                                                <div className="mt-2 flex items-center justify-end gap-1.5 bg-slate-100 px-2.5 py-1 rounded-full w-fit">
-                                                    <ClockIcon className="w-3 h-3 text-slate-500" />
-                                                    <span className="text-[10px] font-bold text-slate-600">{trip.agreed_days || 0} Days</span>
+                                                <div className="mt-2 flex flex-col items-end gap-1">
+                                                    <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-full w-fit border border-emerald-100">
+                                                        <ClockIcon className="w-3 h-3 text-emerald-600" />
+                                                        <span className="text-[10px] font-bold text-emerald-700">
+                                                            {(() => {
+                                                                const start = new Date(trip.activated_at || trip.created_at);
+                                                                const end = new Date(trip.updated_at || new Date());
+                                                                const diffTime = Math.abs(end.getTime() - start.getTime());
+                                                                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                                                return `${diffDays} Actual Days`;
+                                                            })()}
+                                                        </span>
+                                                    </div>
+                                                    {trip.total_expenses_tzs && (
+                                                        <span className="text-[10px] font-bold text-orange-500">
+                                                            Exp: {formatTSh(trip.total_expenses_tzs)}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         </TableCell>

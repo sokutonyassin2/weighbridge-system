@@ -126,6 +126,76 @@ const ComplianceCenter = () => {
     const location = useLocation();
     const isProcurementView = location.pathname.startsWith("/procurement");
 
+    const queryClient = useQueryClient();
+
+    // Document Renewal (Logistics View)
+    const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+    const [docToUpdate, setDocToUpdate] = useState<any>(null);
+    const [updateExpiryDate, setUpdateExpiryDate] = useState("");
+    const [updateFile, setUpdateFile] = useState<File | null>(null);
+
+    const updateDocumentMutation = useMutation({
+        mutationFn: async () => {
+            if (!docToUpdate || !updateExpiryDate || !updateFile) throw new Error("Missing required fields");
+
+            const isFleetDoc = !!docToUpdate.fleet_id;
+            const bucketName = isFleetDoc ? 'fleet-documents' : 'driver-documents';
+            const tableName = isFleetDoc ? 'logistics_fleet_documents' : 'logistics_driver_documents';
+            
+            // Delete old file if exists
+            if (docToUpdate.document_url && docToUpdate.document_url !== "pending") {
+                try {
+                    const oldUrl = new URL(docToUpdate.document_url);
+                    const pathParts = oldUrl.pathname.split(`/${bucketName}/`);
+                    if (pathParts.length > 1) {
+                        const oldFilePath = pathParts[1];
+                        await supabase.storage.from(bucketName).remove([oldFilePath]);
+                    }
+                } catch (e) {
+                    console.error("Failed to parse old document URL or remove old file", e);
+                }
+            }
+
+            // Upload new file
+            const fileExt = updateFile.name.split('.').pop();
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const { error: uploadError } = await supabase.storage.from(bucketName).upload(fileName, updateFile);
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabase.storage.from(bucketName).getPublicUrl(fileName);
+
+            // Update database record
+            const { error: dbError } = await supabase
+                .from(tableName as any)
+                .update({ 
+                    document_url: urlData.publicUrl,
+                    expiry_date: updateExpiryDate
+                })
+                .eq("id", docToUpdate.id);
+
+            if (dbError) throw dbError;
+        },
+        onSuccess: () => {
+            toast({ title: "Document Updated", description: "The new document has been uploaded and expiry date updated." });
+            setIsUpdateModalOpen(false);
+            setUpdateFile(null);
+            setUpdateExpiryDate("");
+            setDocToUpdate(null);
+            queryClient.invalidateQueries({ queryKey: ["compliance-drivers"] });
+            queryClient.invalidateQueries({ queryKey: ["compliance-fleet"] });
+        },
+        onError: (error: any) => {
+            toast({ title: "Error", description: error.message || "Failed to update document", variant: "destructive" });
+        }
+    });
+
+    const openUpdateModal = (doc: any) => {
+        setDocToUpdate(doc);
+        setUpdateExpiryDate("");
+        setUpdateFile(null);
+        setIsUpdateModalOpen(true);
+    };
+
     // Procurement Renewal Logic
     const [selectedDocForRenewal, setSelectedDocForRenewal] = useState<any>(null);
     const [isRenewalDialogOpen, setIsRenewalDialogOpen] = useState(false);
@@ -500,6 +570,7 @@ const ComplianceCenter = () => {
                                                     <TableHead>Status</TableHead>
                                                     <TableHead className="text-center">View</TableHead>
                                                     <TableHead className="text-right">Remaining</TableHead>
+                                                    <TableHead className="text-right">Action</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -543,6 +614,18 @@ const ComplianceCenter = () => {
                                                                     {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
                                                                 </Badge>
                                                             </TableCell>
+                                                            <TableCell className="text-right">
+                                                                {!status.isPermanent && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-600 text-blue-600 hover:bg-blue-50"
+                                                                        onClick={() => openUpdateModal(doc)}
+                                                                    >
+                                                                        Renew
+                                                                    </Button>
+                                                                )}
+                                                            </TableCell>
                                                         </TableRow>
                                                     );
                                                 })}
@@ -570,6 +653,7 @@ const ComplianceCenter = () => {
                                                         <TableHead>Status</TableHead>
                                                         <TableHead className="text-center">View</TableHead>
                                                         <TableHead className="text-right">Remaining</TableHead>
+                                                        <TableHead className="text-right">Action</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
@@ -613,6 +697,18 @@ const ComplianceCenter = () => {
                                                                         {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
                                                                     </Badge>
                                                                 </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    {!status.isPermanent && (
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-8 text-[10px] font-bold uppercase border-blue-600 text-blue-600 hover:bg-blue-50"
+                                                                            onClick={() => openUpdateModal(doc)}
+                                                                        >
+                                                                            Renew
+                                                                        </Button>
+                                                                    )}
+                                                                </TableCell>
                                                             </TableRow>
                                                         );
                                                     })}
@@ -649,7 +745,7 @@ const ComplianceCenter = () => {
                                                     <TableHead>Status</TableHead>
                                                     <TableHead className="text-center">View</TableHead>
                                                     <TableHead className="text-right">Remaining</TableHead>
-                                                    {isProcurementView && <TableHead className="text-right">Action</TableHead>}
+                                                    <TableHead className="text-right">Action</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -698,21 +794,18 @@ const ComplianceCenter = () => {
                                                                     {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
                                                                 </Badge>
                                                             </TableCell>
-                                                            {isProcurementView && (
-                                                                <TableCell className="text-right">
+                                                            <TableCell className="text-right">
+                                                                {!status.isPermanent && (
                                                                     <Button
                                                                         size="sm"
                                                                         variant="outline"
-                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-900 text-blue-900 hover:bg-blue-50"
-                                                                        onClick={() => {
-                                                                            setSelectedDocForRenewal(doc);
-                                                                            setIsRenewalDialogOpen(true);
-                                                                        }}
+                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-600 text-blue-600 hover:bg-blue-50"
+                                                                        onClick={() => openUpdateModal(doc)}
                                                                     >
-                                                                        Create Renewal PO
+                                                                        Renew
                                                                     </Button>
-                                                                </TableCell>
-                                                            )}
+                                                                )}
+                                                            </TableCell>
                                                         </TableRow>
                                                     );
                                                 })}
@@ -739,7 +832,7 @@ const ComplianceCenter = () => {
                                                     <TableHead>Status</TableHead>
                                                     <TableHead className="text-center">View</TableHead>
                                                     <TableHead className="text-right">Remaining</TableHead>
-                                                    {isProcurementView && <TableHead className="text-right">Action</TableHead>}
+                                                    <TableHead className="text-right">Action</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -788,21 +881,18 @@ const ComplianceCenter = () => {
                                                                     {status.isPermanent ? "PERMANENT" : (status.daysLeft < 0 ? `${Math.abs(status.daysLeft)} days ago` : `${status.daysLeft} days`)}
                                                                 </Badge>
                                                             </TableCell>
-                                                            {isProcurementView && (
-                                                                <TableCell className="text-right">
+                                                            <TableCell className="text-right">
+                                                                {!status.isPermanent && (
                                                                     <Button
                                                                         size="sm"
                                                                         variant="outline"
-                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-900 text-blue-900 hover:bg-blue-50"
-                                                                        onClick={() => {
-                                                                            setSelectedDocForRenewal(doc);
-                                                                            setIsRenewalDialogOpen(true);
-                                                                        }}
+                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-600 text-blue-600 hover:bg-blue-50"
+                                                                        onClick={() => openUpdateModal(doc)}
                                                                     >
-                                                                        Create Renewal PO
+                                                                        Renew
                                                                     </Button>
-                                                                </TableCell>
-                                                            )}
+                                                                )}
+                                                            </TableCell>
                                                         </TableRow>
                                                     );
                                                 })}
@@ -968,6 +1058,54 @@ const ComplianceCenter = () => {
                             disabled={!renewalDetails.supplier_id || !renewalDetails.payment_method_id || !renewalDetails.amount || createRenewalPOMutation.isPending}
                         >
                             {createRenewalPOMutation.isPending ? "Generating..." : "Generate & Approve PO"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Renewal / Update Document Modal */}
+            <Dialog open={isUpdateModalOpen} onOpenChange={setIsUpdateModalOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Update Document</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="bg-slate-50 p-3 rounded-lg border">
+                            <p className="text-sm font-semibold text-slate-700">
+                                {docToUpdate?.document_type}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                                {docToUpdate?.driver?.full_name || docToUpdate?.fleet?.vehicle_no}
+                            </p>
+                        </div>
+                        
+                        <div className="space-y-2">
+                            <Label>New Document File (PDF/Image)</Label>
+                            <Input
+                                type="file"
+                                onChange={(e) => setUpdateFile(e.target.files?.[0] || null)}
+                                accept=".pdf,.png,.jpg,.jpeg"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>New Expiry Date</Label>
+                            <Input
+                                type="date"
+                                value={updateExpiryDate}
+                                onChange={(e) => setUpdateExpiryDate(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsUpdateModalOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            onClick={() => updateDocumentMutation.mutate()}
+                            disabled={!updateFile || !updateExpiryDate || updateDocumentMutation.isPending}
+                        >
+                            {updateDocumentMutation.isPending ? "Updating..." : "Update Document"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

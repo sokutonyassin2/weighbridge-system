@@ -343,7 +343,6 @@ const ComplianceCenter = () => {
             </div>
 
             {isProcurementView ? (
-                    <TabsContent value="fleet-procurement">
                         <Card className="border-none shadow-xl bg-white overflow-hidden">
                             <Tabs defaultValue="all" className="w-full">
                                 <div className="px-6 py-4 bg-slate-50 border-b flex items-center justify-between">
@@ -528,7 +527,6 @@ const ComplianceCenter = () => {
                                 ))}
                             </Tabs>
                         </Card>
-                    </TabsContent>
             ) : (
                 <Tabs defaultValue="drivers" className="space-y-6">
                     <TabsList className="bg-white border p-1 h-12 gap-2 shadow-sm rounded-xl">

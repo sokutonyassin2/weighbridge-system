@@ -1830,18 +1830,6 @@ const GarageDashboard = () => {
                                             </Button>
 
 
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="col-span-2 h-8 text-[11px] font-semibold border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 rounded-lg"
-                                                onClick={() => {
-                                                    setSelectedInventoryItem(item);
-                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
-                                                    setIsUpdateQtyOpen(true);
-                                                }}
-                                            >
-                                                {language === 'en' ? 'Update Physical count' : 'Sasisha idadi halisi'}
-                                            </Button>
 
                                             <Button
                                                 size="sm"
@@ -1947,19 +1935,6 @@ const GarageDashboard = () => {
                                                                 <TrendingUp className="h-4 w-4" />
                                                             </Button>
 
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 rounded-lg group"
-                                                                onClick={() => {
-                                                                    setSelectedInventoryItem(item);
-                                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
-                                                                    setIsUpdateQtyOpen(true);
-                                                                }}
-                                                                title={language === 'en' ? 'Update Count' : 'Sasisha Idadi'}
-                                                            >
-                                                                <Edit2 className="h-4 w-4" />
-                                                            </Button>
 
                                                             <Button
                                                                 size="sm"

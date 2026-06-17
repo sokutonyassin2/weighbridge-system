@@ -181,6 +181,8 @@ const GarageDashboard = () => {
     const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
     const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
     const [editProduct, setEditProduct] = useState({ id: "", item_name: "", part_number: "", category: "Parts", quantity: 0, unit_measure: "pcs", min_threshold: 5 });
+    const [isUpdateQtyOpen, setIsUpdateQtyOpen] = useState(false);
+    const [updateQtyDetails, setUpdateQtyDetails] = useState({ quantity: 0 });
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
     const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string }[]>([{ item_name: "", quantity: 1 }]);
@@ -195,12 +197,7 @@ const GarageDashboard = () => {
     const [reqType, setReqType] = useState<"Job" | "General" | "Emergency">("General");
     const [reqTargetVehicleId, setReqTargetVehicleId] = useState<string | null>(null);
     const [reqTargetJobId, setReqTargetJobId] = useState<string | null>(null);
-    const [isUpdateQtyOpen, setIsUpdateQtyOpen] = useState(false);
     const [selectedInventoryItem, setSelectedInventoryItem] = useState<any>(null);
-    const [updateQtyDetails, setUpdateQtyDetails] = useState({
-        quantity: 0
-    });
-
     // New Product State
     const [newProduct, setNewProduct] = useState({
         item_name: "",
@@ -601,6 +598,35 @@ const GarageDashboard = () => {
                 }
             };
 
+            const carryOverFaults = async (vId: string, newJobId: string) => {
+                const { data: oldJob } = await sb.from("garage_job_cards")
+                    .select("id")
+                    .eq("vehicle_id", vId)
+                    .eq("status", "Closed")
+                    .eq("requires_followup", true)
+                    .order("closed_at", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (oldJob) {
+                    const { data: oldFaults } = await sb.from("garage_job_faults")
+                        .select("*")
+                        .eq("job_id", oldJob.id)
+                        .in("status", ["Partial", "Not Repaired"]);
+
+                    if (oldFaults && oldFaults.length > 0) {
+                        const carryOverInserts = oldFaults.map((f: any) => ({
+                            job_id: newJobId,
+                            fault_type_id: f.fault_type_id,
+                            mechanic_notes: f.mechanic_notes.includes("(Carried Over)") ? f.mechanic_notes : `${f.mechanic_notes} (Carried Over)`,
+                            status: 'Pending'
+                        }));
+                        await sb.from("garage_job_faults").insert(carryOverInserts);
+                    }
+                    await sb.from("garage_job_cards").update({ requires_followup: false }).eq("id", oldJob.id);
+                }
+            };
+
             // NEW: Check for existing active jobs first to prevent duplicates
             if (activeCoupling && affectedUnit === 'Both') {
                 const existingHorseJob = await sb.from("garage_job_cards").select("id").eq("vehicle_id", activeCoupling.horse_id).neq("status", "Closed").maybeSingle();
@@ -634,6 +660,7 @@ const GarageDashboard = () => {
                 }]).select().single();
                 if (hE) throw hE;
                 await handleFaultInsertion(hJob.id, horseFaults);
+                await carryOverFaults(activeCoupling.horse_id, hJob.id);
 
                 // Partner Job
                 const { data: pJob, error: pE } = await sb.from("garage_job_cards").insert([{
@@ -645,6 +672,7 @@ const GarageDashboard = () => {
                 }]).select().single();
                 if (pE) throw pE;
                 await handleFaultInsertion(pJob.id, partnerFaults);
+                await carryOverFaults(activeCoupling.trailer_id, pJob.id);
 
                 vehicleUpdates.push(activeCoupling.horse_id, activeCoupling.trailer_id);
             } else {
@@ -658,6 +686,7 @@ const GarageDashboard = () => {
                 }]).select().single();
                 if (je) throw je;
                 await handleFaultInsertion(job.id, horseFaults);
+                await carryOverFaults(targetId, job.id);
                 vehicleUpdates.push(targetId);
             }
 
@@ -1811,6 +1840,18 @@ const GarageDashboard = () => {
                                                 {language === 'en' ? 'Issue' : 'Toa'}
                                             </Button>
 
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="col-span-2 h-8 text-[11px] font-semibold border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 rounded-lg"
+                                                onClick={() => {
+                                                    setSelectedInventoryItem(item);
+                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
+                                                    setIsUpdateQtyOpen(true);
+                                                }}
+                                            >
+                                                {language === 'en' ? 'Update Physical count' : 'Sasisha idadi halisi'}
+                                            </Button>
 
                                             <Button
                                                 size="sm"
@@ -1935,6 +1976,19 @@ const GarageDashboard = () => {
                                                                 <TrendingUp className="h-4 w-4" />
                                                             </Button>
 
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 rounded-lg group"
+                                                                onClick={() => {
+                                                                    setSelectedInventoryItem(item);
+                                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
+                                                                    setIsUpdateQtyOpen(true);
+                                                                }}
+                                                                title={language === 'en' ? 'Update Count' : 'Sasisha Idadi'}
+                                                            >
+                                                                <Edit2 className="h-4 w-4" />
+                                                            </Button>
 
                                                             <Button
                                                                 size="sm"
@@ -2471,14 +2525,14 @@ const GarageDashboard = () => {
 
             {/* Requisition Dialog */}
             <Dialog open={isRequisitionDialogOpen} onOpenChange={setIsRequisitionDialogOpen}>
-                <DialogContent className="sm:max-w-[450px]">
-                    <DialogHeader>
+                <DialogContent className="sm:max-w-[450px] max-h-[90vh] flex flex-col p-0">
+                    <DialogHeader className="p-6 pb-2 border-b">
                         <DialogTitle className="flex items-center gap-2 font-bold text-slate-700 uppercase tracking-tight">
                             <Plus className="w-5 h-5 text-indigo-500" />
                             {isSingleRestock ? (language === 'en' ? "Request Part Restock" : "Omba Kipuri") : (language === 'en' ? "Create Batch Requisition" : "Tengeneza Ombi la Vipuri")}
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
+                    <div className="space-y-4 py-4 px-6 overflow-y-auto flex-1 min-h-0">
                         {requisitionItems.map((item, idx) => (
                             <div key={idx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
                                 <div className="space-y-2">
@@ -2541,7 +2595,7 @@ const GarageDashboard = () => {
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="p-6 pt-4 border-t bg-slate-50/50">
                         <Button variant="outline" onClick={() => setIsRequisitionDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
                         <Button
                             className="bg-indigo-600 hover:bg-indigo-700 h-10"
@@ -3187,6 +3241,35 @@ const GarageDashboard = () => {
 
                 </DialogContent>
             </Dialog>
+
+            <Dialog open={isAddExtraFaultOpen} onOpenChange={setIsAddExtraFaultOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>{language === 'en' ? 'Add Extra Task' : 'Ongeza Kazi ya Ziada'}</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Label>{language === 'en' ? 'Task Description' : 'Maelezo ya Kazi'}</Label>
+                        <Input 
+                            autoFocus
+                            placeholder={language === 'en' ? "E.g. Fix tail light..." : "Mf. Tengeneza taa..."}
+                            value={extraFaultDescription}
+                            onChange={(e) => setExtraFaultDescription(e.target.value)}
+                            className="mt-2"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsAddExtraFaultOpen(false)}>{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
+                        <Button 
+                            disabled={!extraFaultDescription.trim() || addExtraFaultMutation.isPending}
+                            onClick={() => addExtraFaultMutation.mutate()}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                        >
+                            {addExtraFaultMutation.isPending ? (language === 'en' ? 'Adding...' : 'Inaongeza...') : (language === 'en' ? 'Add Task' : 'Ongeza')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Manage Tasks Dialog */}
             <Dialog open={isManageTasksOpen} onOpenChange={setIsManageTasksOpen}>
                 <DialogContent className={`${maintenanceDebt && maintenanceDebt.length > 0 ? 'sm:max-w-[1000px]' : 'sm:max-w-[600px]'} w-[95vw] transition-all duration-300 flex flex-col max-h-[90vh]`}>

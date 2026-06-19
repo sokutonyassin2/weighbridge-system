@@ -112,15 +112,6 @@ const TripSheets = () => {
                     });
                     return;
                 }
-
-                if (!trip.invoice_no) {
-                    toast({
-                        variant: "destructive",
-                        title: "Invoice Required",
-                        description: "A valid Invoice Number is mandatory before this trip can be approved."
-                    });
-                    return;
-                }
             }
 
             const payload: any = { 

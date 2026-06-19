@@ -292,7 +292,7 @@ const GarageDashboard = () => {
                 .from("garage_job_cards")
                 .select(`
                     *, 
-                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type), 
+                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model), 
                     fault_list:garage_job_faults(id, fault_type_id, status, mechanic_notes, mechanic_id, fault_type:garage_fault_types(fault_name, category))
                 `)
                 .eq("is_deleted", false)
@@ -356,7 +356,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number)")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -465,7 +465,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-usage"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_inventory_usage")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name)")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -864,7 +864,7 @@ const GarageDashboard = () => {
                 .from("garage_job_cards")
                 .select(`
                     *, 
-                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type), 
+                    vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model), 
                     fault_list:garage_job_faults(id, fault_type_id, status, mechanic_notes, mechanic_id, fault_type:garage_fault_types(fault_name, category))
                 `)
                 .eq("is_deleted", true)
@@ -1196,7 +1196,7 @@ const GarageDashboard = () => {
                 .from("garage_job_faults")
                 .select(`
                     *,
-                    job:garage_job_cards!inner(id, opened_at, vehicle_id, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number))
+                    job:garage_job_cards!inner(id, opened_at, vehicle_id, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model))
                 `)
                 .in("job.vehicle_id", vids)
                 .neq("status", "Completed")

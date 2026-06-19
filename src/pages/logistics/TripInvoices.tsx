@@ -37,35 +37,40 @@ export default function TripInvoices() {
     const { data: tripSheets, isLoading } = useQuery({
         queryKey: ["logistics-invoices-sheets"],
         queryFn: async () => {
-            const { data, error } = await supabase
+            const { data: sheets, error } = await supabase
                 .from("logistics_trip_sheets" as any)
-                .select(`
-                    id, 
-                    sheet_number, 
-                    status, 
-                    journey_type,
-                    origin,
-                    destination,
-                    invoice_no, 
-                    invoice_date, 
-                    payment_status,
-                    revenue_currency,
-                    revenue_amount,
-                    return_invoice_no, 
-                    return_invoice_date, 
-                    return_revenue_currency, 
-                    return_revenue_amount, 
-                    return_payment_status,
-                    trip_id,
-                    vehicle:logistics_fleet!vehicle_id(vehicle_no),
-                    driver:logistics_drivers!driver_id(full_name),
-                    trip:logistics_trips!trip_id(trip_number, client_name),
-                    expenses:logistics_trip_expenses(amount)
-                `)
+                .select("*")
                 .order("created_at", { ascending: false });
 
             if (error) throw error;
-            return data || [];
+            if (!sheets || sheets.length === 0) return [];
+
+            const vehicleIds = [...new Set((sheets as any[]).map(s => s.vehicle_id).filter(Boolean))];
+            const tripIds = [...new Set((sheets as any[]).map(s => s.trip_id).filter(Boolean))];
+            const sheetIds = (sheets as any[]).map(s => s.id);
+
+            const [vehicleRes, tripRes, expenseRes] = await Promise.all([
+                vehicleIds.length > 0
+                    ? supabase.from("logistics_fleet" as any).select("id, vehicle_no").in("id", vehicleIds)
+                    : Promise.resolve({ data: [] }),
+                tripIds.length > 0
+                    ? supabase.from("logistics_trips" as any).select("id, trip_number, client_name").in("id", tripIds)
+                    : Promise.resolve({ data: [] }),
+                sheetIds.length > 0
+                    ? supabase.from("logistics_trip_expenses" as any).select("trip_sheet_id, amount").in("trip_sheet_id", sheetIds)
+                    : Promise.resolve({ data: [] })
+            ]);
+
+            const vehicles = vehicleRes.data || [];
+            const trips = tripRes.data || [];
+            const expenses = expenseRes.data || [];
+
+            return sheets.map((sheet: any) => ({
+                ...sheet,
+                vehicle: vehicles.find(v => v.id === sheet.vehicle_id),
+                trip: trips.find(t => t.id === sheet.trip_id),
+                expenses: expenses.filter(e => e.trip_sheet_id === sheet.id)
+            }));
         }
     });
 

@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2 } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,6 +58,21 @@ const ProcurementDashboard = () => {
         quantity: 1,
         target_company: "SudEnergy Logistics"
     });
+
+    // Batch Quote States
+    const [isBatchQuoteOpen, setIsBatchQuoteOpen] = useState(false);
+    const [batchQuoteReqs, setBatchQuoteReqs] = useState<any[]>([]);
+    const [batchSharedDetails, setBatchSharedDetails] = useState({
+        supplier_id: "",
+        po_number: "",
+        includes_vat: false,
+        payment_method_id: ""
+    });
+    const [batchItemPrices, setBatchItemPrices] = useState<Record<string, number>>({});
+    const [batchItemQuantities, setBatchItemQuantities] = useState<Record<string, number>>({});
+    
+    // Vehicle Grouping State
+    const [expandedVehicles, setExpandedVehicles] = useState<string[]>([]);
 
     const [isAddSupplierOpen, setIsAddSupplierOpen] = useState(false);
     const [newSupplier, setNewSupplier] = useState({
@@ -126,7 +141,7 @@ const ProcurementDashboard = () => {
                 .from("garage_requisitions")
                 .select(`
                     *,
-                    vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number),
+                    vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model),
                     garage_suppliers(name)
                 `)
                 .eq("is_deleted", false)
@@ -241,7 +256,7 @@ const ProcurementDashboard = () => {
 
             // Split Logic for Partial Fulfillment/Receipt
             const thresholdQty = nextStatus === 'Arrived' ? currentReq.quantity_approved : currentReq.quantity_requested;
-            if (['Awaiting Approval', 'Approved', 'Arrived'].includes(nextStatus) && qty < thresholdQty) {
+            if (['Pending Review', 'Awaiting Approval', 'Approved', 'Arrived'].includes(nextStatus) && qty < thresholdQty) {
                 const remaining = thresholdQty - qty;
                 const { error: splitError } = await sb.from("garage_requisitions").insert({
                     ...currentReq,
@@ -287,7 +302,64 @@ const ProcurementDashboard = () => {
 
             toast({
                 title: titles[variables.nextStatus] || "Status Updated",
-                description: variables.nextStatus === 'Revoked' ? "Reason recorded." : "Requisition state moved forward."
+                description: variables.nextStatus === 'Revoked' ? "Reason recorded." : variables.nextStatus === 'Pending Review' ? "Draft quote saved." : "Requisition state moved forward."
+            });
+        }
+    });
+
+    // Submit Draft Batch to Management Mutation
+    const submitModelBatchMutation = useMutation({
+        mutationFn: async (reqIds: string[]) => {
+            for (const id of reqIds) {
+                const { error } = await sb.from("garage_requisitions").update({ status: 'Awaiting Approval' }).eq("id", id);
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            toast({
+                title: "Batch Submitted",
+                description: "Model batch has been sent to Management for approval."
+            });
+        }
+    });
+
+    // Batch Quote Mutation
+    const batchWorkflowMutation = useMutation({
+        mutationFn: async ({ reqs, sharedDetails, itemPrices, itemQuantities }: { reqs: any[], sharedDetails: any, itemPrices: Record<string, number>, itemQuantities: Record<string, number> }) => {
+            const updates = reqs.map(req => {
+                const qty = itemQuantities[req.id] || req.quantity_requested || 0;
+                const unitPrice = itemPrices[req.id] || 0;
+                const subtotal = unitPrice * qty;
+                const vat = sharedDetails.includes_vat ? subtotal * 0.18 : 0;
+                
+                return {
+                    id: req.id,
+                    status: 'Awaiting Approval',
+                    unit_price: unitPrice,
+                    total_price: subtotal + vat,
+                    supplier_id: sharedDetails.supplier_id,
+                    po_number: sharedDetails.po_number,
+                    includes_vat: sharedDetails.includes_vat,
+                    vat_amount: vat,
+                    payment_details: allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null,
+                    quantity_approved: qty
+                };
+            });
+
+            for (const updateData of updates) {
+                const { id, ...data } = updateData;
+                const { error } = await sb.from("garage_requisitions").update(data).eq("id", id);
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            setIsBatchQuoteOpen(false);
+            setBatchQuoteReqs([]);
+            toast({
+                title: "Quotes Submitted",
+                description: "All selected items have been sent for Management Approval."
             });
         }
     });
@@ -507,31 +579,52 @@ const ProcurementDashboard = () => {
         let subtotal = 0;
         let totalVat = 0;
 
-        const itemsHtml = relatedReqs.map((req: any) => {
-            const item = inventory?.find((i: any) => i.id === req.item_id);
-            const price = req.unit_price || item?.unit_price || 0;
-            const qty = req.quantity_approved || req.quantity_requested;
-            const lineTotal = price * qty;
-            const lineVat = req.includes_vat ? (lineTotal * 0.18) : 0;
+        const itemsByVehicle: Record<string, any[]> = {};
+        let modelDisplay = "Various Models";
 
-            subtotal += lineTotal;
-            totalVat += lineVat;
+        relatedReqs.forEach((req: any) => {
+            const plate = req.vehicle?.vehicle_no || req.vehicle?.horse_number || 'General/Workshop';
+            if (!itemsByVehicle[plate]) itemsByVehicle[plate] = [];
+            itemsByVehicle[plate].push(req);
 
-            return `
+            if (req.vehicle?.make_model) {
+                modelDisplay = req.vehicle.make_model;
+            }
+        });
+
+        let itemsHtml = "";
+
+        Object.entries(itemsByVehicle).forEach(([plate, reqs]) => {
+            itemsHtml += `
                 <tr>
-                    <td>
-                        <div style="font-weight: 700;">${req.item_name}</div>
-                        <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
-                            Vehicle: ${req.vehicle?.vehicle_no || 'N/A'} 
-                            ${req.vehicle?.horse_number ? `(Horse: ${req.vehicle.horse_number})` : ''}
-                        </div>
+                    <td colspan="4" style="background-color: #f8fafc; font-weight: 800; color: #4f46e5; padding: 6px 8px; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; border-top: 1px solid #e2e8f0;">
+                        Vehicle: ${plate}
                     </td>
-                    <td style="text-align: center;">${qty}</td>
-                    <td style="text-align: right;">${price.toLocaleString()}</td>
-                    <td style="text-align: right;">${lineTotal.toLocaleString()}</td>
                 </tr>
             `;
-        }).join('');
+
+            reqs.forEach((req: any) => {
+                const item = inventory?.find((i: any) => i.id === req.item_id);
+                const price = req.unit_price || item?.unit_price || 0;
+                const qty = req.quantity_approved || req.quantity_requested;
+                const lineTotal = price * qty;
+                const lineVat = req.includes_vat ? (lineTotal * 0.18) : 0;
+
+                subtotal += lineTotal;
+                totalVat += lineVat;
+
+                itemsHtml += `
+                    <tr>
+                        <td style="padding-left: 16px;">
+                            <div style="font-weight: 700; color: #1e293b;">${req.item_name}</div>
+                        </td>
+                        <td style="text-align: center;">${qty}</td>
+                        <td style="text-align: right;">${price.toLocaleString()}</td>
+                        <td style="text-align: right; font-weight: 600;">${lineTotal.toLocaleString()}</td>
+                    </tr>
+                `;
+            });
+        });
 
         const finalTotal = subtotal + totalVat;
 
@@ -567,12 +660,12 @@ const ProcurementDashboard = () => {
                             <div class="company">${firstReq.target_company}</div>
                             <div style="font-size: 12px; color: #64748b; font-weight: 600;">Logistics & Engineering Procurement</div>
                         </div>
-                        <div style="text-align: right">
-                            <div class="po-label">PURCHASE ORDER</div>
-                            <div style="font-size: 16px; font-weight: 800; color: #1e293b; margin-top: 8px;"># ${displayPONumber}</div>
+                        <div style="text-align: right;">
+                            <h1 style="margin: 0; font-size: 24px; color: #1e293b; letter-spacing: -1px;">PURCHASE ORDER</h1>
+                            <div class="po-label">PO #${displayPONumber}</div>
                         </div>
                     </div>
-
+                    
                     <div class="meta-grid">
                         <div class="meta-box">
                             <h3>Vendor / Supplier</h3>
@@ -890,8 +983,117 @@ const ProcurementDashboard = () => {
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
-                                                {grouped[month].map((req: any) => (
-                                                    <TableRow key={req.id} className={`hover:bg-slate-50/30 transition-colors ${selectedRequisitionIds.includes(req.id) ? 'bg-blue-50/50' : ''}`}>
+                                                {(() => {
+                                                    const flatItems: any[] = [];
+                                                    if (reqStatusFilter === 'Pending') {
+                                                        const modelGroups: Record<string, any[]> = {};
+                                                        const ungrouped: any[] = [];
+                                                        grouped[month].forEach((req: any) => {
+                                                            if (req.vehicle_id && req.vehicle) {
+                                                                const model = req.vehicle.make_model || 'Unknown Model';
+                                                                if (!modelGroups[model]) modelGroups[model] = [];
+                                                                modelGroups[model].push(req);
+                                                            } else {
+                                                                ungrouped.push(req);
+                                                            }
+                                                        });
+                                                        
+                                                        Object.entries(modelGroups).forEach(([model, reqs]) => {
+                                                            flatItems.push({ isVehicleHeader: true, reqs, vid: model, modelName: model });
+                                                            if (expandedVehicles.includes(model)) {
+                                                                reqs.forEach((req: any) => flatItems.push({ isVehicleHeader: false, req, isChild: true }));
+                                                            }
+                                                        });
+                                                        ungrouped.forEach((req: any) => flatItems.push({ isVehicleHeader: false, req }));
+                                                    } else {
+                                                        grouped[month].forEach((req: any) => flatItems.push({ isVehicleHeader: false, req }));
+                                                    }
+
+                                                    return flatItems.map((item: any, idx: number) => {
+                                                        if (item.isVehicleHeader) {
+                                                            const isExpanded = expandedVehicles.includes(item.vid);
+                                                            const firstReq = item.reqs[0];
+                                                            const uniqueVehicles = [...new Set(item.reqs.map((r: any) => r.vehicle?.vehicle_no || r.vehicle?.horse_number).filter(Boolean))].join(', ');
+                                                            return (
+                                                                <TableRow key={`veh-${item.vid}-${idx}`} className="bg-blue-50/30 hover:bg-blue-50/50 cursor-pointer border-y border-blue-100" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.vid) : [...prev, item.vid])}>
+                                                                    <TableCell className="px-4">
+                                                                        {isExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-blue-400" />}
+                                                                    </TableCell>
+                                                                    <TableCell colSpan={2} className="py-3">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="bg-blue-100 p-1.5 rounded-md">
+                                                                                <Truck className="w-4 h-4 text-blue-700" />
+                                                                            </div>
+                                                                            <div className="flex flex-col max-w-[200px]">
+                                                                                <span className="text-xs font-bold text-blue-900">{item.modelName}</span>
+                                                                                <span className="text-[10px] text-blue-600/80 font-medium truncate" title={uniqueVehicles}>{uniqueVehicles || 'Unknown Vehicles'}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell colSpan={3}>
+                                                                        <div className="flex items-center gap-4">
+                                                                            <Badge variant="outline" className="bg-white border-blue-200 text-blue-700 text-[10px]">
+                                                                                {item.reqs.length} Item{item.reqs.length !== 1 ? 's' : ''} Pending
+                                                                            </Badge>
+                                                                            <span className="text-[10px] text-slate-500 font-medium">Latest: {formatDate(firstReq.created_at)}</span>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right px-6" colSpan={2}>
+                                                                        <div className="flex items-center justify-end gap-2">
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="outline"
+                                                                                className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setBatchQuoteReqs(item.reqs);
+                                                                                    setBatchSharedDetails({
+                                                                                        supplier_id: "",
+                                                                                        po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
+                                                                                        includes_vat: false,
+                                                                                        payment_method_id: ""
+                                                                                    });
+                                                                                    const initialPrices: Record<string, number> = {};
+                                                                                    const initialQuantities: Record<string, number> = {};
+                                                                                    item.reqs.forEach((r: any) => {
+                                                                                        initialPrices[r.id] = r.unit_price || (inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0;
+                                                                                        initialQuantities[r.id] = r.quantity_requested || 1;
+                                                                                    });
+                                                                                    setBatchItemPrices(initialPrices);
+                                                                                    setBatchItemQuantities(initialQuantities);
+                                                                                    setIsBatchQuoteOpen(true);
+                                                                                }}
+                                                                            >
+                                                                                Batch Quote
+                                                                            </Button>
+                                                                            <Button
+                                                                                size="sm"
+                                                                                className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
+                                                                                disabled={
+                                                                                    item.reqs.filter((r: any) => r.status === 'Pending Review').length === 0 || 
+                                                                                    item.reqs.some((r: any) => r.status === 'Pending') || 
+                                                                                    submitModelBatchMutation.isPending
+                                                                                }
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const draftReqs = item.reqs.filter((r: any) => r.status === 'Pending Review');
+                                                                                    if (draftReqs.length > 0) {
+                                                                                        submitModelBatchMutation.mutate(draftReqs.map((r: any) => r.id));
+                                                                                    }
+                                                                                }}
+                                                                            >
+                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : item.reqs.some((r: any) => r.status === 'Pending') ? "Missing Quotes" : `Submit Drafts (${item.reqs.filter((r: any) => r.status === 'Pending Review').length})`}
+                                                                            </Button>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            );
+                                                        }
+                                                        
+                                                        const req = item.req;
+                                                        const isChild = item.isChild;
+                                                        return (
+                                                            <TableRow key={req.id} className={`hover:bg-slate-50/30 transition-colors ${isChild ? 'bg-slate-50/40' : ''} ${selectedRequisitionIds.includes(req.id) ? 'bg-blue-50/50' : ''}`}>
                                                         <TableCell className="px-4">
                                                             <Checkbox
                                                                 checked={selectedRequisitionIds.includes(req.id)}
@@ -934,7 +1136,7 @@ const ProcurementDashboard = () => {
                                                                 {req.vehicle_id && req.vehicle && (
                                                                     <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200 w-fit text-[9px] font-bold mt-1">
                                                                         <Truck className="h-3 w-3 mr-1" />
-                                                                        {req.vehicle.vehicle_no || req.vehicle.horse_number}
+                                                                        <div className="flex flex-col leading-tight"><span>{req.vehicle.vehicle_no || req.vehicle.horse_number}</span>{req.vehicle.make_model && <span className="text-[10px] text-slate-500 font-medium">{req.vehicle.make_model}</span>}</div>
                                                                     </Badge>
                                                                 )}
                                                             </div>
@@ -991,7 +1193,7 @@ const ProcurementDashboard = () => {
                                                                             setIsApproveDialogOpen(true);
                                                                         }}
                                                                     >
-                                                                        {userRole === 'procurement_officer' ? "Prepare Quote" : "Review & Quote"}
+                                                                        {userRole === 'procurement_officer' ? "Enter Quote" : "Review & Quote"}
                                                                     </Button>
                                                                 )}
 
@@ -1069,7 +1271,9 @@ const ProcurementDashboard = () => {
                                                             </div>
                                                         </TableCell>
                                                     </TableRow>
-                                                ))}
+                                                            );
+                                                        });
+                                                })()}
                                             </React.Fragment>
                                         ));
                                     })()}
@@ -1424,7 +1628,7 @@ const ProcurementDashboard = () => {
                                                 <TableCell>
                                                     {req.vehicle && (
                                                         <Badge variant="secondary" className="text-[10px] bg-slate-100 text-slate-700 border-slate-200">
-                                                            {req.vehicle.vehicle_no || req.vehicle.horse_number}
+                                                            <div className="flex flex-col leading-tight"><span>{req.vehicle.vehicle_no || req.vehicle.horse_number}</span>{req.vehicle.make_model && <span className="text-[10px] text-slate-500 font-medium">{req.vehicle.make_model}</span>}</div>
                                                         </Badge>
                                                     )}
                                                 </TableCell>
@@ -1451,6 +1655,165 @@ const ProcurementDashboard = () => {
                     </Card>
                 </TabsContent>
             </Tabs >
+
+            {/* Batch Quote Dialog */}
+            <Dialog open={isBatchQuoteOpen} onOpenChange={setIsBatchQuoteOpen}>
+                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Receipt className="w-5 h-5 text-blue-900" />
+                            Batch Review & Quote ({batchQuoteReqs.length} Items)
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="grid gap-6 py-4">
+                        {/* Shared Details */}
+                        <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Supplier</Label>
+                                <Select
+                                    value={batchSharedDetails.supplier_id}
+                                    onValueChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, supplier_id: val, payment_method_id: "" })}
+                                >
+                                    <SelectTrigger className="h-9 text-xs">
+                                        <SelectValue placeholder="Choose Supplier..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(suppliers || []).map((s: any) => (
+                                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Payment Mode</Label>
+                                <Select
+                                    value={batchSharedDetails.payment_method_id}
+                                    onValueChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: val })}
+                                    disabled={!batchSharedDetails.supplier_id}
+                                >
+                                    <SelectTrigger className="h-9 text-xs">
+                                        <SelectValue placeholder="Choose Account..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(allPaymentMethods || [])
+                                            .filter((m: any) => m.supplier_id === batchSharedDetails.supplier_id)
+                                            .map((m: any) => (
+                                                <SelectItem key={m.id} value={m.id} className="text-[11px]">
+                                                    {m.method_type}: {m.bank_name || ''} ({m.account_number})
+                                                </SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">PO Number</Label>
+                                <Input
+                                    value={batchSharedDetails.po_number}
+                                    onChange={(e) => setBatchSharedDetails({ ...batchSharedDetails, po_number: e.target.value })}
+                                    className="h-9 font-mono text-xs"
+                                />
+                            </div>
+                            <div className="space-y-2 flex flex-col justify-end">
+                                <div className="flex items-center gap-2 border p-2 rounded-md bg-white">
+                                    <Switch
+                                        checked={batchSharedDetails.includes_vat}
+                                        onCheckedChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, includes_vat: val })}
+                                        id="batch-vat"
+                                    />
+                                    <Label htmlFor="batch-vat" className="text-[11px] font-semibold cursor-pointer">Include VAT (18%)</Label>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Items List */}
+                        <div className="space-y-3">
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase border-b pb-1 flex justify-between">
+                                <span>Items to Quote</span>
+                                <span>{batchQuoteReqs.length}</span>
+                            </Label>
+                            {batchQuoteReqs.map((req) => (
+                                <div key={req.id} className="flex items-center gap-4 bg-slate-50/50 p-3 rounded-lg border border-slate-100">
+                                    <div className="flex-1">
+                                        <p className="font-bold text-sm text-slate-800">{req.item_name}</p>
+                                        <p className="text-[10px] text-slate-500 uppercase">Requested: {req.quantity_requested}</p>
+                                    </div>
+                                    <div className="w-24 space-y-1">
+                                        <Label className="text-[9px] text-slate-500 uppercase">Available Qty</Label>
+                                        <Input
+                                            type="number"
+                                            value={batchItemQuantities[req.id] || ''}
+                                            onChange={(e) => setBatchItemQuantities({ ...batchItemQuantities, [req.id]: parseInt(e.target.value) || 0 })}
+                                            className="h-8 font-semibold text-center"
+                                            min={1}
+                                            max={req.quantity_requested}
+                                        />
+                                    </div>
+                                    <div className="w-32 space-y-1">
+                                        <Label className="text-[9px] text-slate-500 uppercase">Unit Price</Label>
+                                        <Input
+                                            type="number"
+                                            value={batchItemPrices[req.id] || ''}
+                                            onChange={(e) => setBatchItemPrices({ ...batchItemPrices, [req.id]: parseFloat(e.target.value) || 0 })}
+                                            className="h-8 font-semibold text-right"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <div className="w-24 text-right">
+                                        <p className="text-[9px] text-slate-500 uppercase mb-1">Subtotal</p>
+                                        <p className="font-bold text-sm">
+                                            {((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)).toLocaleString()}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Totals */}
+                        <div className="border-t pt-4 space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-slate-500">Subtotal:</span>
+                                <span className="font-semibold">
+                                    {batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0).toLocaleString()} TZS
+                                </span>
+                            </div>
+                            {batchSharedDetails.includes_vat && (
+                                <div className="flex justify-between text-sm text-blue-900 font-medium">
+                                    <span>VAT (18%):</span>
+                                    <span>
+                                        {(batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * 0.18).toLocaleString()} TZS
+                                    </span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-lg font-black border-t pt-2">
+                                <span>TOTAL:</span>
+                                <span>
+                                    {(batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="gap-2 sticky bottom-0 bg-white p-4 border-t z-10 -mx-6 -mb-6 mt-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                        <Button variant="outline" onClick={() => setIsBatchQuoteOpen(false)} className="h-11 font-semibold uppercase text-[11px] flex-1">Cancel</Button>
+
+                        <Button
+                            className="h-11 bg-blue-900 hover:bg-black font-semibold uppercase text-[11px] px-8 flex-1"
+                            disabled={!batchSharedDetails.supplier_id || !batchSharedDetails.payment_method_id || batchWorkflowMutation.isPending || batchQuoteReqs.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
+                            onClick={() => {
+                                batchWorkflowMutation.mutate({
+                                    reqs: batchQuoteReqs,
+                                    sharedDetails: batchSharedDetails,
+                                    itemPrices: batchItemPrices,
+                                    itemQuantities: batchItemQuantities
+                                });
+                            }}
+                        >
+                            {batchWorkflowMutation.isPending ? "Sending..." : "Send All for Approval"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Professional Approval Dialog */}
             < Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen} >
@@ -1595,11 +1958,12 @@ const ProcurementDashboard = () => {
                                     qty: qtyApproving,
                                     itemId: selectedReq?.item_id,
                                     details: approvalDetails,
-                                    nextStatus: selectedReq?.status === 'Pending' ? 'Awaiting Approval' : 'Approved',
+                                    nextStatus: selectedReq?.status === 'Pending' ? 'Pending Review' : selectedReq?.status === 'Pending Review' ? 'Pending Review' : 'Approved',
                                 });
                             }}
                         >
-                            {workflowMutation.isPending ? "Saving..." : (selectedReq?.status === 'Pending' ? "Send for Approval" : "Approve & Issue PO")}
+                            {workflowMutation.isPending ? "Processing..." : 
+                             (selectedReq?.status === 'Pending' || selectedReq?.status === 'Pending Review') ? "Save Draft Quote" : "Confirm Authorization"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

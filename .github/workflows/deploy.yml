@@ -1,0 +1,40 @@
+name: Build and Deploy to cPanel via FTP
+
+on:
+  push:
+    branches:
+      - main # Change this if your main branch is called 'master'
+
+jobs:
+  web-deploy:
+    name: 🎉 Deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: 🚚 Get latest code
+      uses: actions/checkout@v3
+
+    - name: 🟢 Use Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: 📦 Install Dependencies
+      run: npm install
+
+    - name: 🔨 Build Project
+      run: npm run build
+      env:
+        # GitHub Actions will read these from your Repository Secrets
+        VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+    - name: 📂 Sync files to cPanel via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        local-dir: ./dist/ # Uploads the dist folder contents
+        # Set this to the folder you want to deploy to on your cPanel.
+        # Often it is public_html/ or public_html/sel if you use a subdomain folder.
+        server-dir: /public_html/ 

@@ -1981,20 +1981,6 @@ const GarageDashboard = () => {
                                                                 variant="ghost"
                                                                 className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 rounded-lg group"
                                                                 onClick={() => {
-                                                                    setSelectedInventoryItem(item);
-                                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
-                                                                    setIsUpdateQtyOpen(true);
-                                                                }}
-                                                                title={language === 'en' ? 'Update Count' : 'Sasisha Idadi'}
-                                                            >
-                                                                <Edit2 className="h-4 w-4" />
-                                                            </Button>
-
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 rounded-lg group"
-                                                                onClick={() => {
                                                                     setEditProduct(item);
                                                                     setIsEditProductDialogOpen(true);
                                                                 }}

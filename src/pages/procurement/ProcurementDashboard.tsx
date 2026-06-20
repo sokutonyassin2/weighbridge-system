@@ -142,7 +142,8 @@ const ProcurementDashboard = () => {
                 .select(`
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model),
-                    garage_suppliers(name)
+                    garage_suppliers(name),
+                    profiles!requested_by(full_name)
                 `)
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false })
@@ -178,6 +179,7 @@ const ProcurementDashboard = () => {
     });
 
     const [isAddPaymentMethodOpen, setIsAddPaymentMethodOpen] = useState(false);
+    const [supplierToDelete, setSupplierToDelete] = useState<any>(null);
     const [selectedSupplierForPayment, setSelectedSupplierForPayment] = useState<any>(null);
     const [isEditSupplierOpen, setIsEditSupplierOpen] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<any>(null);
@@ -302,7 +304,7 @@ const ProcurementDashboard = () => {
 
             toast({
                 title: titles[variables.nextStatus] || "Status Updated",
-                description: variables.nextStatus === 'Revoked' ? "Reason recorded." : variables.nextStatus === 'Pending Review' ? "Draft quote saved." : "Requisition state moved forward."
+                description: variables.nextStatus === 'Revoked' ? "Reason recorded." : variables.nextStatus === 'Pending' ? "Draft quote saved." : "Requisition state moved forward."
             });
         }
     });
@@ -1070,19 +1072,19 @@ const ProcurementDashboard = () => {
                                                                                 size="sm"
                                                                                 className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
                                                                                 disabled={
-                                                                                    item.reqs.filter((r: any) => r.status === 'Pending Review').length === 0 || 
-                                                                                    item.reqs.some((r: any) => r.status === 'Pending') || 
+                                                                                    item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length === 0 || 
+                                                                                    item.reqs.some((r: any) => !r.unit_price || r.unit_price <= 0 || !r.supplier_id) || 
                                                                                     submitModelBatchMutation.isPending
                                                                                 }
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    const draftReqs = item.reqs.filter((r: any) => r.status === 'Pending Review');
+                                                                                    const draftReqs = item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id);
                                                                                     if (draftReqs.length > 0) {
                                                                                         submitModelBatchMutation.mutate(draftReqs.map((r: any) => r.id));
                                                                                     }
                                                                                 }}
                                                                             >
-                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : item.reqs.some((r: any) => r.status === 'Pending') ? "Missing Quotes" : `Submit Drafts (${item.reqs.filter((r: any) => r.status === 'Pending Review').length})`}
+                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : item.reqs.some((r: any) => !r.unit_price || r.unit_price <= 0 || !r.supplier_id) ? "Missing Quotes" : `Submit Drafts (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
                                                                             </Button>
                                                                         </div>
                                                                     </TableCell>
@@ -1112,6 +1114,7 @@ const ProcurementDashboard = () => {
                                                                 <span className="text-[10px] text-blue-600 font-mono italic">
                                                                     {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                                 </span>
+                                                                <span className="text-[9px] font-semibold text-slate-400 uppercase mt-1">By: {req.profiles?.full_name || 'System'}</span>
                                                             </div>
                                                         </TableCell>
                                                         <TableCell>
@@ -1476,11 +1479,7 @@ const ProcurementDashboard = () => {
                                                             variant="ghost"
                                                             size="sm"
                                                             className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
-                                                            onClick={() => {
-                                                                if (confirm(`Are you sure you want to delete ${s.name}? This will also delete their payment methods.`)) {
-                                                                    deleteSupplierMutation.mutate(s.id);
-                                                                }
-                                                            }}
+                                                            onClick={() => setSupplierToDelete(s)}
                                                         >
                                                             <XCircle className="w-4 h-4" />
                                                         </Button>
@@ -1958,12 +1957,12 @@ const ProcurementDashboard = () => {
                                     qty: qtyApproving,
                                     itemId: selectedReq?.item_id,
                                     details: approvalDetails,
-                                    nextStatus: selectedReq?.status === 'Pending' ? 'Pending Review' : selectedReq?.status === 'Pending Review' ? 'Pending Review' : 'Approved',
+                                    nextStatus: selectedReq?.status === 'Pending' ? 'Pending' : 'Approved',
                                 });
                             }}
                         >
                             {workflowMutation.isPending ? "Processing..." : 
-                             (selectedReq?.status === 'Pending' || selectedReq?.status === 'Pending Review') ? "Save Draft Quote" : "Confirm Authorization"}
+                             selectedReq?.status === 'Pending' ? "Save Draft Quote" : "Confirm Authorization"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -2453,6 +2452,8 @@ const ProcurementDashboard = () => {
                                     <SelectItem value="Energy Oil">Energy Oil</SelectItem>
                                     <SelectItem value="Energy Feeds">Energy Feeds</SelectItem>
                                     <SelectItem value="SudEnergy Logistics">SudEnergy Logistics</SelectItem>
+                                    <SelectItem value="Sudsud Group">Sudsud Group</SelectItem>
+                                    <SelectItem value="Production Area">Production Area</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -2728,6 +2729,36 @@ const ProcurementDashboard = () => {
                             disabled={workflowMutation.isPending}
                         >
                             {workflowMutation.isPending ? "Processing..." : "Confirm Receipt"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Supplier Delete Confirmation Dialog */}
+            <Dialog open={!!supplierToDelete} onOpenChange={(open) => !open && setSupplierToDelete(null)}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-rose-600 flex items-center gap-2">
+                            <AlertCircle className="h-5 w-5" />
+                            Delete Supplier
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-sm text-slate-600">
+                            Are you sure you want to delete <strong className="text-slate-900">{supplierToDelete?.name}</strong>? 
+                            This action cannot be undone and will also delete any linked payment methods.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSupplierToDelete(null)}>Cancel</Button>
+                        <Button 
+                            variant="destructive" 
+                            disabled={deleteSupplierMutation.isPending}
+                            onClick={() => {
+                                deleteSupplierMutation.mutate(supplierToDelete.id);
+                                setSupplierToDelete(null);
+                            }}
+                        >
+                            {deleteSupplierMutation.isPending ? "Deleting..." : "Yes, Delete"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

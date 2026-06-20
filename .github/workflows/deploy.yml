@@ -35,6 +35,5 @@ jobs:
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
         local-dir: ./dist/ # Uploads the dist folder contents
-        # Set this to the folder you want to deploy to on your cPanel.
-        # Often it is public_html/ or public_html/sel if you use a subdomain folder.
-        server-dir: /public_html/ 
+        # The folder in cPanel where your subdomain is hosted
+        server-dir: /sel.sudsudgroup.com/ 

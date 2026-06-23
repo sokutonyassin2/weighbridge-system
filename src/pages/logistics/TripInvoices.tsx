@@ -57,7 +57,7 @@ export default function TripInvoices() {
                     ? supabase.from("logistics_trips" as any).select("id, trip_number, client_name").in("id", tripIds)
                     : Promise.resolve({ data: [] }),
                 sheetIds.length > 0
-                    ? supabase.from("logistics_trip_expenses" as any).select("trip_sheet_id, amount").in("trip_sheet_id", sheetIds)
+                    ? supabase.from("logistics_trip_expenses" as any).select("trip_sheet_id, amount, currency, category").in("trip_sheet_id", sheetIds)
                     : Promise.resolve({ data: [] })
             ]);
 
@@ -180,14 +180,14 @@ export default function TripInvoices() {
         return matchesSearch;
     });
 
-    // Uninvoiced Trips specifically grouped for the Create Invoice modal
+    // Uninvoiced Trips specifically grouped for the Create Invoice modal — by CLIENT
     const uninvoicedGroups = useMemo(() => {
         const groups: Record<string, any[]> = {};
         (tripSheets || []).forEach((sheet: any) => {
             if (!sheet.invoice_no) { // Has no outbound invoice yet
-                const tripNum = sheet.trip?.trip_number || "Standalone Vehicles";
-                if (!groups[tripNum]) groups[tripNum] = [];
-                groups[tripNum].push(sheet);
+                const clientName = sheet.client_name || sheet.trip?.client_name || 'Individual / Unspecified';
+                if (!groups[clientName]) groups[clientName] = [];
+                groups[clientName].push(sheet);
             }
         });
         return groups;
@@ -205,15 +205,38 @@ export default function TripInvoices() {
         }
     };
 
+    const calculateSheetExpensesTZS = (sheet: any) => {
+        const rate = parseFloat(sheet.exchange_rate) || 2700;
+        return sheet.expenses?.reduce((sum: number, exp: any) => {
+            const amt = parseFloat(exp.amount) || 0;
+            let inTZS = 0;
+            if (exp.currency === 'USD') {
+                inTZS = amt * rate;
+            } else if (exp.currency === 'TZS' || exp.currency === 'TZ') {
+                inTZS = amt;
+            } else {
+                const cRates = sheet.country_rates || {};
+                if (exp.category === 'Zambia') inTZS = amt * (cRates["Zambia"] || 100);
+                else if (exp.category === 'DRC') inTZS = amt * (cRates["DRC"] || 1.0);
+                else if (exp.category === 'Rwanda') inTZS = amt * (cRates["Rwanda"] || 2);
+                else if (exp.category === 'Burundi') inTZS = amt * (cRates["Burundi"] || 1);
+                else inTZS = amt;
+            }
+            return sum + inTZS;
+        }, 0) || 0;
+    };
+
     // Grouping by Invoice (Outbound primarily)
     const groupedByInvoice = filteredSheets.reduce((acc: any, sheet: any) => {
-        const invNo = sheet.invoice_no || "UNASSIGNED";
+        const clientName = sheet.client_name || sheet.trip?.client_name || 'Individual / Unspecified';
+        const invNo = sheet.invoice_no || `UNASSIGNED_${clientName}`;
         if (!acc[invNo]) {
             acc[invNo] = {
                 invoice_no: invNo,
                 invoice_date: sheet.invoice_date,
                 payment_status: sheet.payment_status,
                 currency: sheet.revenue_currency || 'TZS',
+                client_name: sheet.client_name || sheet.trip?.client_name || '',
                 total_revenue: 0,
                 total_expenses: 0,
                 trips: []
@@ -222,7 +245,12 @@ export default function TripInvoices() {
         acc[invNo].trips.push(sheet);
         acc[invNo].total_revenue += parseFloat(sheet.revenue_amount || 0);
         
-        const sheetExpenses = sheet.expenses?.reduce((sum: number, exp: any) => sum + parseFloat(exp.amount || 0), 0) || 0;
+        // Keep track of client name (use first non-empty one)
+        if (!acc[invNo].client_name && (sheet.client_name || sheet.trip?.client_name)) {
+            acc[invNo].client_name = sheet.client_name || sheet.trip?.client_name;
+        }
+
+        const sheetExpenses = calculateSheetExpensesTZS(sheet);
         acc[invNo].total_expenses += sheetExpenses;
 
         return acc;
@@ -292,20 +320,23 @@ export default function TripInvoices() {
                                         </div>
                                         <div>
                                             <CardTitle className="text-sm font-black text-slate-800 flex items-center gap-2">
-                                                {group.invoice_no === "UNASSIGNED" ? <span className="text-slate-400 italic">Uninvoiced Vehicles</span> : group.invoice_no}
-                                                {group.invoice_no !== "UNASSIGNED" && group.invoice_date && (
+                                                {group.invoice_no.startsWith("UNASSIGNED") ? <span className="text-slate-400 italic">Uninvoiced Vehicles</span> : group.invoice_no}
+                                                {!group.invoice_no.startsWith("UNASSIGNED") && group.invoice_date && (
                                                     <span className="text-[10px] font-medium text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">
                                                         {format(new Date(group.invoice_date), "MMM dd, yyyy")}
                                                     </span>
                                                 )}
                                             </CardTitle>
-                                            <CardDescription className="text-xs font-bold mt-0.5">
-                                                {group.trips.length} {group.trips.length === 1 ? 'Vehicle' : 'Vehicles'}
+                                            <CardDescription className="text-xs font-bold mt-0.5 flex items-center gap-2">
+                                                {group.client_name && (
+                                                    <span className="text-indigo-600 font-black">{group.client_name}</span>
+                                                )}
+                                                <span>{group.trips.length} {group.trips.length === 1 ? 'Vehicle' : 'Vehicles'}</span>
                                             </CardDescription>
                                         </div>
                                     </div>
                                     
-                                    {group.invoice_no !== "UNASSIGNED" && (
+                                    {!group.invoice_no.startsWith("UNASSIGNED") && (
                                         <div className="flex items-center gap-4">
                                             <div className="hidden md:flex items-center gap-4 text-xs">
                                                 <div className="text-right">
@@ -336,7 +367,7 @@ export default function TripInvoices() {
                                 <CardContent className="p-0">
                                     <div className="divide-y divide-slate-100 bg-white">
                                         {group.trips.map((sheet: any) => {
-                                            const exp = sheet.expenses?.reduce((sum: number, e: any) => sum + parseFloat(e.amount || 0), 0) || 0;
+                                            const exp = calculateSheetExpensesTZS(sheet);
                                             return (
                                                 <div key={sheet.id} className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
                                                     <div className="flex items-center gap-4">
@@ -346,9 +377,9 @@ export default function TripInvoices() {
                                                         <div>
                                                             <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
                                                                 {sheet.vehicle?.vehicle_no}
-                                                                {sheet.trip?.trip_number && (
+                                                                {(sheet.reference_number || sheet.trip?.trip_number) && (
                                                                     <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
-                                                                        {sheet.trip.trip_number}
+                                                                        {sheet.reference_number || sheet.trip?.trip_number}
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -531,7 +562,7 @@ export default function TripInvoices() {
                         {/* TRIP SELECTION */}
                         <div className="space-y-3">
                             <Label className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                Select Trip Group to Invoice
+                                Select Client Group to Invoice
                             </Label>
                             
                             {Object.keys(uninvoicedGroups).length === 0 ? (

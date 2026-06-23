@@ -758,21 +758,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     if (expenseData && expenseData.length > 0) {
                         const rate = parseFloat(doc.exchange_rate) || 2700;
                         const docExpenses = (expenseData as any[]).map(e => {
-                            let amountInUI = parseFloat(e.amount) || 0;
-                            if (e.currency === 'USD') {
-                                amountInUI = amountInUI * rate;
-                            } else {
-                                if (e.category === 'Zambia') amountInUI = amountInUI / (doc.country_rates?.["Zambia"] || 100);
-                                else if (e.category === 'DRC') amountInUI = amountInUI / (doc.country_rates?.["DRC"] || 1.0);
-                                else if (e.category === 'Rwanda') amountInUI = amountInUI / (doc.country_rates?.["Rwanda"] || 2);
-                                else if (e.category === 'Burundi') amountInUI = amountInUI / (doc.country_rates?.["Burundi"] || 1);
-                            }
+                            // Removed forced conversion to TZS on load
                             return {
                                 id: e.id,
                                 item_name: e.item_name,
-                                amount: amountInUI.toString(),
+                                amount: (parseFloat(e.amount) || 0).toString(),
                                 category: e.category,
-                                currency: 'TZS',
+                                currency: e.currency || (e.category === 'Zambia' ? 'ZMW' : e.category === 'DRC' ? 'USD' : e.category === 'Rwanda' ? 'RWF' : e.category === 'Burundi' ? 'BIF' : 'TZS'),
                                 nature: e.nature || e.category,
                                 is_extra: e.is_extra || false
                             };
@@ -1018,12 +1010,20 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         });
     }, [expenses, revenueData, countryRates]);
 
+    const getDefaultCurrency = (category: string) => {
+        if (category === 'Zambia') return 'ZMW';
+        if (category === 'DRC') return 'USD';
+        if (category === 'Rwanda') return 'RWF';
+        if (category === 'Burundi') return 'BIF';
+        return 'TZS';
+    };
+
     const addExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
         setExpenses([...expenses, {
             item_name: "",
             amount: "",
             category,
-            currency: 'TZS',
+            currency: getDefaultCurrency(category),
             nature: "Go & Return",
             is_extra: false
         }]);
@@ -1034,7 +1034,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             item_name: "",
             amount: "",
             category,
-            currency: 'TZS',
+            currency: getDefaultCurrency(category),
             nature: "Unbudgeted",
             is_extra: true
         }]);
@@ -1159,20 +1159,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 const { error: expensesError } = await supabase
                     .from('logistics_trip_expenses' as any)
                     .insert(expenses.map(e => {
-                        let amountToSave = parseFloat(e.amount.toString().replace(/,/g, '')) || 0;
-                        if (e.currency !== 'USD') {
-                            if (e.category === 'Zambia') amountToSave = amountToSave * (countryRates["Zambia"] || 100);
-                            else if (e.category === 'DRC') amountToSave = amountToSave * (countryRates["DRC"] || 1.0);
-                            else if (e.category === 'Rwanda') amountToSave = amountToSave * (countryRates["Rwanda"] || 2);
-                            else if (e.category === 'Burundi') amountToSave = amountToSave * (countryRates["Burundi"] || 1);
-                        }
                         return {
                             trip_sheet_id: activeSheetId,
                             category: e.category,
                             nature: e.nature || e.category,
                             item_name: e.item_name,
                             description: e.item_name,
-                            amount: amountToSave,
+                            amount: parseFloat(e.amount.toString().replace(/,/g, '')) || 0,
                             currency: e.currency,
                             is_extra: e.is_extra || false
                         };
@@ -1344,24 +1337,29 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             const tableHeader = sheet.getRow(currRow++);
             tableHeader.getCell(1).value = 'Item Description';
             tableHeader.getCell(2).value = 'Nature';
-            tableHeader.getCell(3).value = 'Amount (TZS)';
+            tableHeader.getCell(3).value = 'Amount (USD)';
             tableHeader.getCell(3).alignment = { horizontal: 'right' };
-            tableHeader.getCell(4).value = 'Amount (USD)';
-            tableHeader.getCell(4).alignment = { horizontal: 'right' };
             
+            let tzsCol = 4;
             if (cat.id === 'Zambia') {
-                tableHeader.getCell(5).value = 'Amount (ZMW)';
-                tableHeader.getCell(5).alignment = { horizontal: 'right' };
+                tableHeader.getCell(4).value = 'Amount (ZMW)';
+                tableHeader.getCell(4).alignment = { horizontal: 'right' };
+                tzsCol = 5;
             } else if (cat.id === 'Rwanda') {
-                tableHeader.getCell(5).value = 'Amount (RWF)';
-                tableHeader.getCell(5).alignment = { horizontal: 'right' };
+                tableHeader.getCell(4).value = 'Amount (RWF)';
+                tableHeader.getCell(4).alignment = { horizontal: 'right' };
+                tzsCol = 5;
             } else if (cat.id === 'Burundi') {
-                tableHeader.getCell(5).value = 'Amount (BIF)';
-                tableHeader.getCell(5).alignment = { horizontal: 'right' };
+                tableHeader.getCell(4).value = 'Amount (BIF)';
+                tableHeader.getCell(4).alignment = { horizontal: 'right' };
+                tzsCol = 5;
             }
             
+            tableHeader.getCell(tzsCol).value = 'Amount (TZS)';
+            tableHeader.getCell(tzsCol).alignment = { horizontal: 'right' };
+            
             tableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
-                const limit = cat.id === 'Zambia' ? 5 : 4;
+                const limit = ['Zambia', 'Rwanda', 'Burundi'].includes(cat.id) ? 5 : 4;
                 if (colNumber <= limit) {
                     c.font = { bold: true };
                     c.border = borderStyle;
@@ -1373,31 +1371,55 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             catExpenses.forEach(exp => {
                 const rowIdx = currRow++;
                 const row = sheet.getRow(rowIdx);
-                const amtTzs = parseFloat(exp.amount) || 0;
-                const amtUsd = amtTzs / tzR;
-                const amtZmw = amtUsd * zmwR;
+                
+                const amt = parseFloat(exp.amount) || 0;
+                let amtUsd = 0;
+                let amtTzs = 0;
+                let amtLocal = 0;
+
+                if (exp.currency === 'USD') {
+                    amtUsd = amt;
+                    amtTzs = amt * tzR;
+                    if (cat.id === 'Zambia') amtLocal = amt * (countryRates["Zambia"] || 100);
+                    else if (cat.id === 'Rwanda') amtLocal = amt * (countryRates["Rwanda"] || 2);
+                    else if (cat.id === 'Burundi') amtLocal = amt * (countryRates["Burundi"] || 1);
+                } else if (exp.currency === 'TZS' || exp.currency === 'TZ') {
+                    amtTzs = amt;
+                    amtUsd = amt / tzR;
+                    if (cat.id === 'Zambia') amtLocal = amtUsd * (countryRates["Zambia"] || 100);
+                    else if (cat.id === 'Rwanda') amtLocal = amtUsd * (countryRates["Rwanda"] || 2);
+                    else if (cat.id === 'Burundi') amtLocal = amtUsd * (countryRates["Burundi"] || 1);
+                } else {
+                    amtLocal = amt;
+                    if (cat.id === 'Zambia') amtUsd = amt / (countryRates["Zambia"] || 100);
+                    else if (cat.id === 'Rwanda') amtUsd = amt / (countryRates["Rwanda"] || 2);
+                    else if (cat.id === 'Burundi') amtUsd = amt / (countryRates["Burundi"] || 1);
+                    else amtUsd = amt;
+                    amtTzs = amtUsd * tzR;
+                }
 
                 row.getCell(1).value = exp.item_name;
                 row.getCell(2).value = exp.nature || 'General';
-                row.getCell(3).value = amtTzs;
-                row.getCell(3).numFmt = '#,##0';
                 
-                row.getCell(4).value = amtUsd;
-                row.getCell(4).numFmt = '"$"#,##0.00';
+                row.getCell(3).value = amtUsd;
+                row.getCell(3).numFmt = '"$"#,##0.00';
                 
                 if (cat.id === 'Zambia') {
-                    row.getCell(5).value = Math.round(amtUsd * (countryRates["Zambia"] || 25.5));
-                    row.getCell(5).numFmt = '#,##0 "K"';
+                    row.getCell(4).value = Math.round(amtLocal);
+                    row.getCell(4).numFmt = '#,##0 "K"';
                 } else if (cat.id === 'Rwanda') {
-                    row.getCell(5).value = Math.round(amtUsd * (countryRates["Rwanda"] || 1250));
-                    row.getCell(5).numFmt = '#,##0 "RWF"';
+                    row.getCell(4).value = Math.round(amtLocal);
+                    row.getCell(4).numFmt = '#,##0 "RWF"';
                 } else if (cat.id === 'Burundi') {
-                    row.getCell(5).value = Math.round(amtUsd * (countryRates["Burundi"] || 2850));
-                    row.getCell(5).numFmt = '#,##0 "BIF"';
+                    row.getCell(4).value = Math.round(amtLocal);
+                    row.getCell(4).numFmt = '#,##0 "BIF"';
                 }
+
+                row.getCell(tzsCol).value = Math.round(amtTzs);
+                row.getCell(tzsCol).numFmt = '#,##0';
                 
                 row.eachCell({ includeEmpty: true }, (c, colNumber) => {
-                    const limit = cat.id === 'Zambia' ? 5 : 4;
+                    const limit = ['Zambia', 'Rwanda', 'Burundi'].includes(cat.id) ? 5 : 4;
                     if (colNumber <= limit) c.border = borderStyle;
                 });
             });
@@ -1407,22 +1429,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             subTotalRow.getCell(1).value = `SUBTOTAL ${cat.label}`;
             subTotalRow.getCell(1).style = subtotalStyle;
             
-            subTotalRow.getCell(3).value = totals.categoryTotals[cat.id]?.tzs || 0;
-            subTotalRow.getCell(3).numFmt = '#,##0';
-            
-            subTotalRow.getCell(4).value = totals.categoryTotals[cat.id]?.usd || 0;
-            subTotalRow.getCell(4).numFmt = '"$"#,##0.00';
+            subTotalRow.getCell(3).value = totals.categoryTotals[cat.id]?.usd || 0;
+            subTotalRow.getCell(3).numFmt = '"$"#,##0.00';
             
             if (cat.id === 'Zambia') {
-                subTotalRow.getCell(5).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Zambia"] || 25.5));
-                subTotalRow.getCell(5).numFmt = '#,##0 "K"';
+                subTotalRow.getCell(4).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Zambia"] || 100));
+                subTotalRow.getCell(4).numFmt = '#,##0 "K"';
             } else if (cat.id === 'Rwanda') {
-                subTotalRow.getCell(5).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Rwanda"] || 1250));
-                subTotalRow.getCell(5).numFmt = '#,##0 "RWF"';
+                subTotalRow.getCell(4).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Rwanda"] || 2));
+                subTotalRow.getCell(4).numFmt = '#,##0 "RWF"';
             } else if (cat.id === 'Burundi') {
-                subTotalRow.getCell(5).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Burundi"] || 2850));
-                subTotalRow.getCell(5).numFmt = '#,##0 "BIF"';
+                subTotalRow.getCell(4).value = Math.round((totals.categoryTotals[cat.id]?.usd || 0) * (countryRates["Burundi"] || 1));
+                subTotalRow.getCell(4).numFmt = '#,##0 "BIF"';
             }
+            
+            subTotalRow.getCell(tzsCol).value = totals.categoryTotals[cat.id]?.tzs || 0;
+            subTotalRow.getCell(tzsCol).numFmt = '#,##0';
             
             sheet.mergeCells(`A${subTotalRowIdx}:B${subTotalRowIdx}`);
 
@@ -1635,20 +1657,20 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         return (
             <div className="space-y-4 print:space-y-1">
-                <div className="grid gap-1.5 print:gap-1">
-                    {/* Professional Table Header */}
-                    <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
-                        <div className="flex-[8] min-w-[200px]">Expense Description</div>
-                        <div className="w-28 text-center">Nature</div>
-                        <div className="w-40 text-right pr-4">Currency & Amount</div>
-                        {category === 'TZ' ? (
-                            <div className="w-20 text-right">USD</div>
-                        ) : (
-                            <div className="w-20 text-right">TZS Equiv.</div>
-                        )}
-                        <div className="w-6"></div>
-                    </div>
+                {/* Professional Table Header */}
+                <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
+                    <div className="flex-[8] min-w-[200px]">Expense Description</div>
+                    <div className="w-28 text-center">Nature</div>
+                    <div className="w-40 text-right pr-4">Currency & Amount</div>
+                    {category === 'TZ' ? (
+                        <div className="w-20 text-right">USD</div>
+                    ) : (
+                        <div className="w-20 text-right">TZS Equiv.</div>
+                    )}
+                    <div className="w-6"></div>
+                </div>
 
+                <div className="grid gap-1.5 print:gap-1 max-h-[450px] overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>
                     {filteredExpenses.map((item) => {
                         const inputAmount = parseFloat(item.amount) || 0;
                         const tzRate = countryRates["TZ"] || 2700;
@@ -1738,7 +1760,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         {category === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
                                         <Select
                                             value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
-                                            onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val === inputCurrencyLabel ? null : val)}
+                                            onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val)}
                                             disabled={isLocked}
                                         >
                                             <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-slate-100 border-none shadow-none px-1.5 text-slate-500 hover:bg-slate-200 focus:ring-0">
@@ -2178,6 +2200,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             </div>
                                         </div>
                                     </div>
+                                    <div className="space-y-2 pt-4 border-t border-slate-100">
+                                        <Label className="text-xs font-semibold text-slate-500">Journey Type</Label>
+                                        <Select
+                                            value={tripData.journey_type}
+                                            onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
+                                            disabled={isLocked || (fleet.find(v => v.id === tripData.vehicle_id)?.asset_type?.toLowerCase().includes('tanker'))}
+                                        >
+                                            <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[100]">
+                                                <SelectItem value="Go & Return (Full Cycle)">Go & Return (Full Cycle)</SelectItem>
+                                                <SelectItem value="Go Only (Return Empty)">Go Only (Return Empty)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
 
                                 {/* RIGHT COLUMN: Route & Cargo */}
@@ -2243,22 +2281,6 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                 />
                                             </div>
                                         </div>
-                                    </div>
-                                    <div className="space-y-2 pt-4 border-t border-slate-100">
-                                        <Label className="text-xs font-semibold text-slate-500">Journey Type</Label>
-                                        <Select
-                                            value={tripData.journey_type}
-                                            onValueChange={(v) => setTripData({ ...tripData, journey_type: v })}
-                                            disabled={isLocked || (fleet.find(v => v.id === tripData.vehicle_id)?.asset_type?.toLowerCase().includes('tanker'))}
-                                        >
-                                            <SelectTrigger className="h-11 bg-slate-50 border-slate-200 shadow-sm font-medium text-slate-700">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="z-[100]">
-                                                <SelectItem value="Go & Return (Full Cycle)">Go & Return (Full Cycle)</SelectItem>
-                                                <SelectItem value="Go Only (Return Empty)">Go Only (Return Empty)</SelectItem>
-                                            </SelectContent>
-                                        </Select>
                                     </div>
                                     <div className="space-y-2 pt-4 border-t border-slate-100">
                                         <Label className="text-xs font-semibold text-slate-500">Assigned Driver</Label>

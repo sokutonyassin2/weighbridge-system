@@ -143,7 +143,20 @@ export const LogisticsPaymentTracker = ({ searchTerm = "" }: { searchTerm?: stri
                         .filter(e => e.category !== 'Fixed')
                         .reduce((sum, e) => {
                             const amt = parseFloat(e.amount) || 0;
-                            return sum + (e.currency === 'TZS' ? amt : amt * rate);
+                            let inTZS = 0;
+                            if (e.currency === 'USD') {
+                                inTZS = amt * rate;
+                            } else if (e.currency === 'TZS' || e.currency === 'TZ') {
+                                inTZS = amt;
+                            } else {
+                                const cRates = trip.country_rates || {};
+                                if (e.category === 'Zambia') inTZS = amt * (cRates["Zambia"] || 100);
+                                else if (e.category === 'DRC') inTZS = amt * (cRates["DRC"] || 1.0);
+                                else if (e.category === 'Rwanda') inTZS = amt * (cRates["Rwanda"] || 2);
+                                else if (e.category === 'Burundi') inTZS = amt * (cRates["Burundi"] || 1);
+                                else inTZS = amt;
+                            }
+                            return sum + inTZS;
                         }, 0);
                 }
 

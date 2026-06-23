@@ -952,7 +952,10 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 let inTZS = 0;
                 let inUSD = 0;
                 
-                if (curr.currency === 'USD') {
+                // DRC default input currency is USD — always treat DRC amounts as USD
+                const effectiveCurrency = (curr.category === 'DRC') ? 'USD' : curr.currency;
+                
+                if (effectiveCurrency === 'USD') {
                     inUSD = amt;
                     inTZS = amt * rate;
                 } else {
@@ -961,9 +964,6 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         inUSD = amt / rate;
                     } else if (curr.category === 'Zambia') {
                         inTZS = amt * (countryRates["Zambia"] || 100);
-                        inUSD = inTZS / rate;
-                    } else if (curr.category === 'DRC') {
-                        inTZS = amt * (countryRates["DRC"] || 1.0);
                         inUSD = inTZS / rate;
                     } else if (curr.category === 'Rwanda') {
                         inTZS = amt * (countryRates["Rwanda"] || 2);
@@ -1270,10 +1270,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         addProjectInfo('Linked Trailer:', fleet.find(f => f.id === tripData.trailer_id)?.vehicle_no || 'None Coupled');
         addProjectInfo('Driver:', drivers.find(d => d.id === tripData.driver_id)?.full_name || 'Pending');
         addProjectInfo('Route / Destination:', tripData.destination || 'Not Specified');
-        addProjectInfo('Exchange Rates:', `1 USD = ${countryRates["TZ"] || 2700} TZS${activeCountries.includes('Zambia') ? ` | 1 USD = ${countryRates["Zambia"] || 25.5} ZMW` : ''}`);
-        if (activeCountries.includes('Zambia')) {
-            addProjectInfo('Zambia Rate (USD to ZMW):', `1 USD = ${countryRates["Zambia"] || 25.5} ZMW`);
-        }
+        addProjectInfo('Exchange Rates:', `1 USD = ${countryRates["TZ"] || 2700} TZS${activeCountries.includes('Zambia') ? ` | 1 USD = ${countryRates["Zambia"] || 25.5} ZMW` : ''}${activeCountries.includes('DRC') ? ` | 1 USD = ${countryRates["DRC"] || 1.0} DRC Rate` : ''}${activeCountries.includes('Rwanda') ? ` | 1 USD = ${countryRates["Rwanda"] || 2} RWF` : ''}${activeCountries.includes('Burundi') ? ` | 1 USD = ${countryRates["Burundi"] || 1} BIF` : ''}`);
 
         currRow += 2;
 
@@ -1317,12 +1314,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         // 4. Detailed Expenses Breakdown
         const categories = [
-            { id: 'TZ', label: 'TANZANIA OPERATIONS' },
-            { id: 'Zambia', label: 'ZAMBIA OPERATIONS' },
-            { id: 'DRC', label: 'DR CONGO OPERATIONS' },
-            { id: 'Rwanda', label: 'RWANDA OPERATIONS' },
-            { id: 'Burundi', label: 'BURUNDI OPERATIONS' },
-            { id: 'Fixed', label: 'FIXED EXPENSES & OVERHEAD' }
+            { id: 'Zambia', label: 'ZAMBIA OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["Zambia"] || 25.5} ZMW` },
+            { id: 'DRC', label: 'DR CONGO OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["TZ"] || 2700} TZS` },
+            { id: 'Rwanda', label: 'RWANDA OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["Rwanda"] || 2} RWF` },
+            { id: 'Burundi', label: 'BURUNDI OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["Burundi"] || 1} BIF` },
+            { id: 'TZ', label: 'TANZANIA OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["TZ"] || 2700} TZS` },
+            { id: 'Fixed', label: 'FIXED EXPENSES & OVERHEAD', rateLabel: '' }
         ];
 
         categories.forEach(cat => {
@@ -1333,6 +1330,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             sectionHeader.getCell(1).value = cat.label;
             sectionHeader.getCell(1).style = headerStyle;
             sheet.mergeCells(`A${sectionHeaderIdx}:E${sectionHeaderIdx}`);
+
+            // Add exchange rate row for each country section
+            if ((cat as any).rateLabel && cat.id !== 'Fixed') {
+                const rateRowIdx = currRow++;
+                const rateRow = sheet.getRow(rateRowIdx);
+                rateRow.getCell(1).value = (cat as any).rateLabel;
+                rateRow.getCell(1).font = { italic: true, size: 9, color: { argb: '6B7280' } };
+                sheet.mergeCells(`A${rateRowIdx}:E${rateRowIdx}`);
+            }
 
             const tableHeader = sheet.getRow(currRow++);
             tableHeader.getCell(1).value = 'Item Description';
@@ -1377,13 +1383,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 let amtTzs = 0;
                 let amtLocal = 0;
 
-                if (exp.currency === 'USD') {
+                // DRC default input currency is USD — always treat DRC amounts as USD
+                const effectiveCurrency = (cat.id === 'DRC') ? 'USD' : exp.currency;
+
+                if (effectiveCurrency === 'USD') {
                     amtUsd = amt;
                     amtTzs = amt * tzR;
                     if (cat.id === 'Zambia') amtLocal = amt * (countryRates["Zambia"] || 100);
                     else if (cat.id === 'Rwanda') amtLocal = amt * (countryRates["Rwanda"] || 2);
                     else if (cat.id === 'Burundi') amtLocal = amt * (countryRates["Burundi"] || 1);
-                } else if (exp.currency === 'TZS' || exp.currency === 'TZ') {
+                } else if (effectiveCurrency === 'TZS' || effectiveCurrency === 'TZ') {
                     amtTzs = amt;
                     amtUsd = amt / tzR;
                     if (cat.id === 'Zambia') amtLocal = amtUsd * (countryRates["Zambia"] || 100);

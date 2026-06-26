@@ -115,7 +115,7 @@ const GarageDashboard = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const queryClient = useQueryClient();
-    const { userRole } = useAuth();
+    const { userRole, user } = useAuth();
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
     const [partNumberSearch, setPartNumberSearch] = useState("");
@@ -506,7 +506,8 @@ const GarageDashboard = () => {
             const { data, error } = await sb.from("garage_requisitions").insert(
                 payloads.map(p => ({
                     ...p,
-                    target_company: 'SudEnergy Logistics'
+                    target_company: 'SudEnergy Logistics',
+                    requested_by: user?.id
                 }))
             ).select();
             if (error) throw error;

@@ -360,6 +360,7 @@ export default function UserManagement() {
                     <SelectItem value="admin">Operations Manager</SelectItem>
                     <SelectItem value="finance">Finance / Accounts</SelectItem>
                     <SelectItem value="procurement_officer">Procurement Officer</SelectItem>
+                    <SelectItem value="procurement_cashier">Procurement Cashier</SelectItem>
                     <SelectItem value="garage_manager">Garage Manager (Head)</SelectItem>
                     <SelectItem value="storekeeper">Storekeeper (Inventory)</SelectItem>
                     <SelectItem value="mechanic">Mechanic / Technical</SelectItem>
@@ -417,8 +418,9 @@ export default function UserManagement() {
                               user.role === "admin" ? "bg-blue-600 text-white hover:bg-blue-700" :
                                 user.role === "finance" ? "bg-emerald-600 text-white hover:bg-emerald-700" :
                                   user.role === "procurement_officer" ? "bg-amber-600 text-white hover:bg-amber-700" :
-                                    user.role === "garage_manager" ? "bg-slate-800 text-white hover:bg-black" :
-                                      user.role === "storekeeper" ? "bg-orange-600 text-white hover:bg-orange-700" :
+                                    user.role === "procurement_cashier" ? "bg-green-600 text-white hover:bg-green-700" :
+                                      user.role === "garage_manager" ? "bg-slate-800 text-white hover:bg-black" :
+                                        user.role === "storekeeper" ? "bg-orange-600 text-white hover:bg-orange-700" :
                                         user.role === "observer" ? "bg-purple-600 text-white hover:bg-purple-700" :
                                           user.role === "operator" ? "bg-slate-500 text-white hover:bg-slate-600" :
                                             user.role?.includes("logistics") ? "bg-cyan-600 text-white hover:bg-cyan-700" :
@@ -580,6 +582,7 @@ export default function UserManagement() {
                   <SelectItem value="admin">Operations Manager</SelectItem>
                   <SelectItem value="finance">Finance / Accounts</SelectItem>
                   <SelectItem value="procurement_officer">Procurement Officer</SelectItem>
+                  <SelectItem value="procurement_cashier">Procurement Cashier</SelectItem>
                   <SelectItem value="garage_manager">Garage Manager (Head)</SelectItem>
                   <SelectItem value="storekeeper">Storekeeper (Inventory)</SelectItem>
                   <SelectItem value="mechanic">Mechanic / Technical</SelectItem>

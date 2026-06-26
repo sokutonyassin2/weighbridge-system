@@ -1073,7 +1073,6 @@ const ProcurementDashboard = () => {
                                                                                 className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
                                                                                 disabled={
                                                                                     item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length === 0 || 
-                                                                                    item.reqs.some((r: any) => !r.unit_price || r.unit_price <= 0 || !r.supplier_id) || 
                                                                                     submitModelBatchMutation.isPending
                                                                                 }
                                                                                 onClick={(e) => {
@@ -1084,7 +1083,7 @@ const ProcurementDashboard = () => {
                                                                                     }
                                                                                 }}
                                                                             >
-                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : item.reqs.some((r: any) => !r.unit_price || r.unit_price <= 0 || !r.supplier_id) ? "Missing Quotes" : `Submit Drafts (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
+                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : `Submit Quoted (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
                                                                             </Button>
                                                                         </div>
                                                                     </TableCell>
@@ -1177,27 +1176,40 @@ const ProcurementDashboard = () => {
                                                             <div className="flex items-center justify-end gap-2">
                                                                 {/* PROCUREMENT OFFICER: Prepare Quote */}
                                                                 {(req.status === 'Pending' || req.status === 'Pending Review') && (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
-                                                                        onClick={() => {
-                                                                            setSelectedReq(req);
-                                                                            setApprovalDetails({
-                                                                                supplier_id: "",
-                                                                                po_number: generatePONumber(requisitions?.filter((r: any) =>
-                                                                                    new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number
-                                                                                ).length || 0),
-                                                                                includes_vat: false,
-                                                                                vat_amount: 0,
-                                                                                temp_price: req.unit_price || (inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0,
-                                                                                payment_method_id: "",
-                                                                                quantity_approving: req.quantity_requested || 0
-                                                                            });
-                                                                            setIsApproveDialogOpen(true);
-                                                                        }}
-                                                                    >
-                                                                        {userRole === 'procurement_officer' ? "Enter Quote" : "Review & Quote"}
-                                                                    </Button>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
+                                                                            onClick={() => {
+                                                                                setSelectedReq(req);
+                                                                                setApprovalDetails({
+                                                                                    supplier_id: req.supplier_id || "",
+                                                                                    po_number: req.po_number || generatePONumber(requisitions?.filter((r: any) =>
+                                                                                        new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number
+                                                                                    ).length || 0),
+                                                                                    includes_vat: req.includes_vat || false,
+                                                                                    vat_amount: req.vat_amount || 0,
+                                                                                    temp_price: req.unit_price || (inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0,
+                                                                                    payment_method_id: req.payment_details?.id || "",
+                                                                                    quantity_approving: req.quantity_requested || 0
+                                                                                });
+                                                                                setIsApproveDialogOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            {userRole === 'procurement_officer' ? "Enter Quote" : "Review & Quote"}
+                                                                        </Button>
+
+                                                                        <Button
+                                                                            size="sm"
+                                                                            className="h-8 bg-orange-600 hover:bg-orange-700 text-[10px] font-bold uppercase shadow-md shadow-orange-100 text-white"
+                                                                            disabled={!req.unit_price || req.unit_price <= 0 || !req.supplier_id || submitModelBatchMutation.isPending}
+                                                                            onClick={() => {
+                                                                                submitModelBatchMutation.mutate([req.id]);
+                                                                            }}
+                                                                        >
+                                                                            Send for Approval
+                                                                        </Button>
+                                                                    </div>
                                                                 )}
 
                                                                 {/* OPERATIONS MANAGER: Management Approval */}

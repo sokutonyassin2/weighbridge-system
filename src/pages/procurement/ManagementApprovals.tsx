@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { CheckCircle, XCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, TrendingUp } from "lucide-react";
+import { CheckCircle, XCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, TrendingUp, Building2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -193,13 +193,13 @@ const ManagementApprovals = () => {
                             const grouped = groupRequisitionsByMonth(approvals || []);
                             return Object.keys(grouped).map((month) => {
                                 const reqsInMonth = grouped[month];
-                                const modelGroups: Record<string, any[]> = {};
+                                const supplierGroups: Record<string, any[]> = {};
                                 const ungrouped: any[] = [];
                                 reqsInMonth.forEach((req: any) => {
-                                    if (req.vehicle) {
-                                        const model = req.vehicle.make_model || 'Unknown Model';
-                                        if (!modelGroups[model]) modelGroups[model] = [];
-                                        modelGroups[model].push(req);
+                                    if (req.supplier_id) {
+                                        const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                                        if (!supplierGroups[supplierName]) supplierGroups[supplierName] = [];
+                                        supplierGroups[supplierName].push(req);
                                     } else {
                                         ungrouped.push(req);
                                     }
@@ -215,16 +215,29 @@ const ManagementApprovals = () => {
                                         </Badge>
                                     </div>
 
-                                    {Object.entries(modelGroups).map(([model, reqs]) => (
-                                        <div key={model} className="space-y-4 pl-4 border-l-2 border-indigo-200 py-2">
+                                    {Object.entries(supplierGroups).map(([supplierName, reqs]) => {
+                                        let poTotal = 0;
+                                        reqs.forEach((r: any) => {
+                                            const qty = r.quantity_requested || 1;
+                                            const unitPrice = r.unit_price > 0 ? r.unit_price : 0;
+                                            const lineTotal = qty * unitPrice;
+                                            const vat = r.includes_vat ? (lineTotal * 0.18) : 0;
+                                            poTotal += (lineTotal + vat);
+                                        });
+                                        
+                                        return (
+                                        <div key={supplierName} className="space-y-4 pl-4 border-l-2 border-indigo-200 py-2">
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
                                                 <div className="flex items-center gap-2">
                                                     <div className="bg-indigo-50 p-2 rounded-md">
-                                                        <Truck className="w-5 h-5 text-indigo-600" />
+                                                        <Building2 className="w-5 h-5 text-indigo-600" />
                                                     </div>
-                                                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">{model}</h4>
+                                                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">{supplierName}</h4>
                                                     <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px]">
                                                         {reqs.length} Requests
+                                                    </Badge>
+                                                    <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px]">
+                                                        PO Total: {poTotal.toLocaleString()} TZS
                                                     </Badge>
                                                 </div>
                                                 <div className="flex flex-wrap gap-1 sm:ml-4">
@@ -316,7 +329,8 @@ const ManagementApprovals = () => {
                                                 ))}
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
 
                                     {ungrouped.length > 0 && (
                                         <div className="space-y-4 pl-4 border-l-2 border-slate-200 mt-6 py-2">

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { POPreviewDialog } from "@/components/POPreviewDialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2 } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -61,6 +62,19 @@ const ProcurementDashboard = () => {
 
     // Batch Quote States
     const [isBatchQuoteOpen, setIsBatchQuoteOpen] = useState(false);
+    const [submittingBatchType, setSubmittingBatchType] = useState<"update" | "send" | null>(null);
+    
+    // Preview Dialog State
+    const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
+    const [previewSupplierName, setPreviewSupplierName] = useState("");
+    const [previewReqs, setPreviewReqs] = useState<any[]>([]);
+    
+    // Receipt viewer state
+    const [viewReceiptUrl, setViewReceiptUrl] = useState<string | null>(null);
+    const [isReceiptViewerOpen, setIsReceiptViewerOpen] = useState(false);
+    const [receiptViewerTitle, setReceiptViewerTitle] = useState("");
+    const shopReceiptInputRef = React.useRef<HTMLInputElement>(null);
+    const [uploadingShopReceiptId, setUploadingShopReceiptId] = useState<string | null>(null);
     const [batchQuoteReqs, setBatchQuoteReqs] = useState<any[]>([]);
     const [batchSharedDetails, setBatchSharedDetails] = useState({
         supplier_id: "",
@@ -328,7 +342,7 @@ const ProcurementDashboard = () => {
 
     // Batch Quote Mutation
     const batchWorkflowMutation = useMutation({
-        mutationFn: async ({ reqs, sharedDetails, itemPrices, itemQuantities }: { reqs: any[], sharedDetails: any, itemPrices: Record<string, number>, itemQuantities: Record<string, number> }) => {
+        mutationFn: async ({ reqs, sharedDetails, itemPrices, itemQuantities, isUpdateOnly }: { reqs: any[], sharedDetails: any, itemPrices: Record<string, number>, itemQuantities: Record<string, number>, isUpdateOnly?: boolean }) => {
             const updates = reqs.map(req => {
                 const qty = itemQuantities[req.id] || req.quantity_requested || 0;
                 const unitPrice = itemPrices[req.id] || 0;
@@ -337,7 +351,7 @@ const ProcurementDashboard = () => {
                 
                 return {
                     id: req.id,
-                    status: 'Awaiting Approval',
+                    status: isUpdateOnly ? 'Pending' : 'Awaiting Approval',
                     unit_price: unitPrice,
                     total_price: subtotal + vat,
                     supplier_id: sharedDetails.supplier_id,
@@ -349,20 +363,23 @@ const ProcurementDashboard = () => {
                 };
             });
 
-            for (const updateData of updates) {
+            await Promise.all(updates.map(async (updateData) => {
                 const { id, ...data } = updateData;
                 const { error } = await sb.from("garage_requisitions").update(data).eq("id", id);
                 if (error) throw error;
-            }
+            }));
         },
-        onSuccess: () => {
+        onSuccess: (data, variables) => {
             queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
             setIsBatchQuoteOpen(false);
             setBatchQuoteReqs([]);
             toast({
-                title: "Quotes Submitted",
-                description: "All selected items have been sent for Management Approval."
+                title: variables.isUpdateOnly ? "Quotes Updated" : "Quotes Submitted",
+                description: variables.isUpdateOnly ? "Draft prices and supplier details saved." : "All selected items have been sent for Management Approval."
             });
+        },
+        onSettled: () => {
+            setSubmittingBatchType(null);
         }
     });
 
@@ -988,47 +1005,57 @@ const ProcurementDashboard = () => {
                                                 {(() => {
                                                     const flatItems: any[] = [];
                                                     if (reqStatusFilter === 'Pending') {
-                                                        const modelGroups: Record<string, any[]> = {};
+                                                        const supplierGroups: Record<string, any[]> = {};
                                                         const ungrouped: any[] = [];
                                                         grouped[month].forEach((req: any) => {
-                                                            if (req.vehicle_id && req.vehicle) {
-                                                                const model = req.vehicle.make_model || 'Unknown Model';
-                                                                if (!modelGroups[model]) modelGroups[model] = [];
-                                                                modelGroups[model].push(req);
+                                                            if (req.supplier_id) {
+                                                                const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                                                                if (!supplierGroups[supplierName]) supplierGroups[supplierName] = [];
+                                                                supplierGroups[supplierName].push(req);
                                                             } else {
                                                                 ungrouped.push(req);
                                                             }
                                                         });
                                                         
-                                                        Object.entries(modelGroups).forEach(([model, reqs]) => {
-                                                            flatItems.push({ isVehicleHeader: true, reqs, vid: model, modelName: model });
-                                                            if (expandedVehicles.includes(model)) {
-                                                                reqs.forEach((req: any) => flatItems.push({ isVehicleHeader: false, req, isChild: true }));
+                                                        Object.entries(supplierGroups).forEach(([supplierName, reqs]) => {
+                                                            flatItems.push({ isSupplierHeader: true, reqs, sId: supplierName, supplierName });
+                                                            if (expandedVehicles.includes(supplierName)) {
+                                                                reqs.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req, isChild: true }));
                                                             }
                                                         });
-                                                        ungrouped.forEach((req: any) => flatItems.push({ isVehicleHeader: false, req }));
+                                                        ungrouped.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req }));
                                                     } else {
-                                                        grouped[month].forEach((req: any) => flatItems.push({ isVehicleHeader: false, req }));
+                                                        grouped[month].forEach((req: any) => flatItems.push({ isSupplierHeader: false, req }));
                                                     }
 
                                                     return flatItems.map((item: any, idx: number) => {
-                                                        if (item.isVehicleHeader) {
-                                                            const isExpanded = expandedVehicles.includes(item.vid);
+                                                        if (item.isSupplierHeader) {
+                                                            const isExpanded = expandedVehicles.includes(item.sId);
                                                             const firstReq = item.reqs[0];
-                                                            const uniqueVehicles = [...new Set(item.reqs.map((r: any) => r.vehicle?.vehicle_no || r.vehicle?.horse_number).filter(Boolean))].join(', ');
+                                                            
+                                                            // Calculate Totals
+                                                            let poTotal = 0;
+                                                            item.reqs.forEach((r: any) => {
+                                                                const qty = r.quantity_requested || 1;
+                                                                const unitPrice = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
+                                                                const lineTotal = qty * unitPrice;
+                                                                const vat = r.includes_vat ? (lineTotal * 0.18) : 0;
+                                                                poTotal += (lineTotal + vat);
+                                                            });
+
                                                             return (
-                                                                <TableRow key={`veh-${item.vid}-${idx}`} className="bg-blue-50/30 hover:bg-blue-50/50 cursor-pointer border-y border-blue-100" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.vid) : [...prev, item.vid])}>
+                                                                <TableRow key={`sup-${item.sId}-${idx}`} className="bg-blue-50/30 hover:bg-blue-50/50 cursor-pointer border-y border-blue-100" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.sId) : [...prev, item.sId])}>
                                                                     <TableCell className="px-4">
                                                                         {isExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-blue-400" />}
                                                                     </TableCell>
                                                                     <TableCell colSpan={2} className="py-3">
                                                                         <div className="flex items-center gap-2">
                                                                             <div className="bg-blue-100 p-1.5 rounded-md">
-                                                                                <Truck className="w-4 h-4 text-blue-700" />
+                                                                                <Building2 className="w-4 h-4 text-blue-700" />
                                                                             </div>
                                                                             <div className="flex flex-col max-w-[200px]">
-                                                                                <span className="text-xs font-bold text-blue-900">{item.modelName}</span>
-                                                                                <span className="text-[10px] text-blue-600/80 font-medium truncate" title={uniqueVehicles}>{uniqueVehicles || 'Unknown Vehicles'}</span>
+                                                                                <span className="text-xs font-bold text-blue-900">{item.supplierName}</span>
+                                                                                <span className="text-[10px] text-blue-600/80 font-medium">Est. PO Total: {poTotal.toLocaleString()} TZS</span>
                                                                             </div>
                                                                         </div>
                                                                     </TableCell>
@@ -1048,17 +1075,30 @@ const ProcurementDashboard = () => {
                                                                                 className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
+                                                                                    setPreviewSupplierName(item.supplierName);
+                                                                                    setPreviewReqs(item.reqs);
+                                                                                    setIsPreviewDialogOpen(true);
+                                                                                }}
+                                                                            >
+                                                                                Preview PO
+                                                                            </Button>
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="outline"
+                                                                                className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
                                                                                     setBatchQuoteReqs(item.reqs);
                                                                                     setBatchSharedDetails({
-                                                                                        supplier_id: "",
+                                                                                        supplier_id: firstReq.supplier_id || "",
                                                                                         po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
-                                                                                        includes_vat: false,
-                                                                                        payment_method_id: ""
+                                                                                        includes_vat: firstReq.includes_vat || false,
+                                                                                        payment_method_id: firstReq.payment_details?.id || ""
                                                                                     });
                                                                                     const initialPrices: Record<string, number> = {};
                                                                                     const initialQuantities: Record<string, number> = {};
                                                                                     item.reqs.forEach((r: any) => {
-                                                                                        initialPrices[r.id] = r.unit_price || (inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0;
+                                                                                        initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
                                                                                         initialQuantities[r.id] = r.quantity_requested || 1;
                                                                                     });
                                                                                     setBatchItemPrices(initialPrices);
@@ -1066,7 +1106,7 @@ const ProcurementDashboard = () => {
                                                                                     setIsBatchQuoteOpen(true);
                                                                                 }}
                                                                             >
-                                                                                Batch Quote
+                                                                                Batch PO
                                                                             </Button>
                                                                             <Button
                                                                                 size="sm"
@@ -1083,7 +1123,7 @@ const ProcurementDashboard = () => {
                                                                                     }
                                                                                 }}
                                                                             >
-                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : `Submit Quoted (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
+                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : `Send PO (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
                                                                             </Button>
                                                                         </div>
                                                                     </TableCell>
@@ -1199,16 +1239,18 @@ const ProcurementDashboard = () => {
                                                                             {userRole === 'procurement_officer' ? "Enter Quote" : "Review & Quote"}
                                                                         </Button>
 
-                                                                        <Button
-                                                                            size="sm"
-                                                                            className="h-8 bg-orange-600 hover:bg-orange-700 text-[10px] font-bold uppercase shadow-md shadow-orange-100 text-white"
-                                                                            disabled={!req.unit_price || req.unit_price <= 0 || !req.supplier_id || submitModelBatchMutation.isPending}
-                                                                            onClick={() => {
-                                                                                submitModelBatchMutation.mutate([req.id]);
-                                                                            }}
-                                                                        >
-                                                                            Send for Approval
-                                                                        </Button>
+                                                                        {(!req.po_number && !isChild) && (
+                                                                            <Button
+                                                                                size="sm"
+                                                                                className="h-8 bg-orange-600 hover:bg-orange-700 text-[10px] font-bold uppercase shadow-md shadow-orange-100 text-white"
+                                                                                disabled={!req.unit_price || req.unit_price <= 0 || !req.supplier_id || submitModelBatchMutation.isPending}
+                                                                                onClick={() => {
+                                                                                    submitModelBatchMutation.mutate([req.id]);
+                                                                                }}
+                                                                            >
+                                                                                Send for Approval
+                                                                            </Button>
+                                                                        )}
                                                                     </div>
                                                                 )}
 
@@ -1255,7 +1297,7 @@ const ProcurementDashboard = () => {
                                                                 )}
 
                                                                 {/* PRINT OPTIONS */}
-                                                                {req.po_number && (
+                                                                {(req.po_number && !isChild) && (
                                                                     <Button
                                                                         variant="outline"
                                                                         size="sm"
@@ -1644,18 +1686,63 @@ const ProcurementDashboard = () => {
                                                     )}
                                                 </TableCell>
                                                 <TableCell className="text-right pr-6">
-                                                    <Button
-                                                        size="sm"
-                                                        className="h-8 bg-emerald-600 hover:bg-emerald-700 text-[10px] font-bold uppercase"
-                                                        onClick={() => {
-                                                            setReceivingItem(req);
-                                                            setReceivingQuantity(req.quantity_approved); // Default to approved amount
-                                                            setReceivingNote("");
-                                                            setIsReceiveDialogOpen(true);
-                                                        }}
-                                                    >
-                                                        Mark as Arrived
-                                                    </Button>
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {req.payment_receipt_url && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 text-[9px] font-bold uppercase border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                                                onClick={() => {
+                                                                    setViewReceiptUrl(req.payment_receipt_url);
+                                                                    setReceiptViewerTitle("Payment Receipt");
+                                                                    setIsReceiptViewerOpen(true);
+                                                                }}
+                                                            >
+                                                                <Eye className="w-3 h-3 mr-1" />
+                                                                Payment Receipt
+                                                            </Button>
+                                                        )}
+                                                        {req.delivery_receipt_url ? (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 text-[9px] font-bold uppercase border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                                onClick={() => {
+                                                                    setViewReceiptUrl(req.delivery_receipt_url);
+                                                                    setReceiptViewerTitle("Shop Receipt");
+                                                                    setIsReceiptViewerOpen(true);
+                                                                }}
+                                                            >
+                                                                <Eye className="w-3 h-3 mr-1" />
+                                                                Shop Receipt
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 text-[9px] font-bold uppercase border-amber-200 text-amber-700 hover:bg-amber-50"
+                                                                onClick={() => {
+                                                                    setUploadingShopReceiptId(req.id);
+                                                                    shopReceiptInputRef.current?.click();
+                                                                }}
+                                                            >
+                                                                <Upload className="w-3 h-3 mr-1" />
+                                                                Upload Shop Receipt
+                                                            </Button>
+                                                        )}
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-7 bg-emerald-600 hover:bg-emerald-700 text-[9px] font-bold uppercase"
+                                                            onClick={() => {
+                                                                setReceivingItem(req);
+                                                                setReceivingQuantity(req.quantity_approved);
+                                                                setReceivingNote("");
+                                                                setIsReceiveDialogOpen(true);
+                                                            }}
+                                                        >
+                                                            Mark as Arrived
+                                                        </Button>
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         ))
@@ -1809,9 +1896,28 @@ const ProcurementDashboard = () => {
                         <Button variant="outline" onClick={() => setIsBatchQuoteOpen(false)} className="h-11 font-semibold uppercase text-[11px] flex-1">Cancel</Button>
 
                         <Button
+                            variant="outline"
+                            className="h-11 border-blue-200 text-blue-900 hover:bg-blue-50 font-semibold uppercase text-[11px] px-6 flex-1"
+                            disabled={!batchSharedDetails.supplier_id || !batchSharedDetails.payment_method_id || batchWorkflowMutation.isPending || batchQuoteReqs.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
+                            onClick={() => {
+                                setSubmittingBatchType("update");
+                                batchWorkflowMutation.mutate({
+                                    reqs: batchQuoteReqs,
+                                    sharedDetails: batchSharedDetails,
+                                    itemPrices: batchItemPrices,
+                                    itemQuantities: batchItemQuantities,
+                                    isUpdateOnly: true
+                                });
+                            }}
+                        >
+                            {batchWorkflowMutation.isPending && submittingBatchType === "update" ? "Updating..." : "Update"}
+                        </Button>
+
+                        <Button
                             className="h-11 bg-blue-900 hover:bg-black font-semibold uppercase text-[11px] px-8 flex-1"
                             disabled={!batchSharedDetails.supplier_id || !batchSharedDetails.payment_method_id || batchWorkflowMutation.isPending || batchQuoteReqs.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
                             onClick={() => {
+                                setSubmittingBatchType("send");
                                 batchWorkflowMutation.mutate({
                                     reqs: batchQuoteReqs,
                                     sharedDetails: batchSharedDetails,
@@ -1820,7 +1926,7 @@ const ProcurementDashboard = () => {
                                 });
                             }}
                         >
-                            {batchWorkflowMutation.isPending ? "Sending..." : "Send All for Approval"}
+                            {batchWorkflowMutation.isPending && submittingBatchType === "send" ? "Sending..." : "Send All for Approval"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1916,10 +2022,14 @@ const ProcurementDashboard = () => {
                         <div className="flex items-center justify-between p-3 border rounded-lg bg-white">
                             <div className="space-y-0.5">
                                 <Label className="text-sm font-semibold">Include VAT (18%)</Label>
-                                <p className="text-[10px] text-slate-500 italic">Tax will be added to the total valuation.</p>
+                                <p className="text-[10px] text-slate-500 italic">
+                                    Tax will be added to the total valuation.
+                                    {(!!selectedReq?.po_number || !!selectedReq?.supplier_id) && <span className="text-amber-600 ml-1">(Disabled: Handled by Batch PO)</span>}
+                                </p>
                             </div>
                             <Switch
                                 checked={approvalDetails.includes_vat}
+                                disabled={!!selectedReq?.po_number || !!selectedReq?.supplier_id}
                                 onCheckedChange={(val) => setApprovalDetails({ ...approvalDetails, includes_vat: val })}
                             />
                         </div>
@@ -2772,6 +2882,81 @@ const ProcurementDashboard = () => {
                         >
                             {deleteSupplierMutation.isPending ? "Deleting..." : "Yes, Delete"}
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <POPreviewDialog 
+                isOpen={isPreviewDialogOpen}
+                onClose={() => setIsPreviewDialogOpen(false)}
+                supplierName={previewSupplierName}
+                reqs={previewReqs}
+            />
+
+            {/* Hidden file input for shop receipt upload */}
+            <input
+                ref={shopReceiptInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file || !uploadingShopReceiptId) return;
+                    
+                    try {
+                        const fileExt = file.name.split('.').pop();
+                        const filePath = `shop-receipts/${uploadingShopReceiptId}-${Date.now()}.${fileExt}`;
+                        const { error: uploadError } = await (supabase as any).storage
+                            .from('receipts')
+                            .upload(filePath, file);
+                        if (uploadError) throw uploadError;
+                        
+                        const { data: urlData } = (supabase as any).storage
+                            .from('receipts')
+                            .getPublicUrl(filePath);
+                        
+                        const { error: updateError } = await sb
+                            .from("garage_requisitions")
+                            .update({ delivery_receipt_url: urlData?.publicUrl })
+                            .eq("id", uploadingShopReceiptId);
+                        if (updateError) throw updateError;
+
+                        queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+                        toast({ title: "Shop Receipt Uploaded", description: "The receipt from the supplier has been saved." });
+                    } catch (err: any) {
+                        toast({ variant: "destructive", title: "Upload Failed", description: err.message || "Could not upload shop receipt." });
+                    }
+                    
+                    setUploadingShopReceiptId(null);
+                    e.target.value = ''; // Reset file input
+                }}
+            />
+
+            {/* Receipt Viewer Dialog */}
+            <Dialog open={isReceiptViewerOpen} onOpenChange={setIsReceiptViewerOpen}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Eye className="w-5 h-5 text-indigo-600" />
+                            {receiptViewerTitle}
+                        </DialogTitle>
+                    </DialogHeader>
+                    {viewReceiptUrl && (
+                        viewReceiptUrl.endsWith('.pdf') ? (
+                            <iframe src={viewReceiptUrl} className="w-full h-[60vh] rounded-md border" />
+                        ) : (
+                            <img src={viewReceiptUrl} alt="Receipt" className="w-full rounded-md border" />
+                        )
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsReceiptViewerOpen(false)}>Close</Button>
+                        {viewReceiptUrl && (
+                            <a href={viewReceiptUrl} target="_blank" rel="noopener noreferrer">
+                                <Button className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                                    <ExternalLink className="w-4 h-4 mr-2" />
+                                    Open Full Size
+                                </Button>
+                            </a>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

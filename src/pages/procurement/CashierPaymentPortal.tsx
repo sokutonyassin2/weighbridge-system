@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { POPreviewDialog } from "@/components/POPreviewDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const CashierPaymentPortal = () => {
@@ -22,6 +23,18 @@ const CashierPaymentPortal = () => {
     const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
     const [selectedReq, setSelectedReq] = useState<any>(null);
     const [paymentRef, setPaymentRef] = useState("");
+    const [receiptFile, setReceiptFile] = useState<File | null>(null);
+    const receiptInputRef = useRef<HTMLInputElement>(null);
+    
+    // PO Preview
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewSupplier, setPreviewSupplier] = useState("");
+    const [previewReqs, setPreviewReqs] = useState<any[]>([]);
+    
+    // Receipt viewer
+    const [viewReceiptUrl, setViewReceiptUrl] = useState<string | null>(null);
+    const [isReceiptViewerOpen, setIsReceiptViewerOpen] = useState(false);
+    const [receiptViewerTitle, setReceiptViewerTitle] = useState("");
 
     // Filtering states for History
     const [selectedMonth, setSelectedMonth] = useState<string>("All");
@@ -170,15 +183,37 @@ const CashierPaymentPortal = () => {
 
     // Payment Mutation
     const paymentMutation = useMutation({
-        mutationFn: async ({ reqId, reference, item }: { reqId: string, reference: string, item: any }) => {
+        mutationFn: async ({ reqId, reference, item, file }: { reqId: string, reference: string, item: any, file?: File | null }) => {
+            let receiptUrl: string | null = null;
+            
+            // Upload receipt file if provided
+            if (file) {
+                const fileExt = file.name.split('.').pop();
+                const filePath = `payment-receipts/${reqId}-${Date.now()}.${fileExt}`;
+                const { data: uploadData, error: uploadError } = await (supabase as any).storage
+                    .from('receipts')
+                    .upload(filePath, file);
+                if (uploadError) throw uploadError;
+                
+                const { data: urlData } = (supabase as any).storage
+                    .from('receipts')
+                    .getPublicUrl(filePath);
+                receiptUrl = urlData?.publicUrl || null;
+            }
+
+            const updateData: any = {
+                status: 'Paid',
+                payment_reference: reference,
+                payment_details: item.payment_details,
+                status_updated_at: new Date().toISOString()
+            };
+            if (receiptUrl) {
+                updateData.payment_receipt_url = receiptUrl;
+            }
+
             const { error } = await sb
                 .from("garage_requisitions")
-                .update({
-                    status: 'Paid',
-                    payment_reference: reference,
-                    payment_details: item.payment_details,
-                    status_updated_at: new Date().toISOString()
-                })
+                .update(updateData)
                 .eq("id", reqId);
 
             if (error) throw error;
@@ -188,6 +223,7 @@ const CashierPaymentPortal = () => {
             queryClient.invalidateQueries({ queryKey: ["cashier-waiting-arrival"] });
             setIsPaymentDialogOpen(false);
             setPaymentRef("");
+            setReceiptFile(null);
             toast({
                 title: "Payment Confirmed",
                 description: "Requisition marked as paid.",
@@ -669,17 +705,48 @@ const CashierPaymentPortal = () => {
                                 onChange={(e) => setPaymentRef(e.target.value)}
                             />
                         </div>
+
+                        {/* Receipt Upload */}
+                        <div className="space-y-2">
+                            <Label className="text-xs font-bold text-slate-500 uppercase">
+                                Upload Payment Receipt (Optional)
+                            </Label>
+                            <div 
+                                className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center cursor-pointer hover:bg-slate-50 transition-colors"
+                                onClick={() => receiptInputRef.current?.click()}
+                            >
+                                <input
+                                    ref={receiptInputRef}
+                                    type="file"
+                                    accept="image/*,.pdf"
+                                    className="hidden"
+                                    onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+                                />
+                                {receiptFile ? (
+                                    <div className="flex items-center justify-center gap-2 text-emerald-600">
+                                        <CheckCircle className="w-4 h-4" />
+                                        <span className="text-sm font-semibold">{receiptFile.name}</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center gap-1 text-slate-400">
+                                        <Upload className="w-5 h-5" />
+                                        <span className="text-xs font-medium">Click to upload receipt (PDF or Image)</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     <DialogFooter className="gap-2">
-                        <Button variant="ghost" onClick={() => setIsPaymentDialogOpen(false)} className="px-6 font-bold text-slate-500">Cancel</Button>
+                        <Button variant="ghost" onClick={() => { setIsPaymentDialogOpen(false); setReceiptFile(null); }} className="px-6 font-bold text-slate-500">Cancel</Button>
                         <Button
                             className="bg-primary hover:bg-primary/90 text-white font-bold px-10 h-11"
                             disabled={!paymentRef || paymentMutation.isPending}
                             onClick={() => paymentMutation.mutate({
                                 reqId: selectedReq.id,
                                 reference: paymentRef,
-                                item: selectedReq
+                                item: selectedReq,
+                                file: receiptFile
                             })}
                         >
                             {paymentMutation.isPending ? (
@@ -692,6 +759,44 @@ const CashierPaymentPortal = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Receipt Viewer Dialog */}
+            <Dialog open={isReceiptViewerOpen} onOpenChange={setIsReceiptViewerOpen}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Eye className="w-5 h-5 text-indigo-600" />
+                            {receiptViewerTitle}
+                        </DialogTitle>
+                    </DialogHeader>
+                    {viewReceiptUrl && (
+                        viewReceiptUrl.endsWith('.pdf') ? (
+                            <iframe src={viewReceiptUrl} className="w-full h-[60vh] rounded-md border" />
+                        ) : (
+                            <img src={viewReceiptUrl} alt="Receipt" className="w-full rounded-md border" />
+                        )
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsReceiptViewerOpen(false)}>Close</Button>
+                        {viewReceiptUrl && (
+                            <a href={viewReceiptUrl} target="_blank" rel="noopener noreferrer">
+                                <Button className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                                    <ArrowRight className="w-4 h-4 mr-2" />
+                                    Open Full Size
+                                </Button>
+                            </a>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* PO Preview Dialog */}
+            <POPreviewDialog
+                isOpen={isPreviewOpen}
+                onClose={() => setIsPreviewOpen(false)}
+                supplierName={previewSupplier}
+                reqs={previewReqs}
+            />
         </div >
     );
 };

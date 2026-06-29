@@ -1,16 +1,14 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { CheckCircle, XCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, TrendingUp, Building2 } from "lucide-react";
+import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -19,18 +17,8 @@ const ManagementApprovals = () => {
     const queryClient = useQueryClient();
 
     const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
-    const [selectedReq, setSelectedReq] = useState<any>(null);
+    const [selectedPOItems, setSelectedPOItems] = useState<any[]>([]);
     const [revokeReason, setRevokeReason] = useState("");
-
-    const [approvalDetails, setApprovalDetails] = useState({
-        supplier_id: "",
-        po_number: "",
-        includes_vat: false,
-        vat_amount: 0,
-        temp_price: 0,
-        payment_method_id: "",
-        quantity_approving: 0
-    });
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return "N/A";
@@ -38,14 +26,14 @@ const ManagementApprovals = () => {
         return `${day}/${month}/${year}`;
     };
 
-    const groupRequisitionsByMonth = (reqs: any[]) => {
-        return reqs.reduce((groups: any, req: any) => {
-            const date = new Date(req.created_at);
-            const month = date.toLocaleString('default', { month: 'long', year: 'numeric' });
-            if (!groups[month]) groups[month] = [];
-            groups[month].push(req);
-            return groups;
-        }, {});
+    const groupRequisitionsByPO = (reqs: any[]) => {
+        const groups: Record<string, any[]> = {};
+        reqs.forEach(req => {
+            const key = req.po_number || `Supplier-${req.supplier_id || 'Unknown'}-${req.created_at.split('T')[0]}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(req);
+        });
+        return groups;
     };
 
     // Fetch Requisitions waiting for approval
@@ -70,78 +58,31 @@ const ManagementApprovals = () => {
         refetchInterval: 5000 // Real-time
     });
 
-    // Fetch Suppliers and Payment Methods for the Dialog
-    const { data: suppliers } = useQuery({
-        queryKey: ["procurement-suppliers"],
-        queryFn: async () => {
-            const { data, error } = await sb.from("garage_suppliers").select("id, name").order("name");
-            if (error) throw error;
-            return data;
-        }
-    });
-
-    const { data: allPaymentMethods } = useQuery({
-        queryKey: ["procurement-payment-methods"],
-        queryFn: async () => {
-            const { data, error } = await sb.from("garage_supplier_payment_methods").select("*");
-            if (error) throw error;
-            return data;
-        }
-    });
-
     // Workflow Mutation (Approve or Revoke)
     const workflowMutation = useMutation({
-        mutationFn: async ({ reqId, qty, itemId, details, nextStatus }: { reqId: string, qty: number, itemId?: string, details: any, nextStatus: string }) => {
-            const unitPrice = details.temp_price || 0;
-            const subtotal = unitPrice * qty;
-            const vat = details.includes_vat ? subtotal * 0.18 : 0;
-
+        mutationFn: async ({ reqs, nextStatus }: { reqs: any[], nextStatus: string }) => {
             const updateData: any = {
                 status: nextStatus,
-                quantity_approved: qty,
-                unit_price: unitPrice,
-                total_price: subtotal + vat,
-                supplier_id: details.supplier_id,
-                po_number: details.po_number,
-                includes_vat: details.includes_vat,
-                vat_amount: vat,
                 status_updated_at: new Date().toISOString(),
-                payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null
             };
 
             if (nextStatus === 'Revoked') {
                 updateData.revoke_reason = revokeReason;
             }
 
-            const { error: reqError } = await sb.from("garage_requisitions").update(updateData).eq("id", reqId);
-            if (reqError) throw reqError;
+            for (const req of reqs) {
+                const { error: reqError } = await sb.from("garage_requisitions").update(updateData).eq("id", req.id);
+                if (reqError) throw reqError;
 
-            // Handle splitting if quantity approved is less than requested
-            if (nextStatus === 'Approved' && qty < selectedReq?.quantity_requested) {
-                const remaining = selectedReq.quantity_requested - qty;
-                await sb.from("garage_requisitions").insert({
-                    ...selectedReq,
-                    id: undefined,
-                    quantity_requested: remaining,
-                    original_quantity: selectedReq.original_quantity || selectedReq.quantity_requested,
-                    parent_id: selectedReq.id,
-                    status: 'Pending',
-                    created_at: new Date().toISOString(),
-                    po_number: null,
-                    unit_price: 0,
-                    total_price: 0
-                });
-            }
-
-            // Reduce Stock Only on Approval
-            if (nextStatus === 'Approved' && itemId) {
-                // Get current stock
-                const { data: item } = await sb.from("garage_inventory").select("quantity").eq("id", itemId).single();
-                if (item) {
-                    const { error: invError } = await sb.from("garage_inventory").update({
-                        quantity: (item.quantity || 0) - qty
-                    }).eq("id", itemId);
-                    if (invError) throw invError;
+                // Reduce Stock Only on Approval
+                if (nextStatus === 'Approved' && req.item_id) {
+                    const { data: item } = await sb.from("garage_inventory").select("quantity").eq("id", req.item_id).single();
+                    if (item) {
+                        const { error: invError } = await sb.from("garage_inventory").update({
+                            quantity: (item.quantity || 0) - (req.quantity_requested || 0)
+                        }).eq("id", req.item_id);
+                        if (invError) throw invError;
+                    }
                 }
             }
         },
@@ -151,11 +92,127 @@ const ManagementApprovals = () => {
             setIsApproveDialogOpen(false);
             setRevokeReason("");
             toast({
-                title: variables.nextStatus === 'Revoked' ? "Request Revoked" : "PO Approved",
-                description: variables.nextStatus === 'Revoked' ? "Returned to requester with reason." : "Purchase Order issued successfully."
+                title: variables.nextStatus === 'Revoked' ? "PO Revoked" : "PO Approved",
+                description: variables.nextStatus === 'Revoked' ? "Returned to requester with reason." : "Purchase Order batch authorized successfully."
             });
         }
     });
+
+    const renderPOCards = () => {
+        if (!approvals || approvals.length === 0) return null;
+        const grouped = groupRequisitionsByPO(approvals);
+
+        return Object.entries(grouped).map(([key, reqs]) => {
+            const firstReq = reqs[0];
+            const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+            const poNumber = firstReq.po_number || 'DRAFT-PO';
+            let poTotal = 0;
+            reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+            const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
+            
+            return (
+                <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+                    <CardHeader className="bg-slate-50/50 border-b pb-4">
+                        <div className="flex justify-between items-start">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
+                                        PO #: {poNumber}
+                                    </Badge>
+                                    <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
+                                        Awaiting Approval
+                                    </Badge>
+                                </div>
+                                <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
+                                    <Building2 className="w-5 h-5 text-slate-400" />
+                                    {supplierName}
+                                </CardTitle>
+                                <p className="text-sm text-slate-500 font-medium">{formatDate(firstReq.created_at)}</p>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-2xl font-black text-indigo-900">
+                                    {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                </div>
+                                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">Est. Total Value</div>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-slate-100/50">
+                                <TableRow>
+                                    <TableHead className="pl-6">Item Description</TableHead>
+                                    <TableHead>Vehicle</TableHead>
+                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Unit Price</TableHead>
+                                    <TableHead className="text-right pr-6">Total</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {reqs.map((r: any) => (
+                                    <TableRow key={r.id}>
+                                        <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+                                        <TableCell>
+                                            {r.vehicle ? (
+                                                <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                    <Truck className="w-3 h-3 mr-1" />
+                                                    {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                </Badge>
+                                            ) : '-'}
+                                        </TableCell>
+                                        <TableCell className="font-medium">{r.quantity_requested}</TableCell>
+                                        <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
+                                        <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                            {(r.total_price || 0).toLocaleString()} TZS
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                    
+                    {(uploads.length > 0 || firstReq.payment_details) && (
+                        <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
+                            {firstReq.payment_details && (
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
+                                    <p className="text-xs font-semibold text-slate-700">
+                                        {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
+                                    </p>
+                                </div>
+                            )}
+                            
+                            {uploads.length > 0 && (
+                                <div className="space-y-1 text-right ml-auto">
+                                    <p className="text-[10px] uppercase font-bold text-slate-500">Attachments</p>
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                        {uploads.map((url, idx) => (
+                                            <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-100">
+                                                <Paperclip className="w-3 h-3 mr-1" /> Quote/Receipt {idx + 1}
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    <CardFooter className="bg-white border-t p-4 flex justify-end">
+                        <Button
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md uppercase text-xs font-bold px-6"
+                            onClick={() => {
+                                setSelectedPOItems(reqs);
+                                setIsApproveDialogOpen(true);
+                            }}
+                        >
+                            <FileCheck className="w-4 h-4 mr-2" />
+                            Review PO Batch
+                        </Button>
+                    </CardFooter>
+                </Card>
+            );
+        });
+    };
 
     return (
         <div className="space-y-6 p-6 animate-fade-in bg-slate-50/50 min-h-screen">
@@ -164,7 +221,7 @@ const ManagementApprovals = () => {
                     <ClipboardCheck className="w-7 h-7 text-indigo-600" />
                     Management Approvals
                     <Badge className="ml-2 bg-orange-100 text-orange-700 border-orange-200">
-                        {approvals?.length || 0} Pending
+                        {approvals ? new Set(approvals.map(a => a.po_number || a.supplier_id)).size : 0} Pending POs
                     </Badge>
                 </h1>
                 <p className="text-slate-500">Review quotes, authorize purchase orders, or revoke requests.</p>
@@ -184,388 +241,78 @@ const ManagementApprovals = () => {
                                 </div>
                                 <h3 className="text-lg font-semibold text-slate-900">All Caught Up!</h3>
                                 <p className="text-slate-500 max-sm mt-1">
-                                    There are no purchase requests waiting for management approval at this time.
+                                    There are no purchase orders waiting for management approval at this time.
                                 </p>
                             </CardContent>
                         </Card>
                     ) : (
-                        (() => {
-                            const grouped = groupRequisitionsByMonth(approvals || []);
-                            return Object.keys(grouped).map((month) => {
-                                const reqsInMonth = grouped[month];
-                                const supplierGroups: Record<string, any[]> = {};
-                                const ungrouped: any[] = [];
-                                reqsInMonth.forEach((req: any) => {
-                                    if (req.supplier_id) {
-                                        const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                        if (!supplierGroups[supplierName]) supplierGroups[supplierName] = [];
-                                        supplierGroups[supplierName].push(req);
-                                    } else {
-                                        ungrouped.push(req);
-                                    }
-                                });
-
-                                return (
-                                <div key={month} className="space-y-6">
-                                    <div className="flex items-center gap-2 py-2 border-b border-slate-200">
-                                        <Calendar className="w-5 h-5 text-blue-900" />
-                                        <h3 className="text-base font-bold text-blue-950 uppercase tracking-widest">{month}</h3>
-                                        <Badge variant="outline" className="ml-2 bg-white text-slate-500">
-                                            {reqsInMonth.length} Items
-                                        </Badge>
-                                    </div>
-
-                                    {Object.entries(supplierGroups).map(([supplierName, reqs]) => {
-                                        let poTotal = 0;
-                                        reqs.forEach((r: any) => {
-                                            const qty = r.quantity_requested || 1;
-                                            const unitPrice = r.unit_price > 0 ? r.unit_price : 0;
-                                            const lineTotal = qty * unitPrice;
-                                            const vat = r.includes_vat ? (lineTotal * 0.18) : 0;
-                                            poTotal += (lineTotal + vat);
-                                        });
-                                        
-                                        return (
-                                        <div key={supplierName} className="space-y-4 pl-4 border-l-2 border-indigo-200 py-2">
-                                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="bg-indigo-50 p-2 rounded-md">
-                                                        <Building2 className="w-5 h-5 text-indigo-600" />
-                                                    </div>
-                                                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-wide">{supplierName}</h4>
-                                                    <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px]">
-                                                        {reqs.length} Requests
-                                                    </Badge>
-                                                    <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 border-indigo-200 text-[10px]">
-                                                        PO Total: {poTotal.toLocaleString()} TZS
-                                                    </Badge>
-                                                </div>
-                                                <div className="flex flex-wrap gap-1 sm:ml-4">
-                                                    {[...new Set(reqs.map((r: any) => r.vehicle?.vehicle_no || r.vehicle?.horse_number).filter(Boolean))].map((plate: any, idx: number) => (
-                                                        <Badge key={idx} variant="outline" className="text-[10px] bg-slate-50 text-slate-600 border-slate-200 font-bold">{plate}</Badge>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div className="grid gap-4 mt-2">
-                                                {reqs.map((req: any) => (
-                                                    <Card key={req.id} className="overflow-hidden border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow bg-white ml-2">
-                                                        <CardHeader className="bg-slate-50/50 border-b pb-3">
-                                                            <div className="flex justify-between items-start">
-                                                                <div className="space-y-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Badge variant="outline" className="font-mono text-[10px] text-slate-500 bg-white">
-                                                                            REQ #{req.id.slice(0, 8).toUpperCase()}
-                                                                        </Badge>
-                                                                        <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
-                                                                            Awaiting Approval
-                                                                        </Badge>
-                                                                    </div>
-                                                                    <CardTitle className="text-lg font-bold text-slate-800">
-                                                                        {req.item_name}
-                                                                    </CardTitle>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <div className="text-2xl font-bold text-blue-900">
-                                                                        {(req.unit_price * req.quantity_requested).toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
-                                                                    </div>
-                                                                    <div className="text-xs text-slate-500 font-medium">Est. Total Value</div>
-                                                                </div>
-                                                            </div>
-                                                        </CardHeader>
-                                                        <CardContent className="pt-4 grid md:grid-cols-4 gap-6">
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[10px] uppercase text-slate-500 font-semibold">Requested By</Label>
-                                                                <p className="text-sm font-medium text-slate-700">{req.profiles?.full_name || 'Unknown'}</p>
-                                                                <p className="text-xs text-slate-500 font-bold">{formatDate(req.created_at)}</p>
-                                                            </div>
-
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[10px] uppercase text-slate-500 font-semibold">Quantity</Label>
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="text-sm font-medium text-slate-700">{req.quantity_requested} Units</p>
-                                                                    {req.original_quantity && req.original_quantity !== req.quantity_requested && (
-                                                                        <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50">
-                                                                            Partial of {req.original_quantity}
-                                                                        </Badge>
-                                                                    )}
-                                                                </div>
-                                                                {req.vehicle && (
-                                                                    <Badge variant="secondary" className="text-[10px] mt-1 bg-blue-50 text-blue-700 border-blue-100">
-                                                                        <Truck className="w-3 h-3 mr-1" />
-                                                                        {req.vehicle.vehicle_no || req.vehicle.horse_number}
-                                                                    </Badge>
-                                                                )}
-                                                            </div>
-
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[10px] uppercase text-slate-500 font-semibold">Supplier & Payment</Label>
-                                                                <p className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Supplier'}</p>
-                                                                <p className="text-[10px] text-slate-500 truncate max-w-[150px]">{req.payment_details?.bank_name} {req.payment_details?.account_number}</p>
-                                                            </div>
-
-                                                            <div className="flex items-center justify-end">
-                                                                <Button
-                                                                    className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-100 uppercase text-xs font-bold px-6 h-10"
-                                                                    onClick={() => {
-                                                                        setSelectedReq(req);
-                                                                        setApprovalDetails({
-                                                                            supplier_id: req.supplier_id || "",
-                                                                            po_number: req.po_number || "",
-                                                                            includes_vat: req.includes_vat || false,
-                                                                            vat_amount: req.vat_amount || 0,
-                                                                            temp_price: req.unit_price || 0,
-                                                                            payment_method_id: req.payment_details?.id || "",
-                                                                            quantity_approving: req.quantity_requested || 0
-                                                                        });
-                                                                        setIsApproveDialogOpen(true);
-                                                                    }}
-                                                                >
-                                                                    <FileCheck className="w-4 h-4 mr-2" />
-                                                                    Review & Action
-                                                                </Button>
-                                                            </div>
-                                                        </CardContent>
-                                                    </Card>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        );
-                                    })}
-
-                                    {ungrouped.length > 0 && (
-                                        <div className="space-y-4 pl-4 border-l-2 border-slate-200 mt-6 py-2">
-                                            <div className="flex items-center gap-2 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
-                                                <h4 className="text-sm font-black text-slate-700 uppercase">Other Items (No Vehicle)</h4>
-                                                <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">
-                                                    {ungrouped.length} Requests
-                                                </Badge>
-                                            </div>
-                                            <div className="grid gap-4 mt-2">
-                                                {ungrouped.map((req: any) => (
-                                                    <Card key={req.id} className="overflow-hidden border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow bg-white ml-2">
-                                                        <CardHeader className="bg-slate-50/50 border-b pb-3">
-                                                            <div className="flex justify-between items-start">
-                                                                <div className="space-y-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Badge variant="outline" className="font-mono text-[10px] text-slate-500 bg-white">
-                                                                            REQ #{req.id.slice(0, 8).toUpperCase()}
-                                                                        </Badge>
-                                                                        <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
-                                                                            Awaiting Approval
-                                                                        </Badge>
-                                                                    </div>
-                                                                    <CardTitle className="text-lg font-bold text-slate-800">
-                                                                        {req.item_name}
-                                                                    </CardTitle>
-                                                                </div>
-                                                                <div className="text-right">
-                                                                    <div className="text-2xl font-bold text-blue-900">
-                                                                        {(req.unit_price * req.quantity_requested).toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
-                                                                    </div>
-                                                                    <div className="text-xs text-slate-500 font-medium">Est. Total Value</div>
-                                                                </div>
-                                                            </div>
-                                                        </CardHeader>
-                                                        <CardContent className="pt-4 grid md:grid-cols-4 gap-6">
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[10px] uppercase text-slate-500 font-semibold">Requested By</Label>
-                                                                <p className="text-sm font-medium text-slate-700">{req.profiles?.full_name || 'Unknown'}</p>
-                                                                <p className="text-xs text-slate-500 font-bold">{formatDate(req.created_at)}</p>
-                                                            </div>
-
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[10px] uppercase text-slate-500 font-semibold">Quantity</Label>
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="text-sm font-medium text-slate-700">{req.quantity_requested} Units</p>
-                                                                    {req.original_quantity && req.original_quantity !== req.quantity_requested && (
-                                                                        <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50">
-                                                                            Partial of {req.original_quantity}
-                                                                        </Badge>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="space-y-1">
-                                                                <Label className="text-[10px] uppercase text-slate-500 font-semibold">Supplier & Payment</Label>
-                                                                <p className="text-xs font-semibold text-slate-700">{req.garage_suppliers?.name || 'Manual Supplier'}</p>
-                                                                <p className="text-[10px] text-slate-500 truncate max-w-[150px]">{req.payment_details?.bank_name} {req.payment_details?.account_number}</p>
-                                                            </div>
-
-                                                            <div className="flex items-center justify-end">
-                                                                <Button
-                                                                    className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-100 uppercase text-xs font-bold px-6 h-10"
-                                                                    onClick={() => {
-                                                                        setSelectedReq(req);
-                                                                        setApprovalDetails({
-                                                                            supplier_id: req.supplier_id || "",
-                                                                            po_number: req.po_number || "",
-                                                                            includes_vat: req.includes_vat || false,
-                                                                            vat_amount: req.vat_amount || 0,
-                                                                            temp_price: req.unit_price || 0,
-                                                                            payment_method_id: req.payment_details?.id || "",
-                                                                            quantity_approving: req.quantity_requested || 0
-                                                                        });
-                                                                        setIsApproveDialogOpen(true);
-                                                                    }}
-                                                                >
-                                                                    <FileCheck className="w-4 h-4 mr-2" />
-                                                                    Review & Action
-                                                                </Button>
-                                                            </div>
-                                                        </CardContent>
-                                                    </Card>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )});
-                        })()
+                        <div className="grid gap-6">
+                            {renderPOCards()}
+                        </div>
                     )}
                 </div>
             )}
 
             {/* ACTION DIALOG */}
             <Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen}>
-                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
-                    <DialogHeader>
-                        <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
-                            <Receipt className="w-6 h-6 text-indigo-600" />
-                            Finalize Purchase Order
-                        </DialogTitle>
-                    </DialogHeader>
-
-                    <div className="grid gap-6 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                                <p className="text-[10px] uppercase font-bold text-slate-500">Item</p>
-                                <p className="font-bold text-lg text-slate-800">{selectedReq?.item_name}</p>
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 bg-slate-50 border-0">
+                    <div className="p-6 bg-white border-b sticky top-0 z-10 shadow-sm">
+                        <DialogHeader>
+                            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
+                                <Receipt className="w-6 h-6 text-indigo-600" />
+                                Finalize Purchase Order
+                            </DialogTitle>
+                        </DialogHeader>
+                        <div className="mt-4 flex justify-between items-center">
+                            <div>
+                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Value</p>
+                                <p className="text-3xl font-black text-indigo-900">
+                                    {selectedPOItems.reduce((acc, curr) => acc + (curr.total_price || 0), 0).toLocaleString()} TZS
+                                </p>
                             </div>
-                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-right">
-                                <p className="text-[10px] uppercase font-bold text-slate-500">PO Number</p>
-                                <p className="font-mono font-bold text-lg text-blue-900">{approvalDetails.po_number || 'N/A'}</p>
-                            </div>
+                            <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-xs px-3 py-1">
+                                {selectedPOItems.length} Items
+                            </Badge>
                         </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Approving Quantity</Label>
+                    </div>
+                    
+                    <div className="p-6 space-y-6">
+                        <div className="space-y-2 bg-rose-50/50 p-4 rounded-lg border border-rose-100">
+                            <Label className="text-[11px] font-bold text-rose-600 uppercase flex items-center gap-2">
+                                <AlertTriangle className="w-3 h-3" />
+                                Revoke Entire PO (Optional)
+                            </Label>
+                            <div className="flex gap-2">
                                 <Input
-                                    type="number"
-                                    min={1}
-                                    max={selectedReq?.quantity_requested}
-                                    value={approvalDetails.quantity_approving}
-                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, quantity_approving: parseInt(e.target.value) })}
-                                    className="h-10 font-bold border-indigo-200 bg-indigo-50/20 text-indigo-900"
+                                    placeholder="Enter reason to revoke/reject..."
+                                    className="h-9 text-xs bg-white"
+                                    value={revokeReason}
+                                    onChange={(e) => setRevokeReason(e.target.value)}
                                 />
-                                <p className="text-[10px] text-slate-500 italic">Requested: {selectedReq?.quantity_requested}</p>
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[11px] font-bold text-slate-500 uppercase">Confirmed Unit Price</Label>
-                                <Input
-                                    type="number"
-                                    className="h-10 font-bold text-slate-900"
-                                    value={approvalDetails.temp_price}
-                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, temp_price: parseFloat(e.target.value) })}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Payment Method</Label>
-                            <Select
-                                value={approvalDetails.payment_method_id}
-                                onValueChange={(val) => setApprovalDetails({ ...approvalDetails, payment_method_id: val })}
-                                disabled={!approvalDetails.supplier_id}
-                            >
-                                <SelectTrigger className="h-10 text-xs font-medium">
-                                    <SelectValue placeholder="Select Payment Source..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(allPaymentMethods || [])
-                                        .filter((m: any) => m.supplier_id === approvalDetails.supplier_id)
-                                        .map((m: any) => (
-                                            <SelectItem key={m.id} value={m.id}>
-                                                {m.method_type} - {m.bank_name} ({m.account_number})
-                                            </SelectItem>
-                                        ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="flex items-center justify-between p-3 rounded-md bg-indigo-50 border border-indigo-100">
-                            <Label className="text-sm font-semibold text-indigo-900">Apply 18% VAT?</Label>
-                            <Switch
-                                checked={approvalDetails.includes_vat}
-                                onCheckedChange={(val) => setApprovalDetails({ ...approvalDetails, includes_vat: val })}
-                            />
-                        </div>
-
-                        {/* Financial breakdown */}
-                        <div className="space-y-1 pt-2 border-t">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Subtotal:</span>
-                                <span className="font-semibold">{(approvalDetails.quantity_approving * approvalDetails.temp_price).toLocaleString()} TZS</span>
-                            </div>
-                            {approvalDetails.includes_vat && (
-                                <div className="flex justify-between text-sm text-indigo-600">
-                                    <span>VAT (18%):</span>
-                                    <span>{(approvalDetails.quantity_approving * approvalDetails.temp_price * 0.18).toLocaleString()} TZS</span>
-                                </div>
-                            )}
-                            <div className="flex justify-between text-lg font-black text-slate-900 pt-2">
-                                <span>TOTAL PAYABLE:</span>
-                                <span>{(approvalDetails.quantity_approving * approvalDetails.temp_price * (approvalDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS</span>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    className="h-9 px-4 uppercase text-[10px] font-bold shrink-0"
+                                    disabled={!revokeReason || workflowMutation.isPending}
+                                    onClick={() => workflowMutation.mutate({ reqs: selectedPOItems, nextStatus: 'Revoked' })}
+                                >
+                                    {workflowMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Revoke"}
+                                </Button>
                             </div>
                         </div>
                     </div>
 
-                    <div className="space-y-2 border-t pt-4 bg-rose-50/50 p-4 -mx-6 rounded-b-lg">
-                        <Label className="text-[11px] font-bold text-rose-600 uppercase flex items-center gap-2">
-                            <AlertTriangle className="w-3 h-3" />
-                            Revoke Request (Optional)
-                        </Label>
-                        <div className="flex gap-2">
-                            <Input
-                                placeholder="Enter reason to revoke/reject (e.g. 'Price too high')"
-                                className="h-9 text-xs bg-white"
-                                value={revokeReason}
-                                onChange={(e) => setRevokeReason(e.target.value)}
-                            />
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                className="h-9 px-4 uppercase text-[10px] font-bold"
-                                disabled={!revokeReason}
-                                onClick={() => workflowMutation.mutate({
-                                    reqId: selectedReq?.id,
-                                    qty: selectedReq?.quantity_requested,
-                                    itemId: selectedReq?.item_id,
-                                    details: approvalDetails,
-                                    nextStatus: 'Revoked'
-                                })}
-                            >
-                                Revoke PO
-                            </Button>
-                        </div>
-                    </div>
-
-                    <DialogFooter className="gap-2 sticky bottom-0 bg-white p-4 border-t z-10 -mx-6 -mb-6 mt-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                    <div className="flex justify-between items-center bg-white p-4 border-t sticky bottom-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
                         <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)}>Cancel</Button>
                         <Button
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase"
-                            disabled={!approvalDetails.payment_method_id || !approvalDetails.temp_price}
-                            onClick={() => workflowMutation.mutate({
-                                reqId: selectedReq?.id,
-                                qty: approvalDetails.quantity_approving,
-                                itemId: selectedReq?.item_id,
-                                details: approvalDetails,
-                                nextStatus: 'Approved'
-                            })}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase shadow-lg shadow-emerald-200 px-8"
+                            disabled={workflowMutation.isPending}
+                            onClick={() => workflowMutation.mutate({ reqs: selectedPOItems, nextStatus: 'Approved' })}
                         >
-                            Approve & Issue PO
+                            {workflowMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                            Approve PO Batch
                         </Button>
-                    </DialogFooter>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

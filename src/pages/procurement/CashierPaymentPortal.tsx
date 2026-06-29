@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { POPreviewDialog } from "@/components/POPreviewDialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const CashierPaymentPortal = () => {
@@ -21,7 +21,7 @@ const CashierPaymentPortal = () => {
 
     const [searchTerm, setSearchTerm] = useState("");
     const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
-    const [selectedReq, setSelectedReq] = useState<any>(null);
+    const [selectedPOReqs, setSelectedPOReqs] = useState<any[]>([]);
     const [paymentRef, setPaymentRef] = useState("");
     const [receiptFile, setReceiptFile] = useState<File | null>(null);
     const receiptInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +44,16 @@ const CashierPaymentPortal = () => {
         if (!dateString) return "N/A";
         const date = new Date(dateString);
         return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    };
+
+    const groupRequisitionsByPO = (reqs: any[]) => {
+        const groups: Record<string, any[]> = {};
+        reqs.forEach(req => {
+            const key = req.po_number || `Supplier-${req.supplier_id || 'Unknown'}-${req.created_at.split('T')[0]}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(req);
+        });
+        return groups;
     };
 
     // Fetch Authorized Requisitions (Items ready for payment)
@@ -183,13 +193,13 @@ const CashierPaymentPortal = () => {
 
     // Payment Mutation
     const paymentMutation = useMutation({
-        mutationFn: async ({ reqId, reference, item, file }: { reqId: string, reference: string, item: any, file?: File | null }) => {
+        mutationFn: async ({ reqs, reference, file }: { reqs: any[], reference: string, file?: File | null }) => {
             let receiptUrl: string | null = null;
             
             // Upload receipt file if provided
             if (file) {
                 const fileExt = file.name.split('.').pop();
-                const filePath = `payment-receipts/${reqId}-${Date.now()}.${fileExt}`;
+                const filePath = `payment-receipts/PO-${reqs[0]?.po_number}-${Date.now()}.${fileExt}`;
                 const { data: uploadData, error: uploadError } = await (supabase as any).storage
                     .from('receipts')
                     .upload(filePath, file);
@@ -201,22 +211,23 @@ const CashierPaymentPortal = () => {
                 receiptUrl = urlData?.publicUrl || null;
             }
 
-            const updateData: any = {
-                status: 'Paid',
-                payment_reference: reference,
-                payment_details: item.payment_details,
-                status_updated_at: new Date().toISOString()
-            };
-            if (receiptUrl) {
-                updateData.payment_receipt_url = receiptUrl;
+            for (const item of reqs) {
+                const updateData: any = {
+                    status: 'Paid',
+                    payment_reference: reference,
+                    status_updated_at: new Date().toISOString()
+                };
+                if (receiptUrl) {
+                    updateData.payment_receipt_url = receiptUrl;
+                }
+
+                const { error } = await sb
+                    .from("garage_requisitions")
+                    .update(updateData)
+                    .eq("id", item.id);
+
+                if (error) throw error;
             }
-
-            const { error } = await sb
-                .from("garage_requisitions")
-                .update(updateData)
-                .eq("id", reqId);
-
-            if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["cashier-authorized-items"] });
@@ -226,7 +237,7 @@ const CashierPaymentPortal = () => {
             setReceiptFile(null);
             toast({
                 title: "Payment Confirmed",
-                description: "Requisition marked as paid.",
+                description: "Purchase Order marked as paid.",
                 variant: "default"
             });
         },
@@ -268,6 +279,122 @@ const CashierPaymentPortal = () => {
         item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const renderPOCards = () => {
+        if (!filteredItems || filteredItems.length === 0) return null;
+        const grouped = groupRequisitionsByPO(filteredItems);
+
+        return Object.entries(grouped).map(([key, reqs]) => {
+            const firstReq = reqs[0];
+            const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+            const poNumber = firstReq.po_number || 'DRAFT-PO';
+            let poTotal = 0;
+            reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+            const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
+            
+            return (
+                <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+                    <CardHeader className="bg-slate-50/50 border-b pb-4">
+                        <div className="flex justify-between items-start">
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
+                                        PO #: {poNumber}
+                                    </Badge>
+                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-[10px]">
+                                        Approved for Payment
+                                    </Badge>
+                                </div>
+                                <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
+                                    <Building2 className="w-5 h-5 text-slate-400" />
+                                    {supplierName}
+                                </CardTitle>
+                                <p className="text-sm text-slate-500 font-medium">{formatDate(firstReq.created_at)}</p>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-2xl font-black text-emerald-600">
+                                    {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                </div>
+                                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">Total Payable Amount</div>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-slate-100/50">
+                                <TableRow>
+                                    <TableHead className="pl-6">Item Description</TableHead>
+                                    <TableHead>Vehicle</TableHead>
+                                    <TableHead>Qty</TableHead>
+                                    <TableHead>Unit Price</TableHead>
+                                    <TableHead className="text-right pr-6">Total</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {reqs.map((r: any) => (
+                                    <TableRow key={r.id}>
+                                        <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+                                        <TableCell>
+                                            {r.vehicle ? (
+                                                <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                    <Truck className="w-3 h-3 mr-1" />
+                                                    {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                </Badge>
+                                            ) : '-'}
+                                        </TableCell>
+                                        <TableCell className="font-medium">{r.quantity_approved}</TableCell>
+                                        <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
+                                        <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                            {(r.total_price || 0).toLocaleString()} TZS
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                    
+                    {(uploads.length > 0 || firstReq.payment_details) && (
+                        <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
+                            {firstReq.payment_details && (
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
+                                    <p className="text-xs font-semibold text-slate-700">
+                                        {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
+                                    </p>
+                                </div>
+                            )}
+                            
+                            {uploads.length > 0 && (
+                                <div className="space-y-1 text-right ml-auto">
+                                    <p className="text-[10px] uppercase font-bold text-slate-500">Attachments</p>
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                        {uploads.map((url, idx) => (
+                                            <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-100">
+                                                <Paperclip className="w-3 h-3 mr-1" /> Quote/Receipt {idx + 1}
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    <CardFooter className="bg-white border-t p-4 flex justify-end">
+                        <Button
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md uppercase text-xs font-bold px-6"
+                            onClick={() => {
+                                setSelectedPOReqs(reqs);
+                                setIsPaymentDialogOpen(true);
+                            }}
+                        >
+                            <DollarSign className="w-4 h-4 mr-2" />
+                            Disburse PO Batch
+                        </Button>
+                    </CardFooter>
+                </Card>
+            );
+        });
+    };
+
     return (
         <div className="p-6 space-y-6 bg-slate-50/50 min-h-screen animate-fade-in">
             <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -277,7 +404,7 @@ const CashierPaymentPortal = () => {
                         Cashier Hub
                         {authorizedItems?.length > 0 && (
                             <Badge className="ml-2 bg-emerald-100 text-emerald-700 border-emerald-200">
-                                {authorizedItems?.length} Payouts
+                                {new Set(authorizedItems.map((a:any) => a.po_number || a.supplier_id)).size} Pending POs
                             </Badge>
                         )}
                     </h1>
@@ -317,81 +444,32 @@ const CashierPaymentPortal = () => {
                 </TabsList>
 
                 <TabsContent value="pending">
-                    <Card className="border shadow-none overflow-hidden">
-                        <CardHeader className="bg-white border-b py-3">
+                    <Card className="border shadow-none overflow-hidden bg-transparent">
+                        <CardHeader className="bg-white border-b py-3 rounded-t-lg">
                             <CardTitle className="text-sm font-bold text-slate-600">
                                 Ready for Disbursement
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
                             {isAuthorizedLoading ? (
-                                <div className="flex items-center justify-center p-20">
+                                <div className="flex items-center justify-center p-20 bg-white rounded-b-lg">
                                     <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
                                 </div>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow className="bg-slate-50/50">
-                                            <TableHead className="text-xs font-bold py-4 pl-6">PO Number</TableHead>
-                                            <TableHead className="text-xs font-bold">Item & Qty</TableHead>
-                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
-                                            <TableHead className="text-xs font-bold">Amount</TableHead>
-                                            <TableHead className="text-right text-xs font-bold pr-6">Action</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {filteredItems.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={5} className="text-center py-24 text-slate-400">
-                                                    <div className="flex flex-col items-center gap-2">
-                                                        <CheckCircle className="w-10 h-10 text-slate-100" />
-                                                        <span className="italic">No pending disbursements at this time.</span>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            filteredItems.map((item: any) => (
-                                                <TableRow key={item.id} className="hover:bg-slate-50 transition-colors">
-                                                    <TableCell className="font-mono text-xs font-bold text-primary pl-6">
-                                                        {item.po_number || 'N/A'}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex flex-col">
-                                                            <span className="text-sm font-bold text-slate-800">{item.item_name}</span>
-                                                            <span className="text-xs text-slate-500">{item.quantity_approved} Units</span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        {item.garage_suppliers?.name || 'Manual Supplier'}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex flex-col">
-                                                            <span className="text-sm font-bold text-emerald-600">
-                                                                {item.total_price?.toLocaleString()} TShs
-                                                            </span>
-                                                            {item.includes_vat && (
-                                                                <span className="text-[10px] text-primary font-bold">Incl. 18% VAT</span>
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-right pr-6">
-                                                        <Button
-                                                            size="sm"
-                                                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-5 rounded-lg active:scale-95 transition-transform"
-                                                            onClick={() => {
-                                                                setSelectedReq(item);
-                                                                setIsPaymentDialogOpen(true);
-                                                            }}
-                                                        >
-                                                            <DollarSign className="w-3.5 h-3.5 mr-1" />
-                                                            Disburse
-                                                        </Button>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                <div className="grid gap-6 mt-6">
+                                    {filteredItems.length === 0 ? (
+                                        <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none">
+                                            <CardContent className="flex flex-col items-center justify-center py-24 text-center">
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <CheckCircle className="w-10 h-10 text-slate-200" />
+                                                    <span className="italic text-slate-400">No pending disbursements at this time.</span>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ) : (
+                                        renderPOCards()
+                                    )}
+                                </div>
                             )}
                         </CardContent>
                     </Card>
@@ -623,68 +701,71 @@ const CashierPaymentPortal = () => {
 
             {/* Payment Confirmation Dialog */}
             <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-                <DialogContent className="max-w-md">
-                    <DialogHeader className="space-y-2">
-                        <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                            <Receipt className="w-6 h-6 text-slate-600" />
-                            Confirm Disbursement
-                        </DialogTitle>
-                        <DialogDescription className="text-slate-500">
-                            Verify vendor payment details and enter reference.
-                        </DialogDescription>
-                    </DialogHeader>
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 bg-slate-50 border-0">
+                    <div className="p-6 bg-white border-b sticky top-0 z-10 shadow-sm">
+                        <DialogHeader>
+                            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
+                                <Receipt className="w-6 h-6 text-emerald-600" />
+                                Confirm Disbursement
+                            </DialogTitle>
+                        </DialogHeader>
+                        <div className="mt-4 flex justify-between items-center">
+                            <div>
+                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Amount</p>
+                                <p className="text-3xl font-black text-emerald-600">
+                                    {selectedPOReqs.reduce((acc, curr) => acc + (curr.total_price || 0), 0).toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                </p>
+                            </div>
+                            <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-xs px-3 py-1">
+                                {selectedPOReqs.length} Items
+                            </Badge>
+                        </div>
+                    </div>
 
-                    <div className="space-y-4 py-4">
-                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                    <div className="p-6 space-y-6">
+                        <div className="p-4 bg-white rounded-lg border border-slate-200 space-y-3">
                             <div className="flex justify-between items-start">
                                 <div className="space-y-1">
                                     <p className="text-xs font-bold text-slate-500 uppercase">Payable To</p>
-                                    <p className="font-bold text-slate-900">{selectedReq?.garage_suppliers?.name || 'Manual Supplier'}</p>
+                                    <p className="font-bold text-slate-900">{selectedPOReqs[0]?.garage_suppliers?.name || 'Manual Supplier'}</p>
                                 </div>
                                 <div className="text-right space-y-1">
                                     <p className="text-xs font-bold text-slate-500 uppercase">PO Number</p>
-                                    <p className="font-mono font-bold text-slate-700">{selectedReq?.po_number}</p>
+                                    <p className="font-mono font-bold text-slate-700">{selectedPOReqs[0]?.po_number}</p>
                                 </div>
                             </div>
 
-                            <div className="py-3 px-4 bg-white rounded border border-slate-200 flex justify-between items-center">
-                                <span className="text-sm font-bold text-slate-600">Total Amount</span>
-                                <span className="font-bold text-slate-900 text-xl">
-                                    {selectedReq?.total_price?.toLocaleString()} <span className="text-xs font-medium text-slate-500">TShs</span>
-                                </span>
-                            </div>
-
                             {/* Bank Details */}
-                            {selectedReq?.payment_details && (
-                                <div className="space-y-3 pt-2 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                            {selectedPOReqs[0]?.payment_details && (
+                                <div className="space-y-3 pt-4 border-t border-slate-100">
                                     <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase">
                                         <Hash className="w-3.5 h-3.5" />
                                         Payment Instructions
                                     </div>
-                                    <div className="grid grid-cols-2 gap-y-3 text-[11px]">
+                                    <div className="grid grid-cols-2 gap-y-3 text-[11px] bg-slate-50 p-3 rounded">
                                         <span className="text-slate-500 font-semibold">Method</span>
-                                        <span className="font-bold text-right text-slate-900">{selectedReq.payment_details.method_name || selectedReq.payment_details.method_type}</span>
+                                        <span className="font-bold text-right text-slate-900">{selectedPOReqs[0].payment_details.method_name || selectedPOReqs[0].payment_details.method_type}</span>
 
-                                        {selectedReq.payment_details.bank_name && (
+                                        {selectedPOReqs[0].payment_details.bank_name && (
                                             <>
                                                 <span className="text-slate-500 font-semibold">Bank Name</span>
-                                                <span className="font-bold text-right text-slate-900">{selectedReq.payment_details.bank_name}</span>
+                                                <span className="font-bold text-right text-slate-900">{selectedPOReqs[0].payment_details.bank_name}</span>
                                                 <span className="text-slate-500 font-semibold">Account Number</span>
-                                                <code className="text-xs bg-slate-100 px-2 py-0.5 rounded font-mono font-bold text-right text-slate-800">
-                                                    {selectedReq.payment_details.account_number}
+                                                <code className="text-xs bg-white border px-2 py-0.5 rounded font-mono font-bold text-right text-slate-800 flex justify-end">
+                                                    {selectedPOReqs[0].payment_details.account_number}
                                                 </code>
                                             </>
                                         )}
-                                        {selectedReq.payment_details.account_name && (
+                                        {selectedPOReqs[0].payment_details.account_name && (
                                             <>
                                                 <span className="text-slate-500 font-semibold">Beneficiary Name</span>
-                                                <span className="font-bold text-right text-slate-900 truncate">{selectedReq.payment_details.account_name}</span>
+                                                <span className="font-bold text-right text-slate-900 truncate">{selectedPOReqs[0].payment_details.account_name}</span>
                                             </>
                                         )}
-                                        {selectedReq.payment_details.mobile_number && (
+                                        {selectedPOReqs[0].payment_details.mobile_number && (
                                             <>
                                                 <span className="text-slate-500 font-semibold">Mobile Number</span>
-                                                <span className="font-bold text-right text-slate-900 font-mono tracking-wider">{selectedReq.payment_details.mobile_number}</span>
+                                                <span className="font-bold text-right text-slate-900 font-mono tracking-wider">{selectedPOReqs[0].payment_details.mobile_number}</span>
                                             </>
                                         )}
                                     </div>
@@ -700,7 +781,7 @@ const CashierPaymentPortal = () => {
                                 id="payment-ref"
                                 autoFocus
                                 placeholder="Ref / Receipt Number"
-                                className="font-bold h-11"
+                                className="font-bold h-11 bg-white"
                                 value={paymentRef}
                                 onChange={(e) => setPaymentRef(e.target.value)}
                             />
@@ -712,7 +793,7 @@ const CashierPaymentPortal = () => {
                                 Upload Payment Receipt (Optional)
                             </Label>
                             <div 
-                                className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center cursor-pointer hover:bg-slate-50 transition-colors"
+                                className="border-2 border-dashed bg-white border-slate-200 rounded-lg p-6 text-center cursor-pointer hover:bg-slate-50 transition-colors"
                                 onClick={() => receiptInputRef.current?.click()}
                             >
                                 <input
@@ -723,40 +804,35 @@ const CashierPaymentPortal = () => {
                                     onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
                                 />
                                 {receiptFile ? (
-                                    <div className="flex items-center justify-center gap-2 text-emerald-600">
-                                        <CheckCircle className="w-4 h-4" />
+                                    <div className="flex flex-col items-center justify-center gap-2 text-emerald-600">
+                                        <CheckCircle className="w-6 h-6" />
                                         <span className="text-sm font-semibold">{receiptFile.name}</span>
                                     </div>
                                 ) : (
-                                    <div className="flex flex-col items-center gap-1 text-slate-400">
-                                        <Upload className="w-5 h-5" />
-                                        <span className="text-xs font-medium">Click to upload receipt (PDF or Image)</span>
+                                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                                        <Upload className="w-8 h-8 opacity-50" />
+                                        <span className="text-sm font-medium">Click to upload receipt (PDF or Image)</span>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </div>
 
-                    <DialogFooter className="gap-2">
-                        <Button variant="ghost" onClick={() => { setIsPaymentDialogOpen(false); setReceiptFile(null); }} className="px-6 font-bold text-slate-500">Cancel</Button>
+                    <div className="flex justify-between items-center bg-white p-4 border-t sticky bottom-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                        <Button variant="outline" onClick={() => { setIsPaymentDialogOpen(false); setReceiptFile(null); }}>Cancel</Button>
                         <Button
-                            className="bg-primary hover:bg-primary/90 text-white font-bold px-10 h-11"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase shadow-lg shadow-emerald-200 px-8"
                             disabled={!paymentRef || paymentMutation.isPending}
                             onClick={() => paymentMutation.mutate({
-                                reqId: selectedReq.id,
+                                reqs: selectedPOReqs,
                                 reference: paymentRef,
-                                item: selectedReq,
                                 file: receiptFile
                             })}
                         >
-                            {paymentMutation.isPending ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                    Processing...
-                                </>
-                            ) : "Confirm Disbursement"}
+                            {paymentMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
+                            Confirm Disbursement
                         </Button>
-                    </DialogFooter>
+                    </div>
                 </DialogContent>
             </Dialog>
 

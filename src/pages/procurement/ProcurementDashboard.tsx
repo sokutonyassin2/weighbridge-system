@@ -325,9 +325,12 @@ const ProcurementDashboard = () => {
 
     // Submit Draft Batch to Management Mutation
     const submitModelBatchMutation = useMutation({
-        mutationFn: async (reqIds: string[]) => {
+        mutationFn: async ({ reqIds, poNumber }: { reqIds: string[], poNumber: string }) => {
             for (const id of reqIds) {
-                const { error } = await sb.from("garage_requisitions").update({ status: 'Awaiting Approval' }).eq("id", id);
+                const { error } = await sb.from("garage_requisitions").update({ 
+                    status: 'Awaiting Approval',
+                    po_number: poNumber
+                }).eq("id", id);
                 if (error) throw error;
             }
         },
@@ -1119,7 +1122,12 @@ const ProcurementDashboard = () => {
                                                                                     e.stopPropagation();
                                                                                     const draftReqs = item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id);
                                                                                     if (draftReqs.length > 0) {
-                                                                                        submitModelBatchMutation.mutate(draftReqs.map((r: any) => r.id));
+                                                                                        const existingPo = draftReqs.find((r: any) => r.po_number)?.po_number;
+                                                                                        const poNumToUse = existingPo || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0);
+                                                                                        submitModelBatchMutation.mutate({
+                                                                                            reqIds: draftReqs.map((r: any) => r.id),
+                                                                                            poNumber: poNumToUse
+                                                                                        });
                                                                                     }
                                                                                 }}
                                                                             >
@@ -1258,7 +1266,10 @@ const ProcurementDashboard = () => {
                                                                                 className="h-8 bg-orange-600 hover:bg-orange-700 text-[10px] font-bold uppercase shadow-md shadow-orange-100 text-white"
                                                                                 disabled={!req.unit_price || req.unit_price <= 0 || !req.supplier_id || submitModelBatchMutation.isPending}
                                                                                 onClick={() => {
-                                                                                    submitModelBatchMutation.mutate([req.id]);
+                                                                                    submitModelBatchMutation.mutate({
+                                                                                        reqIds: [req.id],
+                                                                                        poNumber: req.po_number || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0)
+                                                                                    });
                                                                                 }}
                                                                             >
                                                                                 Send for Approval

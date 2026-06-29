@@ -938,12 +938,12 @@ const ProcurementDashboard = () => {
                                                 }}
                                             />
                                         </TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase">Req Date</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase">Company</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase">PO Number</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Req Date</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Company</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">PO Number</TableHead>
                                         <TableHead className="text-xs font-semibold uppercase">Item Details</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase">Fulfillment</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase">Status</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Fulfillment</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Status</TableHead>
                                         <TableHead className="text-right text-xs font-semibold uppercase px-6">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -1067,8 +1067,8 @@ const ProcurementDashboard = () => {
                                                                             <span className="text-[10px] text-slate-500 font-medium">Latest: {formatDate(firstReq.created_at)}</span>
                                                                         </div>
                                                                     </TableCell>
-                                                                    <TableCell className="text-right px-6" colSpan={2}>
-                                                                        <div className="flex items-center justify-end gap-2">
+                                                                    <TableCell className="text-right px-2 md:px-6" colSpan={2}>
+                                                                        <div className="flex flex-wrap items-center justify-end gap-2">
                                                                             <Button
                                                                                 size="sm"
                                                                                 variant="outline"
@@ -1134,7 +1134,7 @@ const ProcurementDashboard = () => {
                                                         const req = item.req;
                                                         const isChild = item.isChild;
                                                         return (
-                                                            <TableRow key={req.id} className={`hover:bg-slate-50/30 transition-colors ${isChild ? 'bg-slate-50/40' : ''} ${selectedRequisitionIds.includes(req.id) ? 'bg-blue-50/50' : ''}`}>
+                                                            <TableRow key={req.id} className={`hover:bg-slate-50/30 transition-colors ${isChild ? 'bg-blue-50/20 border-l-[3px] border-blue-500' : ''} ${selectedRequisitionIds.includes(req.id) ? 'bg-blue-50/50' : ''}`}>
                                                         <TableCell className="px-4">
                                                             <Checkbox
                                                                 checked={selectedRequisitionIds.includes(req.id)}
@@ -1147,30 +1147,43 @@ const ProcurementDashboard = () => {
                                                                 }}
                                                             />
                                                         </TableCell>
-                                                        <TableCell className="py-4">
+                                                        <TableCell className="py-4 hidden md:table-cell">
                                                             <div className="flex flex-col">
                                                                 <span className="text-xs text-slate-500 font-bold">{formatDate(req.created_at)}</span>
-                                                                <span className="text-[10px] text-blue-600 font-mono italic">
+                                                                <span className="text-[10px] text-blue-600 font-mono italic hidden md:inline-block">
                                                                     {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                                 </span>
-                                                                <span className="text-[9px] font-semibold text-slate-400 uppercase mt-1">By: {req.profiles?.full_name || 'System'}</span>
+                                                                <span className="text-[9px] font-semibold text-slate-400 uppercase mt-1 hidden md:block">By: {req.profiles?.full_name || 'System'}</span>
                                                             </div>
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="hidden md:table-cell">
                                                             <Badge variant="outline" className="text-xs font-semibold bg-slate-50 text-slate-600 border-slate-200 uppercase">
                                                                 {getDepartmentName(req.target_company)}
                                                             </Badge>
                                                         </TableCell>
-                                                        <TableCell className="font-mono text-xs text-slate-500">
+                                                        <TableCell className="font-mono text-xs text-slate-500 hidden md:table-cell">
                                                             {req.po_number || <span className="text-slate-300">-- No PO --</span>}
                                                         </TableCell>
                                                         <TableCell>
                                                             <div className="flex flex-col gap-0.5">
-                                                                <span className="font-bold text-sm text-slate-900 leading-tight">{req.item_name}</span>
+                                                                <span className="font-bold text-sm text-slate-900 leading-tight block">{req.item_name}</span>
+                                                                
+                                                                {/* Mobile-only info block */}
+                                                                <div className="md:hidden flex flex-col gap-1 mt-1 mb-1 pb-1 border-b border-slate-100">
+                                                                    <div className="flex justify-between items-center">
+                                                                        <span className="text-[10px] text-slate-500 font-bold">{formatDate(req.created_at)}</span>
+                                                                        {req.po_number && <span className="text-[10px] text-slate-500 font-mono italic">PO: {req.po_number}</span>}
+                                                                    </div>
+                                                                    <div className="flex justify-between items-center bg-slate-50 p-1.5 rounded mt-0.5">
+                                                                        <span className="text-[10px] text-slate-500 font-semibold uppercase">Req: {req.original_quantity || req.quantity_requested}</span>
+                                                                        <span className="text-[10px] text-indigo-700 font-bold uppercase">Appr: {req.quantity_approved || 0}</span>
+                                                                    </div>
+                                                                </div>
+
                                                                 <div className="flex items-center gap-2">
-                                                                    <span className="text-[10px] text-slate-500 font-semibold uppercase">Qty: {req.quantity_requested} units</span>
+                                                                    <span className="text-[10px] text-slate-500 font-semibold uppercase hidden md:inline">Qty: {req.quantity_requested} units</span>
                                                                     {req.original_quantity && req.original_quantity !== req.quantity_requested && (
-                                                                        <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50 h-4">
+                                                                        <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50 h-4 hidden md:inline-flex">
                                                                             Split from {req.original_quantity}
                                                                         </Badge>
                                                                     )}
@@ -1183,7 +1196,7 @@ const ProcurementDashboard = () => {
                                                                 )}
                                                             </div>
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="hidden md:table-cell">
                                                             <div className="flex flex-col gap-0.5 min-w-[120px]">
                                                                 <div className="flex justify-between text-[10px] font-semibold text-slate-500 uppercase">
                                                                     <span>Requested</span>
@@ -1207,7 +1220,7 @@ const ProcurementDashboard = () => {
                                                                 </div>
                                                             </div>
                                                         </TableCell>
-                                                        <TableCell>
+                                                        <TableCell className="hidden md:table-cell">
                                                             <div className="flex items-center">
                                                                 {getStatusBadge(req.status, req)}
                                                             </div>

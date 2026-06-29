@@ -472,7 +472,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
     // Expenses State
     const [expenses, setExpenses] = useState<ExpenseItem[]>([
-        { item_name: "Driver Allowance", amount: "", category: "TZ", currency: "USD", nature: "Go & Return", is_extra: false }
+        { item_name: "Driver Allowance", amount: "", category: "TZ", currency: "USD", nature: "", is_extra: false }
     ]);
 
     // Workflow lock (EVERYONE locked out after Approval/Activation for transparency)
@@ -1019,23 +1019,33 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     };
 
     const addExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
+        const incompleteExpense = expenses.find(e => e.category === category && (!e.nature || e.nature.trim() === ''));
+        if (incompleteExpense) {
+            toast({ variant: "destructive", title: "Missing Nature", description: "Please select the Nature for all existing expenses in this category before adding a new one." });
+            return;
+        }
         setExpenses([...expenses, {
             item_name: "",
             amount: "",
             category,
             currency: getDefaultCurrency(category),
-            nature: "Go & Return",
+            nature: "",
             is_extra: false
         }]);
     };
 
     const addExtraExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
+        const incompleteExpense = expenses.find(e => e.category === category && (!e.nature || e.nature.trim() === ''));
+        if (incompleteExpense) {
+            toast({ variant: "destructive", title: "Missing Nature", description: "Please select the Nature for all existing expenses in this category before adding a new one." });
+            return;
+        }
         setExpenses([...expenses, {
             item_name: "",
             amount: "",
             category,
             currency: getDefaultCurrency(category),
-            nature: "Unbudgeted",
+            nature: "",
             is_extra: true
         }]);
     };
@@ -1075,6 +1085,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     const handleSave = async () => {
         setIsSaving(true);
         try {
+            const missingNature = expenses.find(e => !e.nature || e.nature.trim() === '');
+            if (missingNature) {
+                throw new Error(`Missing Nature for expense: ${missingNature.item_name || 'Unnamed Item'}. Please select a Nature for all expenses.`);
+            }
+
             if (!tripData.destination) {
                 throw new Error("Please specify at least the Route Destination to save this plan.");
             }
@@ -1702,7 +1717,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         let amountBIF = 0;
                         let amountDRC = 0;
 
-                        if (item.currency === 'USD') {
+                        const effectiveCurrency = (category === 'DRC') ? 'USD' : item.currency;
+
+                        if (effectiveCurrency === 'USD') {
                             amountTSh = inputAmount * tzRate;
                             amountUSD = inputAmount;
                             amountZMW = amountTSh / zambiaRate;

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,7 +30,10 @@ const ManagementApprovals = () => {
     const groupRequisitionsByPO = (reqs: any[]) => {
         const groups: Record<string, any[]> = {};
         reqs.forEach(req => {
-            const key = req.po_number || `Supplier-${req.supplier_id || 'Unknown'}-${req.created_at.split('T')[0]}`;
+            const poNum = req.po_number || 'DRAFT-PO';
+            const supplierId = req.supplier_id || 'Unknown';
+            const date = req.created_at.split('T')[0];
+            const key = `${poNum}-${supplierId}-${date}`;
             if (!groups[key]) groups[key] = [];
             groups[key].push(req);
         });
@@ -111,34 +115,36 @@ const ManagementApprovals = () => {
             const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
             
             return (
-                <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
-                    <CardHeader className="bg-slate-50/50 border-b pb-4">
-                        <div className="flex justify-between items-start">
+                <AccordionItem key={key} value={key} className="overflow-hidden border border-slate-200 rounded-lg shadow-sm bg-white">
+                    <AccordionTrigger className="hover:no-underline bg-slate-50/50 px-6 py-4 data-[state=open]:border-b">
+                        <div className="flex justify-between items-center w-full pr-4 text-left">
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                    <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
-                                        PO #: {poNumber}
+                                    <Building2 className="w-5 h-5 text-indigo-600" />
+                                    <span className="text-lg font-bold text-slate-800 uppercase tracking-tight">{supplierName}</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                    <Badge variant="outline" className="font-mono text-[10px] text-blue-900 bg-blue-50 border-blue-200">
+                                        {poNumber}
                                     </Badge>
                                     <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
                                         Awaiting Approval
                                     </Badge>
+                                    <span className="text-xs text-slate-500 font-medium ml-2">Latest: {formatDate(firstReq.created_at)}</span>
                                 </div>
-                                <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
-                                    <Building2 className="w-5 h-5 text-slate-400" />
-                                    {supplierName}
-                                </CardTitle>
-                                <p className="text-sm text-slate-500 font-medium">{formatDate(firstReq.created_at)}</p>
                             </div>
                             <div className="text-right">
-                                <div className="text-2xl font-black text-indigo-900">
-                                    {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                <div className="text-lg font-black text-indigo-900">
+                                    {poTotal.toLocaleString()} <span className="text-[10px] text-slate-500 font-medium">TZS</span>
                                 </div>
-                                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">Est. Total Value</div>
+                                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">{reqs.length} Items Pending</div>
                             </div>
                         </div>
-                    </CardHeader>
-                    <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
-                        <Table>
+                    </AccordionTrigger>
+                    
+                    <AccordionContent className="p-0">
+                        <div className="overflow-x-auto">
+                            <Table>
                             <TableHeader className="bg-slate-100/50">
                                 <TableRow>
                                     <TableHead className="pl-6">Item Description</TableHead>
@@ -169,7 +175,7 @@ const ManagementApprovals = () => {
                                 ))}
                             </TableBody>
                         </Table>
-                    </CardContent>
+                        </div>
                     
                     {(uploads.length > 0 || firstReq.payment_details) && (
                         <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
@@ -197,7 +203,7 @@ const ManagementApprovals = () => {
                         </div>
                     )}
                     
-                    <CardFooter className="bg-white border-t p-4 flex justify-end">
+                    <div className="bg-white border-t p-4 flex justify-end">
                         <Button
                             className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md uppercase text-xs font-bold px-6"
                             onClick={() => {
@@ -208,8 +214,9 @@ const ManagementApprovals = () => {
                             <FileCheck className="w-4 h-4 mr-2" />
                             Review PO Batch
                         </Button>
-                    </CardFooter>
-                </Card>
+                    </div>
+                    </AccordionContent>
+                </AccordionItem>
             );
         });
     };
@@ -246,9 +253,9 @@ const ManagementApprovals = () => {
                             </CardContent>
                         </Card>
                     ) : (
-                        <div className="grid gap-6">
+                        <Accordion type="multiple" className="space-y-4">
                             {renderPOCards()}
-                        </div>
+                        </Accordion>
                     )}
                 </div>
             )}

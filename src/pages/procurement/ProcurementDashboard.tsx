@@ -14,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image, Check, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,6 +55,9 @@ const ProcurementDashboard = () => {
         payment_method_id: "",
         quantity_approving: 0
     });
+
+    const [batchSupplierOpen, setBatchSupplierOpen] = useState(false);
+    const [singleSupplierOpen, setSingleSupplierOpen] = useState(false);
 
     const [newReq, setNewReq] = useState({
         item_name: "",
@@ -1072,67 +1077,75 @@ const ProcurementDashboard = () => {
                                                                     </TableCell>
                                                                     <TableCell className="text-right px-2 md:px-6" colSpan={2}>
                                                                         <div className="flex flex-wrap items-center justify-end gap-2">
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="outline"
-                                                                                className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setPreviewSupplierName(item.supplierName);
-                                                                                    setPreviewReqs(item.reqs);
-                                                                                    setIsPreviewDialogOpen(true);
-                                                                                }}
-                                                                            >
-                                                                                Preview PO
-                                                                            </Button>
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="outline"
-                                                                                className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setBatchQuoteReqs(item.reqs);
-                                                                                    setBatchSharedDetails({
-                                                                                        supplier_id: firstReq.supplier_id || "",
-                                                                                        po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
-                                                                                        includes_vat: firstReq.includes_vat || false,
-                                                                                        payment_method_id: firstReq.payment_details?.id || ""
-                                                                                    });
-                                                                                    const initialPrices: Record<string, number> = {};
-                                                                                    const initialQuantities: Record<string, number> = {};
-                                                                                    item.reqs.forEach((r: any) => {
-                                                                                        initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
-                                                                                        initialQuantities[r.id] = r.quantity_requested || 1;
-                                                                                    });
-                                                                                    setBatchItemPrices(initialPrices);
-                                                                                    setBatchItemQuantities(initialQuantities);
-                                                                                    setIsBatchQuoteOpen(true);
-                                                                                }}
-                                                                            >
-                                                                                Batch PO
-                                                                            </Button>
-                                                                            <Button
-                                                                                size="sm"
-                                                                                className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
-                                                                                disabled={
-                                                                                    item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length === 0 || 
-                                                                                    submitModelBatchMutation.isPending
-                                                                                }
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const draftReqs = item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id);
-                                                                                    if (draftReqs.length > 0) {
-                                                                                        const existingPo = draftReqs.find((r: any) => r.po_number)?.po_number;
-                                                                                        const poNumToUse = existingPo || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0);
-                                                                                        submitModelBatchMutation.mutate({
-                                                                                            reqIds: draftReqs.map((r: any) => r.id),
-                                                                                            poNumber: poNumToUse
-                                                                                        });
-                                                                                    }
-                                                                                }}
-                                                                            >
-                                                                                {submitModelBatchMutation.isPending ? "Submitting..." : `Send PO (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
-                                                                            </Button>
+                                                                            {item.reqs.some((r: any) => r.status === 'Awaiting Approval') ? (
+                                                                                <Badge className="bg-orange-100 text-orange-800 border-orange-200 px-3 py-1 font-bold uppercase text-[10px]">
+                                                                                    Waiting For Approval
+                                                                                </Badge>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="outline"
+                                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setPreviewSupplierName(item.supplierName);
+                                                                                            setPreviewReqs(item.reqs);
+                                                                                            setIsPreviewDialogOpen(true);
+                                                                                        }}
+                                                                                    >
+                                                                                        Preview PO
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="outline"
+                                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setBatchQuoteReqs(item.reqs);
+                                                                                            setBatchSharedDetails({
+                                                                                                supplier_id: firstReq.supplier_id || "",
+                                                                                                po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
+                                                                                                includes_vat: firstReq.includes_vat || false,
+                                                                                                payment_method_id: firstReq.payment_details?.id || ""
+                                                                                            });
+                                                                                            const initialPrices: Record<string, number> = {};
+                                                                                            const initialQuantities: Record<string, number> = {};
+                                                                                            item.reqs.forEach((r: any) => {
+                                                                                                initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
+                                                                                                initialQuantities[r.id] = r.quantity_requested || 1;
+                                                                                            });
+                                                                                            setBatchItemPrices(initialPrices);
+                                                                                            setBatchItemQuantities(initialQuantities);
+                                                                                            setIsBatchQuoteOpen(true);
+                                                                                        }}
+                                                                                    >
+                                                                                        Batch PO
+                                                                                    </Button>
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
+                                                                                        disabled={
+                                                                                            item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length === 0 || 
+                                                                                            submitModelBatchMutation.isPending
+                                                                                        }
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            const draftReqs = item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id);
+                                                                                            if (draftReqs.length > 0) {
+                                                                                                const existingPo = draftReqs.find((r: any) => r.po_number)?.po_number;
+                                                                                                const poNumToUse = existingPo || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0);
+                                                                                                submitModelBatchMutation.mutate({
+                                                                                                    reqIds: draftReqs.map((r: any) => r.id),
+                                                                                                    poNumber: poNumToUse
+                                                                                                });
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        {submitModelBatchMutation.isPending ? "Submitting..." : `Send PO (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
+                                                                                    </Button>
+                                                                                </>
+                                                                            )}
                                                                         </div>
                                                                     </TableCell>
                                                                 </TableRow>
@@ -1793,19 +1806,46 @@ const ProcurementDashboard = () => {
                         <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
                             <div className="space-y-2">
                                 <Label className="text-[11px] font-semibold text-slate-500 uppercase">Supplier</Label>
-                                <Select
-                                    value={batchSharedDetails.supplier_id}
-                                    onValueChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, supplier_id: val, payment_method_id: "" })}
-                                >
-                                    <SelectTrigger className="h-9 text-xs">
-                                        <SelectValue placeholder="Choose Supplier..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(suppliers || []).map((s: any) => (
-                                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <Popover open={batchSupplierOpen} onOpenChange={setBatchSupplierOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={batchSupplierOpen}
+                                            className="w-full justify-between h-9 text-xs font-normal"
+                                        >
+                                            {batchSharedDetails.supplier_id
+                                                ? (suppliers || []).find((s: any) => s.id === batchSharedDetails.supplier_id)?.name
+                                                : "Choose Supplier..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[300px] p-0" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search supplier..." />
+                                            <CommandList>
+                                                <CommandEmpty>No supplier found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    {(suppliers || []).map((s: any) => (
+                                                        <CommandItem
+                                                            key={s.id}
+                                                            value={s.name}
+                                                            onSelect={() => {
+                                                                setBatchSharedDetails({ ...batchSharedDetails, supplier_id: s.id, payment_method_id: "" });
+                                                                setBatchSupplierOpen(false);
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={`mr-2 h-4 w-4 ${batchSharedDetails.supplier_id === s.id ? "opacity-100" : "opacity-0"}`}
+                                                            />
+                                                            {s.name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-[11px] font-semibold text-slate-500 uppercase">Payment Mode</Label>
@@ -1979,19 +2019,46 @@ const ProcurementDashboard = () => {
                     <div className="space-y-4">
                         <div className="space-y-2">
                             <Label className="text-[11px] font-semibold text-slate-500 uppercase">Select Supplier</Label>
-                            <Select
-                                value={approvalDetails.supplier_id}
-                                onValueChange={(val) => setApprovalDetails({ ...approvalDetails, supplier_id: val })}
-                            >
-                                <SelectTrigger className="h-10 text-xs">
-                                    <SelectValue placeholder="Choose Supplier..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {(suppliers || []).map((s: any) => (
-                                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Popover open={singleSupplierOpen} onOpenChange={setSingleSupplierOpen}>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={singleSupplierOpen}
+                                        className="w-full justify-between h-10 text-xs font-normal"
+                                    >
+                                        {approvalDetails.supplier_id
+                                            ? (suppliers || []).find((s: any) => s.id === approvalDetails.supplier_id)?.name
+                                            : "Choose Supplier..."}
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[300px] p-0" align="start">
+                                    <Command>
+                                        <CommandInput placeholder="Search supplier..." />
+                                        <CommandList>
+                                            <CommandEmpty>No supplier found.</CommandEmpty>
+                                            <CommandGroup>
+                                                {(suppliers || []).map((s: any) => (
+                                                    <CommandItem
+                                                        key={s.id}
+                                                        value={s.name}
+                                                        onSelect={() => {
+                                                            setApprovalDetails({ ...approvalDetails, supplier_id: s.id });
+                                                            setSingleSupplierOpen(false);
+                                                        }}
+                                                    >
+                                                        <Check
+                                                            className={`mr-2 h-4 w-4 ${approvalDetails.supplier_id === s.id ? "opacity-100" : "opacity-0"}`}
+                                                        />
+                                                        {s.name}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">

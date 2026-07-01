@@ -1500,6 +1500,91 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         currRow += 2;
 
+        // 4.5 Fuel Allocation Section
+        if (revenueData.revenue_type === 'With Fuel') {
+            const fuelHeaderIdx = currRow++;
+            const fuelHeader = sheet.getRow(fuelHeaderIdx);
+            fuelHeader.getCell(1).value = 'FUEL ALLOCATION';
+            fuelHeader.getCell(1).style = headerStyle;
+            sheet.mergeCells(`A${fuelHeaderIdx}:E${fuelHeaderIdx}`);
+
+            const fuelTableHeader = sheet.getRow(currRow++);
+            fuelTableHeader.getCell(1).value = 'Station / Description';
+            fuelTableHeader.getCell(2).value = 'Liters';
+            fuelTableHeader.getCell(3).value = 'Price (TShs)';
+            fuelTableHeader.getCell(3).alignment = { horizontal: 'right' };
+            fuelTableHeader.getCell(4).value = 'Amount (USD)';
+            fuelTableHeader.getCell(4).alignment = { horizontal: 'right' };
+            fuelTableHeader.getCell(5).value = 'Amount (TZS)';
+            fuelTableHeader.getCell(5).alignment = { horizontal: 'right' };
+
+            fuelTableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                if (colNumber <= 5) {
+                    c.font = { bold: true };
+                    c.border = borderStyle;
+                    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } };
+                }
+            });
+
+            const fuelEntries = revenueData.fuel_entries || [{ liters: revenueData.fuel_liters, price: revenueData.fuel_price }];
+            let grandLiters = 0;
+            let grandTZS = 0;
+
+            fuelEntries.forEach((entry, idx) => {
+                const rowIdx = currRow++;
+                const row = sheet.getRow(rowIdx);
+                const liters = parseFloat(entry.liters) || 0;
+                const price = parseFloat(entry.price) || 0;
+                const tzs = liters * price;
+                const usd = tzs / (countryRates["TZ"] || 2700);
+
+                grandLiters += liters;
+                grandTZS += tzs;
+
+                row.getCell(1).value = idx === 0 ? 'Primary Fuel Station' : `Fuel Station ${idx + 1}`;
+                row.getCell(2).value = liters;
+                row.getCell(3).value = price;
+                
+                row.getCell(4).value = usd;
+                row.getCell(4).numFmt = '"$"#,##0.00';
+                
+                row.getCell(5).value = tzs;
+                row.getCell(5).numFmt = '#,##0';
+
+                row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 5) c.border = borderStyle;
+                });
+            });
+
+            const fuelSubTotalRowIdx = currRow++;
+            const fuelSubTotalRow = sheet.getRow(fuelSubTotalRowIdx);
+            fuelSubTotalRow.getCell(1).value = 'SUBTOTAL FUEL ALLOCATION';
+            fuelSubTotalRow.getCell(1).style = subtotalStyle;
+            
+            fuelSubTotalRow.getCell(2).value = grandLiters;
+            fuelSubTotalRow.getCell(2).font = { bold: true };
+            fuelSubTotalRow.getCell(2).border = borderStyle;
+            
+            fuelSubTotalRow.getCell(3).border = borderStyle;
+            
+            fuelSubTotalRow.getCell(4).value = grandTZS / (countryRates["TZ"] || 2700);
+            fuelSubTotalRow.getCell(4).numFmt = '"$"#,##0.00';
+            
+            fuelSubTotalRow.getCell(5).value = grandTZS;
+            fuelSubTotalRow.getCell(5).numFmt = '#,##0';
+            
+            sheet.mergeCells(`A${fuelSubTotalRowIdx}:A${fuelSubTotalRowIdx}`);
+
+            fuelSubTotalRow.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                if (colNumber <= 5) {
+                    if (colNumber !== 2) c.font = { bold: true };
+                    c.border = borderStyle;
+                }
+            });
+
+            currRow += 2;
+        }
+
         // 5. Signature Section (THE RELEVANT TABLE)
         const addSignatureTable = (title: string, name: string, pos: string) => {
             const headRow = sheet.getRow(currRow++);

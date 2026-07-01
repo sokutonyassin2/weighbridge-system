@@ -237,34 +237,15 @@ const TripSheets = () => {
         queryFn: async () => {
             const { data: sheets, error } = await supabase
                 .from("logistics_trip_sheets" as any)
-                .select("*")
+                .select(`
+                    *,
+                    vehicle:vehicle_id ( id, vehicle_no, fleet_category ),
+                    driver:driver_id ( id, full_name )
+                `)
                 .order("created_at", { ascending: false });
 
             if (error) throw error;
-            if (!sheets || sheets.length === 0) return [];
-
-            const vehicleIds = [...new Set((sheets as any[]).map(s => s.vehicle_id).filter(Boolean))];
-            const driverIds = [...new Set((sheets as any[]).map(s => s.driver_id).filter(Boolean))];
-
-            const [vehicleRes, driverRes] = await Promise.all([
-                vehicleIds.length > 0
-                    ? supabase.from("logistics_fleet" as any).select("id, vehicle_no, fleet_category").in("id", vehicleIds)
-                    : Promise.resolve({ data: [] }),
-                driverIds.length > 0
-                    ? supabase.from("logistics_drivers" as any).select("id, full_name").in("id", driverIds)
-                    : Promise.resolve({ data: [] }),
-            ]);
-
-            const vehicleMap: Record<string, any> = {};
-            const driverMap: Record<string, any> = {};
-            (vehicleRes.data || []).forEach((v: any) => { vehicleMap[v.id] = v; });
-            (driverRes.data || []).forEach((d: any) => { driverMap[d.id] = d; });
-
-            return (sheets as any[]).map(s => ({
-                ...s,
-                vehicle: s.vehicle_id ? vehicleMap[s.vehicle_id] : null,
-                driver: s.driver_id ? driverMap[s.driver_id] : null,
-            }));
+            return sheets || [];
         }
     });
 

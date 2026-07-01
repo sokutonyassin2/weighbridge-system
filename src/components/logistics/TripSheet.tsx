@@ -410,6 +410,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         revenue_type: 'Without Fuel' as 'With Fuel' | 'Without Fuel',
         revenue_amount: '',
         revenue_currency: 'TZS' as 'USD' | 'TZS',
+        fuel_entries: [{ liters: '', price: '' }],
         fuel_liters: '',
         fuel_price: '',
         fuel_amount: '0' // Total fuel cost in USD (calculated)
@@ -639,55 +640,40 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             try {
                 setIsLoading(true);
 
-                // 1. Parallel Fetch EVERYTHING (Meta + Trip Details + Expenses)
-                // Using separate calls for drivers to allow robust fallback logic
-                const [fleetRes, couplingRes, categoryRes, sheetRes, expenseRes] = await Promise.all([
-                    supabase.from('logistics_fleet' as any).select('id, vehicle_no, asset_type, fleet_category, assignment_status, make_model, trailer_number'),
-                    supabase.from('logistics_couplings' as any).select('id, horse_id, trailer_id, is_active').eq('is_active', true),
-                    supabase.from('logistics_drivers' as any).select('id, name').order('name'), // Category labels
+                // 1. Parallel Fetch (Trip Details + Expenses ONLY)
+                const [sheetRes, expenseRes] = await Promise.all([
                     tripId ? supabase.from('logistics_trip_sheets' as any).select('*').eq('id', tripId).single() : Promise.resolve({ data: null, error: null }),
                     tripId ? supabase.from('logistics_trip_expenses' as any).select('*').eq('trip_sheet_id', tripId) : Promise.resolve({ data: [], error: null })
                 ]);
 
-                // 2. Specialized Driver Fetch with Fallback Logic
-                let driverData = [];
-                try {
-                    // Try preferred columns first
-                    const { data, error: dError } = await supabase
-                        .from('logistics_drivers' as any)
-                        .select('id, full_name, license_expiry, license_no, id_number, is_active, assigned_vehicle_id')
-                        .order('full_name');
-                    
-                    if (dError) {
-                        console.warn("Driver fetch with full fields failed, attempting fallback...", dError);
-                        // Fallback to basic columns if database schema is lagging
-                        const { data: fallbackData, error: fError } = await supabase
-                            .from('logistics_drivers' as any)
-                            .select('id, full_name')
-                            .order('full_name');
-                        
-                        if (fError) throw fError;
-                        driverData = fallbackData || [];
-                    } else {
-                        driverData = data || [];
-                    }
-                } catch (err: any) {
-                    console.error("Driver fetch failed completely", err);
-                    toast({
-                        variant: "destructive",
-                        title: "Driver Load Failed",
-                        description: "Could not retrieve driver list. Please check if the 'logistics_drivers' table exists."
+                // Also fetch fleet, drivers, and couplings if not already in state
+                if (fleet.length === 0) {
+                    supabase.from('logistics_fleet' as any).select('id, vehicle_no, asset_type, fleet_category, assignment_status, make_model, trailer_number').then(({data}) => {
+                        if (data) setFleet(data);
                     });
                 }
-
-                if (fleetRes.data) setFleet(fleetRes.data);
-                if (couplingRes.data) setCouplings(couplingRes.data);
+                if (couplings.length === 0) {
+                    supabase.from('logistics_couplings' as any).select('id, horse_id, trailer_id, is_active').eq('is_active', true).then(({data}) => {
+                        if (data) setCouplings(data);
+                    });
+                }
+                if (drivers.length === 0) {
+                    supabase.from('logistics_drivers' as any).select('id, full_name, license_expiry, license_no, id_number, is_active, assigned_vehicle_id').order('full_name').then(({data, error}) => {
+                        if (error) {
+                             supabase.from('logistics_drivers' as any).select('id, full_name').order('full_name').then(({data: fallbackData}) => {
+                                 setDrivers(fallbackData || []);
+                             });
+                        } else {
+                             setDrivers(data || []);
+                        }
+                    });
+                }
 
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
 
                 // Show ALL active drivers — expired licences are flagged visually, not hidden
-                setDrivers(driverData);
+                // drivers are now loaded asynchronously above
 
                 if (!tripId) {
                     setIsLoading(false);
@@ -725,14 +711,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         return_payment_status: doc.return_payment_status || "Pending"
                     });
 
-                    setRevenueData({
+                    setRevenueData(prev => ({
+                        ...prev,
                         revenue_type: doc.revenue_type || 'Without Fuel',
                         revenue_amount: (doc.revenue_amount || 0).toString(),
                         revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
                         fuel_liters: (doc.fuel_liters || '').toString(),
                         fuel_price: (doc.fuel_price || '').toString(),
-                        fuel_amount: (doc.fuel_amount || 0).toString()
-                    });
+                        fuel_amount: (doc.fuel_amount || 0).toString(),
+                        fuel_entries: doc.country_rates?.fuel_entries || [{ liters: (doc.fuel_liters || '').toString(), price: (doc.fuel_price || '').toString() }]
+                    }));
 
                     if (doc.country_rates) {
                         setCountryRates(doc.country_rates);
@@ -868,14 +856,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             return_invoice_date: doc.return_invoice_date || "",
             return_payment_status: doc.return_payment_status || "Pending"
         });
-        setRevenueData({
+        setRevenueData(prev => ({
+            ...prev,
             revenue_type: doc.revenue_type || 'Without Fuel',
             revenue_amount: (doc.revenue_amount || 0).toString(),
             revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
             fuel_liters: (doc.fuel_liters || '').toString(),
             fuel_price: (doc.fuel_price || '').toString(),
-            fuel_amount: (doc.fuel_amount || 0).toString()
-        });
+            fuel_amount: (doc.fuel_amount || 0).toString(),
+            fuel_entries: doc.country_rates?.fuel_entries || [{ liters: (doc.fuel_liters || '').toString(), price: (doc.fuel_price || '').toString() }]
+        }));
 
         if (doc.country_rates) {
             setCountryRates(doc.country_rates);
@@ -936,10 +926,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     useEffect(() => {
         const rate = countryRates["TZ"] || 2700;
 
-        // Fuel Calculation: Liters * Price = Total TZS -> / Rate = Total USD
-        const liters = parseFloat(revenueData.fuel_liters) || 0;
-        const pricePerLiter = parseFloat(revenueData.fuel_price) || 0;
-        const fuelTotalTZS = liters * pricePerLiter;
+        // Fuel Calculation: Sum all fuel entries -> Total TZS -> / Rate = Total USD
+        const entries = revenueData.fuel_entries || [{ liters: revenueData.fuel_liters, price: revenueData.fuel_price }];
+        let totalFuelLiters = 0;
+        let fuelTotalTZS = 0;
+        entries.forEach(entry => {
+            const liters = parseFloat(entry.liters) || 0;
+            const price = parseFloat(entry.price) || 0;
+            totalFuelLiters += liters;
+            fuelTotalTZS += liters * price;
+        });
         const fuelTotalUSD = fuelTotalTZS / rate;
 
         // Split budgeted vs extra expenses (EXCLUDE 'Fixed' from Trip Budget totals)
@@ -1110,10 +1106,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 revenue_amount: parseFloat(revenueData.revenue_amount) || 0,
                 revenue_currency: revenueData.revenue_currency,
                 exchange_rate: countryRates["TZ"] || 2700, // Sync legacy field for compatibility
-                country_rates: countryRates, // New professional JSONB field
-                fuel_liters: parseFloat(revenueData.fuel_liters) || 0,
-                fuel_price: parseFloat(revenueData.fuel_price) || 0,
-                fuel_amount: parseFloat(revenueData.fuel_amount) || 0, // Calculated USD value
+                country_rates: { ...countryRates, fuel_entries: revenueData.fuel_entries }, // Save fuel_entries alongside country rates
+                fuel_liters: (() => {
+                    const fe = revenueData.fuel_entries || [];
+                    return fe.reduce((s: number, e: any) => s + (parseFloat(e.liters) || 0), 0);
+                })(),
+                fuel_price: (() => {
+                    const fe = revenueData.fuel_entries || [];
+                    const totalL = fe.reduce((s: number, e: any) => s + (parseFloat(e.liters) || 0), 0);
+                    const totalTZS = fe.reduce((s: number, e: any) => s + ((parseFloat(e.liters) || 0) * (parseFloat(e.price) || 0)), 0);
+                    return totalL > 0 ? Math.round(totalTZS / totalL) : 0;
+                })(),
+                fuel_amount: (() => {
+                    const fe = revenueData.fuel_entries || [];
+                    const totalTZS = fe.reduce((s: number, e: any) => s + ((parseFloat(e.liters) || 0) * (parseFloat(e.price) || 0)), 0);
+                    return totalTZS / (countryRates["TZ"] || 2700);
+                })(),
                 total_expenses_tzs: totals.totalExpensesTZS,
                 total_expenses_usd: totals.totalExpensesUSD,
                 net_profit_usd: totals.netProfitUSD,
@@ -2620,46 +2628,127 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="p-8">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-end">
-                        <div className="space-y-2">
-                            <Label className="text-xs font-semibold text-slate-500">Fuel Liters (Qty)</Label>
-                            <div className="relative">
-                                <Fuel size={14} className="absolute left-3 top-3.5 text-slate-400" />
-                                <Input
-                                    className="pl-10 h-12 bg-slate-50 border-slate-200 font-semibold text-lg focus-visible:ring-1 ring-orange-500"
-                                    type="number"
-                                    placeholder="e.g. 2575"
-                                    value={revenueData.fuel_liters}
-                                    onChange={(e) => setRevenueData({ ...revenueData, fuel_liters: e.target.value })}
-                                    disabled={isLocked}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label className="text-xs font-semibold text-slate-500">Price Per Liter (TSh)</Label>
-                            <div className="relative">
-                                <span className="absolute left-2.5 top-3.5 text-slate-400 font-semibold text-[10px]">TShs</span>
-                                <Input
-                                    className="pl-10 h-12 bg-slate-50 border-slate-200 font-semibold text-lg focus-visible:ring-1 ring-orange-500"
-                                    type="number"
-                                    placeholder="e.g. 2780"
-                                    value={revenueData.fuel_price}
-                                    onChange={(e) => setRevenueData({ ...revenueData, fuel_price: e.target.value })}
-                                    disabled={isLocked}
-                                />
-                            </div>
-                        </div>
-                        <div className="bg-slate-50 p-4 rounded-xl border border-dashed border-orange-200 flex flex-col items-end justify-center h-20 print:flex-row print:justify-between print:w-full print:h-auto print:border-none print:p-1 print:bg-white">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-600 mb-1 print:mb-0">Calculated Fuel Total</p>
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-base font-semibold text-slate-900 print:text-xs">
-                                    TShs. {(parseFloat(revenueData.fuel_liters) * parseFloat(revenueData.fuel_price) || 0).toLocaleString()}
-                                </span>
-                                <span className="text-[10px] font-medium text-slate-400 print:text-[8px]">
-                                    (~ ${((parseFloat(revenueData.fuel_liters) * parseFloat(revenueData.fuel_price) || 0) / (countryRates["TZ"] || 2700)).toLocaleString(undefined, { maximumFractionDigits: 0 })} USD)
-                                </span>
-                            </div>
-                        </div>
+                    {/* Dynamic Fuel Entries */}
+                    <div className="space-y-4">
+                        {(revenueData.fuel_entries || [{ liters: '', price: '' }]).map((entry, idx) => {
+                            const entryLiters = parseFloat(entry.liters) || 0;
+                            const entryPrice = parseFloat(entry.price) || 0;
+                            const entryTotalTZS = entryLiters * entryPrice;
+                            const entryTotalUSD = entryTotalTZS / (countryRates["TZ"] || 2700);
+                            return (
+                                <div key={idx} className={`rounded-xl border ${idx === 0 ? 'border-orange-200 bg-orange-50/30' : 'border-slate-200 bg-slate-50/30'} p-4`}>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <p className="text-[11px] font-bold text-slate-600 flex items-center gap-2">
+                                            <Fuel size={12} className={idx === 0 ? 'text-orange-500' : 'text-slate-400'} />
+                                            {idx === 0 ? 'Primary Fuel Station' : `Fuel Station ${idx + 1}`}
+                                        </p>
+                                        {idx > 0 && !isLocked && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 px-2 text-[10px] text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                onClick={() => {
+                                                    const newEntries = [...(revenueData.fuel_entries || [])];
+                                                    newEntries.splice(idx, 1);
+                                                    setRevenueData(prev => ({ ...prev, fuel_entries: newEntries }));
+                                                }}
+                                            >
+                                                <Trash2 size={10} className="mr-1" /> Remove
+                                            </Button>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-semibold text-slate-400">Fuel Liters (Qty)</Label>
+                                            <div className="relative">
+                                                <Fuel size={13} className="absolute left-3 top-3 text-slate-400" />
+                                                <Input
+                                                    className="pl-9 h-11 bg-white border-slate-200 font-semibold text-base focus-visible:ring-1 ring-orange-500"
+                                                    type="number"
+                                                    placeholder="e.g. 1780"
+                                                    value={entry.liters}
+                                                    onChange={(e) => {
+                                                        const newEntries = [...(revenueData.fuel_entries || [])];
+                                                        newEntries[idx] = { ...newEntries[idx], liters: e.target.value };
+                                                        setRevenueData(prev => ({ ...prev, fuel_entries: newEntries }));
+                                                    }}
+                                                    disabled={isLocked}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-semibold text-slate-400">Price Per Liter (TSh)</Label>
+                                            <div className="relative">
+                                                <span className="absolute left-2.5 top-3 text-slate-400 font-semibold text-[10px]">TShs</span>
+                                                <Input
+                                                    className="pl-9 h-11 bg-white border-slate-200 font-semibold text-base focus-visible:ring-1 ring-orange-500"
+                                                    type="number"
+                                                    placeholder="e.g. 2873"
+                                                    value={entry.price}
+                                                    onChange={(e) => {
+                                                        const newEntries = [...(revenueData.fuel_entries || [])];
+                                                        newEntries[idx] = { ...newEntries[idx], price: e.target.value };
+                                                        setRevenueData(prev => ({ ...prev, fuel_entries: newEntries }));
+                                                    }}
+                                                    disabled={isLocked}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="bg-white p-3 rounded-lg border border-dashed border-orange-200/60 flex flex-col items-end justify-center h-[52px]">
+                                            <p className="text-[9px] font-semibold uppercase tracking-wider text-orange-500 mb-0.5">Station Subtotal</p>
+                                            <div className="flex items-baseline gap-1.5">
+                                                <span className="text-sm font-bold text-slate-800">
+                                                    TShs. {entryTotalTZS.toLocaleString()}
+                                                </span>
+                                                <span className="text-[9px] font-medium text-slate-400">
+                                                    (${entryTotalUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })})
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* Add Fuel Station Button */}
+                        {!isLocked && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 text-[11px] font-semibold border-dashed border-orange-300 text-orange-600 hover:text-orange-700 hover:bg-orange-50/50 print:hidden"
+                                onClick={() => {
+                                    const newEntries = [...(revenueData.fuel_entries || []), { liters: '', price: '' }];
+                                    setRevenueData(prev => ({ ...prev, fuel_entries: newEntries }));
+                                }}
+                            >
+                                <Plus size={12} className="mr-1.5" /> Add Fuel Station
+                            </Button>
+                        )}
+
+                        {/* Grand Total Bar */}
+                        {(() => {
+                            const entries = revenueData.fuel_entries || [];
+                            const grandLiters = entries.reduce((s, e) => s + (parseFloat(e.liters) || 0), 0);
+                            const grandTZS = entries.reduce((s, e) => s + ((parseFloat(e.liters) || 0) * (parseFloat(e.price) || 0)), 0);
+                            const grandUSD = grandTZS / (countryRates["TZ"] || 2700);
+                            return (
+                                <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-4 rounded-xl border border-orange-200 flex items-center justify-between mt-2 print:bg-white print:border-slate-900">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-1.5 bg-orange-200/60 rounded-md">
+                                            <Fuel size={14} className="text-orange-700" />
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-orange-700">Grand Fuel Total</p>
+                                            <p className="text-[10px] text-slate-500">{grandLiters.toLocaleString()} liters across {entries.length} station{entries.length > 1 ? 's' : ''}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-lg font-bold text-slate-900">TShs. {grandTZS.toLocaleString()}</p>
+                                        <p className="text-[10px] font-medium text-slate-400">(~ ${grandUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD)</p>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                     {/* Fuel Budget Toggle — moved from header into body */}
                     <div className="mt-6 pt-6 border-t border-orange-100 flex items-center justify-between print:hidden">

@@ -391,6 +391,48 @@ const ProcurementDashboard = () => {
         }
     });
 
+    const uploadSupplierReceiptMutation = useMutation({
+        mutationFn: async ({ reqIds, file }: { reqIds: string[], file: File }) => {
+            const fileExt = file.name.split('.').pop();
+            const filePath = `supplier-receipts/SUPP-${reqIds[0]}-${Date.now()}.${fileExt}`;
+            const { data: uploadData, error: uploadError } = await (supabase as any).storage
+                .from('receipts')
+                .upload(filePath, file);
+            if (uploadError) throw uploadError;
+            
+            const { data: urlData } = (supabase as any).storage
+                .from('receipts')
+                .getPublicUrl(filePath);
+            const receiptUrl = urlData?.publicUrl || null;
+
+            if (receiptUrl) {
+                for (const id of reqIds) {
+                    const { error } = await sb
+                        .from("garage_requisitions")
+                        .update({ delivery_receipt_url: receiptUrl })
+                        .eq("id", id);
+                    if (error) throw error;
+                }
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            toast({
+                title: "Receipt Uploaded",
+                description: "The supplier receipt has been successfully attached.",
+                variant: "default"
+            });
+        },
+        onError: (error: any) => {
+            console.error("Upload failed:", error);
+            toast({
+                title: "Upload Failed",
+                description: error.message || "Failed to upload supplier receipt.",
+                variant: "destructive"
+            });
+        }
+    });
+
     const addSupplierMutation = useMutation({
         mutationFn: async (supplier: any) => {
             // Remove customCategory before sending to DB as it doesn't exist in the schema
@@ -1012,22 +1054,24 @@ const ProcurementDashboard = () => {
                                                 </TableRow>
                                                 {(() => {
                                                     const flatItems: any[] = [];
-                                                    if (reqStatusFilter === 'Pending') {
+                                                    if (reqStatusFilter === 'Pending' || reqStatusFilter === 'Purchased') {
                                                         const supplierGroups: Record<string, any[]> = {};
                                                         const ungrouped: any[] = [];
                                                         grouped[month].forEach((req: any) => {
                                                             if (req.supplier_id) {
                                                                 const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                                if (!supplierGroups[supplierName]) supplierGroups[supplierName] = [];
-                                                                supplierGroups[supplierName].push(req);
+                                                                const key = reqStatusFilter === 'Purchased' ? `${req.po_number || 'NO-PO'}_${supplierName}` : supplierName;
+                                                                if (!supplierGroups[key]) supplierGroups[key] = [];
+                                                                supplierGroups[key].push(req);
                                                             } else {
                                                                 ungrouped.push(req);
                                                             }
                                                         });
                                                         
-                                                        Object.entries(supplierGroups).forEach(([supplierName, reqs]) => {
-                                                            flatItems.push({ isSupplierHeader: true, reqs, sId: supplierName, supplierName });
-                                                            if (expandedVehicles.includes(supplierName)) {
+                                                        Object.entries(supplierGroups).forEach(([key, reqs]) => {
+                                                            const supplierName = reqs[0].garage_suppliers?.name || 'Manual/Unknown Supplier';
+                                                            flatItems.push({ isSupplierHeader: true, reqs, sId: key, supplierName });
+                                                            if (expandedVehicles.includes(key)) {
                                                                 reqs.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req, isChild: true }));
                                                             }
                                                         });
@@ -1077,7 +1121,44 @@ const ProcurementDashboard = () => {
                                                                     </TableCell>
                                                                     <TableCell className="text-right px-2 md:px-6" colSpan={2}>
                                                                         <div className="flex flex-wrap items-center justify-end gap-2">
-                                                                            {item.reqs.some((r: any) => r.status === 'Awaiting Approval') ? (
+                                                                            {reqStatusFilter === 'Purchased' ? (
+                                                                                <>
+                                                                                    {firstReq.payment_receipt_url && (
+                                                                                        <a href={firstReq.payment_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-emerald-600 hover:underline bg-emerald-50 px-2 py-1.5 rounded border border-emerald-200" onClick={(e) => e.stopPropagation()}>
+                                                                                            <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
+                                                                                        </a>
+                                                                                    )}
+                                                                                    {firstReq.delivery_receipt_url ? (
+                                                                                        <a href={firstReq.delivery_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-purple-600 hover:underline bg-purple-50 px-2 py-1.5 rounded border border-purple-200" onClick={(e) => e.stopPropagation()}>
+                                                                                            <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
+                                                                                        </a>
+                                                                                    ) : (
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            className="h-7 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase"
+                                                                                            disabled={uploadSupplierReceiptMutation.isPending}
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                const input = document.createElement('input');
+                                                                                                input.type = 'file';
+                                                                                                input.accept = 'image/*,.pdf';
+                                                                                                input.onchange = (ev: any) => {
+                                                                                                    const file = ev.target.files?.[0];
+                                                                                                    if (file) {
+                                                                                                        uploadSupplierReceiptMutation.mutate({
+                                                                                                            reqIds: item.reqs.map((r: any) => r.id),
+                                                                                                            file
+                                                                                                        });
+                                                                                                    }
+                                                                                                };
+                                                                                                input.click();
+                                                                                            }}
+                                                                                        >
+                                                                                            <Upload className="w-3 h-3 mr-1" /> Upload Supplier Receipt
+                                                                                        </Button>
+                                                                                    )}
+                                                                                </>
+                                                                            ) : item.reqs.some((r: any) => r.status === 'Awaiting Approval') ? (
                                                                                 <Badge className="bg-orange-100 text-orange-800 border-orange-200 px-3 py-1 font-bold uppercase text-[10px]">
                                                                                     Waiting For Approval
                                                                                 </Badge>

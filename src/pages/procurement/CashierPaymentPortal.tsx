@@ -476,68 +476,146 @@ const CashierPaymentPortal = () => {
                 </TabsContent>
 
                 <TabsContent value="arrival">
-                    <Card className="border shadow-none overflow-hidden">
-                        <CardHeader className="bg-white border-b py-3">
+                    <Card className="border shadow-none overflow-hidden bg-transparent">
+                        <CardHeader className="bg-white border-b py-3 rounded-t-lg">
                             <CardTitle className="text-sm font-bold text-slate-600">
                                 Confirm Receipt of Paid Items
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
                             {isWaitingLoading ? (
-                                <div className="flex items-center justify-center p-20">
+                                <div className="flex items-center justify-center p-20 bg-white rounded-b-lg">
                                     <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
                                 </div>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow className="bg-slate-50/50">
-                                            <TableHead className="text-xs font-bold py-4 pl-6">Reference</TableHead>
-                                            <TableHead className="text-xs font-bold">Item & PO</TableHead>
-                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
-                                            <TableHead className="text-xs font-bold text-right pr-6">Action</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {(waitingArrival || []).length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={4} className="text-center py-24 text-slate-400">
-                                                    <div className="flex flex-col items-center gap-2">
-                                                        <HandCoins className="w-10 h-10 text-slate-100" />
-                                                        <span className="italic">No items waiting for arrival confirmation.</span>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            waitingArrival.map((item: any) => (
-                                                <TableRow key={item.id} className="hover:bg-slate-50 transition-colors">
-                                                    <TableCell className="font-mono text-xs font-bold text-emerald-600 pl-6">
-                                                        {item.payment_reference || 'REF-N/A'}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex flex-col">
-                                                            <span className="text-sm font-bold text-slate-800">{item.item_name}</span>
-                                                            <span className="text-[10px] text-slate-500 font-mono">#{item.po_number} - {item.quantity_approved} Units</span>
+                                <div className="grid gap-6 mt-6">
+                                    {!waitingArrival || waitingArrival.length === 0 ? (
+                                        <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none">
+                                            <CardContent className="flex flex-col items-center justify-center py-24 text-center">
+                                                <div className="flex flex-col items-center gap-2">
+                                                    <HandCoins className="w-10 h-10 text-slate-200" />
+                                                    <span className="italic text-slate-400">No items waiting for arrival confirmation.</span>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ) : (
+                                        (() => {
+                                            const filteredWaiting = waitingArrival.filter((item: any) =>
+                                                item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                                item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
+                                            );
+                                            if (filteredWaiting.length === 0) return null;
+                                            
+                                            const grouped = groupRequisitionsByPO(filteredWaiting);
+                                            return Object.entries(grouped).map(([key, reqs]) => {
+                                                const firstReq = reqs[0];
+                                                const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                                                const poNumber = firstReq.po_number || 'DRAFT-PO';
+                                                let poTotal = 0;
+                                                reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+                                                const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
+                                                
+                                                return (
+                                                    <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+                                                        <CardHeader className="bg-slate-50/50 border-b pb-4">
+                                                            <div className="flex justify-between items-start">
+                                                                <div className="space-y-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
+                                                                            PO #: {poNumber}
+                                                                        </Badge>
+                                                                        <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
+                                                                            Payment Confirmed
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
+                                                                        <Building2 className="w-5 h-5 text-slate-400" />
+                                                                        {supplierName}
+                                                                    </CardTitle>
+                                                                    <p className="text-sm text-slate-500 font-medium">Payment Ref: {firstReq.payment_reference || 'N/A'}</p>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div className="text-2xl font-black text-slate-700">
+                                                                        {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </CardHeader>
+                                                        <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
+                                                            <Table>
+                                                                <TableHeader className="bg-slate-100/50">
+                                                                    <TableRow>
+                                                                        <TableHead className="pl-6">Item Description</TableHead>
+                                                                        <TableHead>Vehicle</TableHead>
+                                                                        <TableHead>Qty</TableHead>
+                                                                        <TableHead>Unit Price</TableHead>
+                                                                        <TableHead className="text-right pr-6">Total</TableHead>
+                                                                    </TableRow>
+                                                                </TableHeader>
+                                                                <TableBody>
+                                                                    {reqs.map((r: any) => (
+                                                                        <TableRow key={r.id}>
+                                                                            <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+                                                                            <TableCell>
+                                                                                {r.vehicle ? (
+                                                                                    <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                                                        <Truck className="w-3 h-3 mr-1" />
+                                                                                        {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                                                    </Badge>
+                                                                                ) : '-'}
+                                                                            </TableCell>
+                                                                            <TableCell className="font-medium">{r.quantity_approved}</TableCell>
+                                                                            <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
+                                                                            <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                                                                {(r.total_price || 0).toLocaleString()} TZS
+                                                                            </TableCell>
+                                                                        </TableRow>
+                                                                    ))}
+                                                                </TableBody>
+                                                            </Table>
+                                                        </CardContent>
+                                                        
+                                                        <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
+                                                            <div className="space-y-1">
+                                                                <p className="text-[10px] uppercase font-bold text-slate-500">Receipts</p>
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    {firstReq.payment_receipt_url ? (
+                                                                        <a href={firstReq.payment_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-xs font-bold text-emerald-600 hover:underline bg-emerald-50 px-3 py-1.5 rounded-md border border-emerald-200">
+                                                                            <Receipt className="w-4 h-4 mr-1.5" /> View Payment Receipt
+                                                                        </a>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400 italic">No Payment Receipt</span>
+                                                                    )}
+                                                                    {firstReq.delivery_receipt_url ? (
+                                                                        <a href={firstReq.delivery_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-xs font-bold text-purple-600 hover:underline bg-purple-50 px-3 py-1.5 rounded-md border border-purple-200">
+                                                                            <FileText className="w-4 h-4 mr-1.5" /> View Supplier Receipt
+                                                                        </a>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400 italic">Awaiting Supplier Receipt from Procurement</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-sm">
-                                                        {item.garage_suppliers?.name || 'Manual Supplier'}
-                                                    </TableCell>
-                                                    <TableCell className="text-right pr-6">
-                                                        <Button
-                                                            size="sm"
-                                                            className="bg-primary hover:bg-primary/90 text-white font-bold h-8 px-5 rounded-lg active:scale-95 transition-transform"
-                                                            onClick={() => arrivalMutation.mutate(item.id)}
-                                                            disabled={arrivalMutation.isPending}
-                                                        >
-                                                            <PackageCheck className="w-3.5 h-3.5 mr-1" />
-                                                            {arrivalMutation.isPending ? "Confirming..." : "Confirm Arrival"}
-                                                        </Button>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                                        
+                                                        <CardFooter className="bg-white border-t p-4 flex justify-end">
+                                                            <Button
+                                                                className="bg-primary hover:bg-primary/90 text-white shadow-md uppercase text-xs font-bold px-6"
+                                                                onClick={() => {
+                                                                    // Confirm arrival for all items in this PO
+                                                                    reqs.forEach((r: any) => arrivalMutation.mutate(r.id));
+                                                                }}
+                                                                disabled={arrivalMutation.isPending}
+                                                            >
+                                                                <PackageCheck className="w-4 h-4 mr-2" />
+                                                                {arrivalMutation.isPending ? "Confirming..." : "Confirm Arrival for Full PO"}
+                                                            </Button>
+                                                        </CardFooter>
+                                                    </Card>
+                                                );
+                                            });
+                                        })()
+                                    )}
+                                </div>
                             )}
                         </CardContent>
                     </Card>

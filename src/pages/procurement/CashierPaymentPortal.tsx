@@ -251,25 +251,41 @@ const CashierPaymentPortal = () => {
         }
     });
 
-    // Confirm Arrival Mutation
     const arrivalMutation = useMutation({
-        mutationFn: async (reqId: string) => {
+        mutationFn: async (req: any) => {
             const { error } = await sb
                 .from("garage_requisitions")
                 .update({
                     status: 'Closed',
                     status_updated_at: new Date().toISOString()
                 })
-                .eq("id", reqId);
+                .eq("id", req.id);
 
             if (error) throw error;
+
+            if (req.item_id && req.quantity_approved) {
+                const { data: invData } = await sb
+                    .from("garage_inventory")
+                    .select("quantity")
+                    .eq("id", req.item_id)
+                    .single();
+                    
+                if (invData !== null) {
+                    await sb
+                        .from("garage_inventory")
+                        .update({
+                            quantity: (invData.quantity || 0) + req.quantity_approved
+                        })
+                        .eq("id", req.item_id);
+                }
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["cashier-waiting-arrival"] });
             queryClient.invalidateQueries({ queryKey: ["cashier-payment-history"] });
             toast({
                 title: "Arrival Confirmed",
-                description: "Item has been received and requisition closed.",
+                description: "Item has been received, requisition closed, and store inventory updated automatically.",
             });
         }
     });
@@ -602,7 +618,7 @@ const CashierPaymentPortal = () => {
                                                                 className="bg-primary hover:bg-primary/90 text-white shadow-md uppercase text-xs font-bold px-6"
                                                                 onClick={() => {
                                                                     // Confirm arrival for all items in this PO
-                                                                    reqs.forEach((r: any) => arrivalMutation.mutate(r.id));
+                                                                    reqs.forEach((r: any) => arrivalMutation.mutate(r));
                                                                 }}
                                                                 disabled={arrivalMutation.isPending}
                                                             >

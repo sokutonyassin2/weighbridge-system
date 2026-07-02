@@ -1977,6 +1977,7 @@ const GarageDashboard = () => {
                                                                 <TrendingUp className="h-4 w-4" />
                                                             </Button>
 
+                                                            {/* Update Physical count hidden as per user request to automate via payment portal
                                                             <Button
                                                                 size="sm"
                                                                 variant="ghost"
@@ -1990,6 +1991,7 @@ const GarageDashboard = () => {
                                                             >
                                                                 <ClipboardCheck className="h-4 w-4" />
                                                             </Button>
+                                                            */}
 
                                                             <Button
                                                                 size="sm"

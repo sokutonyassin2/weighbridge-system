@@ -738,7 +738,7 @@ const ProcurementDashboard = () => {
                     <div class="meta-grid">
                         <div class="meta-box">
                             <h3>Vendor / Supplier</h3>
-                            <p>${firstReq.supplier?.name || 'N/A'}</p>
+                            <p>${firstReq.garage_suppliers?.name || 'N/A'}</p>
                             <p style="font-size: 11px; font-weight: 400; color: #64748b;">Official Registered Vendor</p>
                         </div>
                         <div style="text-align: right;">
@@ -1123,6 +1123,20 @@ const ProcurementDashboard = () => {
                                                                         <div className="flex flex-wrap items-center justify-end gap-2">
                                                                             {reqStatusFilter === 'Purchased' ? (
                                                                                 <>
+                                                                                    {firstReq.po_number && (
+                                                                                        <Button
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            className="h-8 text-[10px] font-bold uppercase border-slate-200"
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                printPurchaseOrder({ reqId: firstReq.id });
+                                                                                            }}
+                                                                                        >
+                                                                                            <Printer className="w-3 h-3 mr-1" />
+                                                                                            Print PO
+                                                                                        </Button>
+                                                                                    )}
                                                                                     {firstReq.payment_receipt_url && (
                                                                                         <a href={firstReq.payment_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-emerald-600 hover:underline bg-emerald-50 px-2 py-1.5 rounded border border-emerald-200" onClick={(e) => e.stopPropagation()}>
                                                                                             <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
@@ -1135,7 +1149,7 @@ const ProcurementDashboard = () => {
                                                                                     ) : (
                                                                                         <Button
                                                                                             size="sm"
-                                                                                            className="h-7 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase"
+                                                                                            className="h-8 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase"
                                                                                             disabled={uploadSupplierReceiptMutation.isPending}
                                                                                             onClick={(e) => {
                                                                                                 e.stopPropagation();

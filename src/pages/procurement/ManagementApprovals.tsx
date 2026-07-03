@@ -50,7 +50,9 @@ const ManagementApprovals = () => {
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model),
                     garage_suppliers(name),
-                    profiles!requested_by(full_name)
+                    profiles!requested_by(full_name),
+                    approved_by_profile:profiles!approved_by(full_name),
+                    procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
                 .eq("status", "Awaiting Approval")
                 .eq("is_deleted", false)
@@ -68,6 +70,7 @@ const ManagementApprovals = () => {
             const updateData: any = {
                 status: nextStatus,
                 status_updated_at: new Date().toISOString(),
+                ...(nextStatus === 'Approved' ? { approved_by: (await sb.auth.getUser()).data.user?.id } : {})
             };
 
             if (nextStatus === 'Revoked') {

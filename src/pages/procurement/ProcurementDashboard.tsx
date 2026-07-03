@@ -20,11 +20,13 @@ import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ProcurementDashboard = () => {
     const sb = supabase as any;
     const { toast } = useToast();
     const queryClient = useQueryClient();
+    const { userProfile } = useAuth();
 
     // Fetch User Role
     const { data: profile } = useQuery({
@@ -162,7 +164,9 @@ const ProcurementDashboard = () => {
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model),
                     garage_suppliers(name),
-                    profiles!requested_by(full_name)
+                    profiles!requested_by(full_name),
+                    approved_by_profile:profiles!approved_by(full_name),
+                    procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false })
@@ -334,7 +338,8 @@ const ProcurementDashboard = () => {
             for (const id of reqIds) {
                 const { error } = await sb.from("garage_requisitions").update({ 
                     status: 'Awaiting Approval',
-                    po_number: poNumber
+                    po_number: poNumber,
+                    procurement_approved_by: profile?.id
                 }).eq("id", id);
                 if (error) throw error;
             }
@@ -719,8 +724,8 @@ const ProcurementDashboard = () => {
                         .summary-table td { padding: 4px 8px; border: none; }
                         .total-row { font-size: 14px; font-weight: 900; color: #1e293b; border-top: 2px solid #e2e8f0 !important; }
                         .footer { margin-top: 40px; font-size: 9px; color: #94a3b8; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 10px; }
-                        .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 40px; }
-                        .sig-line { border-top: 1px solid #cbd5e1; text-align: center; padding-top: 4px; font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; }
+                        .sig-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 60px; margin-top: 40px; }
+                        .sig-line { text-align: center; padding-top: 4px; font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; }
                     </style>
                 </head>
                 <body>
@@ -781,9 +786,19 @@ const ProcurementDashboard = () => {
                         </tr>
                     </table>
 
-                    <div class="sig-grid">
-                        <div class="sig-line">Requested By (Garage)</div>
-                        <div class="sig-line">Authorized By (Procurement)</div>
+                    <div class="sig-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="sig-line">
+                            <span style="display:block; font-weight: 800; color: #1e293b; margin-bottom: 4px;">${firstReq.profiles?.full_name || 'N/A'}</span>
+                            Requested By (Garage)
+                        </div>
+                        <div class="sig-line">
+                            <span style="display:block; font-weight: 800; color: #1e293b; margin-bottom: 4px;">${userProfile?.full_name || 'N/A'}</span>
+                            Prepared By (Procurement)
+                        </div>
+                        <div class="sig-line">
+                            <span style="display:block; font-weight: 800; color: #1e293b; margin-bottom: 4px;">${firstReq.approved_by_profile?.full_name || 'Pending Approval'}</span>
+                            Authorized By (Management)
+                        </div>
                     </div>
 
                     <div class="footer">

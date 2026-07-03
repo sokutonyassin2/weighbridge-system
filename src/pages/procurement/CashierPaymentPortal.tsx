@@ -11,13 +11,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { printPurchaseOrder } from "@/utils/printUtils";
 
 const CashierPaymentPortal = () => {
     const sb = supabase as any;
     const { toast } = useToast();
     const queryClient = useQueryClient();
+    const { userProfile } = useAuth();
 
     const [searchTerm, setSearchTerm] = useState("");
     const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
@@ -40,6 +43,12 @@ const CashierPaymentPortal = () => {
     const [selectedMonth, setSelectedMonth] = useState<string>("All");
     const [selectedDay, setSelectedDay] = useState<string>("All");
 
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+    const toggleGroup = (key: string) => {
+        setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
     const formatDate = (dateString: string | null) => {
         if (!dateString) return "N/A";
         const date = new Date(dateString);
@@ -49,7 +58,9 @@ const CashierPaymentPortal = () => {
     const groupRequisitionsByPO = (reqs: any[]) => {
         const groups: Record<string, any[]> = {};
         reqs.forEach(req => {
-            const key = req.po_number || `Supplier-${req.supplier_id || 'Unknown'}-${req.created_at.split('T')[0]}`;
+            const poNum = req.po_number || 'NO-PO';
+            const supplierId = req.supplier_id || 'Unknown';
+            const key = `${poNum}-${supplierId}`;
             if (!groups[key]) groups[key] = [];
             groups[key].push(req);
         });
@@ -66,7 +77,9 @@ const CashierPaymentPortal = () => {
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number),
                     garage_suppliers(name),
-                    profiles!requested_by(full_name)
+                    profiles!requested_by(full_name),
+                    approved_by_profile:profiles!approved_by(full_name),
+                    procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
                 .eq("status", "Approved")
                 .eq("is_deleted", false)
@@ -88,7 +101,9 @@ const CashierPaymentPortal = () => {
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number),
                     garage_suppliers(name),
-                    profiles!requested_by(full_name)
+                    profiles!requested_by(full_name),
+                    approved_by_profile:profiles!approved_by(full_name),
+                    procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
                 .eq("status", "Paid")
                 .eq("is_deleted", false)
@@ -110,7 +125,9 @@ const CashierPaymentPortal = () => {
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number),
                     garage_suppliers(name),
-                    profiles!requested_by(full_name)
+                    profiles!requested_by(full_name),
+                    approved_by_profile:profiles!approved_by(full_name),
+                    procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
                 .or("status.eq.Paid,status.eq.Closed")
                 .eq("is_deleted", false)
@@ -290,6 +307,40 @@ const CashierPaymentPortal = () => {
         }
     });
 
+    const receiptUploadMutation = useMutation({
+        mutationFn: async ({ reqId, file, type }: { reqId: string, file: File, type: 'payment' | 'delivery' }) => {
+            const fileExt = file.name.split('.').pop();
+            const filePath = `${type}-receipts/REQ-${reqId}-${Date.now()}.${fileExt}`;
+            const { error: uploadError } = await (supabase as any).storage
+                .from('receipts')
+                .upload(filePath, file);
+            if (uploadError) throw uploadError;
+            
+            const { data: urlData } = (supabase as any).storage
+                .from('receipts')
+                .getPublicUrl(filePath);
+            
+            const updateData: any = {};
+            if (type === 'payment') updateData.payment_receipt_url = urlData.publicUrl;
+            if (type === 'delivery') updateData.delivery_receipt_url = urlData.publicUrl;
+
+            const { error } = await sb
+                .from("garage_requisitions")
+                .update(updateData)
+                .eq("id", reqId);
+
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["cashier-waiting-arrival"] });
+            queryClient.invalidateQueries({ queryKey: ["cashier-payment-history"] });
+            toast({
+                title: "Receipt Uploaded",
+                description: "The receipt has been successfully uploaded.",
+            });
+        }
+    });
+
     const filteredItems = (authorizedItems || []).filter((item: any) =>
         item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -306,13 +357,17 @@ const CashierPaymentPortal = () => {
             let poTotal = 0;
             reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
             const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
+            const isExpanded = expandedGroups[key];
             
             return (
                 <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
-                    <CardHeader className="bg-slate-50/50 border-b pb-4">
-                        <div className="flex justify-between items-start">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2">
+                    <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(key)}>
+                        <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                            <div className="space-y-1 w-full md:w-auto">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
+                                        {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                    </Button>
                                     <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
                                         PO #: {poNumber}
                                     </Badge>
@@ -326,47 +381,57 @@ const CashierPaymentPortal = () => {
                                 </CardTitle>
                                 <p className="text-sm text-slate-500 font-medium">{formatDate(firstReq.created_at)}</p>
                             </div>
-                            <div className="text-right">
+                            <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto text-left md:text-right">
                                 <div className="text-2xl font-black text-emerald-600">
                                     {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
                                 </div>
                                 <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">Total Payable Amount</div>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="h-7 text-xs border-slate-200" 
+                                    onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
+                                >
+                                    <Printer className="w-3 h-3 mr-1" /> Print PO
+                                </Button>
                             </div>
                         </div>
                     </CardHeader>
-                    <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
-                        <Table>
-                            <TableHeader className="bg-slate-100/50">
-                                <TableRow>
-                                    <TableHead className="pl-6">Item Description</TableHead>
-                                    <TableHead>Vehicle</TableHead>
-                                    <TableHead>Qty</TableHead>
-                                    <TableHead>Unit Price</TableHead>
-                                    <TableHead className="text-right pr-6">Total</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {reqs.map((r: any) => (
-                                    <TableRow key={r.id}>
-                                        <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
-                                        <TableCell>
-                                            {r.vehicle ? (
-                                                <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
-                                                    <Truck className="w-3 h-3 mr-1" />
-                                                    {r.vehicle.vehicle_no || r.vehicle.horse_number}
-                                                </Badge>
-                                            ) : '-'}
-                                        </TableCell>
-                                        <TableCell className="font-medium">{r.quantity_approved}</TableCell>
-                                        <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
-                                        <TableCell className="text-right pr-6 font-bold text-slate-900">
-                                            {(r.total_price || 0).toLocaleString()} TZS
-                                        </TableCell>
+                    {isExpanded && (
+                        <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
+                            <Table>
+                                <TableHeader className="bg-slate-100/50">
+                                    <TableRow>
+                                        <TableHead className="pl-6">Item Description</TableHead>
+                                        <TableHead>Vehicle</TableHead>
+                                        <TableHead>Qty</TableHead>
+                                        <TableHead>Unit Price</TableHead>
+                                        <TableHead className="text-right pr-6">Total</TableHead>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
+                                </TableHeader>
+                                <TableBody>
+                                    {reqs.map((r: any) => (
+                                        <TableRow key={r.id}>
+                                            <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+                                            <TableCell>
+                                                {r.vehicle ? (
+                                                    <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                        <Truck className="w-3 h-3 mr-1" />
+                                                        {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                    </Badge>
+                                                ) : '-'}
+                                            </TableCell>
+                                            <TableCell className="font-medium">{r.quantity_approved}</TableCell>
+                                            <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
+                                            <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                                {(r.total_price || 0).toLocaleString()} TZS
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    )}
                     
                     {(uploads.length > 0 || firstReq.payment_details) && (
                         <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
@@ -374,7 +439,9 @@ const CashierPaymentPortal = () => {
                                 <div className="space-y-1">
                                     <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
                                     <p className="text-xs font-semibold text-slate-700">
-                                        {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
+                                        {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} 
+                                        ({firstReq.payment_details.account_number}) 
+                                        {firstReq.payment_details.account_name ? ` - ${firstReq.payment_details.account_name}` : ''}
                                     </p>
                                 </div>
                             )}
@@ -439,25 +506,27 @@ const CashierPaymentPortal = () => {
             </header>
 
             <Tabs defaultValue="pending" className="space-y-4">
-                <TabsList className="bg-slate-200/50 p-1 border">
-                    <TabsTrigger value="pending" className="gap-2 px-8">
-                        <DollarSign className="w-4 h-4" />
-                        Pending
-                    </TabsTrigger>
-                    <TabsTrigger value="arrival" className="gap-2 px-8 relative">
-                        <PackageCheck className="w-4 h-4" />
-                        Arrival Confirmation
-                        {waitingArrival && waitingArrival.length > 0 && (
-                            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
-                                {waitingArrival.length}
-                            </span>
-                        )}
-                    </TabsTrigger>
-                    <TabsTrigger value="history" className="gap-2 px-8">
-                        <History className="w-4 h-4" />
-                        Records
-                    </TabsTrigger>
-                </TabsList>
+                <div className="w-full overflow-x-auto pb-2">
+                    <TabsList className="bg-slate-200/50 p-1 border w-max min-w-full justify-start md:w-full md:grid md:grid-cols-3">
+                        <TabsTrigger value="pending" className="gap-2 px-8 flex items-center">
+                            <DollarSign className="w-4 h-4" />
+                            Pending
+                        </TabsTrigger>
+                        <TabsTrigger value="arrival" className="gap-2 px-8 relative flex items-center">
+                            <PackageCheck className="w-4 h-4" />
+                            Arrival Confirmation
+                            {waitingArrival && waitingArrival.length > 0 && (
+                                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
+                                    {waitingArrival.length}
+                                </span>
+                            )}
+                        </TabsTrigger>
+                        <TabsTrigger value="history" className="gap-2 px-8 flex items-center">
+                            <History className="w-4 h-4" />
+                            Records
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
 
                 <TabsContent value="pending">
                     <Card className="border shadow-none overflow-hidden bg-transparent">
@@ -529,14 +598,17 @@ const CashierPaymentPortal = () => {
                                                 const poNumber = firstReq.po_number || 'DRAFT-PO';
                                                 let poTotal = 0;
                                                 reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
-                                                const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
+                                                const isExpanded = expandedGroups[`arr_${key}`];
                                                 
                                                 return (
-                                                    <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
-                                                        <CardHeader className="bg-slate-50/50 border-b pb-4">
-                                                            <div className="flex justify-between items-start">
-                                                                <div className="space-y-1">
-                                                                    <div className="flex items-center gap-2">
+                                                    <Card key={`arr_${key}`} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+                                                        <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(`arr_${key}`)}>
+                                                            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                                                                <div className="space-y-1 w-full md:w-auto">
+                                                                    <div className="flex flex-wrap items-center gap-2">
+                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
+                                                                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                                        </Button>
                                                                         <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
                                                                             PO #: {poNumber}
                                                                         </Badge>
@@ -550,82 +622,85 @@ const CashierPaymentPortal = () => {
                                                                     </CardTitle>
                                                                     <p className="text-sm text-slate-500 font-medium">Payment Ref: {firstReq.payment_reference || 'N/A'}</p>
                                                                 </div>
-                                                                <div className="text-right">
+                                                                <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto text-left md:text-right">
                                                                     <div className="text-2xl font-black text-slate-700">
                                                                         {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-2 justify-end">
+                                                                        {firstReq.payment_receipt_url && (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                                                onClick={(e) => { e.stopPropagation(); window.open(firstReq.payment_receipt_url, '_blank'); }}
+                                                                            >
+                                                                                <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
+                                                                            </Button>
+                                                                        )}
+                                                                        {firstReq.delivery_receipt_url ? (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                                                                                onClick={(e) => { e.stopPropagation(); window.open(firstReq.delivery_receipt_url, '_blank'); }}
+                                                                            >
+                                                                                <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
+                                                                            </Button>
+                                                                        ) : (
+                                                                            <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
+                                                                                Awaiting Supplier Receipt
+                                                                            </Badge>
+                                                                        )}
+                                                                        <Button 
+                                                                            variant="outline" 
+                                                                            size="sm" 
+                                                                            className="h-7 text-xs border-slate-200" 
+                                                                            onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
+                                                                        >
+                                                                            <Printer className="w-3 h-3 mr-1" /> Print PO
+                                                                        </Button>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         </CardHeader>
-                                                        <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
-                                                            <Table>
-                                                                <TableHeader className="bg-slate-100/50">
-                                                                    <TableRow>
-                                                                        <TableHead className="pl-6">Item Description</TableHead>
-                                                                        <TableHead>Vehicle</TableHead>
-                                                                        <TableHead>Qty</TableHead>
-                                                                        <TableHead>Unit Price</TableHead>
-                                                                        <TableHead className="text-right pr-6">Total</TableHead>
-                                                                    </TableRow>
-                                                                </TableHeader>
-                                                                <TableBody>
-                                                                    {reqs.map((r: any) => (
-                                                                        <TableRow key={r.id}>
-                                                                            <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
-                                                                            <TableCell>
-                                                                                {r.vehicle ? (
-                                                                                    <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
-                                                                                        <Truck className="w-3 h-3 mr-1" />
-                                                                                        {r.vehicle.vehicle_no || r.vehicle.horse_number}
-                                                                                    </Badge>
-                                                                                ) : '-'}
-                                                                            </TableCell>
-                                                                            <TableCell className="font-medium">{r.quantity_approved}</TableCell>
-                                                                            <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
-                                                                            <TableCell className="text-right pr-6 font-bold text-slate-900">
-                                                                                {(r.total_price || 0).toLocaleString()} TZS
-                                                                            </TableCell>
+                                                        {isExpanded && (
+                                                            <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
+                                                                <Table>
+                                                                    <TableHeader className="bg-slate-100/50">
+                                                                        <TableRow>
+                                                                            <TableHead className="pl-6 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Item Description</TableHead>
+                                                                            <TableHead>Qty</TableHead>
+                                                                            <TableHead>Unit Price</TableHead>
+                                                                            <TableHead className="text-right">Total</TableHead>
+                                                                            <TableHead className="text-right pr-6">Action</TableHead>
                                                                         </TableRow>
-                                                                    ))}
-                                                                </TableBody>
-                                                            </Table>
-                                                        </CardContent>
-                                                        
-                                                        <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
-                                                            <div className="space-y-1">
-                                                                <p className="text-[10px] uppercase font-bold text-slate-500">Receipts</p>
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    {firstReq.payment_receipt_url ? (
-                                                                        <a href={firstReq.payment_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-xs font-bold text-emerald-600 hover:underline bg-emerald-50 px-3 py-1.5 rounded-md border border-emerald-200">
-                                                                            <Receipt className="w-4 h-4 mr-1.5" /> View Payment Receipt
-                                                                        </a>
-                                                                    ) : (
-                                                                        <span className="text-xs text-slate-400 italic">No Payment Receipt</span>
-                                                                    )}
-                                                                    {firstReq.delivery_receipt_url ? (
-                                                                        <a href={firstReq.delivery_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-xs font-bold text-purple-600 hover:underline bg-purple-50 px-3 py-1.5 rounded-md border border-purple-200">
-                                                                            <FileText className="w-4 h-4 mr-1.5" /> View Supplier Receipt
-                                                                        </a>
-                                                                    ) : (
-                                                                        <span className="text-xs text-slate-400 italic">Awaiting Supplier Receipt from Procurement</span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        <CardFooter className="bg-white border-t p-4 flex justify-end">
-                                                            <Button
-                                                                className="bg-primary hover:bg-primary/90 text-white shadow-md uppercase text-xs font-bold px-6"
-                                                                onClick={() => {
-                                                                    // Confirm arrival for all items in this PO
-                                                                    reqs.forEach((r: any) => arrivalMutation.mutate(r));
-                                                                }}
-                                                                disabled={arrivalMutation.isPending}
-                                                            >
-                                                                <PackageCheck className="w-4 h-4 mr-2" />
-                                                                {arrivalMutation.isPending ? "Confirming..." : "Confirm Arrival for Full PO"}
-                                                            </Button>
-                                                        </CardFooter>
+                                                                    </TableHeader>
+                                                                    <TableBody>
+                                                                        {reqs.map((r: any) => (
+                                                                            <TableRow key={r.id}>
+                                                                                <TableCell className="pl-6 py-4 font-medium text-slate-900 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">{r.item_name}</TableCell>
+                                                                                <TableCell className="font-medium">{r.quantity_approved}</TableCell>
+                                                                                <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
+                                                                                <TableCell className="text-right font-bold text-slate-900">
+                                                                                    {(r.total_price || 0).toLocaleString()} TZS
+                                                                                </TableCell>
+                                                                                <TableCell className="text-right pr-6">
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        className="bg-primary hover:bg-primary/90 text-white shadow-sm text-[10px] uppercase font-bold h-7 w-full max-w-[120px]"
+                                                                                        onClick={(e) => { e.stopPropagation(); arrivalMutation.mutate(r); }}
+                                                                                        disabled={arrivalMutation.isPending}
+                                                                                    >
+                                                                                        <PackageCheck className="w-3 h-3 mr-1" />
+                                                                                        Confirm Arrival
+                                                                                    </Button>
+                                                                                </TableCell>
+                                                                            </TableRow>
+                                                                        ))}
+                                                                    </TableBody>
+                                                                </Table>
+                                                            </CardContent>
+                                                        )}
                                                     </Card>
                                                 );
                                             });
@@ -731,64 +806,125 @@ const CashierPaymentPortal = () => {
                                                 <SelectItem key={day} value={day}>{formatDate(day)}</SelectItem>
                                             ))}
                                         </SelectContent>
-                                    </Select>
+                                                                    </Select>
                                 </div>
                             </div>
                         </div>
 
-                        <Card className="border shadow-none overflow-hidden bg-white/50 border-dashed">
-                            <CardContent className="p-0">
-                                <Table>
-                                    <TableHeader className="bg-slate-100/50">
-                                        <TableRow>
-                                            <TableHead className="text-xs font-bold py-3 pl-6">Date</TableHead>
-                                            <TableHead className="text-xs font-bold">Reference</TableHead>
-                                            <TableHead className="text-xs font-bold">Item & PO</TableHead>
-                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
-                                            <TableHead className="text-right text-xs font-bold pr-6">Amount Paid</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {isHistoryLoading ? (
-                                            <TableRow>
-                                                <TableCell colSpan={5} className="text-center py-10">
-                                                    <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-300" />
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : filteredArchived.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={5} className="text-center py-16 text-slate-400 italic text-sm">
-                                                    No archived records found for selection.
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            filteredArchived.map((item: any) => (
-                                                <TableRow key={item.id} className="hover:bg-slate-50/50">
-                                                    <TableCell className="text-xs font-medium pl-6">
-                                                        {formatDate(item.status_updated_at)}
-                                                    </TableCell>
-                                                    <TableCell className="font-mono text-xs font-bold text-slate-600">
-                                                        {item.payment_reference}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex flex-col">
-                                                            <span className="text-xs font-bold text-slate-700">{item.item_name}</span>
-                                                            <span className="text-[10px] text-slate-400">PO: {item.po_number}</span>
+                        <div className="grid gap-4 mt-4">
+                            {isHistoryLoading ? (
+                                <div className="text-center py-10">
+                                    <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-300" />
+                                </div>
+                            ) : filteredArchived.length === 0 ? (
+                                <Card className="border shadow-none overflow-hidden bg-white/50 border-dashed">
+                                    <CardContent className="text-center py-16 text-slate-400 italic text-sm">
+                                        No archived records found for selection.
+                                    </CardContent>
+                                </Card>
+                            ) : (
+                                Object.entries(groupRequisitionsByPO(filteredArchived)).map(([key, reqs]) => {
+                                    const firstReq = reqs[0];
+                                    const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                                    const poNumber = firstReq.po_number || 'DRAFT-PO';
+                                    let poTotal = 0;
+                                    reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+                                    const isExpanded = expandedGroups[`hist_${key}`];
+                                    
+                                    return (
+                                        <Card key={`hist_${key}`} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+                                            <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(`hist_${key}`)}>
+                                                <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                                                    <div className="space-y-1 w-full md:w-auto">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
+                                                                {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                            </Button>
+                                                            <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
+                                                                PO #: {poNumber}
+                                                            </Badge>
+                                                            <Badge className="bg-slate-100 text-slate-700 border-slate-300 uppercase text-[10px]">
+                                                                Closed
+                                                            </Badge>
                                                         </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-xs text-slate-600">
-                                                        {item.garage_suppliers?.name || 'Manual'}
-                                                    </TableCell>
-                                                    <TableCell className="text-right font-bold text-slate-700 pr-6 text-xs">
-                                                        {item.total_price?.toLocaleString()} TShs
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </CardContent>
-                        </Card>
+                                                        <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
+                                                            <Building2 className="w-5 h-5 text-slate-400" />
+                                                            {supplierName}
+                                                        </CardTitle>
+                                                        <p className="text-sm text-slate-500 font-medium">Payment Ref: {firstReq.payment_reference || 'N/A'}</p>
+                                                    </div>
+                                                    <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto text-left md:text-right">
+                                                        <div className="text-2xl font-black text-slate-700">
+                                                            {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2 justify-end">
+                                                            {firstReq.payment_receipt_url && (
+                                                                <Button 
+                                                                    variant="outline" 
+                                                                    size="sm" 
+                                                                    className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                                    onClick={(e) => { e.stopPropagation(); window.open(firstReq.payment_receipt_url, '_blank'); }}
+                                                                >
+                                                                    <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
+                                                                </Button>
+                                                            )}
+                                                            {firstReq.delivery_receipt_url ? (
+                                                                <Button 
+                                                                    variant="outline" 
+                                                                    size="sm" 
+                                                                    className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                                                                    onClick={(e) => { e.stopPropagation(); window.open(firstReq.delivery_receipt_url, '_blank'); }}
+                                                                >
+                                                                    <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
+                                                                </Button>
+                                                            ) : (
+                                                                <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
+                                                                    Awaiting Supplier Receipt
+                                                                </Badge>
+                                                            )}
+                                                            <Button 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                className="h-7 text-xs border-slate-200" 
+                                                                onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
+                                                            >
+                                                                <Printer className="w-3 h-3 mr-1" /> Print PO
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </CardHeader>
+                                            {isExpanded && (
+                                                <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
+                                                    <Table>
+                                                        <TableHeader className="bg-slate-100/50">
+                                                            <TableRow>
+                                                                <TableHead className="pl-6">Date</TableHead>
+                                                                <TableHead>Item Description</TableHead>
+                                                                <TableHead>Qty</TableHead>
+                                                                <TableHead className="text-right pr-6">Total</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {reqs.map((r: any) => (
+                                                                <TableRow key={r.id}>
+                                                                    <TableCell className="pl-6 text-xs">{formatDate(r.status_updated_at)}</TableCell>
+                                                                    <TableCell className="font-semibold text-slate-800">{r.item_name}</TableCell>
+                                                                    <TableCell className="font-medium">{r.quantity_approved}</TableCell>
+                                                                    <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                                                        {(r.total_price || 0).toLocaleString()} TZS
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </CardContent>
+                                            )}
+                                        </Card>
+                                    );
+                                })
+                            )}
+                        </div>
                     </div>
                 </TabsContent>
             </Tabs>

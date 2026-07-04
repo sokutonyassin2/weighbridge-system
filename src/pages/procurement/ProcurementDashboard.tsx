@@ -1075,7 +1075,7 @@ const ProcurementDashboard = () => {
                                                         grouped[month].forEach((req: any) => {
                                                             if (req.supplier_id) {
                                                                 const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                                const key = reqStatusFilter === 'Purchased' ? `${req.po_number || 'NO-PO'}_${supplierName}` : supplierName;
+                                                                const key = `${req.po_number || 'NO-PO'}_${supplierName}`;
                                                                 if (!supplierGroups[key]) supplierGroups[key] = [];
                                                                 supplierGroups[key].push(req);
                                                             } else {

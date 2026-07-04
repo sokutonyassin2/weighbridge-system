@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, Fragment } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -185,7 +185,9 @@ const GarageDashboard = () => {
     const [updateQtyDetails, setUpdateQtyDetails] = useState({ quantity: 0 });
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
-    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string }[]>([{ item_name: "", quantity: 1 }]);
+    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string }[]>([{ item_name: "", quantity: 1, category: "Uncategorized" }]);
+    const [reqCategories, setReqCategories] = useState<string[]>([]);
+    const [expandedReqGroups, setExpandedReqGroups] = useState<string[]>([]);
     const [usageForm, setUsageForm] = useState({
         item_id: "",
         item_name: "",
@@ -231,13 +233,14 @@ const GarageDashboard = () => {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("logistics_fleet")
-                .select("id, vehicle_no, asset_type, asset_status, odometer_reading, horse_number, trailer_number, coupling_status")
+                .select("id, vehicle_no, asset_type, asset_status, odometer_reading, horse_number, trailer_number, coupling_status, make_model")
                 .order("vehicle_no");
             if (error) throw error;
             return data?.map(v => ({
                 ...v,
                 // Universal Plate Resolution for Search & Display
                 plate_number: v.vehicle_no || v.horse_number || v.trailer_number || "NO PLATE",
+                model: v.make_model || v.asset_type || "Unknown",
                 status: v.asset_status,
                 is_coupled_db: v.coupling_status?.toLowerCase() === 'coupled'
             }));
@@ -356,7 +359,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model)")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model, asset_type)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -2075,34 +2078,34 @@ const GarageDashboard = () => {
                     </div>
 
                     {/* Monthly Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-2">
                         <Card className="border-none shadow-sm bg-indigo-600 text-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold uppercase tracking-[0.15em] opacity-80">{language === 'en' ? 'Monthly Items Issued' : 'Matokeo ya Vifaa kwa Mwezi'}</CardTitle>
-                                <ShoppingCart className="h-4 w-4 opacity-80" />
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
+                                <CardTitle className="text-[9px] font-bold uppercase tracking-[0.15em] opacity-80">{language === 'en' ? 'Monthly Items Issued' : 'Matokeo ya Vifaa kwa Mwezi'}</CardTitle>
+                                <ShoppingCart className="h-3.5 w-3.5 opacity-80" />
                             </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold">
+                            <CardContent className="p-3 pt-0">
+                                <div className="text-xl font-bold">
                                     {(usageLogs || []).filter((l: any) => {
                                         const d = new Date(l.created_at);
                                         return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
                                     }).reduce((sum: number, l: any) => sum + (l.quantity_used || 0), 0)}
                                 </div>
-                                <p className="text-xs opacity-70 mt-1">{language === 'en' ? 'Total physical units moved this month' : 'Jumla ya vifaa vilivyotolewa mwezi huu'}</p>
+                                <p className="text-[10px] opacity-70 mt-0.5">{language === 'en' ? 'Total physical units moved this month' : 'Jumla ya vifaa vilivyotolewa mwezi huu'}</p>
 
                             </CardContent>
                         </Card>
 
                         <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Active Requests' : 'Maombi Amilifu'}</CardTitle>
-                                <ClipboardCheck className="h-4 w-4 text-indigo-400" />
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
+                                <CardTitle className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Active Requests' : 'Maombi Amilifu'}</CardTitle>
+                                <ClipboardCheck className="h-3.5 w-3.5 text-indigo-400" />
                             </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-semibold text-slate-900">
+                            <CardContent className="p-3 pt-0">
+                                <div className="text-xl font-bold text-slate-900">
                                     {(requisitions || []).filter((r: any) => r.status === 'Pending').length}
                                 </div>
-                                <p className="text-xs text-slate-400 mt-1 italic">{language === 'en' ? 'Pending Store Room restocks' : 'Maombi ya vifaa yanayosubiri'}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5 italic">{language === 'en' ? 'Pending Store Room restocks' : 'Maombi ya vifaa yanayosubiri'}</p>
 
                             </CardContent>
                         </Card>
@@ -2131,118 +2134,192 @@ const GarageDashboard = () => {
                         <TabsContent value="requisitions" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
                                 <CardHeader className="bg-slate-50/50 border-b">
-                                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] flex items-center gap-2">
-                                        <HistoryIcon className="w-4 h-4 text-slate-400" />
-                                        {language === 'en' ? 'Part Requisitions History' : 'Historia ya Maombi ya Vifaa'}
-                                    </CardTitle>
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] flex items-center gap-2">
+                                            <HistoryIcon className="w-4 h-4 text-slate-400" />
+                                            {language === 'en' ? 'Part Requisitions History' : 'Historia ya Maombi ya Vifaa'}
+                                        </CardTitle>
+                                        <Button
+                                            size="sm"
+                                            className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider"
+                                            onClick={() => {
+                                                setReqType("Job");
+                                                setReqTargetVehicleId("");
+                                                setReqTargetJobId(null);
+                                                setIsRequisitionDialogOpen(true);
+                                            }}
+                                        >
+                                            <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
+                                        </Button>
+                                    </div>
 
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50/30">
-                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Sent Date</TableHead>
-                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Type</TableHead>
-                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Item Requested</TableHead>
-                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Qty</TableHead>
-                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Lead Time</TableHead>
-                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Status</TableHead>
-                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">Actions</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Sent Date' : 'Tarehe'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Model' : 'Muundo'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Truck No' : 'Gari'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Requirement' : 'Hitaji'}</TableHead>
+                                                <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Status' : 'Hali'}</TableHead>
+                                                <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Actions' : 'Vitendo'}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {(requisitions || []).map((req: any) => {
-                                                const created = new Date(req.created_at);
-                                                const now = new Date();
-                                                const hours = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60));
-                                                const minutes = Math.floor((now.getTime() - created.getTime()) / (1000 * 60)) % 60;
+                                            {(() => {
+                                                const groups: Record<string, {
+                                                    id: string, date: Date, dateStr: string, timeStr: string,
+                                                    vehicle: any, category: string, status: string,
+                                                    items: any[],
+                                                    revoke_reason?: string
+                                                }> = {};
 
-                                                return (
-                                                    <TableRow key={req.id} className="hover:bg-slate-50/50 border-b border-slate-100 last:border-0 border-transparent transition-colors">
-                                                        <TableCell className="text-xs text-slate-500 font-medium">
-                                                            <div className="flex flex-col">
-                                                                <span>{created.toLocaleDateString()}</span>
-                                                                <span className="font-mono text-[11px] text-indigo-400">{created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell><Badge variant="outline" className="text-[10px] uppercase font-medium py-0 h-5 border-slate-200 text-slate-400 tracking-tighter">{req.request_type}</Badge></TableCell>
-                                                        <TableCell className="font-medium text-slate-700 text-sm tracking-tight">
-                                                            <div className="flex flex-col gap-1">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span>{req.item_name}</span>
-                                                                    {req.vehicle && (
-                                                                        <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-200 bg-indigo-50/50 uppercase tracking-widest font-mono py-0 h-5 px-2 flex items-center gap-1.5 shadow-sm">
-                                                                            <Truck className="w-3 h-3" />
-                                                                            {getVehicleSpecificPlate(req.vehicle)}
-                                                                        </Badge>
-                                                                    )}
-                                                                </div>
-                                                                {req.original_quantity && req.original_quantity !== req.quantity_requested && (
-                                                                    <Badge variant="outline" className="w-fit text-[9px] border-amber-200 text-amber-600 bg-amber-50 py-0 h-4">
-                                                                        Partial of {req.original_quantity}
-                                                                    </Badge>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-sm font-mono font-semibold text-slate-600">{req.quantity_requested}</TableCell>
-                                                        <TableCell className="text-sm font-medium text-slate-400 italic">
-                                                            {['Stocked', 'Approved', 'Rejected', 'Paid'].includes(req.status) ? (
-                                                                <span className="text-slate-500 font-semibold not-italic">{language === 'en' ? 'Closed' : 'Imefungwa'}</span>
-                                                            ) : `${hours}h ${minutes}m`}
-                                                        </TableCell>
+                                                (requisitions || []).forEach((req: any) => {
+                                                    const created = new Date(req.created_at);
+                                                    if (req.request_type !== 'Job' || !req.vehicle) {
+                                                        const key = `general-${req.id}`;
+                                                        groups[key] = {
+                                                            id: key, date: created, dateStr: created.toLocaleDateString(), timeStr: created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                                                            vehicle: null, category: 'General', status: req.status, items: [req],
+                                                            revoke_reason: req.revoke_reason
+                                                        };
+                                                        return;
+                                                    }
 
-                                                        <TableCell className="text-right">
-                                                            <div className="flex flex-col items-end gap-1">
-                                                                <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${req.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
-                                                                    req.status === 'Awaiting Approval' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
-                                                                        req.status === 'Approved' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
-                                                                            req.status === 'Paid' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
-                                                                                req.status === 'Stocked' ? 'bg-green-50 text-green-600 border border-green-200' :
-                                                                                    ['Revoked', 'Rejected'].includes(req.status) ? 'bg-rose-50 text-rose-600 border border-rose-200' :
-                                                                                        'bg-slate-50 text-slate-600'
-                                                                    }`}>{req.status}</Badge>
-                                                                {req.status === 'Revoked' && req.revoke_reason && (
-                                                                    <span className="text-[10px] text-rose-500 italic font-medium max-w-[150px] text-right leading-tight">Reason: {req.revoke_reason}</span>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-right">
-                                                            {req.status === 'Pending' ? (
-                                                                <div className="flex items-center justify-end gap-2">
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100"
-                                                                        onClick={() => {
-                                                                            setEditingReqItem({ id: req.id, item_name: req.item_name, quantity: req.quantity_requested });
-                                                                            setIsEditReqOpen(true);
-                                                                        }}
-                                                                        title={language === 'en' ? "Edit Requisition" : "Hariri Ombi"}
-                                                                    >
-                                                                        <Edit2 className="w-4 h-4" />
-                                                                    </Button>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
-                                                                        disabled={deleteRequisitionMutation.isPending}
-                                                                        onClick={() => {
-                                                                            if (window.confirm(language === 'en' ? "Are you sure you want to delete this pending requisition?" : "Una uhakika unataka kufuta ombi hili?")) {
-                                                                                deleteRequisitionMutation.mutate(req.id);
-                                                                            }
-                                                                        }}
-                                                                        title={language === 'en' ? "Delete Requisition" : "Futa Ombi"}
-                                                                    >
-                                                                        <Trash2 className="w-4 h-4" />
-                                                                    </Button>
-                                                                </div>
-                                                            ) : (
-                                                                <Lock className="w-4 h-4 text-slate-300 ml-auto" title="Locked by Procurement" />
+                                                    const dateStr = created.toLocaleDateString();
+                                                    const vId = req.vehicle.id;
+                                                    const cat = req.requirement_category || 'Uncategorized';
+                                                    const key = `${dateStr}-${vId}-${cat}`;
+
+                                                    if (!groups[key]) {
+                                                        groups[key] = {
+                                                            id: key, date: created, dateStr: dateStr, timeStr: created.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                                                            vehicle: req.vehicle, category: cat, status: req.status, items: []
+                                                        };
+                                                    }
+                                                    groups[key].items.push(req);
+                                                });
+
+                                                const sortedGroups = Object.values(groups).map(g => {
+                                                    if (g.category === 'General') return g;
+                                                    const statuses = g.items.map(i => i.status);
+                                                    let groupStatus = 'Pending';
+                                                    if (statuses.every(s => s === 'Closed' || s === 'Paid' || s === 'Stocked')) groupStatus = 'Closed';
+                                                    else if (statuses.every(s => s === 'Approved')) groupStatus = 'Approved';
+                                                    else if (statuses.every(s => s === 'Awaiting Approval')) groupStatus = 'Awaiting Approval';
+                                                    else if (statuses.every(s => s === 'Pending')) groupStatus = 'Pending';
+                                                    else if (statuses.every(s => s === 'Revoked')) {
+                                                        groupStatus = 'Revoked';
+                                                        g.revoke_reason = g.items.find(i => i.revoke_reason)?.revoke_reason;
+                                                    }
+                                                    else if (statuses.every(s => s === 'Rejected')) groupStatus = 'Rejected';
+                                                    else groupStatus = 'Partial';
+                                                    g.status = groupStatus;
+                                                    return g;
+                                                }).sort((a, b) => b.date.getTime() - a.date.getTime());
+
+                                                return sortedGroups.map(group => {
+                                                    const isExpanded = expandedReqGroups.includes(group.id);
+                                                    return (
+                                                        <Fragment key={group.id}>
+                                                            <TableRow className="hover:bg-slate-50/50 border-b border-slate-100 transition-colors cursor-pointer" onClick={() => {
+                                                                if (group.category !== 'General') {
+                                                                    setExpandedReqGroups(prev => isExpanded ? prev.filter(id => id !== group.id) : [...prev, group.id]);
+                                                                }
+                                                            }}>
+                                                                <TableCell className="text-xs text-slate-500 font-medium">
+                                                                    <div className="flex flex-col">
+                                                                        <span>{group.dateStr}</span>
+                                                                        <span className="font-mono text-[11px] text-indigo-400">{group.timeStr}</span>
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell className="font-semibold text-slate-700 text-sm">
+                                                                    {group.vehicle?.make_model || group.vehicle?.asset_type || (group.category === 'General' ? '-' : 'Unknown')}
+                                                                </TableCell>
+                                                                <TableCell className="font-medium text-slate-600 text-sm tracking-tight">
+                                                                    {group.vehicle ? getVehicleSpecificPlate(group.vehicle) : '-'}
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Badge variant="outline" className={`text-[10px] uppercase font-bold py-0 h-5 tracking-tighter ${group.category === 'Spare' ? 'border-orange-200 text-orange-600 bg-orange-50' : group.category === 'Paint' ? 'border-blue-200 text-blue-600 bg-blue-50' : group.category === 'Electrical' ? 'border-yellow-200 text-yellow-600 bg-yellow-50' : 'border-slate-200 text-slate-500 bg-slate-50'}`}>{group.category}</Badge>
+                                                                        {group.category !== 'General' && (
+                                                                            <span className="text-[10px] text-slate-400 font-mono">({group.items.length} items)</span>
+                                                                        )}
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <div className="flex flex-col items-start gap-1">
+                                                                        <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${group.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
+                                                                            group.status === 'Awaiting Approval' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                                                                            group.status === 'Approved' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
+                                                                            group.status === 'Closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
+                                                                            ['Revoked', 'Rejected'].includes(group.status) ? 'bg-rose-50 text-rose-600 border border-rose-200' :
+                                                                            group.status === 'Partial' ? 'bg-purple-50 text-purple-600 border border-purple-200' :
+                                                                            'bg-slate-50 text-slate-600'
+                                                                        }`}>{group.status}</Badge>
+                                                                        {group.status === 'Revoked' && group.revoke_reason && (
+                                                                            <span className="text-[9px] text-rose-500 italic max-w-[120px] leading-tight break-words">Reason: {group.revoke_reason}</span>
+                                                                        )}
+                                                                    </div>
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <div className="flex items-center justify-end gap-2">
+                                                                        {group.category !== 'General' && (
+                                                                            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
+                                                                                {isExpanded ? (language === 'en' ? 'Hide' : 'Ficha') : (language === 'en' ? 'View' : 'Ona')}
+                                                                            </Button>
+                                                                        )}
+                                                                        {group.category === 'General' && group.status === 'Pending' && (
+                                                                            <>
+                                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: group.items[0].id, item_name: group.items[0].item_name, quantity: group.items[0].quantity_requested }); setIsEditReqOpen(true); }}><Edit2 className="w-4 h-4" /></Button>
+                                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete?")) { deleteRequisitionMutation.mutate(group.items[0].id); } }}><Trash2 className="w-4 h-4" /></Button>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </TableCell>
+                                                            </TableRow>
+                                                            {isExpanded && group.category !== 'General' && (
+                                                                <TableRow className="bg-slate-50/50">
+                                                                    <TableCell colSpan={6} className="p-0 border-b">
+                                                                        <div className="p-4 pl-12 pr-6 border-l-2 border-indigo-200">
+                                                                            <table className="w-full text-xs">
+                                                                                <thead>
+                                                                                    <tr className="text-slate-400 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200">
+                                                                                        <th className="text-left pb-2 w-1/2">Item Name</th>
+                                                                                        <th className="text-center pb-2 w-16">Qty</th>
+                                                                                        <th className="text-right pb-2 w-24">Status</th>
+                                                                                        <th className="text-right pb-2 w-16">Actions</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    {group.items.map((item: any) => (
+                                                                                        <tr key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-white transition-colors">
+                                                                                            <td className="py-2 text-slate-700 font-medium">{item.item_name}</td>
+                                                                                            <td className="py-2 text-center font-mono text-slate-600">{item.quantity_requested}</td>
+                                                                                            <td className="py-2 text-right">
+                                                                                                <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' ? 'bg-slate-100 text-slate-600' : 'bg-slate-200 text-slate-700'}`}>{item.status}</Badge>
+                                                                                            </td>
+                                                                                            <td className="py-2 text-right">
+                                                                                                {item.status === 'Pending' ? (
+                                                                                                    <div className="flex items-center justify-end gap-1">
+                                                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-indigo-500" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: item.id, item_name: item.item_name, quantity: item.quantity_requested }); setIsEditReqOpen(true); }}><Edit2 className="w-3 h-3" /></Button>
+                                                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-rose-500" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete item?")) { deleteRequisitionMutation.mutate(item.id); } }}><Trash2 className="w-3 h-3" /></Button>
+                                                                                                    </div>
+                                                                                                ) : <Lock className="w-3 h-3 text-slate-300 ml-auto" />}
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    ))}
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                </TableRow>
                                                             )}
-                                                        </TableCell>
-                                                    </TableRow>
-                                                );
-                                            })}
+                                                        </Fragment>
+                                                    );
+                                                });
+                                            })()}
                                         </TableBody>
                                     </Table>
                                 </CardContent>
@@ -2536,67 +2613,117 @@ const GarageDashboard = () => {
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4 px-6 overflow-y-auto flex-1 min-h-0">
-                        {requisitionItems.map((item, idx) => (
-                            <div key={idx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item' : 'Kipuri'} {idx + 1}</Label>
-
-                                    <Input
-                                        placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Ni nini kinahitajika? (mfano: Break Pads)"}
-                                        value={item.item_name}
-                                        onChange={(e) => {
-                                            const newItems = [...requisitionItems];
-                                            newItems[idx].item_name = e.target.value;
-                                            setRequisitionItems(newItems);
-                                        }}
-                                        className="h-9 bg-white"
-                                    />
+                        {reqType === 'Job' && (
+                            <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-sm space-y-3">
+                                <div className="flex items-center gap-2 border-b border-indigo-100 pb-2">
+                                    <Truck className="w-5 h-5 text-indigo-500" />
+                                    <div>
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] mb-2 block">{language === 'en' ? 'Select Vehicle' : 'Chagua Gari'}</Label>
+                                        <Select value={reqTargetVehicleId || ""} onValueChange={(val) => setReqTargetVehicleId(val)}>
+                                            <SelectTrigger className="w-full bg-white h-9">
+                                                <SelectValue placeholder={language === 'en' ? 'Select a vehicle...' : 'Chagua gari...'} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {(vehicles || []).map(v => (
+                                                    <SelectItem key={v.id} value={v.id}>{getVehicleSpecificPlate(v)} {v.model ? `- ${v.model}` : ''}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
-
-                                    <Input
-                                        type="number"
-                                        min={1}
-                                        value={item.quantity}
-                                        onChange={(e) => {
-                                            const newItems = [...requisitionItems];
-                                            newItems[idx].quantity = parseInt(e.target.value) || 1;
-                                            setRequisitionItems(newItems);
-                                        }}
-                                        className="h-9 bg-white"
-                                    />
+                                
+                                <div className="pt-1">
+                                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] mb-2 block">{language === 'en' ? 'Select Requirement Categories' : 'Chagua Aina za Mahitaji'}</Label>
+                                    <div className="flex flex-wrap gap-3">
+                                        {['Spare', 'Paint', 'Electrical'].map(cat => (
+                                            <label key={cat} className="flex items-center gap-2 cursor-pointer border px-3 py-1.5 rounded bg-white hover:bg-slate-50">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                    checked={reqCategories.includes(cat)}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setReqCategories([...reqCategories, cat]);
+                                                            if (!requisitionItems.some(i => i.category === cat)) {
+                                                                setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1, category: cat }]);
+                                                            }
+                                                        } else {
+                                                            setReqCategories(reqCategories.filter(c => c !== cat));
+                                                            setRequisitionItems(requisitionItems.filter(i => i.category !== cat));
+                                                        }
+                                                    }}
+                                                />
+                                                <span className="text-sm font-medium text-slate-700">{cat}</span>
+                                            </label>
+                                        ))}
+                                    </div>
                                 </div>
-                                {requisitionItems.length > 1 && (
+                            </div>
+                        )}
+
+                        {(reqType === 'General' ? ['General'] : reqCategories).map((categoryName) => (
+                            <div key={categoryName} className="space-y-3">
+                                {reqType === 'Job' && (
+                                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-b pb-1 mt-4">{categoryName} Requirements</h3>
+                                )}
+                                {requisitionItems.filter(i => (reqType === 'Job' ? i.category === categoryName : true)).map((item, localIdx) => {
+                                    const globalIdx = requisitionItems.indexOf(item);
+                                    return (
+                                        <div key={globalIdx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
+                                            <div className="space-y-2">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item' : 'Kipuri'}</Label>
+                                                <Input
+                                                    placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Ni nini kinahitajika? (mfano: Break Pads)"}
+                                                    value={item.item_name}
+                                                    onChange={(e) => {
+                                                        const newItems = [...requisitionItems];
+                                                        newItems[globalIdx].item_name = e.target.value;
+                                                        setRequisitionItems(newItems);
+                                                    }}
+                                                    className="h-9 bg-white"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
+                                                <Input
+                                                    type="number"
+                                                    min={1}
+                                                    value={item.quantity}
+                                                    onChange={(e) => {
+                                                        const newItems = [...requisitionItems];
+                                                        newItems[globalIdx].quantity = parseInt(e.target.value) || 1;
+                                                        setRequisitionItems(newItems);
+                                                    }}
+                                                    className="h-9 bg-white"
+                                                />
+                                            </div>
+                                            {requisitionItems.filter(i => (reqType === 'Job' ? i.category === categoryName : true)).length > 1 && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-white border shadow-sm text-slate-400 hover:text-red-500 hover:bg-red-50"
+                                                    onClick={() => setRequisitionItems(requisitionItems.filter((_, i) => i !== globalIdx))}
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                                {!isSingleRestock && (
                                     <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-white border shadow-sm text-slate-400 hover:text-red-500 hover:bg-red-50"
-                                        onClick={() => setRequisitionItems(requisitionItems.filter((_, i) => i !== idx))}
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full border-dashed border-slate-300 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 h-9"
+                                        onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1, category: reqType === 'Job' ? categoryName : "Uncategorized" }])}
                                     >
-                                        <Trash2 className="w-3 h-3" />
+                                        <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? `Add Another ${reqType === 'Job' ? categoryName : ''} Item` : 'Ongeza Kipuri Kingine'}
                                     </Button>
                                 )}
                             </div>
                         ))}
 
-                        {!isSingleRestock && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full border-dashed border-slate-300 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 h-9"
-                                onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1 }])}
-                            >
-                                <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Another Item' : 'Ongeza Kipuri Kingine'}
-                            </Button>
-                        )}
-
-                        {reqType === 'Job' && (
-                            <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-xs flex items-center gap-2">
-                                <Truck className="w-4 h-4 text-indigo-500" />
-                                <span className="text-slate-600">{language === 'en' ? 'Requisition linked to:' : 'Ombi limeunganishwa na:'} <strong className="text-indigo-900">{reqTargetVehicleId ? (vehicles as any[])?.find(v => v.id === reqTargetVehicleId)?.plate_number : "Loading..."}</strong></span>
-                            </div>
-                        )}
                     </div>
                     <DialogFooter className="p-6 pt-4 border-t bg-slate-50/50">
                         <Button variant="outline" onClick={() => setIsRequisitionDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
@@ -2616,6 +2743,7 @@ const GarageDashboard = () => {
                                     item_id: item.item_id,
                                     item_name: item.item_name,
                                     quantity_requested: item.quantity,
+                                    requirement_category: item.category || 'Uncategorized',
                                     status: 'Pending'
                                 }));
 
@@ -2623,7 +2751,7 @@ const GarageDashboard = () => {
                             }}
                             disabled={createRequisitionMutation.isPending}
                         >
-                            {createRequisitionMutation.isPending ? (language === 'en' ? "Sending..." : "Inatuma...") : `${language === 'en' ? 'Submit' : 'Tuma'} ${requisitionItems.length > 1 ? requisitionItems.length + ' ' : ''}${language === 'en' ? (requisitionItems.length > 1 ? 'Requisitions' : 'Requisition') : (requisitionItems.length > 1 ? 'Maombi' : 'Ombi')}`}
+                            {createRequisitionMutation.isPending ? (language === 'en' ? "Sending..." : "Inatuma...") : `${language === 'en' ? 'Submit' : 'Tuma'} ${requisitionItems.filter(i => i.item_name.trim()).length > 0 ? requisitionItems.filter(i => i.item_name.trim()).length + ' ' : ''}${language === 'en' ? (requisitionItems.length > 1 ? 'Requisitions' : 'Requisition') : (requisitionItems.length > 1 ? 'Maombi' : 'Ombi')}`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -3338,19 +3466,7 @@ const GarageDashboard = () => {
                                                         <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Task' : 'Ongeza Kazi'}
                                                     </Button>
                                                 )}
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-7 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
-                                                    onClick={() => {
-                                                        setReqType("Job");
-                                                        setReqTargetVehicleId(selectedJobForTasks.vehicle_id);
-                                                        setReqTargetJobId(selectedJobForTasks.id);
-                                                        setIsRequisitionDialogOpen(true);
-                                                    }}
-                                                >
-                                                    <ShoppingCart className="w-3 h-3 mr-1.5" /> Request Item
-                                                </Button>
+
                                             </div>
                                         </div>
                                         <div className="divide-y">
@@ -3413,19 +3529,7 @@ const GarageDashboard = () => {
                                                             <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Add Task' : 'Ongeza Kazi'}
                                                         </Button>
                                                     )}
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-7 text-[10px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 hover:border-indigo-300 font-semibold uppercase tracking-wider"
-                                                        onClick={() => {
-                                                            setReqType("Job");
-                                                            setReqTargetVehicleId(partnerJob.vehicle_id);
-                                                            setReqTargetJobId(partnerJob.id);
-                                                            setIsRequisitionDialogOpen(true);
-                                                        }}
-                                                    >
-                                                        <ShoppingCart className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Request Item' : 'Omba Kifaa'}
-                                                    </Button>
+
                                                 </div>
                                             </div>
                                             <div className="divide-y">

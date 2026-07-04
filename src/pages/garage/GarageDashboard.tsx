@@ -185,8 +185,18 @@ const GarageDashboard = () => {
     const [updateQtyDetails, setUpdateQtyDetails] = useState({ quantity: 0 });
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
-    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string }[]>([{ item_name: "", quantity: 1, category: "Uncategorized" }]);
-    const [reqCategories, setReqCategories] = useState<string[]>([]);
+    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string }[]>(() => {
+        try {
+            const saved = localStorage.getItem('draftReqItems');
+            return saved ? JSON.parse(saved) : [{ item_name: "", quantity: 1, category: "Uncategorized" }];
+        } catch { return [{ item_name: "", quantity: 1, category: "Uncategorized" }]; }
+    });
+    const [reqCategories, setReqCategories] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('draftReqCategories');
+            return saved ? JSON.parse(saved) : [];
+        } catch { return []; }
+    });
     const [expandedReqGroups, setExpandedReqGroups] = useState<string[]>([]);
     const [usageForm, setUsageForm] = useState({
         item_id: "",
@@ -196,8 +206,18 @@ const GarageDashboard = () => {
         vehicle_id: "",
         notes: ""
     });
-    const [reqType, setReqType] = useState<"Job" | "General" | "Emergency">("General");
-    const [reqTargetVehicleId, setReqTargetVehicleId] = useState<string | null>(null);
+    const [reqType, setReqType] = useState<"Job" | "General" | "Emergency">(() => {
+        return (localStorage.getItem('draftReqType') as any) || "General";
+    });
+    const [reqTargetVehicleId, setReqTargetVehicleId] = useState<string | null>(() => {
+        return localStorage.getItem('draftReqVehicleId') || null;
+    });
+
+    useEffect(() => { localStorage.setItem('draftReqItems', JSON.stringify(requisitionItems)); }, [requisitionItems]);
+    useEffect(() => { localStorage.setItem('draftReqCategories', JSON.stringify(reqCategories)); }, [reqCategories]);
+    useEffect(() => { localStorage.setItem('draftReqType', reqType); }, [reqType]);
+    useEffect(() => { if (reqTargetVehicleId) localStorage.setItem('draftReqVehicleId', reqTargetVehicleId); else localStorage.removeItem('draftReqVehicleId'); }, [reqTargetVehicleId]);
+    const [isReqVehiclePopoverOpen, setIsReqVehiclePopoverOpen] = useState(false);
     const [reqTargetJobId, setReqTargetJobId] = useState<string | null>(null);
     const [selectedInventoryItem, setSelectedInventoryItem] = useState<any>(null);
     // New Product State
@@ -2605,7 +2625,7 @@ const GarageDashboard = () => {
 
             {/* Requisition Dialog */}
             <Dialog open={isRequisitionDialogOpen} onOpenChange={setIsRequisitionDialogOpen}>
-                <DialogContent className="sm:max-w-[450px] max-h-[90vh] flex flex-col p-0">
+                <DialogContent className="sm:max-w-[450px] max-h-[90vh] flex flex-col p-0" onInteractOutside={(e) => e.preventDefault()}>
                     <DialogHeader className="p-6 pb-2 border-b">
                         <DialogTitle className="flex items-center gap-2 font-bold text-slate-700 uppercase tracking-tight">
                             <Plus className="w-5 h-5 text-indigo-500" />
@@ -2617,18 +2637,44 @@ const GarageDashboard = () => {
                             <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-sm space-y-3">
                                 <div className="flex items-center gap-2 border-b border-indigo-100 pb-2">
                                     <Truck className="w-5 h-5 text-indigo-500" />
-                                    <div>
+                                    <div className="flex-1 min-w-0">
                                         <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] mb-2 block">{language === 'en' ? 'Select Vehicle' : 'Chagua Gari'}</Label>
-                                        <Select value={reqTargetVehicleId || ""} onValueChange={(val) => setReqTargetVehicleId(val)}>
-                                            <SelectTrigger className="w-full bg-white h-9">
-                                                <SelectValue placeholder={language === 'en' ? 'Select a vehicle...' : 'Chagua gari...'} />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {(vehicles || []).map(v => (
-                                                    <SelectItem key={v.id} value={v.id}>{getVehicleSpecificPlate(v)} {v.model ? `- ${v.model}` : ''}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <Popover open={isReqVehiclePopoverOpen} onOpenChange={setIsReqVehiclePopoverOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button variant="outline" role="combobox" aria-expanded={isReqVehiclePopoverOpen} className="w-full justify-between font-normal h-9 bg-white">
+                                                    {reqTargetVehicleId
+                                                        ? (() => {
+                                                            const v = (vehicles || []).find((v: any) => v.id === reqTargetVehicleId);
+                                                            return v ? `${getVehicleSpecificPlate(v)} ${v.model ? `- ${v.model}` : ''}` : 'Select a vehicle...';
+                                                        })()
+                                                        : language === 'en' ? "Select a vehicle..." : "Chagua gari..."}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[380px] p-0" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder={language === 'en' ? "Search vehicle..." : "Tafuta gari..."} />
+                                                    <CommandList>
+                                                        <CommandEmpty>{language === 'en' ? "No vehicle found." : "Hakuna gari lililopatikana."}</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {(vehicles || []).map((v: any) => (
+                                                                <CommandItem
+                                                                    key={v.id}
+                                                                    value={`${v.plate_number} ${v.model} ${v.vehicle_no || ''} ${v.horse_number || ''} ${v.trailer_number || ''}`}
+                                                                    onSelect={() => {
+                                                                        setReqTargetVehicleId(v.id);
+                                                                        setIsReqVehiclePopoverOpen(false);
+                                                                    }}
+                                                                >
+                                                                    <Check className={`mr-2 h-4 w-4 ${reqTargetVehicleId === v.id ? "opacity-100" : "opacity-0"}`} />
+                                                                    {getVehicleSpecificPlate(v)} {v.model ? `- ${v.model}` : ''}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                     </div>
                                 </div>
                                 
@@ -2669,22 +2715,22 @@ const GarageDashboard = () => {
                                 {requisitionItems.filter(i => (reqType === 'Job' ? i.category === categoryName : true)).map((item, localIdx) => {
                                     const globalIdx = requisitionItems.indexOf(item);
                                     return (
-                                        <div key={globalIdx} className="space-y-3 p-3 border rounded-lg bg-slate-50/50 relative group">
-                                            <div className="space-y-2">
-                                                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item' : 'Kipuri'}</Label>
+                                        <div key={globalIdx} className="flex items-end gap-2 p-2 border border-slate-100 rounded-md bg-slate-50/30 relative group">
+                                            <div className="flex-1 space-y-1">
+                                                <Label className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{language === 'en' ? 'Item' : 'Kipuri'}</Label>
                                                 <Input
-                                                    placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Ni nini kinahitajika? (mfano: Break Pads)"}
+                                                    placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Kinachohitajika? (mfano: Break Pads)"}
                                                     value={item.item_name}
                                                     onChange={(e) => {
                                                         const newItems = [...requisitionItems];
                                                         newItems[globalIdx].item_name = e.target.value;
                                                         setRequisitionItems(newItems);
                                                     }}
-                                                    className="h-9 bg-white"
+                                                    className="h-8 bg-white text-xs border-slate-200 focus-visible:ring-indigo-500/50"
                                                 />
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
+                                            <div className="w-20 space-y-1">
+                                                <Label className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{language === 'en' ? 'Qty' : 'Idadi'}</Label>
                                                 <Input
                                                     type="number"
                                                     min={1}
@@ -2694,17 +2740,17 @@ const GarageDashboard = () => {
                                                         newItems[globalIdx].quantity = parseInt(e.target.value) || 1;
                                                         setRequisitionItems(newItems);
                                                     }}
-                                                    className="h-9 bg-white"
+                                                    className="h-8 bg-white text-xs text-center border-slate-200 focus-visible:ring-indigo-500/50"
                                                 />
                                             </div>
                                             {requisitionItems.filter(i => (reqType === 'Job' ? i.category === categoryName : true)).length > 1 && (
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-white border shadow-sm text-slate-400 hover:text-red-500 hover:bg-red-50"
+                                                    className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
                                                     onClick={() => setRequisitionItems(requisitionItems.filter((_, i) => i !== globalIdx))}
                                                 >
-                                                    <Trash2 className="w-3 h-3" />
+                                                    <Trash2 className="w-3.5 h-3.5" />
                                                 </Button>
                                             )}
                                         </div>
@@ -2712,14 +2758,16 @@ const GarageDashboard = () => {
                                 })}
 
                                 {!isSingleRestock && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="w-full border-dashed border-slate-300 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 h-9"
-                                        onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1, category: reqType === 'Job' ? categoryName : "Uncategorized" }])}
-                                    >
-                                        <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? `Add Another ${reqType === 'Job' ? categoryName : ''} Item` : 'Ongeza Kipuri Kingine'}
-                                    </Button>
+                                    <div className="flex justify-end pt-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 text-[10px] font-bold uppercase tracking-wider text-indigo-500 border-dashed border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300"
+                                            onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1, category: reqType === 'Job' ? categoryName : "Uncategorized" }])}
+                                        >
+                                            <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? `Add ${reqType === 'Job' ? categoryName : ''} Item` : 'Ongeza Kipuri'}
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                         ))}

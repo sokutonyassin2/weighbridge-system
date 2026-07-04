@@ -627,30 +627,57 @@ const CashierPaymentPortal = () => {
                                                                         {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
                                                                     </div>
                                                                     <div className="flex flex-wrap gap-2 justify-end">
-                                                                        {firstReq.payment_receipt_url && (
-                                                                            <Button 
-                                                                                variant="outline" 
-                                                                                size="sm" 
-                                                                                className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                                                                                onClick={(e) => { e.stopPropagation(); window.open(firstReq.payment_receipt_url, '_blank'); }}
-                                                                            >
-                                                                                <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
-                                                                            </Button>
-                                                                        )}
-                                                                        {firstReq.delivery_receipt_url ? (
-                                                                            <Button 
-                                                                                variant="outline" 
-                                                                                size="sm" 
-                                                                                className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
-                                                                                onClick={(e) => { e.stopPropagation(); window.open(firstReq.delivery_receipt_url, '_blank'); }}
-                                                                            >
-                                                                                <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
-                                                                            </Button>
-                                                                        ) : (
-                                                                            <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
-                                                                                Awaiting Supplier Receipt
-                                                                            </Badge>
-                                                                        )}
+                                                                        {(() => {
+                                                                            const payReceiptUrl = reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
+                                                                            const supplierReceiptUrl = reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
+                                                                            return (
+                                                                                <>
+                                                                                    {payReceiptUrl ? (
+                                                                                        <Button 
+                                                                                            variant="outline" 
+                                                                                            size="sm" 
+                                                                                            className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                                                            onClick={(e) => { e.stopPropagation(); window.open(payReceiptUrl, '_blank'); }}
+                                                                                        >
+                                                                                            <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
+                                                                                        </Button>
+                                                                                    ) : (
+                                                                                        <Button
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            className="h-7 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                const input = document.createElement('input');
+                                                                                                input.type = 'file';
+                                                                                                input.accept = 'image/*,.pdf';
+                                                                                                input.onchange = (ev: any) => {
+                                                                                                    const file = ev.target.files?.[0];
+                                                                                                    if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'payment' });
+                                                                                                };
+                                                                                                input.click();
+                                                                                            }}
+                                                                                        >
+                                                                                            <Upload className="w-3 h-3 mr-1" /> Upload Payment Receipt
+                                                                                        </Button>
+                                                                                    )}
+                                                                                    {supplierReceiptUrl ? (
+                                                                                        <Button 
+                                                                                            variant="outline" 
+                                                                                            size="sm" 
+                                                                                            className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                                                                                            onClick={(e) => { e.stopPropagation(); window.open(supplierReceiptUrl, '_blank'); }}
+                                                                                        >
+                                                                                            <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
+                                                                                        </Button>
+                                                                                    ) : (
+                                                                                        <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
+                                                                                            Awaiting Supplier Receipt
+                                                                                        </Badge>
+                                                                                    )}
+                                                                                </>
+                                                                            );
+                                                                        })()}
                                                                         <Button 
                                                                             variant="outline" 
                                                                             size="sm" 
@@ -858,30 +885,57 @@ const CashierPaymentPortal = () => {
                                                             {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
                                                         </div>
                                                         <div className="flex flex-wrap gap-2 justify-end">
-                                                            {firstReq.payment_receipt_url && (
-                                                                <Button 
-                                                                    variant="outline" 
-                                                                    size="sm" 
-                                                                    className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                                                                    onClick={(e) => { e.stopPropagation(); window.open(firstReq.payment_receipt_url, '_blank'); }}
-                                                                >
-                                                                    <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
-                                                                </Button>
-                                                            )}
-                                                            {firstReq.delivery_receipt_url ? (
-                                                                <Button 
-                                                                    variant="outline" 
-                                                                    size="sm" 
-                                                                    className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
-                                                                    onClick={(e) => { e.stopPropagation(); window.open(firstReq.delivery_receipt_url, '_blank'); }}
-                                                                >
-                                                                    <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
-                                                                </Button>
-                                                            ) : (
-                                                                <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
-                                                                    Awaiting Supplier Receipt
-                                                                </Badge>
-                                                            )}
+                                                            {(() => {
+                                                                const payReceiptUrl = reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
+                                                                const supplierReceiptUrl = reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
+                                                                return (
+                                                                    <>
+                                                                        {payReceiptUrl ? (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                                                onClick={(e) => { e.stopPropagation(); window.open(payReceiptUrl, '_blank'); }}
+                                                                            >
+                                                                                <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
+                                                                            </Button>
+                                                                        ) : (
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="h-7 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const input = document.createElement('input');
+                                                                                    input.type = 'file';
+                                                                                    input.accept = 'image/*,.pdf';
+                                                                                    input.onchange = (ev: any) => {
+                                                                                        const file = ev.target.files?.[0];
+                                                                                        if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'payment' });
+                                                                                    };
+                                                                                    input.click();
+                                                                                }}
+                                                                            >
+                                                                                <Upload className="w-3 h-3 mr-1" /> Upload Payment Receipt
+                                                                            </Button>
+                                                                        )}
+                                                                        {supplierReceiptUrl ? (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                                                                                onClick={(e) => { e.stopPropagation(); window.open(supplierReceiptUrl, '_blank'); }}
+                                                                            >
+                                                                                <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
+                                                                            </Button>
+                                                                        ) : (
+                                                                            <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
+                                                                                Awaiting Supplier Receipt
+                                                                            </Badge>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
                                                             <Button 
                                                                 variant="outline" 
                                                                 size="sm" 

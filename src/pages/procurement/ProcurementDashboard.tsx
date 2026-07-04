@@ -1152,16 +1152,21 @@ const ProcurementDashboard = () => {
                                                                                             Print PO
                                                                                         </Button>
                                                                                     )}
-                                                                                    {firstReq.payment_receipt_url && (
-                                                                                        <a href={firstReq.payment_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-emerald-600 hover:underline bg-emerald-50 px-2 py-1.5 rounded border border-emerald-200" onClick={(e) => e.stopPropagation()}>
-                                                                                            <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
-                                                                                        </a>
-                                                                                    )}
-                                                                                    {firstReq.delivery_receipt_url ? (
-                                                                                        <a href={firstReq.delivery_receipt_url} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-purple-600 hover:underline bg-purple-50 px-2 py-1.5 rounded border border-purple-200" onClick={(e) => e.stopPropagation()}>
-                                                                                            <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
-                                                                                        </a>
-                                                                                    ) : (
+                                                                                    {(() => {
+                                                                                        const payUrl = item.reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
+                                                                                        const suppUrl = item.reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
+                                                                                        return (
+                                                                                            <>
+                                                                                                {payUrl && (
+                                                                                                    <a href={payUrl} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-emerald-600 hover:underline bg-emerald-50 px-2 py-1.5 rounded border border-emerald-200" onClick={(e) => e.stopPropagation()}>
+                                                                                                        <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
+                                                                                                    </a>
+                                                                                                )}
+                                                                                                {suppUrl ? (
+                                                                                                    <a href={suppUrl} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-purple-600 hover:underline bg-purple-50 px-2 py-1.5 rounded border border-purple-200" onClick={(e) => e.stopPropagation()}>
+                                                                                                        <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
+                                                                                                    </a>
+                                                                                                ) : (
                                                                                         <Button
                                                                                             size="sm"
                                                                                             className="h-8 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase"
@@ -1187,7 +1192,10 @@ const ProcurementDashboard = () => {
                                                                                         </Button>
                                                                                     )}
                                                                                 </>
-                                                                            ) : item.reqs.some((r: any) => r.status === 'Awaiting Approval') ? (
+                                                                            );
+                                                                        })()}
+                                                                    </>
+                                                                ) : item.reqs.some((r: any) => r.status === 'Awaiting Approval') ? (
                                                                                 <Badge className="bg-orange-100 text-orange-800 border-orange-200 px-3 py-1 font-bold uppercase text-[10px]">
                                                                                     Waiting For Approval
                                                                                 </Badge>

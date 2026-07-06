@@ -1096,7 +1096,27 @@ const ProcurementDashboard = () => {
                                                                 reqs.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req, isChild: true }));
                                                             }
                                                         });
-                                                        ungrouped.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req }));
+                                                        
+                                                        const vehicleGroups: Record<string, any[]> = {};
+                                                        ungrouped.forEach((req: any) => {
+                                                            const dateStr = new Date(req.created_at).toLocaleDateString();
+                                                            const vId = req.vehicle?.id || 'NO-VEHICLE';
+                                                            const cat = req.requirement_category || 'Uncategorized';
+                                                            const key = req.request_type === 'General' ? `general-${req.id}` : `${dateStr}-${vId}-${cat}`;
+                                                            if (!vehicleGroups[key]) vehicleGroups[key] = [];
+                                                            vehicleGroups[key].push(req);
+                                                        });
+
+                                                        Object.entries(vehicleGroups).forEach(([key, reqs]) => {
+                                                            if (reqs[0].request_type === 'General') {
+                                                                flatItems.push({ isSupplierHeader: false, req: reqs[0] });
+                                                            } else {
+                                                                flatItems.push({ isVehicleHeader: true, reqs, vId: key });
+                                                                if (expandedVehicles.includes(key)) {
+                                                                    reqs.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req, isChild: true }));
+                                                                }
+                                                            }
+                                                        });
                                                     } else {
                                                         grouped[month].forEach((req: any) => flatItems.push({ isSupplierHeader: false, req }));
                                                     }
@@ -1272,6 +1292,50 @@ const ProcurementDashboard = () => {
                                                                                 </>
                                                                             )}
                                                                         </div>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            );
+                                                        }
+
+                                                        if (item.isVehicleHeader) {
+                                                            const isExpanded = expandedVehicles.includes(item.vId);
+                                                            const firstReq = item.reqs[0];
+                                                            const dateStr = new Date(firstReq.created_at).toLocaleDateString();
+                                                            const timeStr = new Date(firstReq.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                                            const category = firstReq.requirement_category || 'Uncategorized';
+                                                            const vehicle = firstReq.vehicle;
+
+                                                            return (
+                                                                <TableRow key={`veh-${item.vId}-${idx}`} className="hover:bg-slate-50/50 border-y border-slate-100 transition-colors cursor-pointer bg-white" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.vId) : [...prev, item.vId])}>
+                                                                    <TableCell className="px-4">
+                                                                        {isExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+                                                                    </TableCell>
+                                                                    <TableCell className="py-3 hidden md:table-cell">
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-xs text-slate-500 font-medium">{dateStr}</span>
+                                                                            <span className="font-mono text-[11px] text-indigo-400">{timeStr}</span>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell colSpan={2} className="py-3">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="flex flex-col max-w-[200px]">
+                                                                                <span className="text-xs font-bold text-slate-700 uppercase">{vehicle?.make_model || vehicle?.asset_type || 'Unknown'}</span>
+                                                                                <span className="text-[10px] text-slate-500 font-medium tracking-tight">
+                                                                                    {vehicle ? (vehicle.vehicle_no ? `${vehicle.vehicle_no}` : (vehicle.horse_number || vehicle.trailer_number || '-')) : '-'}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell colSpan={2}>
+                                                                        <div className="flex items-center gap-4">
+                                                                            <Badge variant="outline" className={`text-[10px] uppercase font-bold py-0 h-5 tracking-tighter ${category === 'Spare' ? 'border-orange-200 text-orange-600 bg-orange-50' : category === 'Paint' ? 'border-blue-200 text-blue-600 bg-blue-50' : category === 'Electrical' ? 'border-yellow-200 text-yellow-600 bg-yellow-50' : 'border-slate-200 text-slate-500 bg-slate-50'}`}>{category}</Badge>
+                                                                            <span className="text-[10px] text-slate-400 font-mono">({item.reqs.length} items)</span>
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right px-2 md:px-6" colSpan={2}>
+                                                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
+                                                                            {isExpanded ? 'Hide' : 'View'}
+                                                                        </Button>
                                                                     </TableCell>
                                                                 </TableRow>
                                                             );

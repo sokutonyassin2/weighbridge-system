@@ -177,7 +177,8 @@ const GarageDashboard = () => {
 
     const [isRequisitionDialogOpen, setIsRequisitionDialogOpen] = useState(false);
     const [isEditReqOpen, setIsEditReqOpen] = useState(false);
-    const [editingReqItem, setEditingReqItem] = useState<{ id: string; item_name: string; quantity: number } | null>(null);
+    const [editingReqItem, setEditingReqItem] = useState<{ id: string; item_name: string; quantity: number; vehicle_id?: string; requirement_category?: string } | null>(null);
+    const [isEditVehiclePopoverOpen, setIsEditVehiclePopoverOpen] = useState(false);
     const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
     const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
     const [editProduct, setEditProduct] = useState({ id: "", item_name: "", part_number: "", category: "Parts", quantity: 0, unit_measure: "pcs", min_threshold: 5 });
@@ -379,7 +380,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model, asset_type)")
+                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -547,9 +548,17 @@ const GarageDashboard = () => {
     });
 
     const editRequisitionMutation = useMutation({
-        mutationFn: async ({ id, item_name, quantity }: { id: string, item_name: string, quantity: number }) => {
+        mutationFn: async ({ id, item_name, quantity, vehicle_id, requirement_category }: { id: string, item_name: string, quantity: number, vehicle_id?: string, requirement_category?: string }) => {
+            const updates: any = { 
+                item_name, 
+                quantity_requested: quantity, 
+                vehicle_id: vehicle_id || null 
+            };
+            if (requirement_category) {
+                updates.requirement_category = requirement_category;
+            }
             const { data, error } = await sb.from("garage_requisitions")
-                .update({ item_name, quantity_requested: quantity })
+                .update(updates)
                 .eq("id", id)
                 .eq("status", "Pending")
                 .select();
@@ -2255,10 +2264,14 @@ const GarageDashboard = () => {
                                                                     </div>
                                                                 </TableCell>
                                                                 <TableCell className="font-semibold text-slate-700 text-sm">
-                                                                    {group.vehicle?.make_model || group.vehicle?.asset_type || (group.category === 'General' ? '-' : 'Unknown')}
+                                                                    {group.vehicle?.make_model || group.vehicle?.asset_type || (group.category === 'General' ? (language === 'en' ? 'STORE ROOM' : 'STOO') : 'Unknown')}
                                                                 </TableCell>
                                                                 <TableCell className="font-medium text-slate-600 text-sm tracking-tight">
-                                                                    {group.vehicle ? getVehicleSpecificPlate(group.vehicle) : '-'}
+                                                                    {group.vehicle 
+                                                                        ? getVehicleSpecificPlate(group.vehicle) 
+                                                                        : (group.category === 'General' && group.items?.[0]
+                                                                            ? <span className="text-indigo-600 font-bold">{group.items[0].item_name} <span className="text-slate-400 font-normal">x{group.items[0].quantity_requested}</span></span>
+                                                                            : '-')}
                                                                 </TableCell>
                                                                 <TableCell>
                                                                     <div className="flex items-center gap-2">
@@ -2292,7 +2305,7 @@ const GarageDashboard = () => {
                                                                         )}
                                                                         {group.category === 'General' && group.status === 'Pending' && (
                                                                             <>
-                                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: group.items[0].id, item_name: group.items[0].item_name, quantity: group.items[0].quantity_requested }); setIsEditReqOpen(true); }}><Edit2 className="w-4 h-4" /></Button>
+                                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: group.items[0].id, item_name: group.items[0].item_name, quantity: group.items[0].quantity_requested, vehicle_id: group.items[0].vehicle_id || "", requirement_category: group.category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-4 h-4" /></Button>
                                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete?")) { deleteRequisitionMutation.mutate(group.items[0].id); } }}><Trash2 className="w-4 h-4" /></Button>
                                                                             </>
                                                                         )}
@@ -2323,7 +2336,7 @@ const GarageDashboard = () => {
                                                                                             <td className="py-2 text-right">
                                                                                                 {item.status === 'Pending' ? (
                                                                                                     <div className="flex items-center justify-end gap-1">
-                                                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-indigo-500" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: item.id, item_name: item.item_name, quantity: item.quantity_requested }); setIsEditReqOpen(true); }}><Edit2 className="w-3 h-3" /></Button>
+                                                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-indigo-500" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: item.id, item_name: item.item_name, quantity: item.quantity_requested, vehicle_id: item.vehicle_id || "", requirement_category: item.requirement_category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-3 h-3" /></Button>
                                                                                                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-rose-500" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete item?")) { deleteRequisitionMutation.mutate(item.id); } }}><Trash2 className="w-3 h-3" /></Button>
                                                                                                     </div>
                                                                                                 ) : <Lock className="w-3 h-3 text-slate-300 ml-auto" />}
@@ -2818,13 +2831,110 @@ const GarageDashboard = () => {
                     </DialogHeader>
                     {editingReqItem && (
                         <div className="grid gap-4 py-4">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item Requested' : 'Kifaa Kilichoombwa'}</Label>
-                                <Input
-                                    value={editingReqItem.item_name}
-                                    onChange={(e) => setEditingReqItem({ ...editingReqItem, item_name: e.target.value })}
-                                />
-                            </div>
+                            {editingReqItem.requirement_category === 'Uncategorized' ? (
+                                <>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item Name' : 'Jina la Kifaa'}</Label>
+                                        <Input
+                                            value={editingReqItem.item_name}
+                                            onChange={(e) => setEditingReqItem({ ...editingReqItem, item_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] mb-2 block">{language === 'en' ? 'Category' : 'Kundi'}</Label>
+                                        <div className="flex flex-wrap gap-3">
+                                            {['Spare', 'Paint', 'Electrical'].map(cat => (
+                                                <label key={cat} className="flex items-center gap-2 cursor-pointer border px-3 py-1.5 rounded bg-white hover:bg-slate-50">
+                                                    <input 
+                                                        type="checkbox"
+                                                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                                        checked={editingReqItem.requirement_category === cat}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setEditingReqItem({ ...editingReqItem, requirement_category: cat });
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="text-sm font-medium text-slate-700">
+                                                        {language === 'en' ? cat : (
+                                                            cat === 'Spare' ? 'Spea' :
+                                                            cat === 'Paint' ? 'Rangi' :
+                                                            cat === 'Electrical' ? 'Umeme' :
+                                                            cat === 'General' ? 'Jumla' :
+                                                            cat === 'Parts' ? 'Vipuri' :
+                                                            cat === 'Fluids' ? 'Maji/Mafuta' :
+                                                            cat === 'Tools' ? 'Zana' : 'Haijapangwa'
+                                                        )}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Select Vehicle' : 'Chagua Gari'}</Label>
+                                        <Popover open={isEditVehiclePopoverOpen} onOpenChange={setIsEditVehiclePopoverOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button variant="outline" role="combobox" aria-expanded={isEditVehiclePopoverOpen} className="w-full justify-between font-normal h-9 bg-white">
+                                                    {editingReqItem.vehicle_id
+                                                        ? (() => {
+                                                            const v = (vehicles || []).find((v: any) => v.id === editingReqItem.vehicle_id);
+                                                            return v ? `${getVehicleSpecificPlate(v)} ${v.model ? `- ${v.model}` : ''}` : 'Select a vehicle...';
+                                                        })()
+                                                        : (language === 'en' ? "Select vehicle if applicable" : "Chagua gari kama linahusika")}
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[380px] p-0" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder={language === 'en' ? "Search vehicle..." : "Tafuta gari..."} className="h-9" />
+                                                    <CommandList>
+                                                        <CommandEmpty>No vehicle found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            <CommandItem
+                                                                value="none"
+                                                                onSelect={() => {
+                                                                    setEditingReqItem({ ...editingReqItem, vehicle_id: "" });
+                                                                    setIsEditVehiclePopoverOpen(false);
+                                                                }}
+                                                            >
+                                                                <span className="text-slate-500 italic">{language === 'en' ? 'None (Unassign)' : 'Hakuna'}</span>
+                                                            </CommandItem>
+                                                            {(vehicles || []).map((v: any) => {
+                                                                const plate = getVehicleSpecificPlate(v);
+                                                                return (
+                                                                    <CommandItem
+                                                                        key={v.id}
+                                                                        value={`${plate} ${v.model || ''}`}
+                                                                        onSelect={() => {
+                                                                            setEditingReqItem({ ...editingReqItem, vehicle_id: v.id });
+                                                                            setIsEditVehiclePopoverOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <div className="flex flex-col">
+                                                                            <span className="font-semibold">{plate}</span>
+                                                                            <span className="text-[10px] text-slate-500">{v.model || "Unknown Model"} • {v.status}</span>
+                                                                        </div>
+                                                                        <Check className={`ml-auto h-4 w-4 ${editingReqItem.vehicle_id === v.id ? "opacity-100" : "opacity-0"}`} />
+                                                                    </CommandItem>
+                                                                );
+                                                            })}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">{language === 'en' ? 'Item Requested' : 'Kifaa Kilichoombwa'}</Label>
+                                    <Input
+                                        value={editingReqItem.item_name}
+                                        disabled
+                                        className="bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed"
+                                    />
+                                </div>
+                            )}
                             <div className="space-y-2">
                                 <Label className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{language === 'en' ? 'Quantity' : 'Idadi'}</Label>
                                 <Input

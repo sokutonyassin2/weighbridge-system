@@ -259,8 +259,8 @@ const ProcurementDashboard = () => {
                 status: nextStatus,
                 unit_price: unitPrice,
                 total_price: subtotal + vat,
-                supplier_id: details.supplier_id,
-                po_number: details.po_number,
+                supplier_id: details.supplier_id || null,
+                po_number: details.po_number || null,
                 includes_vat: details.includes_vat,
                 vat_amount: vat,
                 payment_details: allPaymentMethods?.find((m: any) => m.id === details.payment_method_id) || null,
@@ -372,8 +372,8 @@ const ProcurementDashboard = () => {
                     status: isUpdateOnly ? 'Pending' : 'Awaiting Approval',
                     unit_price: unitPrice,
                     total_price: subtotal + vat,
-                    supplier_id: sharedDetails.supplier_id,
-                    po_number: sharedDetails.po_number,
+                    supplier_id: sharedDetails.supplier_id || null,
+                    po_number: sharedDetails.po_number || null,
                     includes_vat: sharedDetails.includes_vat,
                     vat_amount: vat,
                     payment_details: allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null,
@@ -2099,7 +2099,7 @@ const ProcurementDashboard = () => {
                         <Button
                             variant="outline"
                             className="h-11 border-blue-200 text-blue-900 hover:bg-blue-50 font-semibold uppercase text-[11px] px-6 flex-1"
-                            disabled={!batchSharedDetails.supplier_id || !batchSharedDetails.payment_method_id || batchWorkflowMutation.isPending || batchQuoteReqs.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
+                            disabled={batchWorkflowMutation.isPending || batchQuoteReqs.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
                             onClick={() => {
                                 setSubmittingBatchType("update");
                                 batchWorkflowMutation.mutate({

@@ -218,12 +218,17 @@ const ProcurementDashboard = () => {
     };
 
     // Helper for monthly grouping
-    const groupRequisitionsByMonth = (reqs: any[]) => {
+    const groupRequisitionsByMonth = (reqs: any[], filterMode: string) => {
         return reqs.reduce((groups: any, req: any) => {
-            const date = new Date(req.created_at);
-            const monthYear = date.toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase();
-            if (!groups[monthYear]) groups[monthYear] = [];
-            groups[monthYear].push(req);
+            let groupKey = "";
+            if (filterMode === 'Pending') {
+                groupKey = "ALL PENDING / DRAFT ORDERS";
+            } else {
+                const date = new Date(req.created_at);
+                groupKey = date.toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase();
+            }
+            if (!groups[groupKey]) groups[groupKey] = [];
+            groups[groupKey].push(req);
             return groups;
         }, {});
     };
@@ -978,7 +983,7 @@ const ProcurementDashboard = () => {
                                         <Badge className={`ml-2 h-4 px-1 text-[9px] ${reqStatusFilter === status ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-500'
                                             }`}>
                                             {(requisitions || []).filter(r => status === 'All' ? true :
-                                                status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval') :
+                                            status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
                                                     status === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
                                                         r.status === status
                                             ).length}
@@ -1032,7 +1037,7 @@ const ProcurementDashboard = () => {
                                             );
 
                                             const matchesStatus = reqStatusFilter === 'All' ? true :
-                                                reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval') :
+                                        reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
                                                     reqStatusFilter === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
                                                         r.status === reqStatusFilter;
 
@@ -1053,7 +1058,7 @@ const ProcurementDashboard = () => {
                                             );
                                         }
 
-                                        const grouped = groupRequisitionsByMonth(filteredReqs);
+                                        const grouped = groupRequisitionsByMonth(filteredReqs, reqStatusFilter);
                                         return Object.keys(grouped).map((month) => (
                                             <React.Fragment key={month}>
                                                 <TableRow className="bg-slate-50/80 border-y">
@@ -1075,7 +1080,8 @@ const ProcurementDashboard = () => {
                                                         grouped[month].forEach((req: any) => {
                                                             if (req.supplier_id) {
                                                                 const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                                const key = `${req.po_number || 'NO-PO'}_${supplierName}`;
+                                                                const isDraftOrRevoked = req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked';
+                                                                const key = isDraftOrRevoked ? `DRAFT_${supplierName}` : `${req.po_number || 'NO-PO'}_${supplierName}`;
                                                                 if (!supplierGroups[key]) supplierGroups[key] = [];
                                                                 supplierGroups[key].push(req);
                                                             } else {
@@ -1367,7 +1373,7 @@ const ProcurementDashboard = () => {
                                                         <TableCell className="text-right px-6">
                                                             <div className="flex items-center justify-end gap-2">
                                                                 {/* PROCUREMENT OFFICER: Prepare Quote */}
-                                                                {(req.status === 'Pending' || req.status === 'Pending Review') && (
+                                                                {(req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked') && (
                                                                     <div className="flex items-center gap-2">
                                                                         <Button
                                                                             size="sm"
@@ -1391,7 +1397,7 @@ const ProcurementDashboard = () => {
                                                                             {userRole === 'procurement_officer' ? "Enter Quote" : "Review & Quote"}
                                                                         </Button>
 
-                                                                        {(!req.po_number && !isChild) && (
+                                                                        {((!req.po_number || req.status === 'Revoked') && !isChild) && (
                                                                             <Button
                                                                                 size="sm"
                                                                                 className="h-8 bg-orange-600 hover:bg-orange-700 text-[10px] font-bold uppercase shadow-md shadow-orange-100 text-white"

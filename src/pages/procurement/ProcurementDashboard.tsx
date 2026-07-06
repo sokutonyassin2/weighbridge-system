@@ -1950,6 +1950,19 @@ const ProcurementDashboard = () => {
                                             <CommandList>
                                                 <CommandEmpty>No supplier found.</CommandEmpty>
                                                 <CommandGroup>
+                                                    <CommandItem
+                                                        key="none"
+                                                        value="None (Unassign Supplier)"
+                                                        onSelect={() => {
+                                                            setBatchSharedDetails({ ...batchSharedDetails, supplier_id: "", payment_method_id: "" });
+                                                            setBatchSupplierOpen(false);
+                                                        }}
+                                                    >
+                                                        <Check
+                                                            className={`mr-2 h-4 w-4 ${!batchSharedDetails.supplier_id ? "opacity-100" : "opacity-0"}`}
+                                                        />
+                                                        <span className="italic text-slate-500">None (Unassign Supplier)</span>
+                                                    </CommandItem>
                                                     {(suppliers || []).map((s: any) => (
                                                         <CommandItem
                                                             key={s.id}
@@ -2163,6 +2176,19 @@ const ProcurementDashboard = () => {
                                         <CommandList>
                                             <CommandEmpty>No supplier found.</CommandEmpty>
                                             <CommandGroup>
+                                                <CommandItem
+                                                    key="none"
+                                                    value="None (Unassign Supplier)"
+                                                    onSelect={() => {
+                                                        setApprovalDetails({ ...approvalDetails, supplier_id: "" });
+                                                        setSingleSupplierOpen(false);
+                                                    }}
+                                                >
+                                                    <Check
+                                                        className={`mr-2 h-4 w-4 ${!approvalDetails.supplier_id ? "opacity-100" : "opacity-0"}`}
+                                                    />
+                                                    <span className="italic text-slate-500">None (Unassign Supplier)</span>
+                                                </CommandItem>
                                                 {(suppliers || []).map((s: any) => (
                                                     <CommandItem
                                                         key={s.id}

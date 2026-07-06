@@ -2139,7 +2139,7 @@ const ProcurementDashboard = () => {
                     <DialogHeader>
                         <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                             <Receipt className="w-5 h-5 text-blue-900" />
-                            {selectedReq?.status === 'Pending' ? 'Stage 1: Prepare Quote' : 'Stage 2: Management Approval'}
+                            {(selectedReq?.status === 'Pending' || selectedReq?.status === 'Pending Review' || selectedReq?.status === 'Revoked') ? 'Stage 1: Prepare Quote' : 'Stage 2: Management Approval'}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-6 py-4">
@@ -2310,22 +2310,27 @@ const ProcurementDashboard = () => {
 
                         <Button
                             className="h-11 bg-blue-900 hover:bg-black font-semibold uppercase text-[11px] px-8 flex-1"
-                            disabled={!approvalDetails.supplier_id || !approvalDetails.temp_price || approvalDetails.temp_price <= 0 || !approvalDetails.payment_method_id || workflowMutation.isPending}
+                            disabled={
+                                workflowMutation.isPending || 
+                                ((selectedReq?.status !== 'Pending' && selectedReq?.status !== 'Pending Review' && selectedReq?.status !== 'Revoked') && 
+                                (!approvalDetails.supplier_id || !approvalDetails.temp_price || approvalDetails.temp_price <= 0 || !approvalDetails.payment_method_id))
+                            }
                             onClick={() => {
                                 const qtyApproving = approvalDetails.quantity_approving;
                                 const qtyRequested = selectedReq?.quantity_requested || 0;
+                                const isDraft = selectedReq?.status === 'Pending' || selectedReq?.status === 'Pending Review' || selectedReq?.status === 'Revoked';
 
                                 workflowMutation.mutate({
                                     reqId: selectedReq?.id,
                                     qty: qtyApproving,
                                     itemId: selectedReq?.item_id,
                                     details: approvalDetails,
-                                    nextStatus: selectedReq?.status === 'Pending' ? 'Pending' : 'Approved',
+                                    nextStatus: isDraft ? 'Pending' : 'Approved',
                                 });
                             }}
                         >
                             {workflowMutation.isPending ? "Processing..." : 
-                             selectedReq?.status === 'Pending' ? "Save Draft Quote" : "Confirm Authorization"}
+                             (selectedReq?.status === 'Pending' || selectedReq?.status === 'Pending Review' || selectedReq?.status === 'Revoked') ? "Save Draft Quote" : "Confirm Authorization"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

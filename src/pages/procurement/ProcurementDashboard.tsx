@@ -308,10 +308,10 @@ const ProcurementDashboard = () => {
                 else toast({ title: "Requisition Split", description: `Created new request for remaining ${remaining} units.` });
             }
 
-            // Reduce Stock ONLY when fully approved by Management
-            if (nextStatus === 'Approved' && itemId && item) {
+            // Increase Stock when goods arrive in the store
+            if (nextStatus === 'Arrived' && itemId && item) {
                 const { error: invError } = await sb.from("garage_inventory").update({
-                    quantity: (item.quantity || 0) - qty
+                    quantity: (item.quantity || 0) + qty
                 }).eq("id", itemId);
                 if (invError) throw invError;
             }

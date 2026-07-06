@@ -1237,7 +1237,8 @@ const ProcurementDashboard = () => {
                                                                                             const initialQuantities: Record<string, number> = {};
                                                                                             item.reqs.forEach((r: any) => {
                                                                                                 initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
-                                                                                                initialQuantities[r.id] = r.quantity_requested || 1;
+                                                                                                // Use approved qty (what was actually approved), not the original request qty
+                                                                                                initialQuantities[r.id] = r.quantity_approved || r.quantity_requested || 1;
                                                                                             });
                                                                                             setBatchItemPrices(initialPrices);
                                                                                             setBatchItemQuantities(initialQuantities);
@@ -2031,21 +2032,26 @@ const ProcurementDashboard = () => {
                                 <span>Items to Quote</span>
                                 <span>{batchQuoteReqs.length}</span>
                             </Label>
-                            {batchQuoteReqs.map((req) => (
+                            {batchQuoteReqs.map((req) => {
+                                const balance = (req.quantity_requested || 0) - (req.quantity_received || 0);
+                                const hasPartialReceipt = (req.quantity_received || 0) > 0;
+                                return (
                                 <div key={req.id} className="flex items-center gap-4 bg-slate-50/50 p-3 rounded-lg border border-slate-100">
                                     <div className="flex-1">
                                         <p className="font-bold text-sm text-slate-800">{req.item_name}</p>
                                         <p className="text-[10px] text-slate-500 uppercase">Requested: {req.quantity_requested}</p>
+                                        {hasPartialReceipt && (
+                                            <p className="text-[10px] font-bold text-amber-600 uppercase">Received: {req.quantity_received} &nbsp;|&nbsp; Balance: {balance}</p>
+                                        )}
                                     </div>
                                     <div className="w-24 space-y-1">
-                                        <Label className="text-[9px] text-slate-500 uppercase">Available Qty</Label>
+                                        <Label className="text-[9px] text-slate-500 uppercase">Qty to Buy</Label>
                                         <Input
                                             type="number"
                                             value={batchItemQuantities[req.id] || ''}
                                             onChange={(e) => setBatchItemQuantities({ ...batchItemQuantities, [req.id]: parseInt(e.target.value) || 0 })}
                                             className="h-8 font-semibold text-center"
                                             min={1}
-                                            max={req.quantity_requested}
                                         />
                                     </div>
                                     <div className="w-32 space-y-1">
@@ -2065,7 +2071,9 @@ const ProcurementDashboard = () => {
                                         </p>
                                     </div>
                                 </div>
-                            ))}
+                                );
+                            })}
+
                         </div>
 
                         {/* Totals */}

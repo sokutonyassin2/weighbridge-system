@@ -959,14 +959,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         inTZS = amt;
                         inUSD = amt / rate;
                     } else if (curr.category === 'Zambia') {
-                        inUSD = amt / (countryRates["Zambia"] || 100);
-                        inTZS = inUSD * rate;
+                        inTZS = amt * (countryRates["Zambia"] || 140);
+                        inUSD = inTZS / rate;
                     } else if (curr.category === 'Rwanda') {
-                        inUSD = amt / (countryRates["Rwanda"] || 2);
-                        inTZS = inUSD * rate;
+                        inTZS = amt * (countryRates["Rwanda"] || 2);
+                        inUSD = inTZS / rate;
                     } else if (curr.category === 'Burundi') {
-                        inUSD = amt / (countryRates["Burundi"] || 1);
-                        inTZS = inUSD * rate;
+                        inTZS = amt * (countryRates["Burundi"] || 1);
+                        inUSD = inTZS / rate;
                     }
                 }
                 
@@ -1412,28 +1412,28 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 if (effectiveCurrency === 'USD') {
                     amtUsd = amt;
                     amtTzs = amt * tzR;
-                    if (cat.id === 'Zambia') amtLocal = amt * (countryRates["Zambia"] || 100);
-                    else if (cat.id === 'Rwanda') amtLocal = amt * (countryRates["Rwanda"] || 2);
-                    else if (cat.id === 'Burundi') amtLocal = amt * (countryRates["Burundi"] || 1);
+                    if (cat.id === 'Zambia') amtLocal = amtTzs / (countryRates["Zambia"] || 140);
+                    else if (cat.id === 'Rwanda') amtLocal = amtTzs / (countryRates["Rwanda"] || 2);
+                    else if (cat.id === 'Burundi') amtLocal = amtTzs / (countryRates["Burundi"] || 1);
                 } else {
                     if (cat.id === 'TZ' || cat.id === 'Fixed') {
                         amtTzs = amt;
                         amtUsd = amt / tzR;
                     } else if (cat.id === 'Zambia') {
                         amtLocal = amt;
-                        amtUsd = amt / (countryRates["Zambia"] || 100);
-                        amtTzs = amtUsd * tzR;
+                        amtTzs = amt * (countryRates["Zambia"] || 140);
+                        amtUsd = amtTzs / tzR;
                     } else if (cat.id === 'DRC') {
                         amtUsd = amt;
                         amtTzs = amt * tzR;
                     } else if (cat.id === 'Rwanda') {
                         amtLocal = amt;
-                        amtUsd = amt / (countryRates["Rwanda"] || 2);
-                        amtTzs = amtUsd * tzR;
+                        amtTzs = amt * (countryRates["Rwanda"] || 2);
+                        amtUsd = amtTzs / tzR;
                     } else if (cat.id === 'Burundi') {
                         amtLocal = amt;
-                        amtUsd = amt / (countryRates["Burundi"] || 1);
-                        amtTzs = amtUsd * tzR;
+                        amtTzs = amt * (countryRates["Burundi"] || 1);
+                        amtUsd = amtTzs / tzR;
                     }
                 }
 
@@ -1825,20 +1825,20 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 amountUSD = inputAmount / tzRate;
                             } else if (category === 'Zambia') {
                                 amountZMW = inputAmount;
-                                amountUSD = inputAmount / zambiaRate;
-                                amountTSh = amountUSD * tzRate;
+                                amountTSh = inputAmount * zambiaRate;
+                                amountUSD = amountTSh / tzRate;
                             } else if (category === 'DRC') {
                                 amountDRC = inputAmount;
                                 amountUSD = inputAmount / drcRate;
                                 amountTSh = amountUSD * tzRate;
                             } else if (category === 'Rwanda') {
                                 amountRWF = inputAmount;
-                                amountUSD = inputAmount / rwandaRate;
-                                amountTSh = amountUSD * tzRate;
+                                amountTSh = inputAmount * rwandaRate;
+                                amountUSD = amountTSh / tzRate;
                             } else if (category === 'Burundi') {
                                 amountBIF = inputAmount;
-                                amountUSD = inputAmount / burundiRate;
-                                amountTSh = amountUSD * tzRate;
+                                amountTSh = inputAmount * burundiRate;
+                                amountUSD = amountTSh / tzRate;
                             }
                         }
 

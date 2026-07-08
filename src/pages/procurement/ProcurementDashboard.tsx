@@ -958,7 +958,7 @@ const ProcurementDashboard = () => {
                                 <div className="relative w-full sm:w-64">
                                     <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
                                     <Input
-                                        placeholder="Search by item, company, or PO..."
+                                        placeholder="Search by item, company, PO, vehicle model, or plate..."
                                         className="pl-8 h-8 text-[11px] bg-white border-slate-200 w-full"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -1033,7 +1033,11 @@ const ProcurementDashboard = () => {
                                                 (r.item_name || "").toLowerCase().includes(searchLower) ||
                                                 (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
                                                 (r.po_number || "").toLowerCase().includes(searchLower) ||
-                                                (r.status || "").toLowerCase().includes(searchLower)
+                                                (r.status || "").toLowerCase().includes(searchLower) ||
+                                                (r.vehicle?.make_model || "").toLowerCase().includes(searchLower) ||
+                                                (r.vehicle?.vehicle_no || "").toLowerCase().includes(searchLower) ||
+                                                (r.vehicle?.horse_number || "").toLowerCase().includes(searchLower) ||
+                                                (r.vehicle?.trailer_number || "").toLowerCase().includes(searchLower)
                                             );
 
                                             const matchesStatus = reqStatusFilter === 'All' ? true :

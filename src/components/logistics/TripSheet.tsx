@@ -799,22 +799,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                 if (expenseData && expenseData.length > 0) {
                     const docExpenses = (expenseData as any[]).map(e => {
-                        const rate = parseFloat(doc.exchange_rate) || 2700;
-                        const isUSD = e.currency === 'USD';
-                        let amountInUI = parseFloat(e.amount) || 0;
-                        if (isUSD) {
-                            amountInUI = amountInUI * rate;
-                        } else {
-                            if (normalizeCategory(e.category) === 'Zambia') amountInUI = amountInUI / (doc.country_rates?.["Zambia"] || 100);
-                            else if (normalizeCategory(e.category) === 'DRC') amountInUI = amountInUI / (doc.country_rates?.["DRC"] || 1.0);
-                            else if (normalizeCategory(e.category) === 'Rwanda') amountInUI = amountInUI / (doc.country_rates?.["Rwanda"] || 2);
-                            else if (normalizeCategory(e.category) === 'Burundi') amountInUI = amountInUI / (doc.country_rates?.["Burundi"] || 1);
-                        }
                         return {
                             item_name: e.item_name || e.description || "",
-                            amount: amountInUI.toString(),
+                            amount: (parseFloat(e.amount) || 0).toString(),
                             category: normalizeCategory(e.category),
-                            currency: 'TZS'
+                            currency: e.currency || (normalizeCategory(e.category) === 'Zambia' ? 'ZMW' : normalizeCategory(e.category) === 'DRC' ? 'USD' : normalizeCategory(e.category) === 'Rwanda' ? 'RWF' : normalizeCategory(e.category) === 'Burundi' ? 'BIF' : 'TZS'),
+                            nature: e.nature || normalizeCategory(e.category),
+                            is_extra: e.is_extra || false
                         };
                     }) as ExpenseItem[];
 

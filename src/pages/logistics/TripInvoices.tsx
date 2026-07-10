@@ -41,12 +41,15 @@ export default function TripInvoices() {
                 .from("logistics_trip_sheets")
                 .select(`
                     *,
-                    vehicle:vehicle_id ( id, vehicle_no ),
-                    expenses:logistics_trip_expenses ( trip_sheet_id, amount, currency, category )
+                    vehicle:vehicle_id ( id, vehicle_no, fleet_category ),
+                    driver:driver_id ( id, full_name )
                 `)
                 .order("created_at", { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.error("Error fetching trip sheets in invoices:", error);
+                throw error;
+            }
             return sheets || [];
         }
     });

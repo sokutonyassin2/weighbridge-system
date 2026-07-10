@@ -42,7 +42,6 @@ export default function TripInvoices() {
                 .select(`
                     *,
                     vehicle:vehicle_id ( id, vehicle_no ),
-                    trip:trip_id ( id, trip_number, client_name ),
                     expenses:logistics_trip_expenses ( trip_sheet_id, amount, currency, category )
                 `)
                 .order("created_at", { ascending: false });
@@ -153,8 +152,7 @@ export default function TripInvoices() {
             s.client_name?.toLowerCase().includes(searchLower) ||
             s.vehicle?.vehicle_no?.toLowerCase().includes(searchLower) ||
             s.invoice_no?.toLowerCase().includes(searchLower) ||
-            s.return_invoice_no?.toLowerCase().includes(searchLower) ||
-            s.trip?.trip_number?.toLowerCase().includes(searchLower);
+            s.return_invoice_no?.toLowerCase().includes(searchLower);
         
         if (activeTab === "pending") return matchesSearch && (s.payment_status !== "Paid" || (s.journey_type?.includes("Go & Return") && s.return_payment_status !== "Paid"));
         if (activeTab === "paid") return matchesSearch && s.payment_status === "Paid" && (!s.journey_type?.includes("Go & Return") || s.return_payment_status === "Paid");
@@ -166,7 +164,7 @@ export default function TripInvoices() {
         const groups: Record<string, any[]> = {};
         (tripSheets || []).forEach((sheet: any) => {
             if (!sheet.invoice_no) { // Has no outbound invoice yet
-                const clientName = sheet.client_name || sheet.trip?.client_name || 'Individual / Unspecified';
+                const clientName = sheet.client_name || 'Individual / Unspecified';
                 if (!groups[clientName]) groups[clientName] = [];
                 groups[clientName].push(sheet);
             }
@@ -209,7 +207,7 @@ export default function TripInvoices() {
 
     // Grouping by Invoice (Outbound primarily)
     const groupedByInvoice = filteredSheets.reduce((acc: any, sheet: any) => {
-        const clientName = sheet.client_name || sheet.trip?.client_name || 'Individual / Unspecified';
+        const clientName = sheet.client_name || 'Individual / Unspecified';
         const invNo = sheet.invoice_no || `UNASSIGNED_${clientName}`;
         if (!acc[invNo]) {
             acc[invNo] = {
@@ -217,7 +215,7 @@ export default function TripInvoices() {
                 invoice_date: sheet.invoice_date,
                 payment_status: sheet.payment_status,
                 currency: sheet.revenue_currency || 'TZS',
-                client_name: sheet.client_name || sheet.trip?.client_name || '',
+                client_name: sheet.client_name || '',
                 total_revenue: 0,
                 total_expenses: 0,
                 trips: []
@@ -227,8 +225,8 @@ export default function TripInvoices() {
         acc[invNo].total_revenue += parseFloat(sheet.revenue_amount || 0);
         
         // Keep track of client name (use first non-empty one)
-        if (!acc[invNo].client_name && (sheet.client_name || sheet.trip?.client_name)) {
-            acc[invNo].client_name = sheet.client_name || sheet.trip?.client_name;
+        if (!acc[invNo].client_name && sheet.client_name) {
+            acc[invNo].client_name = sheet.client_name;
         }
 
         const sheetExpenses = calculateSheetExpensesTZS(sheet);
@@ -358,9 +356,9 @@ export default function TripInvoices() {
                                                         <div>
                                                             <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
                                                                 {sheet.vehicle?.vehicle_no}
-                                                                {(sheet.reference_number || sheet.trip?.trip_number) && (
+                                                                {sheet.reference_number && (
                                                                     <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
-                                                                        {sheet.reference_number || sheet.trip?.trip_number}
+                                                                        {sheet.reference_number}
                                                                     </span>
                                                                 )}
                                                             </div>

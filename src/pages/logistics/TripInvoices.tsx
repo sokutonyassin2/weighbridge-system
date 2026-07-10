@@ -146,12 +146,15 @@ export default function TripInvoices() {
 
     // Filter and group
     const filteredSheets = (tripSheets || []).filter((s: any) => {
-        const matchesSearch = 
-            s.sheet_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.vehicle?.vehicle_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.invoice_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.return_invoice_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            s.trip?.trip_number?.toLowerCase().includes(searchTerm.toLowerCase());
+        const searchLower = searchTerm.toLowerCase();
+        const matchesSearch = !searchTerm ||
+            s.sheet_number?.toLowerCase().includes(searchLower) ||
+            s.reference_number?.toLowerCase().includes(searchLower) ||
+            s.client_name?.toLowerCase().includes(searchLower) ||
+            s.vehicle?.vehicle_no?.toLowerCase().includes(searchLower) ||
+            s.invoice_no?.toLowerCase().includes(searchLower) ||
+            s.return_invoice_no?.toLowerCase().includes(searchLower) ||
+            s.trip?.trip_number?.toLowerCase().includes(searchLower);
         
         if (activeTab === "pending") return matchesSearch && (s.payment_status !== "Paid" || (s.journey_type?.includes("Go & Return") && s.return_payment_status !== "Paid"));
         if (activeTab === "paid") return matchesSearch && s.payment_status === "Paid" && (!s.journey_type?.includes("Go & Return") || s.return_payment_status === "Paid");

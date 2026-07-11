@@ -380,7 +380,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type)")
+                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type), profiles!requested_by(full_name)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -530,7 +530,7 @@ const GarageDashboard = () => {
             const { data, error } = await sb.from("garage_requisitions").insert(
                 payloads.map(p => ({
                     ...p,
-                    target_company: 'SudEnergy Logistics',
+                    target_company: 'GARAGE',
                     requested_by: user?.id
                 }))
             ).select();
@@ -2168,18 +2168,32 @@ const GarageDashboard = () => {
                                             <HistoryIcon className="w-4 h-4 text-slate-400" />
                                             {language === 'en' ? 'Part Requisitions History' : 'Historia ya Maombi ya Vifaa'}
                                         </CardTitle>
-                                        <Button
-                                            size="sm"
-                                            className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider"
-                                            onClick={() => {
-                                                setReqType("Job");
-                                                setReqTargetVehicleId("");
-                                                setReqTargetJobId(null);
-                                                setIsRequisitionDialogOpen(true);
-                                            }}
-                                        >
-                                            <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
-                                        </Button>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider"
+                                                onClick={() => {
+                                                    setReqType("Job");
+                                                    setReqTargetVehicleId("");
+                                                    setReqTargetJobId(null);
+                                                    setIsRequisitionDialogOpen(true);
+                                                }}
+                                            >
+                                                <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                className="h-8 bg-red-600 hover:bg-red-700 text-[10px] font-bold uppercase tracking-wider text-white"
+                                                onClick={() => {
+                                                    setReqType("Emergency");
+                                                    setReqTargetVehicleId("");
+                                                    setReqTargetJobId(null);
+                                                    setIsRequisitionDialogOpen(true);
+                                                }}
+                                            >
+                                                <AlertTriangle className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Emergency' : 'Dharura'}
+                                            </Button>
+                                        </div>
                                     </div>
 
                                 </CardHeader>
@@ -2261,6 +2275,12 @@ const GarageDashboard = () => {
                                                                     <div className="flex flex-col">
                                                                         <span>{group.dateStr}</span>
                                                                         <span className="font-mono text-[11px] text-indigo-400">{group.timeStr}</span>
+                                                                        <span className="text-[9px] font-bold text-slate-600 uppercase mt-0.5">
+                                                                            By: <span className="text-blue-600">{group.items[0]?.profiles?.full_name || 'System'}</span>
+                                                                        </span>
+                                                                        {group.items.some((i: any) => i.is_emergency) && (
+                                                                            <Badge variant="destructive" className="mt-0.5 text-[8px] uppercase font-bold w-fit animate-pulse px-1.5 py-0">EMERGENCY</Badge>
+                                                                        )}
                                                                     </div>
                                                                 </TableCell>
                                                                 <TableCell className="font-semibold text-slate-700 text-sm">
@@ -2640,13 +2660,13 @@ const GarageDashboard = () => {
             <Dialog open={isRequisitionDialogOpen} onOpenChange={setIsRequisitionDialogOpen}>
                 <DialogContent className="sm:max-w-[450px] max-h-[90vh] flex flex-col p-0" onInteractOutside={(e) => e.preventDefault()}>
                     <DialogHeader className="p-6 pb-2 border-b">
-                        <DialogTitle className="flex items-center gap-2 font-bold text-slate-700 uppercase tracking-tight">
-                            <Plus className="w-5 h-5 text-indigo-500" />
-                            {isSingleRestock ? (language === 'en' ? "Request Part Restock" : "Omba Kipuri") : (language === 'en' ? "Create Batch Requisition" : "Tengeneza Ombi la Vipuri")}
+                        <DialogTitle className={`flex items-center gap-2 font-bold uppercase tracking-tight ${reqType === 'Emergency' ? 'text-red-700' : 'text-slate-700'}`}>
+                            {reqType === 'Emergency' ? <AlertTriangle className="w-5 h-5 text-red-500" /> : <Plus className="w-5 h-5 text-indigo-500" />}
+                            {reqType === 'Emergency' ? (language === 'en' ? 'Emergency Requisition' : 'Ombi la Dharura') : isSingleRestock ? (language === 'en' ? "Request Part Restock" : "Omba Kipuri") : (language === 'en' ? "Create Batch Requisition" : "Tengeneza Ombi la Vipuri")}
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-4 px-6 overflow-y-auto flex-1 min-h-0">
-                        {reqType === 'Job' && (
+                        {(reqType === 'Job' || reqType === 'Emergency') && (
                             <div className="p-3 bg-indigo-50/30 rounded-lg border border-indigo-100 text-sm space-y-3">
                                 <div className="flex items-center gap-2 border-b border-indigo-100 pb-2">
                                     <Truck className="w-5 h-5 text-indigo-500" />
@@ -2720,12 +2740,12 @@ const GarageDashboard = () => {
                             </div>
                         )}
 
-                        {(reqType === 'General' ? ['General'] : reqCategories).map((categoryName) => (
+                        {((reqType === 'General') ? ['General'] : reqCategories).map((categoryName) => (
                             <div key={categoryName} className="space-y-3">
-                                {reqType === 'Job' && (
+                                {(reqType === 'Job' || reqType === 'Emergency') && (
                                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-b pb-1 mt-4">{categoryName} Requirements</h3>
                                 )}
-                                {requisitionItems.filter(i => (reqType === 'Job' ? i.category === categoryName : true)).map((item, localIdx) => {
+                                {requisitionItems.filter(i => ((reqType === 'Job' || reqType === 'Emergency') ? i.category === categoryName : true)).map((item, localIdx) => {
                                     const globalIdx = requisitionItems.indexOf(item);
                                     return (
                                         <div key={globalIdx} className="flex items-end gap-2 p-2 border border-slate-100 rounded-md bg-slate-50/30 relative group">
@@ -2756,7 +2776,7 @@ const GarageDashboard = () => {
                                                     className="h-8 bg-white text-xs text-center border-slate-200 focus-visible:ring-indigo-500/50"
                                                 />
                                             </div>
-                                            {requisitionItems.filter(i => (reqType === 'Job' ? i.category === categoryName : true)).length > 1 && (
+                                            {requisitionItems.filter(i => ((reqType === 'Job' || reqType === 'Emergency') ? i.category === categoryName : true)).length > 1 && (
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
@@ -2776,9 +2796,9 @@ const GarageDashboard = () => {
                                             variant="outline"
                                             size="sm"
                                             className="h-7 text-[10px] font-bold uppercase tracking-wider text-indigo-500 border-dashed border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300"
-                                            onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1, category: reqType === 'Job' ? categoryName : "Uncategorized" }])}
+                                            onClick={() => setRequisitionItems([...requisitionItems, { item_name: "", quantity: 1, category: (reqType === 'Job' || reqType === 'Emergency') ? categoryName : "Uncategorized" }])}
                                         >
-                                            <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? `Add ${reqType === 'Job' ? categoryName : ''} Item` : 'Ongeza Kipuri'}
+                                            <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? `Add ${(reqType === 'Job' || reqType === 'Emergency') ? categoryName : ''} Item` : 'Ongeza Kipuri'}
                                         </Button>
                                     </div>
                                 )}
@@ -2798,14 +2818,15 @@ const GarageDashboard = () => {
                                 }
 
                                 const payloads = validItems.map(item => ({
-                                    request_type: reqType,
-                                    vehicle_id: reqTargetVehicleId,
-                                    job_id: reqTargetJobId,
-                                    item_id: item.item_id,
+                                    request_type: reqType === 'Emergency' ? 'Job' : reqType,
+                                    vehicle_id: reqTargetVehicleId || null,
+                                    job_id: reqTargetJobId || null,
+                                    item_id: item.item_id || null,
                                     item_name: item.item_name,
                                     quantity_requested: item.quantity,
                                     requirement_category: item.category || 'Uncategorized',
-                                    status: 'Pending'
+                                    status: 'Pending',
+                                    is_emergency: reqType === 'Emergency'
                                 }));
 
                                 createRequisitionMutation.mutate(payloads);

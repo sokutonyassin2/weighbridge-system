@@ -201,6 +201,16 @@ const ProcurementDashboard = () => {
         }
     });
 
+    // Fetch Departments (Target Companies)
+    const { data: departments } = useQuery({
+        queryKey: ["procurement-departments"],
+        queryFn: async () => {
+            const { data, error } = await sb.from("departments").select("*").order("name");
+            if (error) throw error;
+            return data;
+        }
+    });
+
     const [isAddPaymentMethodOpen, setIsAddPaymentMethodOpen] = useState(false);
     const [supplierToDelete, setSupplierToDelete] = useState<any>(null);
     const [selectedSupplierForPayment, setSelectedSupplierForPayment] = useState<any>(null);
@@ -243,7 +253,35 @@ const ProcurementDashboard = () => {
     const [isEditPaymentMethodOpen, setIsEditPaymentMethodOpen] = useState(false);
     const [editingPaymentMethod, setEditingPaymentMethod] = useState<any>(null);
 
+    // Departments State
+    const [isManageDeptsOpen, setIsManageDeptsOpen] = useState(false);
+    const [newDeptName, setNewDeptName] = useState("");
+
     // Mutations
+    const addDepartmentMutation = useMutation({
+        mutationFn: async (name: string) => {
+            const { error } = await sb.from("departments").insert([{ name: name.trim() }]);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-departments"] });
+            setNewDeptName("");
+            toast({ title: "Department added" });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
+    });
+
+    const deleteDepartmentMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("departments").delete().eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-departments"] });
+            toast({ title: "Department deleted" });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
+    });
     const workflowMutation = useMutation({
         mutationFn: async ({ reqId, qty, itemId, details, nextStatus }: { reqId: string, qty: number, itemId?: string, details: any, nextStatus: string }) => {
             const item = (inventory || []).find((i: any) => i.id === itemId);
@@ -1367,7 +1405,12 @@ const ProcurementDashboard = () => {
                                                                 <span className="text-[10px] text-blue-600 font-mono italic hidden md:inline-block">
                                                                     {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                                 </span>
-                                                                <span className="text-[9px] font-semibold text-slate-400 uppercase mt-1 hidden md:block">By: {req.profiles?.full_name || 'System'}</span>
+                                                                <span className="text-[10px] font-bold text-slate-700 uppercase mt-1 hidden md:block">
+                                                                    Requested By: <span className="text-blue-700">{req.profiles?.full_name || 'System'}</span>
+                                                                </span>
+                                                                {req.is_emergency && (
+                                                                    <Badge variant="destructive" className="mt-1 text-[9px] uppercase font-bold w-fit animate-pulse">EMERGENCY</Badge>
+                                                                )}
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className="hidden md:table-cell">
@@ -1388,6 +1431,12 @@ const ProcurementDashboard = () => {
                                                                         <span className="text-[10px] text-slate-500 font-bold">{formatDate(req.created_at)}</span>
                                                                         {req.po_number && <span className="text-[10px] text-slate-500 font-mono italic">PO: {req.po_number}</span>}
                                                                     </div>
+                                                                    <span className="text-[9px] font-bold text-slate-700 uppercase block">
+                                                                        Req By: <span className="text-blue-700">{req.profiles?.full_name || 'System'}</span>
+                                                                    </span>
+                                                                    {req.is_emergency && (
+                                                                        <Badge variant="destructive" className="mt-0.5 text-[9px] uppercase font-bold w-fit">EMERGENCY</Badge>
+                                                                    )}
                                                                     <div className="flex justify-between items-center bg-slate-50 p-1.5 rounded mt-0.5">
                                                                         <span className="text-[10px] text-slate-500 font-semibold uppercase">Req: {req.original_quantity || req.quantity_requested}</span>
                                                                         <span className="text-[10px] text-indigo-700 font-bold uppercase">Appr: {req.quantity_approved || 0}</span>
@@ -2884,20 +2933,32 @@ const ProcurementDashboard = () => {
                     {/* ... (Existing dialog content) */}
                     <div className="grid gap-4 py-4">
                         <div className="space-y-2">
-                            <Label className="text-[11px] font-semibold text-slate-500 uppercase">Target Company</Label>
+                            <div className="flex justify-between items-end">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Target Company</Label>
+                                    <button 
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            setIsManageDeptsOpen(true);
+                                        }}
+                                        className="text-[10px] font-bold text-blue-600 hover:text-blue-800"
+                                    >
+                                        + MANAGE COMPANIES
+                                    </button>
+                            </div>
                             <Select
                                 value={newReq.target_company}
                                 onValueChange={(val) => setNewReq({ ...newReq, target_company: val })}
                             >
                                 <SelectTrigger className="h-10 text-sm border-slate-200">
-                                    <SelectValue />
+                                    <SelectValue placeholder="Select company..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="Energy Oil">Energy Oil</SelectItem>
-                                    <SelectItem value="Energy Feeds">Energy Feeds</SelectItem>
-                                    <SelectItem value="SudEnergy Logistics">SudEnergy Logistics</SelectItem>
-                                    <SelectItem value="Sudsud Group">Sudsud Group</SelectItem>
-                                    <SelectItem value="Production Area">Production Area</SelectItem>
+                                    {(departments || []).map((dept: any) => (
+                                        <SelectItem key={dept.id} value={dept.name}>{dept.name}</SelectItem>
+                                    ))}
+                                    {(!departments || departments.length === 0) && (
+                                        <div className="p-2 text-xs text-slate-500">No companies found</div>
+                                    )}
                                 </SelectContent>
                             </Select>
                         </div>
@@ -2932,6 +2993,61 @@ const ProcurementDashboard = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog >
+
+            {/* Manage Departments Dialog */}
+            <Dialog open={isManageDeptsOpen} onOpenChange={setIsManageDeptsOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            <Building2 className="w-5 h-5 text-blue-900" />
+                            Manage Target Companies
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="flex gap-2">
+                            <Input
+                                placeholder="New company name..."
+                                value={newDeptName}
+                                onChange={(e) => setNewDeptName(e.target.value)}
+                                className="h-9 text-sm"
+                            />
+                            <Button
+                                size="sm"
+                                className="bg-blue-900 hover:bg-black h-9"
+                                onClick={() => addDepartmentMutation.mutate(newDeptName)}
+                                disabled={!newDeptName.trim() || addDepartmentMutation.isPending}
+                            >
+                                <Plus className="w-4 h-4 mr-1" /> Add
+                            </Button>
+                        </div>
+                        <ScrollArea className="h-[200px] border rounded-md p-2">
+                            <div className="space-y-2">
+                                {(departments || []).map((dept: any) => (
+                                    <div key={dept.id} className="flex justify-between items-center p-2 bg-slate-50 border rounded-md">
+                                        <span className="text-sm font-medium">{dept.name}</span>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                            onClick={() => {
+                                                if(confirm('Are you sure you want to delete this company?')) {
+                                                    deleteDepartmentMutation.mutate(dept.id);
+                                                }
+                                            }}
+                                            disabled={deleteDepartmentMutation.isPending}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                                {(!departments || departments.length === 0) && (
+                                    <div className="p-4 text-center text-sm text-slate-500">No companies found</div>
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Revoke Reason Dialog */}
             < Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen} >

@@ -125,6 +125,7 @@ const GarageDashboard = () => {
     const [selectedJobForTasks, setSelectedJobForTasks] = useState<any>(null);
     const [isManageTasksOpen, setIsManageTasksOpen] = useState(false);
     const [activeStoreTab, setActiveStoreTab] = useState("requisitions");
+    const [activeReqStatusTab, setActiveReqStatusTab] = useState("active");
     const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false);
     const [approvalNotes, setApprovalNotes] = useState("");
     const [releaseNotes, setReleaseNotes] = useState("");
@@ -2195,7 +2196,18 @@ const GarageDashboard = () => {
                                             </Button>
                                         </div>
                                     </div>
-
+                                    <div className="mt-4 border-t pt-3">
+                                        <Tabs value={activeReqStatusTab} onValueChange={setActiveReqStatusTab} className="w-full">
+                                            <TabsList className="bg-slate-100/50 p-1 w-full md:w-fit flex">
+                                                <TabsTrigger value="active" className="flex-1 data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 data-[state=active]:text-indigo-600">
+                                                    {language === 'en' ? 'Active (Pending/Approved)' : 'Amilifu (Inayosubiri)'}
+                                                </TabsTrigger>
+                                                <TabsTrigger value="completed" className="flex-1 data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 data-[state=active]:text-emerald-600">
+                                                    {language === 'en' ? 'Completed (Paid/Closed)' : 'Imekamilika (Imelipwa)'}
+                                                </TabsTrigger>
+                                            </TabsList>
+                                        </Tabs>
+                                    </div>
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <Table>
@@ -2262,7 +2274,25 @@ const GarageDashboard = () => {
                                                     return g;
                                                 }).sort((a, b) => b.date.getTime() - a.date.getTime());
 
-                                                return sortedGroups.map(group => {
+                                                const filteredGroups = sortedGroups.filter(g => {
+                                                    if (activeReqStatusTab === "active") {
+                                                        return ['Pending', 'Awaiting Approval', 'Approved', 'Partial'].includes(g.status);
+                                                    } else {
+                                                        return ['Closed', 'Paid', 'Stocked', 'Revoked', 'Rejected'].includes(g.status);
+                                                    }
+                                                });
+
+                                                if (filteredGroups.length === 0) {
+                                                    return (
+                                                        <TableRow>
+                                                            <TableCell colSpan={6} className="h-32 text-center text-slate-400 font-medium text-sm">
+                                                                {language === 'en' ? `No ${activeReqStatusTab} requisitions found` : 'Hakuna maombi yaliyopatikana'}
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                }
+
+                                                return filteredGroups.map(group => {
                                                     const isExpanded = expandedReqGroups.includes(group.id);
                                                     return (
                                                         <Fragment key={group.id}>

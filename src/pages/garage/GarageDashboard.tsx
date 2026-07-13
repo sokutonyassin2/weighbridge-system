@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
@@ -222,6 +222,8 @@ const GarageDashboard = () => {
     const [isReqVehiclePopoverOpen, setIsReqVehiclePopoverOpen] = useState(false);
     const [reqTargetJobId, setReqTargetJobId] = useState<string | null>(null);
     const [selectedInventoryItem, setSelectedInventoryItem] = useState<any>(null);
+    const [isStockInDialogOpen, setIsStockInDialogOpen] = useState(false);
+    const [stockInForm, setStockInForm] = useState({ item_id: "", item_name: "", quantity: 1, notes: "", current_qty: 0 });
     // New Product State
     const [newProduct, setNewProduct] = useState({
         item_name: "",
@@ -458,6 +460,38 @@ const GarageDashboard = () => {
             toast({ title: "Quantity Updated", description: "Storage records saved." });
             setIsUpdateQtyOpen(false);
         }
+    });
+
+    // Stock In Mutation - adds received quantity to current stock
+    const stockInMutation = useMutation({
+        mutationFn: async (data: { item_id: string; item_name: string; quantity: number; notes: string; current_qty: number }) => {
+            const newQty = data.current_qty + data.quantity;
+            const { error: updateError } = await sb.from("garage_inventory").update({
+                quantity: newQty
+            }).eq("id", data.item_id);
+            if (updateError) throw updateError;
+
+            // Log this stock-in as a usage record with negative quantity (stock in)
+            const { data: { user } } = await supabase.auth.getUser();
+            const { error: logError } = await sb.from("garage_inventory_usage").insert({
+                item_id: data.item_id,
+                item_name: data.item_name,
+                quantity_used: -data.quantity,
+                issued_to: "Stock Received",
+                notes: data.notes || `Stock in: +${data.quantity} units received`,
+                status: 'Approved'
+            });
+            if (logError) throw logError;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-inventory"] });
+            queryClient.invalidateQueries({ queryKey: ["procurement-inventory"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-usage"] });
+            setIsStockInDialogOpen(false);
+            setStockInForm({ item_id: "", item_name: "", quantity: 1, notes: "", current_qty: 0 });
+            toast({ title: language === 'en' ? "Stock Updated" : "Hifadhi Imesasishwa", description: language === 'en' ? "Items have been received into store." : "Vifaa vimepokelewa ghalani." });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: language === 'en' ? "Stock In Failed" : "Imeshindikana", description: getLocalizedError(err.message, language) })
     });
 
     // Record Usage Mutation
@@ -1890,6 +1924,25 @@ const GarageDashboard = () => {
                                             <Button
                                                 size="sm"
                                                 variant="outline"
+                                                className="h-8 text-xs font-bold border-emerald-200 text-emerald-600 hover:bg-emerald-50 rounded-lg group"
+                                                onClick={() => {
+                                                    setStockInForm({
+                                                        item_id: item.id,
+                                                        item_name: item.item_name,
+                                                        quantity: 1,
+                                                        notes: "",
+                                                        current_qty: item.quantity || 0
+                                                    });
+                                                    setIsStockInDialogOpen(true);
+                                                }}
+                                            >
+                                                <PackagePlus className="w-3.5 h-3.5 mr-1.5" />
+                                                {language === 'en' ? 'Stock In' : 'Pokea'}
+                                            </Button>
+
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
                                                 className="h-8 text-xs font-bold border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg group"
                                                 onClick={() => {
                                                     setReqType("General");
@@ -2008,6 +2061,25 @@ const GarageDashboard = () => {
                                                                 title={language === 'en' ? 'Restock' : 'Agiza'}
                                                             >
                                                                 <TrendingUp className="h-4 w-4" />
+                                                            </Button>
+
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 p-0 text-emerald-600 hover:bg-emerald-50 rounded-lg group"
+                                                                onClick={() => {
+                                                                    setStockInForm({
+                                                                        item_id: item.id,
+                                                                        item_name: item.item_name,
+                                                                        quantity: 1,
+                                                                        notes: "",
+                                                                        current_qty: item.quantity || 0
+                                                                    });
+                                                                    setIsStockInDialogOpen(true);
+                                                                }}
+                                                                title={language === 'en' ? 'Stock In' : 'Pokea Bidhaa'}
+                                                            >
+                                                                <PackagePlus className="h-4 w-4" />
                                                             </Button>
 
                                                             {/* Update Physical count hidden as per user request to automate via payment portal
@@ -3359,7 +3431,65 @@ const GarageDashboard = () => {
                 </DialogContent>
             </Dialog>
 
-
+            {/* Stock In Dialog */}
+            <Dialog open={isStockInDialogOpen} onOpenChange={setIsStockInDialogOpen}>
+                <DialogContent className="sm:max-w-[440px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 font-semibold">
+                            <PackagePlus className="w-5 h-5 text-emerald-500" />
+                            {language === 'en' ? 'Receive Stock' : 'Pokea Bidhaa'}
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500">
+                            {language === 'en' ? 'Record items received into the store to update inventory.' : 'Sajili bidhaa zilizopokelewa ghalani kusasisha hifadhi.'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                            <Label className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">{language === 'en' ? 'Item' : 'Kipuri'}</Label>
+                            <p className="font-bold text-slate-900 text-sm mt-0.5">{stockInForm.item_name}</p>
+                            <p className="text-[11px] text-slate-500 font-medium mt-1">
+                                {language === 'en' ? 'Current Stock: ' : 'Hifadhi ya Sasa: '}
+                                <span className="font-bold text-slate-700">{stockInForm.current_qty}</span>
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-xs font-semibold text-slate-500 uppercase">{language === 'en' ? 'Quantity Received' : 'Idadi Iliyopokelewa'}</Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                value={stockInForm.quantity}
+                                onChange={(e) => setStockInForm({ ...stockInForm, quantity: parseInt(e.target.value) || 1 })}
+                                className="h-12 text-2xl font-mono font-semibold text-emerald-600"
+                            />
+                            <p className="text-[10px] text-slate-400 italic font-medium flex items-center gap-1">
+                                {language === 'en' ? 'New stock level will be: ' : 'Kiwango kipya kitakuwa: '}
+                                <span className="font-bold text-emerald-600 text-xs">{stockInForm.current_qty + (stockInForm.quantity || 0)}</span>
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-xs font-semibold text-slate-500 uppercase">{language === 'en' ? 'Notes (Optional)' : 'Maelezo (Si lazima)'}</Label>
+                            <Textarea
+                                value={stockInForm.notes}
+                                onChange={(e) => setStockInForm({ ...stockInForm, notes: e.target.value })}
+                                placeholder={language === 'en' ? 'e.g. Received from supplier XYZ, invoice #123' : 'k.m. Imepokelewa kutoka kwa msambazaji XYZ'}
+                                className="text-sm resize-none h-20"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsStockInDialogOpen(false)} className="h-10">{language === 'en' ? 'Cancel' : 'Ghairi'}</Button>
+                        <Button
+                            className="bg-emerald-600 hover:bg-emerald-700 h-10 font-semibold"
+                            disabled={stockInMutation.isPending || stockInForm.quantity < 1}
+                            onClick={() => stockInMutation.mutate(stockInForm)}
+                        >
+                            {stockInMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                                <><PackagePlus className="w-4 h-4 mr-1.5" />{language === 'en' ? 'Receive Stock' : 'Pokea'}</>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={isLogFaultOpen} onOpenChange={setIsLogFaultOpen}>
                 <DialogContent className={affectedUnit === 'Both' && isCoupled ? "sm:max-w-[900px] duration-300" : "sm:max-w-[500px] duration-300"}>

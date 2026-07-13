@@ -1141,10 +1141,9 @@ const ProcurementDashboard = () => {
                                                         
                                                         const vehicleGroups: Record<string, any[]> = {};
                                                         ungrouped.forEach((req: any) => {
-                                                            const dateStr = new Date(req.created_at).toLocaleDateString();
-                                                            const vId = req.vehicle?.id || 'NO-VEHICLE';
+                                                            const vId = req.vehicle_id || 'NO-VEHICLE';
                                                             const cat = req.requirement_category || 'Uncategorized';
-                                                            const key = req.request_type === 'General' ? `general-${req.id}` : `${dateStr}-${vId}-${cat}`;
+                                                            const key = req.request_type === 'General' ? `general-${req.id}` : `${vId}-${cat}`;
                                                             if (!vehicleGroups[key]) vehicleGroups[key] = [];
                                                             vehicleGroups[key].push(req);
                                                         });
@@ -1378,8 +1377,6 @@ const ProcurementDashboard = () => {
                                                         if (item.isVehicleHeader) {
                                                             const isExpanded = expandedVehicles.includes(item.vId);
                                                             const firstReq = item.reqs[0];
-                                                            const dateStr = new Date(firstReq.created_at).toLocaleDateString();
-                                                            const timeStr = new Date(firstReq.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                                             const category = firstReq.requirement_category || 'Uncategorized';
                                                             const vehicle = firstReq.vehicle;
 
@@ -1390,8 +1387,7 @@ const ProcurementDashboard = () => {
                                                                     </TableCell>
                                                                     <TableCell className="py-3 hidden md:table-cell">
                                                                         <div className="flex flex-col">
-                                                                            <span className="text-xs text-slate-500 font-medium">{dateStr}</span>
-                                                                            <span className="font-mono text-[11px] text-indigo-400">{timeStr}</span>
+                                                                            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">Multi-date</span>
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell colSpan={2} className="py-3">

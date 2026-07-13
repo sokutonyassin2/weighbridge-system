@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { printPurchaseOrder } from "@/utils/printUtils";
@@ -38,6 +38,9 @@ const CashierPaymentPortal = () => {
     const [viewReceiptUrl, setViewReceiptUrl] = useState<string | null>(null);
     const [isReceiptViewerOpen, setIsReceiptViewerOpen] = useState(false);
     const [receiptViewerTitle, setReceiptViewerTitle] = useState("");
+
+    // Confirmation dialog for Unseen
+    const [unseenConfirmReq, setUnseenConfirmReq] = useState<any>(null);
 
     // Filtering states for History
     const [selectedMonth, setSelectedMonth] = useState<string>("All");
@@ -114,6 +117,9 @@ const CashierPaymentPortal = () => {
         },
         refetchInterval: 5000
     });
+
+    const actualWaitingArrival = useMemo(() => (waitingArrival || []).filter(item => item.physically_unseen !== true), [waitingArrival]);
+    const unseenItems = useMemo(() => (waitingArrival || []).filter(item => item.physically_unseen === true), [waitingArrival]);
 
     // Fetch Payment History (Closed items)
     const { data: paymentHistory, isLoading: isHistoryLoading } = useQuery({
@@ -279,23 +285,6 @@ const CashierPaymentPortal = () => {
                 .eq("id", req.id);
 
             if (error) throw error;
-
-            if (req.item_id && req.quantity_approved) {
-                const { data: invData } = await sb
-                    .from("garage_inventory")
-                    .select("quantity")
-                    .eq("id", req.item_id)
-                    .maybeSingle();
-                    
-                if (invData !== null) {
-                    await sb
-                        .from("garage_inventory")
-                        .update({
-                            quantity: (invData.quantity || 0) + req.quantity_approved
-                        })
-                        .eq("id", req.item_id);
-                }
-            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["cashier-waiting-arrival"] });
@@ -310,6 +299,35 @@ const CashierPaymentPortal = () => {
             toast({
                 title: "Action Failed",
                 description: error?.message || "Failed to confirm arrival. Check permissions.",
+                variant: "destructive"
+            });
+        }
+    });
+
+    const unseenMutation = useMutation({
+        mutationFn: async (req: any) => {
+            const { error } = await sb
+                .from("garage_requisitions")
+                .update({
+                    physically_unseen: true
+                })
+                .eq("id", req.id);
+
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["cashier-waiting-arrival"] });
+            setUnseenConfirmReq(null);
+            toast({
+                title: "Marked as Unseen",
+                description: "Item has been recorded as paid but not physically seen.",
+            });
+        },
+        onError: (error: any) => {
+            console.error("Unseen marking failed:", error);
+            toast({
+                title: "Action Failed",
+                description: error?.message || "Failed to update item.",
                 variant: "destructive"
             });
         }
@@ -523,9 +541,18 @@ const CashierPaymentPortal = () => {
                         <TabsTrigger value="arrival" className="gap-2 px-8 relative flex items-center">
                             <PackageCheck className="w-4 h-4" />
                             Arrival Confirmation
-                            {waitingArrival && waitingArrival.length > 0 && (
+                            {actualWaitingArrival.length > 0 && (
                                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
-                                    {waitingArrival.length}
+                                    {actualWaitingArrival.length}
+                                </span>
+                            )}
+                        </TabsTrigger>
+                        <TabsTrigger value="unseen" className="gap-2 px-8 relative flex items-center">
+                            <EyeOff className="w-4 h-4" />
+                            Unseen Items
+                            {unseenItems.length > 0 && (
+                                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-500 text-[10px] font-bold text-white">
+                                    {unseenItems.length}
                                 </span>
                             )}
                         </TabsTrigger>
@@ -582,7 +609,7 @@ const CashierPaymentPortal = () => {
                                 </div>
                             ) : (
                                 <div className="grid gap-6 mt-6">
-                                    {!waitingArrival || waitingArrival.length === 0 ? (
+                                    {actualWaitingArrival.length === 0 ? (
                                         <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none">
                                             <CardContent className="flex flex-col items-center justify-center py-24 text-center">
                                                 <div className="flex flex-col items-center gap-2">
@@ -593,7 +620,7 @@ const CashierPaymentPortal = () => {
                                         </Card>
                                     ) : (
                                         (() => {
-                                            const filteredWaiting = waitingArrival.filter((item: any) =>
+                                            const filteredWaiting = actualWaitingArrival.filter((item: any) =>
                                                 item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                                                 item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
                                             );
@@ -762,15 +789,28 @@ const CashierPaymentPortal = () => {
                                                                                     {(r.total_price || 0).toLocaleString()} TZS
                                                                                 </TableCell>
                                                                                 <TableCell className="text-right pr-6">
-                                                                                    <Button
-                                                                                        size="sm"
-                                                                                        className="bg-primary hover:bg-primary/90 text-white shadow-sm text-[10px] uppercase font-bold h-7 w-full max-w-[120px]"
-                                                                                        onClick={(e) => { e.stopPropagation(); arrivalMutation.mutate(r); }}
-                                                                                        disabled={arrivalMutation.isPending}
-                                                                                    >
-                                                                                        <PackageCheck className="w-3 h-3 mr-1" />
-                                                                                        Confirm Arrival
-                                                                                    </Button>
+                                                                                    <div className="flex items-center justify-end gap-2">
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="outline"
+                                                                                            className="border-slate-300 text-slate-600 hover:bg-slate-100 shadow-sm text-[10px] uppercase font-bold h-7 max-w-[120px]"
+                                                                                            onClick={(e) => { e.stopPropagation(); setUnseenConfirmReq(r); }}
+                                                                                            disabled={unseenMutation.isPending}
+                                                                                            title="Did not see physically"
+                                                                                        >
+                                                                                            <EyeOff className="w-3 h-3 mr-1" />
+                                                                                            Not Seen
+                                                                                        </Button>
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            className="bg-primary hover:bg-primary/90 text-white shadow-sm text-[10px] uppercase font-bold h-7 max-w-[120px]"
+                                                                                            onClick={(e) => { e.stopPropagation(); arrivalMutation.mutate(r); }}
+                                                                                            disabled={arrivalMutation.isPending}
+                                                                                        >
+                                                                                            <PackageCheck className="w-3 h-3 mr-1" />
+                                                                                            Confirm Arrival
+                                                                                        </Button>
+                                                                                    </div>
                                                                                 </TableCell>
                                                                             </TableRow>
                                                                         ))}
@@ -782,6 +822,60 @@ const CashierPaymentPortal = () => {
                                                 );
                                             });
                                         })()
+                                    )}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="unseen">
+                    <Card className="border shadow-none overflow-hidden bg-transparent">
+                        <CardHeader className="bg-white border-b py-3 rounded-t-lg">
+                            <CardTitle className="text-sm font-bold text-slate-600 flex items-center gap-2">
+                                <EyeOff className="w-4 h-4 text-slate-500" />
+                                Items Paid But Not Seen Physically
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0 bg-white">
+                            {isWaitingLoading ? (
+                                <div className="flex items-center justify-center p-20">
+                                    <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                                </div>
+                            ) : (
+                                <div className="p-0">
+                                    {unseenItems.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-20 text-center">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <Eye className="w-10 h-10 text-slate-200" />
+                                                <span className="italic text-slate-400">No unseen items recorded.</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <Table>
+                                            <TableHeader className="bg-slate-50">
+                                                <TableRow>
+                                                    <TableHead className="pl-6 font-bold text-xs">Date</TableHead>
+                                                    <TableHead className="font-bold text-xs">PO Number</TableHead>
+                                                    <TableHead className="font-bold text-xs">Supplier</TableHead>
+                                                    <TableHead className="font-bold text-xs">Item Description</TableHead>
+                                                    <TableHead className="font-bold text-xs text-right pr-6">Amount</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {unseenItems.map((item: any) => (
+                                                    <TableRow key={item.id} className="hover:bg-slate-50/50">
+                                                        <TableCell className="pl-6 text-sm text-slate-500">{formatDate(item.status_updated_at)}</TableCell>
+                                                        <TableCell className="font-medium text-slate-900">{item.po_number || 'N/A'}</TableCell>
+                                                        <TableCell className="text-sm">{item.garage_suppliers?.name || 'Unknown'}</TableCell>
+                                                        <TableCell className="font-medium">{item.item_name}</TableCell>
+                                                        <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                                            {(item.total_price || 0).toLocaleString()} TZS
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
                                     )}
                                 </div>
                             )}
@@ -1238,6 +1332,45 @@ const CashierPaymentPortal = () => {
                                 </Button>
                             </a>
                         )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Unseen Confirmation Dialog */}
+            <Dialog open={!!unseenConfirmReq} onOpenChange={(open) => !open && setUnseenConfirmReq(null)}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-slate-900">
+                            <EyeOff className="w-5 h-5 text-orange-500" />
+                            Confirm Unseen Item
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4 space-y-3">
+                        <p className="text-sm text-slate-600">
+                            Are you sure you want to mark this item as paid but not seen physically?
+                        </p>
+                        <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                            <p className="text-xs font-bold text-slate-500 uppercase">Item</p>
+                            <p className="font-semibold text-slate-900">{unseenConfirmReq?.item_name}</p>
+                            <p className="text-xs font-bold text-slate-500 uppercase mt-2">Amount</p>
+                            <p className="font-semibold text-emerald-600">{(unseenConfirmReq?.total_price || 0).toLocaleString()} TZS</p>
+                        </div>
+                    </div>
+                    <DialogFooter className="flex gap-2 justify-end">
+                        <Button variant="outline" onClick={() => setUnseenConfirmReq(null)}>
+                            No, Cancel
+                        </Button>
+                        <Button 
+                            className="bg-orange-500 hover:bg-orange-600 text-white"
+                            onClick={() => {
+                                if (unseenConfirmReq) {
+                                    unseenMutation.mutate(unseenConfirmReq);
+                                }
+                            }}
+                            disabled={unseenMutation.isPending}
+                        >
+                            {unseenMutation.isPending ? "Updating..." : "Yes, Mark Unseen"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

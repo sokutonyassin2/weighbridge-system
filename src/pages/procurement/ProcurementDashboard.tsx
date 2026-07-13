@@ -1226,18 +1226,54 @@ const ProcurementDashboard = () => {
                                                                                         return (
                                                                                             <>
                                                                                                 {payUrl && (
-                                                                                                    <a href={payUrl} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-emerald-600 hover:underline bg-emerald-50 px-2 py-1.5 rounded border border-emerald-200" onClick={(e) => e.stopPropagation()}>
-                                                                                                        <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
-                                                                                                    </a>
+                                                                                                    <Button 
+                                                                                                        variant="outline" 
+                                                                                                        size="sm" 
+                                                                                                        className="h-8 text-[10px] font-bold uppercase border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                                                                        onClick={(e) => { e.stopPropagation(); window.open(payUrl, '_blank'); }}
+                                                                                                    >
+                                                                                                        <Receipt className="w-3 h-3 mr-1" /> View Payment Receipt
+                                                                                                    </Button>
                                                                                                 )}
                                                                                                 {suppUrl ? (
-                                                                                                    <a href={suppUrl} target="_blank" rel="noreferrer" className="flex items-center text-[10px] font-bold text-purple-600 hover:underline bg-purple-50 px-2 py-1.5 rounded border border-purple-200" onClick={(e) => e.stopPropagation()}>
-                                                                                                        <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
-                                                                                                    </a>
+                                                                                                    <div className="flex items-center">
+                                                                                                        <Button 
+                                                                                                            variant="outline" 
+                                                                                                            size="sm" 
+                                                                                                            className="h-8 text-[10px] font-bold uppercase border-purple-200 text-purple-700 hover:bg-purple-50 rounded-r-none"
+                                                                                                            onClick={(e) => { e.stopPropagation(); window.open(suppUrl, '_blank'); }}
+                                                                                                        >
+                                                                                                            <FileText className="w-3 h-3 mr-1" /> View Supp Receipt
+                                                                                                        </Button>
+                                                                                                        <Button
+                                                                                                            variant="outline"
+                                                                                                            size="sm"
+                                                                                                            className="h-8 px-2 border-purple-200 border-l-0 text-purple-700 hover:bg-purple-50 rounded-l-none"
+                                                                                                            title="Replace Supplier Receipt"
+                                                                                                            onClick={(e) => {
+                                                                                                                e.stopPropagation();
+                                                                                                                const input = document.createElement('input');
+                                                                                                                input.type = 'file';
+                                                                                                                input.accept = 'image/*,.pdf';
+                                                                                                                input.onchange = (ev: any) => {
+                                                                                                                    const file = ev.target.files?.[0];
+                                                                                                                    if (file) {
+                                                                                                                        uploadSupplierReceiptMutation.mutate({
+                                                                                                                            reqIds: item.reqs.map((r: any) => r.id),
+                                                                                                                            file
+                                                                                                                        });
+                                                                                                                    }
+                                                                                                                };
+                                                                                                                input.click();
+                                                                                                            }}
+                                                                                                        >
+                                                                                                            <Upload className="w-3 h-3" />
+                                                                                                        </Button>
+                                                                                                    </div>
                                                                                                 ) : (
                                                                                         <Button
                                                                                             size="sm"
-                                                                                            className="h-8 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase"
+                                                                                            className="h-8 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase shadow-sm"
                                                                                             disabled={uploadSupplierReceiptMutation.isPending}
                                                                                             onClick={(e) => {
                                                                                                 e.stopPropagation();

@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, CheckCircle, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus, PackageCheck } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
@@ -119,6 +119,8 @@ const GarageDashboard = () => {
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
     const [partNumberSearch, setPartNumberSearch] = useState("");
+    const [arrivalsSearchTerm, setArrivalsSearchTerm] = useState("");
+    const [reqSearchTerm, setReqSearchTerm] = useState("");
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [isLogFaultOpen, setIsLogFaultOpen] = useState(false);
@@ -390,6 +392,35 @@ const GarageDashboard = () => {
             return data;
         },
         refetchInterval: 10000 // Real-time updates for status changes
+    });
+
+    const { data: garageArrivals, isLoading: isLoadingArrivals } = useQuery({
+        queryKey: ["garage-arrivals"],
+        queryFn: async () => {
+            const { data, error } = await sb.from("garage_requisitions")
+                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type), profiles!requested_by(full_name), garage_suppliers(name)")
+                .eq("status", "Closed")
+                .eq("store_acknowledged", false)
+                .eq("is_deleted", false)
+                .order("status_updated_at", { ascending: false });
+            if (error) throw error;
+            return data;
+        },
+        refetchInterval: 10000
+    });
+
+    const acknowledgeArrivalMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_requisitions")
+                .update({ store_acknowledged: true })
+                .eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-arrivals"] });
+            toast({ title: "Receipt Acknowledged", description: "Item arrival has been acknowledged by store." });
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
     });
 
     const addProductMutation = useMutation({
@@ -2231,7 +2262,125 @@ const GarageDashboard = () => {
                                     )}
                                 </TabsTrigger>
                             )}
+                            <TabsTrigger value="arrivals" className="data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-2 text-[10px] font-bold uppercase tracking-[0.15em] relative border border-slate-200">
+                                <PackageCheck className="w-4 h-4 mr-2 text-indigo-500" /> ARRIVALS
+                                {(garageArrivals || []).length > 0 && (
+                                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-bold text-white shadow">
+                                        {(garageArrivals || []).length}
+                                    </span>
+                                )}
+                            </TabsTrigger>
                         </TabsList>
+
+                        <TabsContent value="arrivals" className="space-y-6">
+                            <Card className="border-none shadow-lg bg-white overflow-hidden">
+                                <CardHeader className="bg-slate-50/50 border-b flex flex-row items-center justify-between">
+                                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] flex items-center gap-2">
+                                        <PackageCheck className="w-4 h-4 text-indigo-500" />
+                                        Pending Arrivals to Acknowledge
+                                    </CardTitle>
+                                    <div className="relative w-full max-w-xs">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                        <Input
+                                            placeholder="Search by model or plate no..."
+                                            value={arrivalsSearchTerm}
+                                            onChange={(e) => setArrivalsSearchTerm(e.target.value)}
+                                            className="pl-9 h-8 text-xs bg-white border-slate-200"
+                                        />
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader className="bg-slate-50">
+                                            <TableRow>
+                                                <TableHead className="text-[10px] font-bold text-slate-500 uppercase">Status/Condition</TableHead>
+                                                <TableHead className="text-[10px] font-bold text-slate-500 uppercase">Item</TableHead>
+                                                <TableHead className="text-[10px] font-bold text-slate-500 uppercase">Quantity</TableHead>
+                                                <TableHead className="text-[10px] font-bold text-slate-500 uppercase hidden md:table-cell">Vehicle</TableHead>
+                                                <TableHead className="text-[10px] font-bold text-slate-500 uppercase hidden md:table-cell">Supplier</TableHead>
+                                                <TableHead className="text-[10px] font-bold text-slate-500 uppercase text-right">Action</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {isLoadingArrivals ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="h-32 text-center">
+                                                        <Loader2 className="w-6 h-6 animate-spin text-slate-400 mx-auto" />
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (garageArrivals || []).filter((arr: any) => {
+                                                if (!arrivalsSearchTerm) return true;
+                                                const searchStr = arrivalsSearchTerm.toLowerCase();
+                                                const model = arr.vehicle?.make_model?.toLowerCase() || '';
+                                                const plate = arr.vehicle?.vehicle_no?.toLowerCase() || '';
+                                                return model.includes(searchStr) || plate.includes(searchStr);
+                                            }).length === 0 ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="h-32 text-center text-slate-500 text-sm">
+                                                        No pending arrivals match your search.
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                (garageArrivals || []).filter((arr: any) => {
+                                                    if (!arrivalsSearchTerm) return true;
+                                                    const searchStr = arrivalsSearchTerm.toLowerCase();
+                                                    const model = arr.vehicle?.make_model?.toLowerCase() || '';
+                                                    const plate = arr.vehicle?.vehicle_no?.toLowerCase() || '';
+                                                    return model.includes(searchStr) || plate.includes(searchStr);
+                                                }).map((arr: any) => (
+                                                    <TableRow key={arr.id} className="hover:bg-slate-50/50">
+                                                        <TableCell>
+                                                            {arr.physically_unseen ? (
+                                                                <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-[9px] uppercase font-bold px-2 py-0.5">
+                                                                    Direct to Vehicle - Unseen
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[9px] uppercase font-bold px-2 py-0.5">
+                                                                    Cashier Verified
+                                                                </Badge>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-slate-700 text-xs">{arr.item_name}</span>
+                                                                <span className="text-[10px] text-slate-500">{arr.part_number || '-'}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline" className="text-xs font-bold bg-slate-50">
+                                                                {arr.quantity_approved || arr.quantity_requested} {arr.unit_measure}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell className="hidden md:table-cell">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-xs font-bold text-slate-700">{arr.vehicle?.make_model || 'Store Room'}</span>
+                                                                <span className="text-[10px] text-slate-500">{arr.vehicle?.vehicle_no || '-'}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="hidden md:table-cell">
+                                                            <span className="text-xs text-slate-600 font-medium">
+                                                                {arr.garage_suppliers?.name || 'Unknown'}
+                                                            </span>
+                                                        </TableCell>
+                                                        <TableCell className="text-right">
+                                                            <Button
+                                                                size="sm"
+                                                                className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase shadow-sm"
+                                                                disabled={acknowledgeArrivalMutation.isPending}
+                                                                onClick={() => acknowledgeArrivalMutation.mutate(arr.id)}
+                                                            >
+                                                                <CheckCircle className="w-3.5 h-3.5 mr-1" />
+                                                                Acknowledge
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
 
                         <TabsContent value="requisitions" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
@@ -2241,41 +2390,52 @@ const GarageDashboard = () => {
                                             <HistoryIcon className="w-4 h-4 text-slate-400" />
                                             {language === 'en' ? 'Part Requisitions History' : 'Historia ya Maombi ya Vifaa'}
                                         </CardTitle>
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                size="sm"
-                                                className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider"
-                                                onClick={() => {
-                                                    setReqType("Job");
-                                                    setReqTargetVehicleId("");
-                                                    setReqTargetJobId(null);
-                                                    setIsRequisitionDialogOpen(true);
-                                                }}
-                                            >
-                                                <Plus className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                className="h-8 bg-red-600 hover:bg-red-700 text-[10px] font-bold uppercase tracking-wider text-white"
-                                                onClick={() => {
-                                                    setReqType("Emergency");
-                                                    setReqTargetVehicleId("");
-                                                    setReqTargetJobId(null);
-                                                    setIsRequisitionDialogOpen(true);
-                                                }}
-                                            >
-                                                <AlertTriangle className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Emergency' : 'Dharura'}
-                                            </Button>
+                                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 mt-2 md:mt-0 w-full sm:w-auto">
+                                            <div className="relative w-full sm:w-64 order-last sm:order-first">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                                                <Input
+                                                    placeholder="Search model or plate no..."
+                                                    value={reqSearchTerm}
+                                                    onChange={(e) => setReqSearchTerm(e.target.value)}
+                                                    className="pl-9 h-8 text-xs bg-white border-slate-200 w-full"
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                                    onClick={() => {
+                                                        setReqType("Job");
+                                                        setReqTargetVehicleId("");
+                                                        setReqTargetJobId(null);
+                                                        setIsRequisitionDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <Plus className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    className="h-8 bg-red-600 hover:bg-red-700 text-[10px] font-bold uppercase tracking-wider text-white whitespace-nowrap"
+                                                    onClick={() => {
+                                                        setReqType("Emergency");
+                                                        setReqTargetVehicleId("");
+                                                        setReqTargetJobId(null);
+                                                        setIsRequisitionDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <AlertTriangle className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Emergency' : 'Dharura'}
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="mt-4 border-t pt-3">
                                         <Tabs value={activeReqStatusTab} onValueChange={setActiveReqStatusTab} className="w-full">
                                             <TabsList className="bg-slate-100/50 p-1 w-full md:w-fit flex">
                                                 <TabsTrigger value="active" className="flex-1 data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 data-[state=active]:text-indigo-600">
-                                                    {language === 'en' ? 'Active (Pending/Approved)' : 'Amilifu (Inayosubiri)'}
+                                                    {language === 'en' ? 'Active (Pending)' : 'Amilifu (Inayosubiri)'}
                                                 </TabsTrigger>
                                                 <TabsTrigger value="completed" className="flex-1 data-[state=active]:bg-white data-[state=active]:shadow-sm px-6 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 data-[state=active]:text-emerald-600">
-                                                    {language === 'en' ? 'Completed (Paid/Closed)' : 'Imekamilika (Imelipwa)'}
+                                                    {language === 'en' ? 'Completed (Approved/Paid/Closed)' : 'Imekamilika (Imelipwa)'}
                                                 </TabsTrigger>
                                             </TabsList>
                                         </Tabs>
@@ -2347,11 +2507,19 @@ const GarageDashboard = () => {
                                                 }).sort((a, b) => b.date.getTime() - a.date.getTime());
 
                                                 const filteredGroups = sortedGroups.filter(g => {
+                                                    let isStatusMatch = false;
                                                     if (activeReqStatusTab === "active") {
-                                                        return ['Pending', 'Awaiting Approval', 'Approved', 'Partial'].includes(g.status);
+                                                        isStatusMatch = ['Pending', 'Awaiting Approval', 'Partial'].includes(g.status);
                                                     } else {
-                                                        return ['Closed', 'Paid', 'Stocked', 'Revoked', 'Rejected'].includes(g.status);
+                                                        isStatusMatch = ['Closed', 'Paid', 'Stocked', 'Revoked', 'Rejected', 'Approved'].includes(g.status);
                                                     }
+                                                    
+                                                    const searchStr = reqSearchTerm.toLowerCase();
+                                                    const model = g.vehicle?.make_model?.toLowerCase() || '';
+                                                    const plate = g.vehicle?.vehicle_no?.toLowerCase() || '';
+                                                    const matchesSearch = !reqSearchTerm || model.includes(searchStr) || plate.includes(searchStr);
+                                                    
+                                                    return isStatusMatch && matchesSearch;
                                                 });
 
                                                 if (filteredGroups.length === 0) {

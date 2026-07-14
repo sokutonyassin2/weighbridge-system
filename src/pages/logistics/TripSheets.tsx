@@ -497,6 +497,31 @@ const TripSheets = () => {
                                                                     BATCH INVOICE
                                                                 </Button>
                                                             )}
+                                                            <div className="flex items-center gap-6 ml-auto pl-6 border-l border-slate-200 hidden xl:flex">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Gross Revenue</span>
+                                                                    <div className="flex items-baseline gap-2">
+                                                                        <span className="text-sm font-black text-slate-800">{formatTSh(group.totals.revenueTZS)}</span>
+                                                                        <span className="text-[10px] font-bold text-slate-400">${group.totals.revenueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Expenses</span>
+                                                                    <div className="flex items-baseline gap-2">
+                                                                        <span className="text-sm font-black text-slate-800">{formatTSh(group.totals.expensesTZS)}</span>
+                                                                        <span className="text-[10px] font-bold text-slate-400">${group.totals.expensesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Expected Surplus</span>
+                                                                    <div className="flex items-baseline gap-2">
+                                                                        <span className={cn("text-sm font-black", group.totals.profitTZS >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                                                                            {formatTSh(group.totals.profitTZS)}
+                                                                        </span>
+                                                                        <span className="text-[10px] font-bold text-slate-400">${group.totals.profitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -516,64 +541,85 @@ const TripSheets = () => {
                                                             const netTSh = revTSh - expTSh;
                                                             const isProfit = netTSh >= 0;
                                                             
-                                                            return (
-                                                                <div key={trip.id} className="relative group/card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6 overflow-hidden">
-                                                                    {/* Left Decoration */}
-                                                                    <div className={cn(
-                                                                        "absolute left-0 top-0 bottom-0 w-1.5",
-                                                                        trip.status === 'Planned' ? 'bg-amber-400' :
-                                                                        trip.status === 'Approved' ? 'bg-blue-400' :
-                                                                        trip.status === 'Active' ? 'bg-emerald-400' : 'bg-slate-300'
-                                                                    )} />
+                                                                    const revUSD = trip.revenue_currency === 'USD' ? (parseFloat(trip.revenue_amount) || 0) : (parseFloat(trip.revenue_amount) || 0) / rate;
+                                                                    const expUSD = parseFloat(trip.total_expenses_usd) || 0;
+                                                                    const netUSD = revUSD - expUSD;
 
-                                                                    {/* 1. Identification Section */}
-                                                                    <div className="flex items-start gap-4 flex-1">
-                                                                        <div className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
-                                                                            {(tIndex + 1).toString().padStart(2, '0')}
-                                                                        </div>
-                                                                        <div className="space-y-1.5">
-                                                                            <div className="flex items-center gap-2">
-                                                                                <h4 className="font-bold text-slate-900 text-sm tracking-tight group-hover/card:text-indigo-600 transition-colors">
-                                                                                    {trip.vehicle?.vehicle_no || "PENDING VEHICLE"}
-                                                                                </h4>
-                                                                                {getStatusBadge(trip.status)}
-                                                                                <Badge variant="outline" className={cn(
-                                                                                    "text-[9px] font-bold tracking-tighter uppercase px-1.5 py-0 h-4 rounded border-dashed",
-                                                                                    trip.journey_type === 'Go & Return' ? 'border-indigo-200 text-indigo-600' : 'border-orange-200 text-orange-600'
-                                                                                )}>
-                                                                                    {trip.journey_type || 'G&R'}
-                                                                                </Badge>
-                                                                            </div>
-                                                                            <div className="flex flex-wrap items-center gap-3">
-                                                                                <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                                                                                    <User size={10} className="text-slate-400" />
-                                                                                    {trip.driver?.full_name || "AWAITING DRIVER"}
+                                                                    return (
+                                                                        <div key={trip.id} className="relative group/card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-6 overflow-hidden">
+                                                                            {/* Left Decoration */}
+                                                                            <div className={cn(
+                                                                                "absolute left-0 top-0 bottom-0 w-1.5",
+                                                                                trip.status === 'Planned' ? 'bg-amber-400' :
+                                                                                trip.status === 'Approved' ? 'bg-blue-400' :
+                                                                                trip.status === 'Active' ? 'bg-emerald-400' : 'bg-slate-300'
+                                                                            )} />
+
+                                                                            {/* 1. Identification Section */}
+                                                                            <div className="flex items-start gap-4 flex-1">
+                                                                                <div className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                                                                    {(tIndex + 1).toString().padStart(2, '0')}
                                                                                 </div>
-                                                                                <div className="h-1 w-1 rounded-full bg-slate-200" />
-                                                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.1em]">
-                                                                                    Ref: {trip.reference_number}
-                                                                                </div>
-                                                                                {trip.invoice_no && (
-                                                                                    <>
-                                                                                        <div className="h-1 w-1 rounded-full bg-slate-200" />
-                                                                                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-600 uppercase tracking-tighter">
-                                                                                            <CreditCard size={10} className="text-slate-400" />
-                                                                                            INV: {trip.invoice_no}
-                                                                                        </div>
+                                                                                <div className="space-y-1.5">
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <h4 className="font-bold text-slate-900 text-sm tracking-tight group-hover/card:text-indigo-600 transition-colors">
+                                                                                            {trip.vehicle?.vehicle_no || "PENDING VEHICLE"}
+                                                                                        </h4>
+                                                                                        {getStatusBadge(trip.status)}
                                                                                         <Badge variant="outline" className={cn(
-                                                                                            "text-[8px] h-4 px-1 border-none font-black uppercase tracking-widest",
-                                                                                            trip.payment_status === 'Paid' ? "bg-emerald-50 text-emerald-600" :
-                                                                                            trip.payment_status === 'Partial' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
+                                                                                            "text-[9px] font-bold tracking-tighter uppercase px-1.5 py-0 h-4 rounded border-dashed",
+                                                                                            trip.journey_type === 'Go & Return' ? 'border-indigo-200 text-indigo-600' : 'border-orange-200 text-orange-600'
                                                                                         )}>
-                                                                                            {trip.payment_status || 'Unpaid'}
+                                                                                            {trip.journey_type || 'G&R'}
                                                                                         </Badge>
-                                                                                    </>
-                                                                                )}
+                                                                                    </div>
+                                                                                    <div className="flex flex-wrap items-center gap-3">
+                                                                                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                                                                                            <User size={10} className="text-slate-400" />
+                                                                                            {trip.driver?.full_name || "AWAITING DRIVER"}
+                                                                                        </div>
+                                                                                        <div className="h-1 w-1 rounded-full bg-slate-200" />
+                                                                                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.1em]">
+                                                                                            Ref: {trip.reference_number}
+                                                                                        </div>
+                                                                                        {trip.invoice_no && (
+                                                                                            <>
+                                                                                                <div className="h-1 w-1 rounded-full bg-slate-200" />
+                                                                                                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-600 uppercase tracking-tighter">
+                                                                                                    <CreditCard size={10} className="text-slate-400" />
+                                                                                                    INV: {trip.invoice_no}
+                                                                                                </div>
+                                                                                                <Badge variant="outline" className={cn(
+                                                                                                    "text-[8px] h-4 px-1 border-none font-black uppercase tracking-widest",
+                                                                                                    trip.payment_status === 'Paid' ? "bg-emerald-50 text-emerald-600" :
+                                                                                                    trip.payment_status === 'Partial' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
+                                                                                                )}>
+                                                                                                    {trip.payment_status || 'Unpaid'}
+                                                                                                </Badge>
+                                                                                            </>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
-                                                                        </div>
-                                                                    </div>
 
-                                                                    {/* Removed Profit Indicator to keep it operational */}
+                                                                            {/* 2. Financials Section */}
+                                                                            <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-4 xl:pt-0 xl:pl-6 w-full xl:w-auto">
+                                                                                <div className="space-y-1">
+                                                                                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Revenue</p>
+                                                                                    <div className="font-black text-slate-800 text-sm">{formatTSh(revTSh)}</div>
+                                                                                    <div className="text-[10px] text-slate-500 font-bold">${revUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                </div>
+                                                                                <div className="space-y-1">
+                                                                                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Expenses</p>
+                                                                                    <div className="font-black text-slate-800 text-sm">{formatTSh(expTSh)}</div>
+                                                                                    <div className="text-[10px] text-slate-500 font-bold">${expUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                </div>
+                                                                                <div className="space-y-1">
+                                                                                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expected Surplus</p>
+                                                                                    <div className={cn("font-black text-sm", isProfit ? "text-emerald-600" : "text-rose-600")}>{formatTSh(netTSh)}</div>
+                                                                                    <div className="text-[10px] text-slate-500 font-bold">${netUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                </div>
+                                                                            </div>
 
                                                                     {/* 3. Actions Section */}
                                                                     <div className="flex items-center gap-2 pl-0 sm:pl-4 border-l-0 sm:border-l border-slate-100 flex-wrap sm:flex-nowrap">
@@ -596,6 +642,17 @@ const TripSheets = () => {
                                                                                 onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
                                                                             >
                                                                                 <Zap size={14} className="mr-1.5" /> Activate
+                                                                            </Button>
+                                                                        )}
+                                                                        
+                                                                        {trip.status === 'Active' && (
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                disabled
+                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-100 border-emerald-300 text-emerald-700 flex-1 sm:flex-none opacity-80"
+                                                                            >
+                                                                                <Zap size={14} className="mr-1.5" /> Activated
                                                                             </Button>
                                                                         )}
 

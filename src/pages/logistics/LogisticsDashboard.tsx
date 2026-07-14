@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Truck, Users, Map, Activity, Clock, Plus, Trash2, Settings, FileText, CheckCircle, AlertTriangle } from "lucide-react";
+import { Truck, Users, Map, Activity, Clock, Plus, Trash2, Settings, FileText, CheckCircle, AlertTriangle, DollarSign, TrendingUp, CreditCard } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
@@ -146,6 +146,42 @@ const LogisticsDashboard = () => {
         }
     });
 
+    // Fetch Financial Statistics
+    const { data: financialStats } = useQuery({
+        queryKey: ["logistics_financial_stats"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_trip_sheets" as any)
+                .select("revenue_amount, revenue_currency, exchange_rate, total_expenses_tzs, total_expenses_usd");
+            
+            if (error) throw error;
+            
+            let totalRevTzs = 0;
+            let totalExpTzs = 0;
+            
+            data.forEach((trip: any) => {
+                const rate = trip.exchange_rate || 2700;
+                const revAmt = parseFloat(trip.revenue_amount) || 0;
+                const revTzs = trip.revenue_currency === 'TZS' ? revAmt : revAmt * rate;
+                const expTzs = parseFloat(trip.total_expenses_tzs) || 0;
+                
+                totalRevTzs += revTzs;
+                totalExpTzs += expTzs;
+            });
+            
+            return {
+                totalRevenue: totalRevTzs,
+                totalExpenses: totalExpTzs,
+                profit: totalRevTzs - totalExpTzs
+            };
+        }
+    });
+
+    const formatTSh = (val: any) => {
+        if (val === undefined || val === null || isNaN(val)) return "TShs. 0";
+        return `TShs. ${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    };
+
     return (
         <div className="space-y-6 animate-fade-in p-4 md:p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -156,6 +192,48 @@ const LogisticsDashboard = () => {
             </div>
 
             <div className="space-y-6">
+                {/* Financial Overview Cards */}
+                <div className="grid gap-4 md:gap-6 grid-cols-1 sm:grid-cols-3 animate-in fade-in slide-in-from-bottom-6 duration-600">
+                    <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 hover:scale-[1.02] transition-transform">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 md:pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
+                            <DollarSign className="h-4 w-4 text-emerald-500" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {formatTSh(financialStats?.totalRevenue)}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">All time gross income</p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 hover:scale-[1.02] transition-transform">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Total Expenses</CardTitle>
+                            <CreditCard className="h-4 w-4 text-rose-500" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {formatTSh(financialStats?.totalExpenses)}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">All time operational costs</p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 hover:scale-[1.02] transition-transform">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">Net Profit</CardTitle>
+                            <TrendingUp className="h-4 w-4 text-indigo-500" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                                {formatTSh(financialStats?.profit)}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">Overall expected surplus</p>
+                        </CardContent>
+                    </Card>
+                </div>
+
                 <div className="grid gap-4 md:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     {/* Metric Cards */}
                     <Card className="border-none shadow-lg bg-white/80 backdrop-blur-sm dark:bg-gray-900/80 hover:scale-[1.02] transition-transform">

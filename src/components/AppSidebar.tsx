@@ -73,6 +73,7 @@ const procurementItems = [
   { title: "Overview", url: "/procurement", icon: BarChart3, roles: ["admin", "super_admin", "procurement_officer", "finance"] },
   { title: "Procurement Reports", url: "/procurement/reports", icon: FileBarChart, roles: ["admin", "super_admin", "procurement_officer", "cashier", "finance"] },
   { title: "Compliance Centre", url: "/procurement/compliance", icon: Shield, roles: ["admin", "super_admin", "procurement_officer"] },
+  { title: "Replaced Parts", url: "/procurement/replaced-parts", icon: Wrench, roles: ["admin", "super_admin"] },
 ];
 
 const systemItems = [

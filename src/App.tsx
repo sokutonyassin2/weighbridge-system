@@ -51,6 +51,7 @@ import FinanceDashboard from "./pages/FinanceDashboard";
 import ManagementApprovals from "./pages/procurement/ManagementApprovals";
 import CashierPaymentPortal from "./pages/procurement/CashierPaymentPortal";
 import ProcurementReports from "./pages/procurement/ProcurementReports";
+import ReplacedVehicleParts from "./pages/procurement/ReplacedVehicleParts";
 import GuardianEye from "./pages/GuardianEye";
 import TripSheets from "./pages/logistics/TripSheets";
 
@@ -589,6 +590,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <ComplianceCenter />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/procurement/replaced-parts"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                  <Layout>
+                    <ReplacedVehicleParts />
                   </Layout>
                 </ProtectedRoute>
               }

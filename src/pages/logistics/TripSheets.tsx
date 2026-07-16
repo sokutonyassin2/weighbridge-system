@@ -286,7 +286,7 @@ const TripSheets = () => {
         acc[key].totals.revenueTZS += revTZS;
         acc[key].totals.expensesUSD += parseFloat(trip.total_expenses_usd) || 0;
         acc[key].totals.expensesTZS += parseFloat(trip.total_expenses_tzs) || 0;
-        acc[key].totals.profitUSD += parseFloat(trip.net_profit_usd) || 0;
+        acc[key].totals.profitUSD += (revUSD - (parseFloat(trip.total_expenses_usd) || 0));
         acc[key].totals.profitTZS += revTZS - (parseFloat(trip.total_expenses_tzs) || 0);
 
         return acc;
@@ -501,14 +501,14 @@ const TripSheets = () => {
                                                                 <div className="flex flex-col">
                                                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Gross Revenue</span>
                                                                     <div className="flex items-baseline gap-2">
-                                                                        <span className="text-sm font-black text-slate-800">{formatTSh(group.totals.revenueTZS)}</span>
+                                                                        <span className="text-sm font-black text-orange-600">{formatTSh(group.totals.revenueTZS)}</span>
                                                                         <span className="text-[10px] font-bold text-slate-400">${group.totals.revenueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                     </div>
                                                                 </div>
                                                                 <div className="flex flex-col">
                                                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Expenses</span>
                                                                     <div className="flex items-baseline gap-2">
-                                                                        <span className="text-sm font-black text-slate-800">{formatTSh(group.totals.expensesTZS)}</span>
+                                                                        <span className="text-sm font-black text-rose-600">{formatTSh(group.totals.expensesTZS)}</span>
                                                                         <span className="text-[10px] font-bold text-slate-400">${group.totals.expensesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                                     </div>
                                                                 </div>
@@ -606,12 +606,12 @@ const TripSheets = () => {
                                                                             <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-4 xl:pt-0 xl:pl-6 w-full xl:w-auto">
                                                                                 <div className="space-y-1">
                                                                                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Revenue</p>
-                                                                                    <div className="font-black text-slate-800 text-sm">{formatTSh(revTSh)}</div>
+                                                                                    <div className="font-black text-orange-600 text-sm">{formatTSh(revTSh)}</div>
                                                                                     <div className="text-[10px] text-slate-500 font-bold">${revUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                                                                 </div>
                                                                                 <div className="space-y-1">
                                                                                     <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Expenses</p>
-                                                                                    <div className="font-black text-slate-800 text-sm">{formatTSh(expTSh)}</div>
+                                                                                    <div className="font-black text-rose-600 text-sm">{formatTSh(expTSh)}</div>
                                                                                     <div className="text-[10px] text-slate-500 font-bold">${expUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                                                                                 </div>
                                                                                 <div className="space-y-1">
@@ -641,19 +641,29 @@ const TripSheets = () => {
                                                                                 className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
                                                                                 onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
                                                                             >
-                                                                                <Zap size={14} className="mr-1.5" /> Activate
+                                                                                <Zap size={14} className="mr-1.5" /> ACTIVATED
                                                                             </Button>
                                                                         )}
                                                                         
                                                                         {trip.status === 'Active' && (
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                disabled
-                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-100 border-emerald-300 text-emerald-700 flex-1 sm:flex-none opacity-80"
-                                                                            >
-                                                                                <Zap size={14} className="mr-1.5" /> Activated
-                                                                            </Button>
+                                                                            <div className="flex items-center gap-2 flex-1 sm:flex-none">
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    disabled
+                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-100 border-emerald-300 text-emerald-700 opacity-80"
+                                                                                >
+                                                                                    <Zap size={14} className="mr-1.5" /> ACTIVATED
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-slate-900 border-slate-900 text-white hover:bg-slate-800 hover:text-white"
+                                                                                    onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Completed'); }}
+                                                                                >
+                                                                                    <ShieldCheck size={14} className="mr-1.5" /> CLOSE TRIP
+                                                                                </Button>
+                                                                            </div>
                                                                         )}
 
                                                                         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -672,24 +682,20 @@ const TripSheets = () => {
                                                                                 <Copy size={16} />
                                                                             </Button>
 
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="icon"
-                                                                                className={cn(
-                                                                                    "h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all",
-                                                                                    (isAdmin || trip.status === 'Planned') 
-                                                                                        ? "text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200" 
-                                                                                        : "text-slate-300 bg-slate-50 cursor-not-allowed opacity-50"
-                                                                                )}
-                                                                                disabled={!isAdmin && trip.status !== 'Planned'}
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    handleDeleteTrip(trip.id);
-                                                                                }}
-                                                                                title={(!isAdmin && trip.status !== 'Planned') ? "Only Drafts can be deleted" : "Delete Trip"}
-                                                                            >
-                                                                                <Trash2 size={16} />
-                                                                            </Button>
+                                                                            {trip.status === 'Planned' && (
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    className="h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleDeleteTrip(trip.id);
+                                                                                    }}
+                                                                                    title="Delete Draft Trip"
+                                                                                >
+                                                                                    <Trash2 size={16} />
+                                                                                </Button>
+                                                                            )}
 
                                                                             <Button
                                                                                 variant="outline"

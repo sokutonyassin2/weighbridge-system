@@ -782,7 +782,14 @@ const CashierPaymentPortal = () => {
                                                                     <TableBody>
                                                                         {reqs.map((r: any) => (
                                                                             <TableRow key={r.id}>
-                                                                                <TableCell className="pl-6 py-4 font-medium text-slate-900 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">{r.item_name}</TableCell>
+                                                                                <TableCell className="pl-6 py-4 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                                                                    <div className="font-medium text-slate-900">{r.item_name}</div>
+                                                                                    {r.vehicle && (
+                                                                                        <div className="text-[10px] text-blue-700 font-bold mt-0.5 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 inline-block">
+                                                                                            {r.vehicle.vehicle_no || r.vehicle.horse_number || 'N/A'}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </TableCell>
                                                                                 <TableCell className="font-medium">{r.quantity_approved}</TableCell>
                                                                                 <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
                                                                                 <TableCell className="text-right font-bold text-slate-900">
@@ -859,6 +866,7 @@ const CashierPaymentPortal = () => {
                                                     <TableHead className="font-bold text-xs">PO Number</TableHead>
                                                     <TableHead className="font-bold text-xs">Supplier</TableHead>
                                                     <TableHead className="font-bold text-xs">Item Description</TableHead>
+                                                    <TableHead className="font-bold text-xs">Vehicle</TableHead>
                                                     <TableHead className="font-bold text-xs text-right pr-6">Amount</TableHead>
                                                 </TableRow>
                                             </TableHeader>
@@ -869,6 +877,15 @@ const CashierPaymentPortal = () => {
                                                         <TableCell className="font-medium text-slate-900">{item.po_number || 'N/A'}</TableCell>
                                                         <TableCell className="text-sm">{item.garage_suppliers?.name || 'Unknown'}</TableCell>
                                                         <TableCell className="font-medium">{item.item_name}</TableCell>
+                                                        <TableCell>
+                                                            {item.vehicle ? (
+                                                                <span className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">
+                                                                    {item.vehicle.vehicle_no || item.vehicle.horse_number || 'N/A'}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[10px] text-slate-400">—</span>
+                                                            )}
+                                                        </TableCell>
                                                         <TableCell className="text-right pr-6 font-bold text-slate-900">
                                                             {(item.total_price || 0).toLocaleString()} TZS
                                                         </TableCell>

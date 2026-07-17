@@ -1116,7 +1116,7 @@ const ProcurementDashboard = () => {
                                                 </TableRow>
                                                 {(() => {
                                                     const flatItems: any[] = [];
-                                                    if (reqStatusFilter === 'Pending' || reqStatusFilter === 'Purchased') {
+                                                    // Always group by supplier across ALL tabs
                                                         const supplierGroups: Record<string, any[]> = {};
                                                         const ungrouped: any[] = [];
                                                         grouped[month].forEach((req: any) => {
@@ -1158,9 +1158,6 @@ const ProcurementDashboard = () => {
                                                                 }
                                                             }
                                                         });
-                                                    } else {
-                                                        grouped[month].forEach((req: any) => flatItems.push({ isSupplierHeader: false, req }));
-                                                    }
 
                                                     return flatItems.map((item: any, idx: number) => {
                                                         if (item.isSupplierHeader) {
@@ -1674,26 +1671,27 @@ const ProcurementDashboard = () => {
                                             size="sm"
                                             className="bg-blue-900 hover:bg-black text-white text-[10px] font-semibold uppercase px-6 h-9 rounded-full shadow-lg shadow-blue-900/10"
                                             onClick={() => {
-                                                // Validate same company
                                                 const selectedReqs = (requisitions || []).filter((r: any) => selectedRequisitionIds.includes(r.id));
-                                                const companies = new Set(selectedReqs.map((r: any) => r.target_company));
+                                                if (selectedReqs.length === 0) return;
 
-                                                if (companies.size > 1) {
-                                                    toast({
-                                                        variant: "destructive",
-                                                        title: "Invalid Selection",
-                                                        description: "Please select requisitions from the same company to group them into a single PO."
-                                                    });
-                                                    return;
-                                                }
-
-                                                // Open Review Dialog
-                                                setGroupedPODetails({
-                                                    supplier_id: "",
-                                                    po_number: generatePONumber(),
-                                                    company: [...companies][0] as string
+                                                // Open Batch Review & Quote modal directly — grouped by Supplier
+                                                const initialPrices: Record<string, number> = {};
+                                                const initialQuantities: Record<string, number> = {};
+                                                selectedReqs.forEach((req: any) => {
+                                                    initialPrices[req.id] = req.unit_price || 0;
+                                                    initialQuantities[req.id] = req.quantity_approved || req.quantity_requested || 1;
                                                 });
-                                                setIsGroupedPODialogOpen(true);
+
+                                                setBatchQuoteReqs(selectedReqs);
+                                                setBatchSharedDetails({
+                                                    supplier_id: "",
+                                                    po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
+                                                    includes_vat: false,
+                                                    payment_method_id: ""
+                                                });
+                                                setBatchItemPrices(initialPrices);
+                                                setBatchItemQuantities(initialQuantities);
+                                                setIsBatchQuoteOpen(true);
                                             }}
                                         >
                                             <FileCheck className="w-4 h-4 mr-2" />

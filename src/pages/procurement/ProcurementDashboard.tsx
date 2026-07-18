@@ -1079,7 +1079,7 @@ const ProcurementDashboard = () => {
                                             );
 
                                             const matchesStatus = reqStatusFilter === 'All' ? true :
-                                        reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
+                                        reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Reviewed & Pending' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
                                                     reqStatusFilter === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
                                                         r.status === reqStatusFilter;
 
@@ -1122,7 +1122,7 @@ const ProcurementDashboard = () => {
                                                         grouped[month].forEach((req: any) => {
                                                             if (req.supplier_id) {
                                                                 const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                                const isDraftOrRevoked = req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked';
+                                                                const isDraftOrRevoked = req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Reviewed & Pending' || req.status === 'Revoked';
                                                                 const key = isDraftOrRevoked ? `DRAFT_${supplierName}` : `${req.po_number || 'NO-PO'}_${supplierName}`;
                                                                 if (!supplierGroups[key]) supplierGroups[key] = [];
                                                                 supplierGroups[key].push(req);
@@ -1332,7 +1332,7 @@ const ProcurementDashboard = () => {
                                                                                             item.reqs.forEach((r: any) => {
                                                                                                 initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
                                                                                                 // Use approved qty (what was actually approved), not the original request qty
-                                                                                                initialQuantities[r.id] = r.quantity_approved || r.quantity_requested || 1;
+                                                                                                initialQuantities[r.id] = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
                                                                                             });
                                                                                             setBatchItemPrices(initialPrices);
                                                                                             setBatchItemQuantities(initialQuantities);
@@ -1472,12 +1472,27 @@ const ProcurementDashboard = () => {
                                                                     </div>
                                                                 </div>
 
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-[10px] text-slate-500 font-semibold uppercase hidden md:inline">Qty: {req.quantity_requested} units</span>
-                                                                    {req.original_quantity && req.original_quantity !== req.quantity_requested && (
-                                                                        <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50 h-4 hidden md:inline-flex">
-                                                                            Split from {req.original_quantity}
-                                                                        </Badge>
+                                                                <div className="flex flex-col gap-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-[10px] text-slate-500 font-semibold uppercase hidden md:inline">
+                                                                            Qty: {req.management_reviewed_quantity ? req.management_reviewed_quantity : req.quantity_requested} units
+                                                                        </span>
+                                                                        {req.management_reviewed_quantity && req.management_reviewed_quantity !== req.quantity_requested && (
+                                                                            <Badge variant="outline" className="text-[9px] border-indigo-200 text-indigo-600 bg-indigo-50 h-4 hidden md:inline-flex" title={`Original requested: ${req.quantity_requested}`}>
+                                                                                Changed by Boss (was {req.quantity_requested})
+                                                                            </Badge>
+                                                                        )}
+                                                                        {req.original_quantity && req.original_quantity !== req.quantity_requested && (
+                                                                            <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50 h-4 hidden md:inline-flex">
+                                                                                Split from {req.original_quantity}
+                                                                            </Badge>
+                                                                        )}
+                                                                    </div>
+                                                                    {req.management_review_note && (
+                                                                        <div className="bg-amber-50 border border-amber-100 rounded px-2 py-1 text-[10px] text-amber-800 italic w-fit">
+                                                                            <span className="font-bold mr-1">Boss Note:</span>
+                                                                            {req.management_review_note}
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                                 {req.vehicle_id && req.vehicle && (

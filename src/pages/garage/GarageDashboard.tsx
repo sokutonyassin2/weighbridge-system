@@ -626,7 +626,7 @@ const GarageDashboard = () => {
             const { data, error } = await sb.from("garage_requisitions")
                 .update(updates)
                 .eq("id", id)
-                .eq("status", "Pending")
+                .eq("status", "Waiting Review")
                 .select();
                 
             if (error) throw error;
@@ -649,7 +649,7 @@ const GarageDashboard = () => {
             const { data, error } = await sb.from("garage_requisitions")
                 .update({ is_deleted: true, deleted_at: new Date().toISOString() })
                 .eq("id", id)
-                .eq("status", "Pending")
+                .eq("status", "Waiting Review")
                 .select();
                 
             if (error) throw error;
@@ -2495,6 +2495,8 @@ const GarageDashboard = () => {
                                                     if (statuses.every(s => s === 'Closed' || s === 'Paid' || s === 'Stocked')) groupStatus = 'Closed';
                                                     else if (statuses.every(s => s === 'Approved')) groupStatus = 'Approved';
                                                     else if (statuses.every(s => s === 'Awaiting Approval')) groupStatus = 'Awaiting Approval';
+                                                    else if (statuses.every(s => s === 'Reviewed & Pending')) groupStatus = 'Reviewed & Pending';
+                                                    else if (statuses.every(s => s === 'Waiting Review')) groupStatus = 'Waiting Review';
                                                     else if (statuses.every(s => s === 'Pending')) groupStatus = 'Pending';
                                                     else if (statuses.every(s => s === 'Revoked')) {
                                                         groupStatus = 'Revoked';
@@ -2509,7 +2511,7 @@ const GarageDashboard = () => {
                                                 const filteredGroups = sortedGroups.filter(g => {
                                                     let isStatusMatch = false;
                                                     if (activeReqStatusTab === "active") {
-                                                        isStatusMatch = ['Pending', 'Awaiting Approval', 'Partial'].includes(g.status);
+                                                        isStatusMatch = ['Pending', 'Waiting Review', 'Reviewed & Pending', 'Awaiting Approval', 'Partial'].includes(g.status);
                                                     } else {
                                                         isStatusMatch = ['Closed', 'Paid', 'Stocked', 'Revoked', 'Rejected', 'Approved'].includes(g.status);
                                                     }
@@ -2573,7 +2575,10 @@ const GarageDashboard = () => {
                                                                 </TableCell>
                                                                 <TableCell>
                                                                     <div className="flex flex-col items-start gap-1">
-                                                                        <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${group.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
+                                                                        <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${
+                                                                            group.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700 border border-amber-300' :
+                                                                            group.status === 'Reviewed & Pending' ? 'bg-blue-100 text-blue-700 border border-blue-300' :
+                                                                            group.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
                                                                             group.status === 'Awaiting Approval' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
                                                                             group.status === 'Approved' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
                                                                             group.status === 'Closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
@@ -2593,7 +2598,7 @@ const GarageDashboard = () => {
                                                                                 {isExpanded ? (language === 'en' ? 'Hide' : 'Ficha') : (language === 'en' ? 'View' : 'Ona')}
                                                                             </Button>
                                                                         )}
-                                                                        {group.category === 'General' && group.status === 'Pending' && (
+                                                                        {group.category === 'General' && (group.status === 'Pending' || group.status === 'Waiting Review') && (
                                                                             <>
                                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: group.items[0].id, item_name: group.items[0].item_name, quantity: group.items[0].quantity_requested, vehicle_id: group.items[0].vehicle_id || "", requirement_category: group.category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-4 h-4" /></Button>
                                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete?")) { deleteRequisitionMutation.mutate(group.items[0].id); } }}><Trash2 className="w-4 h-4" /></Button>
@@ -2621,10 +2626,10 @@ const GarageDashboard = () => {
                                                                                             <td className="py-2 text-slate-700 font-medium">{item.item_name}</td>
                                                                                             <td className="py-2 text-center font-mono text-slate-600">{item.quantity_requested}</td>
                                                                                             <td className="py-2 text-right">
-                                                                                                <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' ? 'bg-slate-100 text-slate-600' : 'bg-slate-200 text-slate-700'}`}>{item.status}</Badge>
+                                                                                                <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' ? 'bg-slate-100 text-slate-600' : item.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>{item.status}</Badge>
                                                                                             </td>
                                                                                             <td className="py-2 text-right">
-                                                                                                {item.status === 'Pending' ? (
+                                                                                                {(item.status === 'Pending' || item.status === 'Waiting Review') ? (
                                                                                                     <div className="flex items-center justify-end gap-1">
                                                                                                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-indigo-500" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: item.id, item_name: item.item_name, quantity: item.quantity_requested, vehicle_id: item.vehicle_id || "", requirement_category: item.requirement_category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-3 h-3" /></Button>
                                                                                                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-rose-500" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete item?")) { deleteRequisitionMutation.mutate(item.id); } }}><Trash2 className="w-3 h-3" /></Button>
@@ -3095,7 +3100,7 @@ const GarageDashboard = () => {
                                     item_name: item.item_name,
                                     quantity_requested: item.quantity,
                                     requirement_category: item.category || 'Uncategorized',
-                                    status: 'Pending',
+                                    status: 'Waiting Review',
                                     is_emergency: reqType === 'Emergency'
                                 }));
 

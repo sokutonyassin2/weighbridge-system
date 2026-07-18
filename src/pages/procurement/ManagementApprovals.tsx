@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip } from "lucide-react";
+import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -20,6 +20,9 @@ const ManagementApprovals = () => {
     const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
     const [selectedPOItems, setSelectedPOItems] = useState<any[]>([]);
     const [revokeReason, setRevokeReason] = useState("");
+    
+    // State for Management Review
+    const [reviewEdits, setReviewEdits] = useState<Record<string, { qty: number, note: string }>>({});
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return "N/A";
@@ -40,8 +43,29 @@ const ManagementApprovals = () => {
         return groups;
     };
 
-    // Fetch Requisitions waiting for approval
-    const { data: approvals, isLoading } = useQuery({
+    // Fetch Requisitions waiting for review (from garage)
+    const { data: reviewsPending, isLoading: isReviewsLoading } = useQuery({
+        queryKey: ["management-reviews"],
+        queryFn: async () => {
+            const { data, error } = await sb
+                .from("garage_requisitions")
+                .select(`
+                    *,
+                    vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model),
+                    profiles!requested_by(full_name)
+                `)
+                .eq("status", "Waiting Review")
+                .eq("is_deleted", false)
+                .order("created_at", { ascending: true });
+
+            if (error) throw error;
+            return data;
+        },
+        refetchInterval: 5000 // Real-time
+    });
+
+    // Fetch Requisitions waiting for final approval (from procurement)
+    const { data: approvals, isLoading: isApprovalsLoading } = useQuery({
         queryKey: ["management-approvals"],
         queryFn: async () => {
             const { data, error } = await sb
@@ -62,6 +86,36 @@ const ManagementApprovals = () => {
             return data;
         },
         refetchInterval: 5000 // Real-time
+    });
+
+    // Workflow Mutation for Forwarding to Procurement
+    const forwardToProcurementMutation = useMutation({
+        mutationFn: async ({ reqId, originalQty }: { reqId: string, originalQty: number }) => {
+            const userResponse = await sb.auth.getUser();
+            const userId = userResponse.data.user?.id;
+            const edits = reviewEdits[reqId] || { qty: originalQty, note: "" };
+
+            const { error } = await sb.from("garage_requisitions")
+                .update({
+                    status: 'Reviewed & Pending',
+                    management_reviewed_quantity: edits.qty,
+                    management_review_note: edits.note,
+                    management_reviewed_by: userId,
+                    management_reviewed_at: new Date().toISOString(),
+                    status_updated_at: new Date().toISOString()
+                })
+                .eq("id", reqId);
+
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["management-reviews"] });
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            toast({
+                title: "Forwarded to Procurement",
+                description: "The requisition has been reviewed and sent to Procurement."
+            });
+        }
     });
 
     // Workflow Mutation (Approve or Revoke)
@@ -105,123 +159,244 @@ const ManagementApprovals = () => {
         }
     });
 
-    const renderPOCards = () => {
-        if (!approvals || approvals.length === 0) return null;
-        const grouped = groupRequisitionsByPO(approvals);
+    const handleEditChange = (reqId: string, field: 'qty' | 'note', value: any, originalQty: number) => {
+        setReviewEdits(prev => {
+            const current = prev[reqId] || { qty: originalQty, note: "" };
+            return {
+                ...prev,
+                [reqId]: { ...current, [field]: value }
+            };
+        });
+    };
 
-        return Object.entries(grouped).map(([key, reqs]) => {
-            const firstReq = reqs[0];
-            const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
-            const poNumber = firstReq.po_number || 'DRAFT-PO';
-            let poTotal = 0;
-            reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
-            const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
-            
-            return (
-                <AccordionItem key={key} value={key} className="overflow-hidden border border-slate-200 rounded-lg shadow-sm bg-white">
-                    <AccordionTrigger className="hover:no-underline bg-slate-50/50 px-6 py-4 data-[state=open]:border-b">
-                        <div className="flex justify-between items-center w-full pr-4 text-left">
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                    <Building2 className="w-5 h-5 text-indigo-600" />
-                                    <span className="text-lg font-bold text-slate-800 uppercase tracking-tight">{supplierName}</span>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2 mt-1">
-                                    <Badge variant="outline" className="font-mono text-[10px] text-blue-900 bg-blue-50 border-blue-200">
-                                        {poNumber}
-                                    </Badge>
-                                    <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
-                                        Awaiting Approval
-                                    </Badge>
-                                    <span className="text-xs text-slate-500 font-medium ml-2">Latest: {formatDate(firstReq.created_at)}</span>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-lg font-black text-indigo-900">
-                                    {poTotal.toLocaleString()} <span className="text-[10px] text-slate-500 font-medium">TZS</span>
-                                </div>
-                                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">{reqs.length} Items Pending</div>
-                            </div>
-                        </div>
-                    </AccordionTrigger>
-                    
-                    <AccordionContent className="p-0">
-                        <div className="overflow-x-auto">
-                            <Table>
-                            <TableHeader className="bg-slate-100/50">
-                                <TableRow>
-                                    <TableHead className="pl-6">Item Description</TableHead>
-                                    <TableHead>Vehicle</TableHead>
-                                    <TableHead>Qty</TableHead>
-                                    <TableHead>Unit Price</TableHead>
-                                    <TableHead className="text-right pr-6">Total</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {reqs.map((r: any) => (
-                                    <TableRow key={r.id}>
-                                        <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+    const renderReviewTable = () => {
+        if (!reviewsPending || reviewsPending.length === 0) return (
+            <Card className="border-dashed border-2 border-slate-200 bg-transparent shadow-none mb-8">
+                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                        <CheckCircle className="w-8 h-8 text-emerald-500" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-slate-900">No Pending Reviews!</h3>
+                    <p className="text-slate-500 max-sm mt-1">
+                        There are no new garage requisitions waiting for your review.
+                    </p>
+                </CardContent>
+            </Card>
+        );
+
+        return (
+            <div className="bg-white border rounded-lg shadow-sm mb-8 overflow-hidden">
+                <div className="bg-amber-50 px-6 py-4 border-b flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <Eye className="w-5 h-5 text-amber-600" />
+                        <h2 className="text-lg font-bold text-slate-800 tracking-tight">Review New Requests</h2>
+                    </div>
+                    <Badge className="bg-amber-100 text-amber-700 border-amber-200">{reviewsPending.length} Pending</Badge>
+                </div>
+                <div className="overflow-x-auto">
+                    <Table>
+                        <TableHeader className="bg-slate-50">
+                            <TableRow>
+                                <TableHead className="pl-6">Date</TableHead>
+                                <TableHead>Item</TableHead>
+                                <TableHead>Vehicle</TableHead>
+                                <TableHead>Requester</TableHead>
+                                <TableHead className="w-[150px]">Approved Qty</TableHead>
+                                <TableHead>Boss Note (Optional)</TableHead>
+                                <TableHead className="text-right pr-6">Action</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {reviewsPending.map((req: any) => {
+                                const currentEdits = reviewEdits[req.id] || { qty: req.quantity_requested, note: "" };
+                                return (
+                                    <TableRow key={req.id}>
+                                        <TableCell className="pl-6 text-xs text-slate-500">{formatDate(req.created_at)}</TableCell>
+                                        <TableCell className="font-semibold text-slate-800">
+                                            {req.item_name}
+                                            <div className="text-[10px] text-slate-400 mt-0.5">Original Qty: {req.quantity_requested}</div>
+                                        </TableCell>
                                         <TableCell>
-                                            {r.vehicle ? (
+                                            {req.vehicle ? (
                                                 <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
                                                     <Truck className="w-3 h-3 mr-1" />
-                                                    {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                    {req.vehicle.vehicle_no || req.vehicle.horse_number}
                                                 </Badge>
                                             ) : '-'}
                                         </TableCell>
-                                        <TableCell className="font-medium">{r.quantity_requested}</TableCell>
-                                        <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
-                                        <TableCell className="text-right pr-6 font-bold text-slate-900">
-                                            {(r.total_price || 0).toLocaleString()} TZS
+                                        <TableCell className="text-xs">{req.profiles?.full_name}</TableCell>
+                                        <TableCell>
+                                            <Input 
+                                                type="number" 
+                                                min="1" 
+                                                className="h-8 text-sm font-bold w-20"
+                                                value={currentEdits.qty}
+                                                onChange={(e) => handleEditChange(req.id, 'qty', parseInt(e.target.value) || 1, req.quantity_requested)}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Input 
+                                                placeholder="Add a note for procurement..." 
+                                                className="h-8 text-xs"
+                                                value={currentEdits.note}
+                                                onChange={(e) => handleEditChange(req.id, 'note', e.target.value, req.quantity_requested)}
+                                            />
+                                        </TableCell>
+                                        <TableCell className="text-right pr-6">
+                                            <Button 
+                                                size="sm" 
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
+                                                disabled={forwardToProcurementMutation.isPending}
+                                                onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
+                                            >
+                                                {forwardToProcurementMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                                                Send to Procurement
+                                            </Button>
                                         </TableCell>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                        </div>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
+            </div>
+        );
+    };
+
+    const renderPOCards = () => {
+        if (!approvals || approvals.length === 0) return (
+            <Card className="border-dashed border-2 border-slate-200 bg-transparent shadow-none">
+                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                        <CheckCircle className="w-8 h-8 text-emerald-500" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-slate-900">All Caught Up!</h3>
+                    <p className="text-slate-500 max-sm mt-1">
+                        There are no purchase orders waiting for management approval at this time.
+                    </p>
+                </CardContent>
+            </Card>
+        );
+
+        const grouped = groupRequisitionsByPO(approvals);
+
+        return (
+            <Accordion type="multiple" className="space-y-4">
+                {Object.entries(grouped).map(([key, reqs]) => {
+                    const firstReq = reqs[0];
+                    const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                    const poNumber = firstReq.po_number || 'DRAFT-PO';
+                    let poTotal = 0;
+                    reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+                    const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
                     
-                    {(uploads.length > 0 || firstReq.payment_details) && (
-                        <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
-                            {firstReq.payment_details && (
-                                <div className="space-y-1">
-                                    <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
-                                    <p className="text-xs font-semibold text-slate-700">
-                                        {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
-                                    </p>
+                    return (
+                        <AccordionItem key={key} value={key} className="overflow-hidden border border-slate-200 rounded-lg shadow-sm bg-white">
+                            <AccordionTrigger className="hover:no-underline bg-slate-50/50 px-6 py-4 data-[state=open]:border-b">
+                                <div className="flex justify-between items-center w-full pr-4 text-left">
+                                    <div className="space-y-1">
+                                        <div className="flex items-center gap-2">
+                                            <Building2 className="w-5 h-5 text-indigo-600" />
+                                            <span className="text-lg font-bold text-slate-800 uppercase tracking-tight">{supplierName}</span>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                                            <Badge variant="outline" className="font-mono text-[10px] text-blue-900 bg-blue-50 border-blue-200">
+                                                {poNumber}
+                                            </Badge>
+                                            <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
+                                                Awaiting Approval
+                                            </Badge>
+                                            <span className="text-xs text-slate-500 font-medium ml-2">Latest: {formatDate(firstReq.created_at)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-lg font-black text-indigo-900">
+                                            {poTotal.toLocaleString()} <span className="text-[10px] text-slate-500 font-medium">TZS</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">{reqs.length} Items Pending</div>
+                                    </div>
+                                </div>
+                            </AccordionTrigger>
+                            
+                            <AccordionContent className="p-0">
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                    <TableHeader className="bg-slate-100/50">
+                                        <TableRow>
+                                            <TableHead className="pl-6">Item Description</TableHead>
+                                            <TableHead>Vehicle</TableHead>
+                                            <TableHead>Qty</TableHead>
+                                            <TableHead>Unit Price</TableHead>
+                                            <TableHead className="text-right pr-6">Total</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {reqs.map((r: any) => (
+                                            <TableRow key={r.id}>
+                                                <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+                                                <TableCell>
+                                                    {r.vehicle ? (
+                                                        <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                            <Truck className="w-3 h-3 mr-1" />
+                                                            {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                        </Badge>
+                                                    ) : '-'}
+                                                </TableCell>
+                                                <TableCell className="font-medium">{r.quantity_requested}</TableCell>
+                                                <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
+                                                <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                                    {(r.total_price || 0).toLocaleString()} TZS
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                                </div>
+                            
+                            {(uploads.length > 0 || firstReq.payment_details) && (
+                                <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
+                                    {firstReq.payment_details && (
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
+                                            <p className="text-xs font-semibold text-slate-700">
+                                                {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
+                                            </p>
+                                        </div>
+                                    )}
+                                    
+                                    {uploads.length > 0 && (
+                                        <div className="space-y-1 text-right ml-auto">
+                                            <p className="text-[10px] uppercase font-bold text-slate-500">Attachments</p>
+                                            <div className="flex flex-wrap items-center justify-end gap-2">
+                                                {uploads.map((url, idx) => (
+                                                    <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-100">
+                                                        <Paperclip className="w-3 h-3 mr-1" /> Quote/Receipt {idx + 1}
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             
-                            {uploads.length > 0 && (
-                                <div className="space-y-1 text-right ml-auto">
-                                    <p className="text-[10px] uppercase font-bold text-slate-500">Attachments</p>
-                                    <div className="flex flex-wrap items-center justify-end gap-2">
-                                        {uploads.map((url, idx) => (
-                                            <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-100">
-                                                <Paperclip className="w-3 h-3 mr-1" /> Quote/Receipt {idx + 1}
-                                            </a>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    
-                    <div className="bg-white border-t p-4 flex justify-end">
-                        <Button
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md uppercase text-xs font-bold px-6"
-                            onClick={() => {
-                                setSelectedPOItems(reqs);
-                                setIsApproveDialogOpen(true);
-                            }}
-                        >
-                            <FileCheck className="w-4 h-4 mr-2" />
-                            Review PO Batch
-                        </Button>
-                    </div>
-                    </AccordionContent>
-                </AccordionItem>
-            );
-        });
+                            <div className="bg-white border-t p-4 flex justify-end">
+                                <Button
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md uppercase text-xs font-bold px-6"
+                                    onClick={() => {
+                                        setSelectedPOItems(reqs);
+                                        setIsApproveDialogOpen(true);
+                                    }}
+                                >
+                                    <FileCheck className="w-4 h-4 mr-2" />
+                                    Review PO Batch
+                                </Button>
+                            </div>
+                            </AccordionContent>
+                        </AccordionItem>
+                    );
+                })}
+            </Accordion>
+        );
     };
 
     return (
@@ -234,32 +409,21 @@ const ManagementApprovals = () => {
                         {approvals ? new Set(approvals.map(a => a.po_number || a.supplier_id)).size : 0} Pending POs
                     </Badge>
                 </h1>
-                <p className="text-slate-500">Review quotes, authorize purchase orders, or revoke requests.</p>
+                <p className="text-slate-500">Review new requests from garage, and authorize purchase orders from procurement.</p>
             </div>
 
-            {isLoading ? (
+            {(isReviewsLoading || isApprovalsLoading) ? (
                 <div className="flex items-center justify-center h-40">
                     <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
                 </div>
             ) : (
                 <div className="grid gap-6">
-                    {(approvals || []).length === 0 ? (
-                        <Card className="border-dashed border-2 border-slate-200 bg-transparent shadow-none">
-                            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                                    <CheckCircle className="w-8 h-8 text-emerald-500" />
-                                </div>
-                                <h3 className="text-lg font-semibold text-slate-900">All Caught Up!</h3>
-                                <p className="text-slate-500 max-sm mt-1">
-                                    There are no purchase orders waiting for management approval at this time.
-                                </p>
-                            </CardContent>
-                        </Card>
-                    ) : (
-                        <Accordion type="multiple" className="space-y-4">
-                            {renderPOCards()}
-                        </Accordion>
-                    )}
+                    {renderReviewTable()}
+                    
+                    <div className="mt-4">
+                        <h2 className="text-xl font-bold tracking-tight text-slate-800 mb-4">Final Purchase Orders (From Procurement)</h2>
+                        {renderPOCards()}
+                    </div>
                 </div>
             )}
 

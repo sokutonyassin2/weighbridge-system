@@ -169,6 +169,8 @@ const ProcurementDashboard = () => {
                     procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
                 .eq("is_deleted", false)
+                .neq("status", "Waiting Review")
+                .neq("status", "Pending")
                 .order("created_at", { ascending: false })
                 .limit(100);
 
@@ -1173,6 +1175,8 @@ const ProcurementDashboard = () => {
                                                                 const vat = r.includes_vat ? (lineTotal * 0.18) : 0;
                                                                 poTotal += (lineTotal + vat);
                                                             });
+
+                                                            if (poTotal === 0) return null;
 
                                                             return (
                                                                 <TableRow key={`sup-${item.sId}-${idx}`} className="bg-blue-50/30 hover:bg-blue-50/50 cursor-pointer border-y border-blue-100" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.sId) : [...prev, item.sId])}>

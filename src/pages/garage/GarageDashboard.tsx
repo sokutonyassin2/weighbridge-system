@@ -121,6 +121,7 @@ const GarageDashboard = () => {
     const [partNumberSearch, setPartNumberSearch] = useState("");
     const [arrivalsSearchTerm, setArrivalsSearchTerm] = useState("");
     const [reqSearchTerm, setReqSearchTerm] = useState("");
+    const [usageSearchQuery, setUsageSearchQuery] = useState("");
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [isLogFaultOpen, setIsLogFaultOpen] = useState(false);
@@ -385,7 +386,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-requisitions"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type), profiles!requested_by(full_name)")
+                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type), profiles!requested_by(full_name), garage_inventory(item_name)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -398,7 +399,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-arrivals"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_requisitions")
-                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type), profiles!requested_by(full_name), garage_suppliers(name)")
+                .select("*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, make_model, asset_type), profiles!requested_by(full_name), garage_suppliers(name), garage_inventory(item_name)")
                 .eq("status", "Closed")
                 .eq("store_acknowledged", false)
                 .eq("is_deleted", false)
@@ -555,7 +556,7 @@ const GarageDashboard = () => {
         queryKey: ["garage-usage"],
         queryFn: async () => {
             const { data, error } = await sb.from("garage_inventory_usage")
-                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name)")
+                .select("*, vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model), approved_by_profile:profiles!garage_inventory_usage_approved_by_fkey(full_name), garage_inventory(item_name)")
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: false });
             if (error) throw error;
@@ -1512,7 +1513,7 @@ const GarageDashboard = () => {
                                                         </span>
                                                     </div>
                                                     <p className="text-[10px] text-slate-500 leading-snug mt-0.5">
-                                                        Took <span className="text-indigo-600 font-semibold">{log.quantity_used} {log.item_name}</span> for <span className="text-slate-700 font-bold">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || "General"}</span>
+                                                        Took <span className="text-indigo-600 font-semibold">{log.quantity_used} {log.garage_inventory?.item_name || log.item_name}</span> for <span className="text-slate-700 font-bold">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || "General"}</span>
                                                     </p>
                                                 </div>
                                             </div>
@@ -2562,7 +2563,7 @@ const GarageDashboard = () => {
                                                                     {group.vehicle 
                                                                         ? getVehicleSpecificPlate(group.vehicle) 
                                                                         : (group.category === 'General' && group.items?.[0]
-                                                                            ? <span className="text-indigo-600 font-bold">{group.items[0].item_name} <span className="text-slate-400 font-normal">x{group.items[0].quantity_requested}</span></span>
+                                                                            ? <span className="text-indigo-600 font-bold">{group.items[0].garage_inventory?.item_name || group.items[0].item_name} <span className="text-slate-400 font-normal">x{group.items[0].quantity_requested}</span></span>
                                                                             : '-')}
                                                                 </TableCell>
                                                                 <TableCell>
@@ -2576,16 +2577,15 @@ const GarageDashboard = () => {
                                                                 <TableCell>
                                                                     <div className="flex flex-col items-start gap-1">
                                                                         <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${
-                                                                            group.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700 border border-amber-300' :
+                                                                            group.status === 'Waiting Review' || group.status === 'Pending' ? 'bg-amber-100 text-amber-700 border border-amber-300' :
                                                                             group.status === 'Reviewed & Pending' ? 'bg-blue-100 text-blue-700 border border-blue-300' :
-                                                                            group.status === 'Pending' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
                                                                             group.status === 'Awaiting Approval' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
                                                                             group.status === 'Approved' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
                                                                             group.status === 'Closed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
                                                                             ['Revoked', 'Rejected'].includes(group.status) ? 'bg-rose-50 text-rose-600 border border-rose-200' :
                                                                             group.status === 'Partial' ? 'bg-purple-50 text-purple-600 border border-purple-200' :
                                                                             'bg-slate-50 text-slate-600'
-                                                                        }`}>{group.status}</Badge>
+                                                                        }`}>{group.status === 'Pending' ? 'Waiting Review' : group.status}</Badge>
                                                                         {group.status === 'Revoked' && group.revoke_reason && (
                                                                             <span className="text-[9px] text-rose-500 italic max-w-[120px] leading-tight break-words">Reason: {group.revoke_reason}</span>
                                                                         )}
@@ -2623,10 +2623,10 @@ const GarageDashboard = () => {
                                                                                 <tbody>
                                                                                     {group.items.map((item: any) => (
                                                                                         <tr key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-white transition-colors">
-                                                                                            <td className="py-2 text-slate-700 font-medium">{item.item_name}</td>
+                                                                                            <td className="py-2 text-slate-700 font-medium">{item.garage_inventory?.item_name || item.item_name}</td>
                                                                                             <td className="py-2 text-center font-mono text-slate-600">{item.quantity_requested}</td>
                                                                                             <td className="py-2 text-right">
-                                                                                                <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' ? 'bg-slate-100 text-slate-600' : item.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>{item.status}</Badge>
+                                                                                                <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' || item.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>{item.status === 'Pending' ? 'Waiting Review' : item.status}</Badge>
                                                                                             </td>
                                                                                             <td className="py-2 text-right">
                                                                                                 {(item.status === 'Pending' || item.status === 'Waiting Review') ? (
@@ -2656,12 +2656,23 @@ const GarageDashboard = () => {
 
                         <TabsContent value="issued" className="space-y-6">
                             <Card className="border-none shadow-lg bg-white overflow-hidden">
-                                <CardHeader className="bg-slate-50/50 border-b">
-                                    <CardTitle className="text-[10px] font-bold text-amber-600 uppercase tracking-[0.15em] flex items-center gap-2">
-                                        <ShoppingCart className="w-4 h-4 text-amber-400" />
-                                        {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][selectedMonth]} {selectedYear} Issued Items Report
-                                    </CardTitle>
-                                    <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Accountability & Stock Consumption Monitoring</p>
+                                <CardHeader className="bg-slate-50/50 border-b flex flex-row items-center justify-between">
+                                    <div>
+                                        <CardTitle className="text-[10px] font-bold text-amber-600 uppercase tracking-[0.15em] flex items-center gap-2">
+                                            <ShoppingCart className="w-4 h-4 text-amber-400" />
+                                            {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][selectedMonth]} {selectedYear} Issued Items Report
+                                        </CardTitle>
+                                        <p className="text-sm text-slate-500 mt-1 font-medium tracking-tight">Accountability & Stock Consumption Monitoring</p>
+                                    </div>
+                                    <div className="relative">
+                                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <Input 
+                                            placeholder={language === 'en' ? "Search by name, item, or vehicle..." : "Tafuta kwa jina, kifaa, au gari..."}
+                                            value={usageSearchQuery}
+                                            onChange={(e) => setUsageSearchQuery(e.target.value)}
+                                            className="w-[300px] pl-9 bg-white border-slate-200"
+                                        />
+                                    </div>
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <Table>
@@ -2716,7 +2727,15 @@ const GarageDashboard = () => {
                                                 })}
                                             {(usageLogs || []).filter((log: any) => {
                                                 const d = new Date(log.created_at);
-                                                return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
+                                                if (d.getMonth() !== selectedMonth || d.getFullYear() !== selectedYear) return false;
+                                                if (usageSearchQuery) {
+                                                    const sq = usageSearchQuery.toLowerCase();
+                                                    const itemStr = (log.garage_inventory?.item_name || log.item_name || '').toLowerCase();
+                                                    const issuedToStr = (log.issued_to || '').toLowerCase();
+                                                    const vehicleStr = (log.vehicle?.vehicle_no || log.vehicle?.horse_number || log.vehicle?.trailer_number || '').toLowerCase();
+                                                    return itemStr.includes(sq) || issuedToStr.includes(sq) || vehicleStr.includes(sq);
+                                                }
+                                                return true;
                                             }).length === 0 && (
                                                     <TableRow>
                                                         <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-400 italic">{language === 'en' ? 'No usage recorded for this period.' : 'Hakuna matumizi yaliyoandikwa kwa kipindi hiki.'}</TableCell>

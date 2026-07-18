@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye } from "lucide-react";
+import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -52,9 +52,10 @@ const ManagementApprovals = () => {
                 .select(`
                     *,
                     vehicle:logistics_fleet(vehicle_no, horse_number, trailer_number, make_model),
-                    profiles!requested_by(full_name)
+                    profiles!requested_by(full_name),
+                    garage_inventory(item_name)
                 `)
-                .eq("status", "Waiting Review")
+                .in("status", ["Waiting Review", "Pending"])
                 .eq("is_deleted", false)
                 .order("created_at", { ascending: true });
 
@@ -114,6 +115,28 @@ const ManagementApprovals = () => {
             toast({
                 title: "Forwarded to Procurement",
                 description: "The requisition has been reviewed and sent to Procurement."
+            });
+        }
+    });
+
+    const deleteRequisitionMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_requisitions").update({
+                is_deleted: true,
+                deleted_at: new Date().toISOString()
+            }).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["management-reviews"] });
+            queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+            toast({ title: "Requisition Deleted", description: "The request has been removed from all systems." });
+        },
+        onError: (error: any) => {
+            toast({
+                variant: "destructive",
+                title: "Deletion Failed",
+                description: error.message || "Could not delete requisition."
             });
         }
     });
@@ -213,7 +236,7 @@ const ManagementApprovals = () => {
                                     <TableRow key={req.id}>
                                         <TableCell className="pl-6 text-xs text-slate-500">{formatDate(req.created_at)}</TableCell>
                                         <TableCell className="font-semibold text-slate-800">
-                                            {req.item_name}
+                                            {req.garage_inventory?.item_name || req.item_name}
                                             <div className="text-[10px] text-slate-400 mt-0.5">Original Qty: {req.quantity_requested}</div>
                                         </TableCell>
                                         <TableCell>
@@ -221,6 +244,11 @@ const ManagementApprovals = () => {
                                                 <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
                                                     <Truck className="w-3 h-3 mr-1" />
                                                     {req.vehicle.vehicle_no || req.vehicle.horse_number}
+                                                </Badge>
+                                            ) : req.requirement_category === 'General' || req.request_type === 'General' ? (
+                                                <Badge variant="secondary" className="text-[10px] bg-slate-100 text-slate-700 border-slate-200">
+                                                    <Building2 className="w-3 h-3 mr-1" />
+                                                    STORE ROOM
                                                 </Badge>
                                             ) : '-'}
                                         </TableCell>
@@ -243,15 +271,27 @@ const ManagementApprovals = () => {
                                             />
                                         </TableCell>
                                         <TableCell className="text-right pr-6">
-                                            <Button 
-                                                size="sm" 
-                                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
-                                                disabled={forwardToProcurementMutation.isPending}
-                                                onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
-                                            >
-                                                {forwardToProcurementMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
-                                                Send to Procurement
-                                            </Button>
+                                            <div className="flex justify-end gap-2">
+                                                <Button 
+                                                    size="sm" 
+                                                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
+                                                    disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
+                                                    onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
+                                                >
+                                                    {forwardToProcurementMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                                                    Send to Procurement
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="destructive"
+                                                    className="px-3"
+                                                    disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
+                                                    onClick={() => deleteRequisitionMutation.mutate(req.id)}
+                                                    title="Delete Requisition"
+                                                >
+                                                    {deleteRequisitionMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                                </Button>
+                                            </div>
                                         </TableCell>
                                     </TableRow>
                                 );

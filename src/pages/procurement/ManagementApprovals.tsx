@@ -35,8 +35,7 @@ const ManagementApprovals = () => {
         reqs.forEach(req => {
             const poNum = req.po_number || 'DRAFT-PO';
             const supplierId = req.supplier_id || 'Unknown';
-            const date = req.created_at.split('T')[0];
-            const key = `${poNum}-${supplierId}-${date}`;
+            const key = `${poNum}-${supplierId}`;
             if (!groups[key]) groups[key] = [];
             groups[key].push(req);
         });

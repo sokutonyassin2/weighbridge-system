@@ -746,7 +746,6 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     if (expenseData && expenseData.length > 0) {
                         const rate = parseFloat(doc.exchange_rate) || 2700;
                         const docExpenses = (expenseData as any[]).map(e => {
-                            // Removed forced conversion to TZS on load
                             return {
                                 id: e.id,
                                 item_name: e.item_name,
@@ -758,7 +757,21 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             };
                         }) as ExpenseItem[];
 
-                        setExpenses(docExpenses);
+                        // Prevent DB from overwriting LocalStorage draft if one exists
+                        const savedDraft = localStorage.getItem(`trip_draft_${tripId}`);
+                        let hasDraftExpenses = false;
+                        if (savedDraft) {
+                            try {
+                                const draft = JSON.parse(savedDraft);
+                                if (draft.expenses && draft.expenses.length > 0) {
+                                    hasDraftExpenses = true;
+                                }
+                            } catch (e) {}
+                        }
+
+                        if (!hasDraftExpenses) {
+                            setExpenses(docExpenses);
+                        }
 
                         const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
                         if (countriesWithData.length > 0) {
@@ -1387,7 +1400,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 }
             });
 
-            const catExpenses = expenses.filter(e => e.category === cat.id);
+            const catExpenses = expenses.filter(e => e.category === cat.id && !e.is_extra);
             catExpenses.forEach(exp => {
                 const rowIdx = currRow++;
                 const row = sheet.getRow(rowIdx);
@@ -1488,6 +1501,90 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
             currRow += 1;
         });
+
+        // 4.1 UNBUDGETED / EXTRA EXPENSES
+        const extraExpenses = expenses.filter(e => e.is_extra && e.category !== 'Fixed');
+        if (extraExpenses.length > 0) {
+            currRow++;
+            const extraHeaderIdx = currRow++;
+            const extraHeader = sheet.getRow(extraHeaderIdx);
+            extraHeader.getCell(1).value = 'UNBUDGETED / EXTRA EXPENSES';
+            extraHeader.getCell(1).style = { ...headerStyle, font: { bold: true, color: { argb: 'FFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DC2626' } } };
+            sheet.mergeCells(`A${extraHeaderIdx}:E${extraHeaderIdx}`);
+
+            const tableHeader = sheet.getRow(currRow++);
+            tableHeader.getCell(1).value = 'Item Description';
+            tableHeader.getCell(2).value = 'Location / Country';
+            tableHeader.getCell(3).value = 'Amount (USD)';
+            tableHeader.getCell(3).alignment = { horizontal: 'right' };
+            tableHeader.getCell(4).value = 'Amount (TZS)';
+            tableHeader.getCell(4).alignment = { horizontal: 'right' };
+
+            tableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                if (colNumber <= 4) {
+                    c.font = { bold: true };
+                    c.border = borderStyle;
+                    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+                }
+            });
+
+            extraExpenses.forEach(exp => {
+                const rowIdx = currRow++;
+                const row = sheet.getRow(rowIdx);
+                
+                const amt = parseFloat(exp.amount) || 0;
+                let amtUsd = 0;
+                let amtTzs = 0;
+
+                const effectiveCurrency = (exp.category === 'DRC') ? 'USD' : exp.currency;
+
+                if (effectiveCurrency === 'USD') {
+                    amtUsd = amt;
+                    amtTzs = amt * tzR;
+                } else if (effectiveCurrency === 'TZS' || exp.category === 'TZ') {
+                    amtTzs = amt;
+                    amtUsd = amt / tzR;
+                } else {
+                    let localRate = 1;
+                    if (exp.category === 'Zambia') localRate = countryRates["Zambia"] || 140;
+                    else if (exp.category === 'Rwanda') localRate = countryRates["Rwanda"] || 2;
+                    else if (exp.category === 'Burundi') localRate = countryRates["Burundi"] || 1;
+                    
+                    amtTzs = amt * localRate;
+                    amtUsd = amtTzs / tzR;
+                }
+
+                row.getCell(1).value = exp.item_name;
+                row.getCell(2).value = exp.category === 'TZ' ? 'Tanzania' : exp.category;
+                
+                row.getCell(3).value = amtUsd;
+                row.getCell(3).numFmt = '"$"#,##0.00';
+                
+                row.getCell(4).value = Math.round(amtTzs);
+                row.getCell(4).numFmt = '#,##0';
+                
+                row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 4) c.border = borderStyle;
+                });
+            });
+
+            const subTotalRowIdx = currRow++;
+            const subTotalRow = sheet.getRow(subTotalRowIdx);
+            subTotalRow.getCell(1).value = `SUBTOTAL EXTRA EXPENSES`;
+            subTotalRow.getCell(1).style = { ...subtotalStyle, font: { bold: true, color: { argb: '991B1B' } } };
+            
+            subTotalRow.getCell(3).value = totals.extraExpensesUSD;
+            subTotalRow.getCell(3).numFmt = '"$"#,##0.00';
+            
+            subTotalRow.getCell(4).value = totals.extraExpensesTZS;
+            subTotalRow.getCell(4).numFmt = '#,##0';
+
+            sheet.mergeCells(`A${subTotalRowIdx}:B${subTotalRowIdx}`);
+
+            subTotalRow.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                if (colNumber <= 4) c.border = borderStyle;
+            });
+        }
 
         currRow += 2;
 

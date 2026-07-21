@@ -127,10 +127,11 @@ export default function TripInvoices() {
             revenue_currency: editingTrip.revenue_currency,
             revenue_amount: editingTrip.revenue_amount,
             return_invoice_no: editingTrip.return_invoice_no,
-            return_invoice_date: editingTrip.return_invoice_date,
+            return_invoice_date: editingTrip.return_invoice_date || null,
             return_revenue_currency: editingTrip.return_revenue_currency,
-            return_revenue_amount: editingTrip.return_revenue_amount,
-            return_payment_status: editingTrip.return_payment_status
+            return_revenue_amount: parseFloat(editingTrip.return_revenue_amount) || null,
+            return_payment_status: editingTrip.return_payment_status,
+            return_client_name: editingTrip.return_client_name || null
         });
     };
 
@@ -208,8 +209,9 @@ export default function TripInvoices() {
         }, 0) || 0;
     };
 
-    // Grouping by Invoice (Outbound primarily)
+    // Grouping by Invoice
     const groupedByInvoice = filteredSheets.reduce((acc: any, sheet: any) => {
+        // --- 1. Outbound Leg ---
         const clientName = sheet.client_name || 'Individual / Unspecified';
         const invNo = sheet.invoice_no || `UNASSIGNED_${clientName}`;
         if (!acc[invNo]) {
@@ -224,16 +226,44 @@ export default function TripInvoices() {
                 trips: []
             };
         }
-        acc[invNo].trips.push(sheet);
+        
+        const hasReturn = sheet.journey_type?.includes('Go & Return');
+        const outboundSheet = { ...sheet, _leg: hasReturn && sheet.return_client_name ? 'OUTBOUND' : 'FULL' };
+        
+        acc[invNo].trips.push(outboundSheet);
         acc[invNo].total_revenue += parseFloat(sheet.revenue_amount || 0);
         
-        // Keep track of client name (use first non-empty one)
         if (!acc[invNo].client_name && sheet.client_name) {
             acc[invNo].client_name = sheet.client_name;
         }
 
         const sheetExpenses = calculateSheetExpensesTZS(sheet);
         acc[invNo].total_expenses += sheetExpenses;
+
+        // --- 2. Return Leg (if client changes) ---
+        if (hasReturn && sheet.return_client_name) {
+            const retClientName = sheet.return_client_name;
+            const retInvNo = sheet.return_invoice_no || `UNASSIGNED_RET_${retClientName}_${sheet.id}`;
+            
+            if (!acc[retInvNo]) {
+                acc[retInvNo] = {
+                    invoice_no: sheet.return_invoice_no || `UNASSIGNED_${retClientName}`,
+                    invoice_date: sheet.return_invoice_date,
+                    payment_status: sheet.return_payment_status || 'Pending',
+                    currency: sheet.return_revenue_currency || 'TZS',
+                    client_name: retClientName,
+                    total_revenue: 0,
+                    total_expenses: 0,
+                    trips: []
+                };
+            }
+            
+            const returnSheet = { ...sheet, _leg: 'RETURN' };
+            acc[retInvNo].trips.push(returnSheet);
+            acc[retInvNo].total_revenue += parseFloat(sheet.return_revenue_amount || 0);
+            // Expenses are already accounted for in the outbound trip, so we can keep it 0 for the return leg
+            // unless they want to split expenses, but currently expenses are per sheet.
+        }
 
         return acc;
     }, {});
@@ -370,12 +400,26 @@ export default function TripInvoices() {
                                                             </div>
                                                             <div className="text-[10px] mt-1 flex gap-3 text-slate-500">
                                                                 <span>Exp: {exp > 0 ? `TShs ${exp.toLocaleString()}` : '-'}</span>
-                                                                <span className="font-bold text-slate-700">Rev: {sheet.revenue_currency} {Number(sheet.revenue_amount || 0).toLocaleString()}</span>
+                                                                {sheet._leg === 'RETURN' ? (
+                                                                    <span className="font-bold text-slate-700">Rev: {sheet.return_revenue_currency || 'TZS'} {Number(sheet.return_revenue_amount || 0).toLocaleString()}</span>
+                                                                ) : (
+                                                                    <span className="font-bold text-slate-700">Rev: {sheet.revenue_currency} {Number(sheet.revenue_amount || 0).toLocaleString()}</span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-                                                        {sheet.journey_type?.includes('Go & Return') && sheet.return_invoice_no && (
+                                                        {sheet._leg === 'RETURN' ? (
+                                                            <Badge variant="outline" className="border-indigo-200 text-indigo-700 bg-indigo-50 text-[10px] whitespace-nowrap">
+                                                                <RefreshCw className="w-3 h-3 mr-1" />
+                                                                RETURN LEG
+                                                            </Badge>
+                                                        ) : sheet._leg === 'OUTBOUND' ? (
+                                                            <Badge variant="outline" className="border-emerald-200 text-emerald-700 bg-emerald-50 text-[10px] whitespace-nowrap">
+                                                                <Navigation className="w-3 h-3 mr-1" />
+                                                                OUTBOUND LEG
+                                                            </Badge>
+                                                        ) : sheet.journey_type?.includes('Go & Return') && sheet.return_invoice_no && (
                                                             <Badge variant="outline" className="border-indigo-200 text-indigo-700 bg-indigo-50 text-[10px] whitespace-nowrap">
                                                                 <RefreshCw className="w-3 h-3 mr-1" />
                                                                 Return: {sheet.return_invoice_no}
@@ -458,7 +502,7 @@ export default function TripInvoices() {
                                                     <div className="pl-2">
                                                         <div className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1 flex items-center gap-1">
                                                             <RefreshCw className="w-3 h-3" />
-                                                            Return Invoice
+                                                            Return Invoice {sheet.return_client_name ? `(${sheet.return_client_name})` : ''}
                                                         </div>
                                                         <div className="font-bold text-sm text-slate-800">{sheet.return_invoice_no || <span className="text-slate-400 font-normal italic text-xs">Unassigned</span>}</div>
                                                         <div className="flex items-center gap-2 mt-0.5">
@@ -717,6 +761,15 @@ export default function TripInvoices() {
                                         <RefreshCw className="w-3.5 h-3.5" /> Return Invoice Details
                                     </h3>
                                     <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Client Name</Label>
+                                            <Input 
+                                                placeholder="e.g. Acme Corp" 
+                                                value={editingTrip.return_client_name || ''} 
+                                                onChange={e => setEditingTrip({...editingTrip, return_client_name: e.target.value})}
+                                                className="h-10 text-sm font-semibold border-indigo-100 bg-indigo-50/30"
+                                            />
+                                        </div>
                                         <div className="space-y-1.5">
                                             <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Invoice Number</Label>
                                             <Input 

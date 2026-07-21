@@ -259,11 +259,16 @@ const TripSheets = () => {
 
     const groupedTrips = filteredSheets?.filter(t => t.status !== 'Completed')?.reduce((acc, trip) => {
         const client = trip.client_name || 'Individual / Unspecified';
-        const key = client;
+        
+        // Group by client and invoice number (if invoiced) OR creation date (if not invoiced)
+        // This prevents different convoys from mixing together
+        const dateStr = trip.created_at ? trip.created_at.split('T')[0] : 'Unknown Date';
+        const key = trip.invoice_no ? `${client}_inv_${trip.invoice_no}` : `${client}_date_${dateStr}`;
+        const displayName = trip.invoice_no ? `${client} (Invoice: ${trip.invoice_no})` : `${client} (Convoy: ${dateStr})`;
         
         if (!acc[key]) {
             acc[key] = { 
-                name: client,
+                name: displayName,
                 destinations: [],
                 trips: [], 
                 totals: { revenueUSD: 0, revenueTZS: 0, expensesUSD: 0, expensesTZS: 0, profitUSD: 0, profitTZS: 0 } 
@@ -641,7 +646,7 @@ const TripSheets = () => {
                                                                                 className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
                                                                                 onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
                                                                             >
-                                                                                <Zap size={14} className="mr-1.5" /> ACTIVATED
+                                                                                <Zap size={14} className="mr-1.5" /> ACTIVATE TRIP
                                                                             </Button>
                                                                         )}
                                                                         

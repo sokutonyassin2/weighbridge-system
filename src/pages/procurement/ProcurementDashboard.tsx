@@ -61,6 +61,17 @@ const ProcurementDashboard = () => {
     const [batchSupplierOpen, setBatchSupplierOpen] = useState(false);
     const [singleSupplierOpen, setSingleSupplierOpen] = useState(false);
 
+    // Quick Add States
+    const [quickAddSupplierOpen, setQuickAddSupplierOpen] = useState(false);
+    const [newSupplierName, setNewSupplierName] = useState("");
+    const [isAddingSupplier, setIsAddingSupplier] = useState(false);
+
+    const [quickAddAccountOpen, setQuickAddAccountOpen] = useState(false);
+    const [newAccountName, setNewAccountName] = useState("");
+    const [newAccountBank, setNewAccountBank] = useState("");
+    const [newAccountNumber, setNewAccountNumber] = useState("");
+    const [isAddingAccount, setIsAddingAccount] = useState(false);
+
     const [newReq, setNewReq] = useState({
         item_name: "",
         quantity: 1,
@@ -137,6 +148,66 @@ const ProcurementDashboard = () => {
         const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
         const serial = (countToday + 1).toString().padStart(4, '0');
         return `PO-${date}-${serial}`;
+    };
+
+    const handleQuickAddSupplier = async () => {
+        if (!newSupplierName.trim()) {
+            toast({ variant: "destructive", title: "Error", description: "Supplier name is required." });
+            return;
+        }
+        setIsAddingSupplier(true);
+        try {
+            const { data, error } = await sb
+                .from("garage_suppliers")
+                .insert([{ name: newSupplierName.trim() }])
+                .select("*")
+                .single();
+            if (error) throw error;
+            
+            toast({ title: "Success", description: "Supplier added successfully." });
+            setBatchSharedDetails({ ...batchSharedDetails, supplier_id: data.id });
+            queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
+            setNewSupplierName("");
+            setQuickAddSupplierOpen(false);
+            setBatchSupplierOpen(false);
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error", description: error.message || "Failed to add supplier." });
+        } finally {
+            setIsAddingSupplier(false);
+        }
+    };
+
+    const handleQuickAddAccount = async () => {
+        if (!newAccountName.trim() || !newAccountBank.trim() || !newAccountNumber.trim()) {
+            toast({ variant: "destructive", title: "Error", description: "All account fields are required." });
+            return;
+        }
+        setIsAddingAccount(true);
+        try {
+            const { data, error } = await sb
+                .from("company_payment_methods")
+                .insert([{ 
+                    account_name: newAccountName.trim(),
+                    bank_name: newAccountBank.trim(),
+                    account_number: newAccountNumber.trim(),
+                    type: "Bank" 
+                }])
+                .select("*")
+                .single();
+            if (error) throw error;
+            
+            toast({ title: "Success", description: "Account added successfully." });
+            setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: data.id });
+            queryClient.invalidateQueries({ queryKey: ["company-payment-methods"] });
+            setNewAccountName("");
+            setNewAccountBank("");
+            setNewAccountNumber("");
+            setQuickAddAccountOpen(false);
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error", description: error.message || "Failed to add account." });
+        } finally {
+            setIsAddingAccount(false);
+        }
     };
 
     // Fetch Inventory (with Prices)
@@ -2145,6 +2216,20 @@ const ProcurementDashboard = () => {
                                                             {s.name}
                                                         </CommandItem>
                                                     ))}
+                                                    <div className="p-1 mt-1 border-t border-slate-100">
+                                                        <Button
+                                                            variant="ghost"
+                                                            className="w-full justify-start text-[11px] h-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setQuickAddSupplierOpen(true);
+                                                            }}
+                                                        >
+                                                            <Plus className="mr-2 h-3 w-3" />
+                                                            Add New Supplier
+                                                        </Button>
+                                                    </div>
                                                 </CommandGroup>
                                             </CommandList>
                                         </Command>
@@ -2155,7 +2240,15 @@ const ProcurementDashboard = () => {
                                 <Label className="text-[11px] font-semibold text-slate-500 uppercase">Payment Mode</Label>
                                 <Select
                                     value={batchSharedDetails.payment_method_id}
-                                    onValueChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: val })}
+                                    onValueChange={(val) => {
+                                        if (val === "add_new") {
+                                            setQuickAddAccountOpen(true);
+                                            // Reset value so it doesn't stay on 'add_new'
+                                            setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: "" });
+                                        } else {
+                                            setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: val })
+                                        }
+                                    }}
                                     disabled={!batchSharedDetails.supplier_id}
                                 >
                                     <SelectTrigger className="h-9 text-xs">
@@ -2163,12 +2256,17 @@ const ProcurementDashboard = () => {
                                     </SelectTrigger>
                                     <SelectContent>
                                         {(allPaymentMethods || [])
-                                            .filter((m: any) => m.supplier_id === batchSharedDetails.supplier_id)
+                                            .filter((m: any) => m.supplier_id === batchSharedDetails.supplier_id || m.type === 'Cash')
                                             .map((m: any) => (
                                                 <SelectItem key={m.id} value={m.id} className="text-[11px]">
-                                                    {m.method_type}: {m.bank_name || ''} ({m.account_number})
+                                                    {m.method_type || m.type}: {m.bank_name || ''} {m.account_number ? `(${m.account_number})` : ''}
                                                 </SelectItem>
                                             ))}
+                                        {batchSharedDetails.supplier_id && (
+                                            <SelectItem value="add_new" className="text-[11px] text-blue-600 font-medium focus:text-blue-700 focus:bg-blue-50">
+                                                + Add New Account
+                                            </SelectItem>
+                                        )}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -3444,6 +3542,84 @@ const ProcurementDashboard = () => {
                                 </Button>
                             </a>
                         )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Quick Add Supplier Dialog */}
+            <Dialog open={quickAddSupplierOpen} onOpenChange={setQuickAddSupplierOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Add New Supplier</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="supplier-name">Supplier Name</Label>
+                            <Input
+                                id="supplier-name"
+                                value={newSupplierName}
+                                onChange={(e) => setNewSupplierName(e.target.value)}
+                                placeholder="e.g. TotalEnergies Ltd"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setQuickAddSupplierOpen(false)}>Cancel</Button>
+                        <Button 
+                            onClick={handleQuickAddSupplier} 
+                            disabled={isAddingSupplier || !newSupplierName.trim()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                            {isAddingSupplier ? "Saving..." : "Save Supplier"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Quick Add Account Dialog */}
+            <Dialog open={quickAddAccountOpen} onOpenChange={setQuickAddAccountOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Add New Payment Account</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="acc-name">Account Name (e.g. Mobile Money / Bank Name)</Label>
+                            <Input
+                                id="acc-name"
+                                value={newAccountName}
+                                onChange={(e) => setNewAccountName(e.target.value)}
+                                placeholder="e.g. John Doe / CRDB Bank"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="acc-bank">Bank/Network Name</Label>
+                            <Input
+                                id="acc-bank"
+                                value={newAccountBank}
+                                onChange={(e) => setNewAccountBank(e.target.value)}
+                                placeholder="e.g. MPESA / CRDB"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="acc-number">Account / Phone Number</Label>
+                            <Input
+                                id="acc-number"
+                                value={newAccountNumber}
+                                onChange={(e) => setNewAccountNumber(e.target.value)}
+                                placeholder="e.g. 07XXXXXXXX"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setQuickAddAccountOpen(false)}>Cancel</Button>
+                        <Button 
+                            onClick={handleQuickAddAccount} 
+                            disabled={isAddingAccount || !newAccountName.trim() || !newAccountBank.trim() || !newAccountNumber.trim()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                            {isAddingAccount ? "Saving..." : "Save Account"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

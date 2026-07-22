@@ -640,14 +640,24 @@ const TripSheets = () => {
                                                                         )}
                                                                         
                                                                         {isAdmin && trip.status === 'Approved' && (
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
-                                                                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
-                                                                            >
-                                                                                <Zap size={14} className="mr-1.5" /> ACTIVATE TRIP
-                                                                            </Button>
+                                                                            <div className="flex items-center gap-2">
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
+                                                                                    onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
+                                                                                >
+                                                                                    <Zap size={14} className="mr-1.5" /> ACTIVATE TRIP
+                                                                                </Button>
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white flex-1 sm:flex-none"
+                                                                                    onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Planned'); }}
+                                                                                >
+                                                                                    UNAPPROVE
+                                                                                </Button>
+                                                                            </div>
                                                                         )}
                                                                         
                                                                         {trip.status === 'Active' && (

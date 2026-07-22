@@ -485,6 +485,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     // Global lock for budget/planning sections
     const isLocked = workflowLocked;
 
+    // Lock for unbudgeted/extra expenses (only lock when fully completed)
+    const isExtraLocked = currentStatus === 'Completed';
+
     // 📅 Auto-capture Invoice Date
     useEffect(() => {
         if (tripData.invoice_no && !tripData.invoice_date) {
@@ -497,7 +500,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
     // 💾 Auto-save to LocalStorage
     useEffect(() => {
-        if (tripId) {
+        if (tripId && !isLoading) {
             const draft = {
                 expenses,
                 countryRates,
@@ -505,7 +508,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             };
             localStorage.setItem(`trip_draft_${tripId}`, JSON.stringify(draft));
         }
-    }, [expenses, countryRates, revenueData, tripId]);
+    }, [expenses, countryRates, revenueData, tripId, isLoading]);
 
     // 🔄 Load Draft on Mount
     useEffect(() => {
@@ -764,7 +767,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             try {
                                 const draft = JSON.parse(savedDraft);
                                 if (draft.expenses && draft.expenses.length > 0) {
-                                    hasDraftExpenses = true;
+                                    // Ignore draft if it's just the initial default unedited state (which previously got saved by mistake on mount)
+                                    const isDefaultState = draft.expenses.length === 1 && 
+                                                           draft.expenses[0].item_name === "Driver Allowance" && 
+                                                           (!draft.expenses[0].amount || draft.expenses[0].amount === "");
+                                                           
+                                    if (!isDefaultState) {
+                                        hasDraftExpenses = true;
+                                    }
                                 }
                             } catch (e) {}
                         }
@@ -952,25 +962,36 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 let inTZS = 0;
                 let inUSD = 0;
                 
+                // Get the correct rates (fallback to standard rate if extra rate is not set)
+                const isExtra = curr.is_extra;
+                const baseTZRate = isExtra && countryRates["extra_TZ"] ? countryRates["extra_TZ"] : rate;
+                
+                const getCountryRate = (country: string, defaultRate: number) => {
+                    if (isExtra && countryRates[`extra_${country}`]) {
+                        return countryRates[`extra_${country}`];
+                    }
+                    return countryRates[country] || defaultRate;
+                };
+
                 // DRC default input currency is USD — always treat DRC amounts as USD
                 const effectiveCurrency = (curr.category === 'DRC') ? 'USD' : curr.currency;
                 
                 if (effectiveCurrency === 'USD') {
                     inUSD = amt;
-                    inTZS = amt * rate;
+                    inTZS = amt * baseTZRate;
                 } else {
                     if (curr.category === 'TZ' || curr.category === 'Fixed') {
                         inTZS = amt;
-                        inUSD = amt / rate;
+                        inUSD = amt / baseTZRate;
                     } else if (curr.category === 'Zambia') {
-                        inTZS = amt * (countryRates["Zambia"] || 140);
-                        inUSD = inTZS / rate;
+                        inTZS = amt * getCountryRate("Zambia", 140);
+                        inUSD = inTZS / baseTZRate;
                     } else if (curr.category === 'Rwanda') {
-                        inTZS = amt * (countryRates["Rwanda"] || 2);
-                        inUSD = inTZS / rate;
+                        inTZS = amt * getCountryRate("Rwanda", 2);
+                        inUSD = inTZS / baseTZRate;
                     } else if (curr.category === 'Burundi') {
-                        inTZS = amt * (countryRates["Burundi"] || 1);
-                        inUSD = inTZS / rate;
+                        inTZS = amt * getCountryRate("Burundi", 1);
+                        inUSD = inTZS / baseTZRate;
                     }
                 }
                 
@@ -1035,9 +1056,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     };
 
     const addExtraExpense = (category: 'TZ' | 'Zambia' | 'DRC' | 'Rwanda' | 'Burundi' | 'Fixed') => {
-        const incompleteExpense = expenses.find(e => e.category === category && (!e.nature || e.nature.trim() === ''));
+        const incompleteExpense = expenses.find(e => e.category === category && e.is_extra && (!e.nature || e.nature.trim() === ''));
         if (incompleteExpense) {
-            toast({ variant: "destructive", title: "Missing Nature", description: "Please select the Nature for all existing expenses in this category before adding a new one." });
+            toast({ variant: "destructive", title: "Missing Nature", description: "Please select the Nature for all existing extra expenses in this category before adding a new one." });
             return;
         }
         setExpenses([...expenses, {
@@ -1052,9 +1073,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
     const formatWithCommas = (val: string | number) => {
         if (val === undefined || val === null || val === '') return '';
-        const num = val.toString().replace(/,/g, '');
-        if (isNaN(Number(num))) return val.toString();
-        return Number(num).toLocaleString();
+        const numStr = val.toString().replace(/,/g, '');
+        if (numStr === '-' || numStr === '') return numStr;
+        const parts = numStr.split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        return parts.join('.');
     };
 
     const removeExpense = (index: number) => {
@@ -1068,11 +1091,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         let finalValue = value;
         
         if (field === 'amount' && typeof value === 'string') {
-            // Remove commas before parsing
-            const cleanVal = value.replace(/,/g, '');
-            const numValue = parseFloat(cleanVal);
-            if (!isNaN(numValue)) {
-                finalValue = Math.round(numValue).toString();
+            // Remove commas and only allow numbers and decimal point
+            const cleanVal = value.replace(/,/g, '').replace(/[^\d.]/g, '');
+            // Prevent multiple decimals
+            const parts = cleanVal.split('.');
+            if (parts.length > 2) {
+                finalValue = parts[0] + '.' + parts.slice(1).join('');
             } else {
                 finalValue = cleanVal;
             }
@@ -2591,7 +2615,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             <Input 
                                                 className="h-11 font-bold text-slate-800 bg-white"
                                                 value={formatWithCommas(revenueData.revenue_amount)}
-                                                onChange={(e) => setRevenueData({...revenueData, revenue_amount: e.target.value})}
+                                                onChange={(e) => {
+                                                    const cleanVal = e.target.value.replace(/,/g, '').replace(/[^\d.]/g, '');
+                                                    const parts = cleanVal.split('.');
+                                                    const finalValue = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : cleanVal;
+                                                    setRevenueData({...revenueData, revenue_amount: finalValue});
+                                                }}
                                                 placeholder="0.00"
                                                 disabled={isLocked}
                                             />
@@ -3352,16 +3381,85 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </div>
                         </div>
-                        {totals.extraExpensesUSD > 0 && (
-                            <div className="text-right bg-red-100 px-4 py-2 rounded-xl">
-                                <p className="text-[9px] font-bold text-red-500 uppercase tracking-wider">Total Extra Spend</p>
-                                <p className="text-base font-black text-red-700">TShs {Math.round(totals.extraExpensesTZS).toLocaleString()}</p>
-                                <p className="text-[10px] text-red-400 font-medium">${totals.extraExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-4">
+                            {totals.extraExpensesUSD > 0 && (
+                                <div className="text-right bg-red-100 px-4 py-2 rounded-xl">
+                                    <p className="text-[9px] font-bold text-red-500 uppercase tracking-wider">Total Extra Spend</p>
+                                    <p className="text-base font-black text-red-700">TShs {Math.round(totals.extraExpensesTZS).toLocaleString()}</p>
+                                    <p className="text-[10px] text-red-400 font-medium">${totals.extraExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>
+                                </div>
+                            )}
+                            <Button 
+                                onClick={handleSave} 
+                                disabled={isSaving}
+                                className="bg-red-600 hover:bg-red-700 text-white font-bold h-full min-h-[48px] rounded-xl shadow-sm border border-red-500 gap-2 px-6"
+                            >
+                                {isSaving ? (
+                                    <Loader2 className="h-5 w-5 animate-spin" />
+                                ) : (
+                                    <Save className="h-5 w-5" />
+                                )}
+                                <div className="flex flex-col items-start">
+                                    <span className="text-xs">Save</span>
+                                    <span className="text-[9px] opacity-80 uppercase tracking-wider">Extras</span>
+                                </div>
+                            </Button>
+                        </div>
                     </div>
 
                     {/* Per-country extra expense cards */}
+                    {activeCountries.length > 0 && (
+                        <div className="mb-6 p-4 bg-red-50/50 rounded-xl border border-red-100/50 flex flex-wrap items-center gap-4">
+                            <span className="text-[10px] font-bold text-red-700 uppercase">Extra Expenses Exchange Rates</span>
+                            <div className="flex items-center gap-2">
+                                <Label className="text-[9px] text-red-600">TZ (USD to TZS):</Label>
+                                <Input
+                                    type="number"
+                                    className="h-6 w-20 text-[10px] px-2"
+                                    value={countryRates["extra_TZ"] || countryRates["TZ"] || ''}
+                                    onChange={(e) => setCountryRates({ ...countryRates, "extra_TZ": parseFloat(e.target.value) || 0 })}
+                                    disabled={isExtraLocked}
+                                />
+                            </div>
+                            {activeCountries.includes('Zambia') && (
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[9px] text-red-600">ZMW to TZS:</Label>
+                                    <Input
+                                        type="number"
+                                        className="h-6 w-20 text-[10px] px-2"
+                                        value={countryRates["extra_Zambia"] || countryRates["Zambia"] || ''}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "extra_Zambia": parseFloat(e.target.value) || 0 })}
+                                        disabled={isExtraLocked}
+                                    />
+                                </div>
+                            )}
+                            {activeCountries.includes('Rwanda') && (
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[9px] text-red-600">RWF to TZS:</Label>
+                                    <Input
+                                        type="number"
+                                        className="h-6 w-20 text-[10px] px-2"
+                                        value={countryRates["extra_Rwanda"] || countryRates["Rwanda"] || ''}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "extra_Rwanda": parseFloat(e.target.value) || 0 })}
+                                        disabled={isExtraLocked}
+                                    />
+                                </div>
+                            )}
+                            {activeCountries.includes('Burundi') && (
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[9px] text-red-600">BIF to TZS:</Label>
+                                    <Input
+                                        type="number"
+                                        className="h-6 w-20 text-[10px] px-2"
+                                        value={countryRates["extra_Burundi"] || countryRates["Burundi"] || ''}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "extra_Burundi": parseFloat(e.target.value) || 0 })}
+                                        disabled={isExtraLocked}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {[
                             { id: 'TZ', label: 'Tanzania', color: 'blue' },
@@ -3375,8 +3473,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 const extraForCountry = expenses
                                     .map((e, i) => ({ ...e, originalIndex: i }))
                                     .filter(e => e.is_extra && e.category === country.id);
-                                const subtotalTZS = extraForCountry.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-                                const subtotalUSD = subtotalTZS / (countryRates['TZ'] || 2700);
+                                const subtotalTZS = extraForCountry.reduce((sum, e) => {
+                                    const amount = parseFloat(e.amount) || 0;
+                                    const effectiveCurrency = (e.category === 'DRC') ? 'USD' : e.currency;
+                                    const baseTZRate = countryRates['extra_TZ'] || countryRates['TZ'] || 2700;
+                                    
+                                    if (effectiveCurrency === 'USD') return sum + (amount * baseTZRate);
+                                    if (e.category === 'Zambia') return sum + (amount * (countryRates['extra_Zambia'] || countryRates['Zambia'] || 140));
+                                    if (e.category === 'Rwanda') return sum + (amount * (countryRates['extra_Rwanda'] || countryRates['Rwanda'] || 2));
+                                    if (e.category === 'Burundi') return sum + (amount * (countryRates['extra_Burundi'] || countryRates['Burundi'] || 1));
+                                    return sum + amount; // TZ
+                                }, 0);
+                                const subtotalUSD = subtotalTZS / (countryRates['extra_TZ'] || countryRates['TZ'] || 2700);
 
                                 return (
                                     <div key={country.id} className="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden">
@@ -3404,18 +3512,35 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                 </div>
                                             ) : extraForCountry.map(item => {
                                                 const amt = parseFloat(item.amount) || 0;
-                                                const usd = amt / (countryRates['TZ'] || 2700);
+                                                const baseTZRate = countryRates['extra_TZ'] || countryRates['TZ'] || 2700;
+                                                let tzsAmount = amt;
+                                                const effectiveCurrency = (item.category === 'DRC') ? 'USD' : item.currency;
+                                                
+                                                if (effectiveCurrency === 'USD') {
+                                                    tzsAmount = amt * baseTZRate;
+                                                } else if (item.category === 'Zambia') {
+                                                    tzsAmount = amt * (countryRates['extra_Zambia'] || countryRates['Zambia'] || 140);
+                                                } else if (item.category === 'Rwanda') {
+                                                    tzsAmount = amt * (countryRates['extra_Rwanda'] || countryRates['Rwanda'] || 2);
+                                                } else if (item.category === 'Burundi') {
+                                                    tzsAmount = amt * (countryRates['extra_Burundi'] || countryRates['Burundi'] || 1);
+                                                }
+                                                const usd = tzsAmount / baseTZRate;
+                                                const inputCurrencyLabel = country.id === 'Zambia' ? 'ZMW' : country.id === 'DRC' ? 'USD' : country.id === 'Rwanda' ? 'RWF' : country.id === 'Burundi' ? 'BIF' : 'TZS';
+                                                
                                                 return (
                                                     <div key={item.originalIndex} className="group flex gap-2 items-center bg-red-50/30 border border-red-100 p-1.5 rounded-lg hover:border-red-200 transition-all">
                                                         <Input
-                                                            className="flex-1 h-7 bg-white border-none text-[12px] text-slate-700 font-normal focus-visible:ring-1 ring-red-200"
+                                                            className="flex-1 min-w-[120px] h-7 bg-white border border-slate-200 rounded-md px-2 text-[12px] text-slate-700 font-normal focus-visible:ring-1 ring-red-300"
                                                             placeholder="What was the expense?"
                                                             value={item.item_name}
                                                             onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                                            disabled={isExtraLocked}
                                                         />
                                                         <Select
                                                             value={item.nature}
                                                             onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
+                                                            disabled={isExtraLocked}
                                                         >
                                                             <SelectTrigger className="w-28 h-7 !text-[11px] bg-white border-red-100 shadow-none text-red-500">
                                                                 <SelectValue placeholder="Nature" />
@@ -3429,15 +3554,30 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                 <SelectItem value="Other">Other</SelectItem>
                                                             </SelectContent>
                                                         </Select>
-                                                        <div className="flex items-center gap-1 w-28">
-                                                            {country.id === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50">NON-BUDGET</Badge>}
-                                                            <span className="text-[8px] text-red-300 font-bold shrink-0">TZS</span>
+                                                        <div className="flex items-center gap-1 w-40">
+                                                            {country.id === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
+                                                            <Select
+                                                                value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
+                                                                onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val)}
+                                                                disabled={isExtraLocked}
+                                                            >
+                                                                <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-white border-red-100 text-red-500 hover:bg-red-50 focus:ring-0">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent className="z-[100]">
+                                                                    <SelectItem value={inputCurrencyLabel} className="text-xs font-bold">{inputCurrencyLabel}</SelectItem>
+                                                                    {inputCurrencyLabel !== 'USD' && (
+                                                                        <SelectItem value="USD" className="text-xs font-bold text-emerald-700">USD $</SelectItem>
+                                                                    )}
+                                                                </SelectContent>
+                                                            </Select>
                                                             <Input
-                                                                className="h-7 text-right text-[12px] font-medium text-red-700 bg-white border-red-100 focus-visible:ring-1 ring-red-300 w-full"
+                                                                className="h-7 text-right text-[12px] font-medium text-red-700 bg-white border-red-100 focus-visible:ring-1 ring-red-300 w-full tabular-nums"
                                                                 type="text"
                                                                 placeholder="0"
                                                                 value={formatWithCommas(item.amount || '')}
                                                                 onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
+                                                                disabled={isExtraLocked}
                                                             />
                                                         </div>
                                                         <span className="text-[10px] text-slate-400 w-12 text-right shrink-0">${usd.toFixed(0)}</span>

@@ -411,15 +411,37 @@ const GarageDashboard = () => {
     });
 
     const acknowledgeArrivalMutation = useMutation({
-        mutationFn: async (id: string) => {
+        mutationFn: async (arr: any) => {
+            const id = typeof arr === 'string' ? arr : arr.id;
+            
+            // 1. Acknowledge the requisition
             const { error } = await sb.from("garage_requisitions")
                 .update({ store_acknowledged: true })
                 .eq("id", id);
             if (error) throw error;
+
+            // 2. Automatically update store stock if inventory item is linked
+            if (typeof arr === 'object' && arr.inventory_item_id) {
+                const qtyToAdd = parseFloat(arr.quantity_approved || arr.quantity_requested || "0");
+                if (qtyToAdd > 0) {
+                    const { data: invData, error: invFetchErr } = await sb.from("garage_inventory")
+                        .select("quantity")
+                        .eq("id", arr.inventory_item_id)
+                        .single();
+                        
+                    if (!invFetchErr && invData) {
+                        const newQty = (parseFloat(invData.quantity || "0") + qtyToAdd).toString();
+                        await sb.from("garage_inventory")
+                            .update({ quantity: newQty })
+                            .eq("id", arr.inventory_item_id);
+                    }
+                }
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["garage-arrivals"] });
-            toast({ title: "Receipt Acknowledged", description: "Item arrival has been acknowledged by store." });
+            queryClient.invalidateQueries({ queryKey: ["garage-inventory"] }); // Also refresh inventory
+            toast({ title: "Receipt Acknowledged", description: "Item arrival has been acknowledged and stock updated." });
         },
         onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
     });
@@ -2095,24 +2117,7 @@ const GarageDashboard = () => {
                                                                 <TrendingUp className="h-4 w-4" />
                                                             </Button>
 
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                className="h-8 w-8 p-0 text-emerald-600 hover:bg-emerald-50 rounded-lg group"
-                                                                onClick={() => {
-                                                                    setStockInForm({
-                                                                        item_id: item.id,
-                                                                        item_name: item.item_name,
-                                                                        quantity: 1,
-                                                                        notes: "",
-                                                                        current_qty: item.quantity || 0
-                                                                    });
-                                                                    setIsStockInDialogOpen(true);
-                                                                }}
-                                                                title={language === 'en' ? 'Stock In' : 'Pokea Bidhaa'}
-                                                            >
-                                                                <PackagePlus className="h-4 w-4" />
-                                                            </Button>
+
 
                                                             {/* Update Physical count hidden as per user request to automate via payment portal
                                                             <Button
@@ -2368,7 +2373,7 @@ const GarageDashboard = () => {
                                                                 size="sm"
                                                                 className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] uppercase shadow-sm"
                                                                 disabled={acknowledgeArrivalMutation.isPending}
-                                                                onClick={() => acknowledgeArrivalMutation.mutate(arr.id)}
+                                                                onClick={() => acknowledgeArrivalMutation.mutate(arr)}
                                                             >
                                                                 <CheckCircle className="w-3.5 h-3.5 mr-1" />
                                                                 Acknowledge

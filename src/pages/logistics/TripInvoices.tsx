@@ -29,6 +29,7 @@ export default function TripInvoices() {
         payment_status: "Pending"
     });
     const [selectedTripGroup, setSelectedTripGroup] = useState<string | null>(null);
+    const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
     const [vehicleRevenues, setVehicleRevenues] = useState<Record<string, string>>({});
 
     const { toast } = useToast();
@@ -80,9 +81,12 @@ export default function TripInvoices() {
             if (!newInvoiceData.invoice_no) throw new Error("Invoice number is required");
 
             const sheetsInGroup = uninvoicedGroups[selectedTripGroup] || [];
+            const selectedSheets = sheetsInGroup.filter((s: any) => selectedVehicles.includes(s.id));
             
+            if (selectedSheets.length === 0) throw new Error("No vehicles selected for invoicing");
+
             // Prepare updates for all selected sheets
-            const updates = sheetsInGroup.map((sheet: any) => ({
+            const updates = selectedSheets.map((sheet: any) => ({
                 id: sheet.id,
                 invoice_no: newInvoiceData.invoice_no,
                 invoice_date: newInvoiceData.invoice_date,
@@ -144,6 +148,7 @@ export default function TripInvoices() {
             payment_status: "Pending"
         });
         setSelectedTripGroup(null);
+        setSelectedVehicles([]);
         setVehicleRevenues({});
     };
 
@@ -611,10 +616,13 @@ export default function TripInvoices() {
                                                         setSelectedTripGroup(groupName);
                                                         // Initialize revenues for this group
                                                         const updatedRevs = { ...vehicleRevenues };
+                                                        const allIds: string[] = [];
                                                         sheets.forEach((s: any) => {
                                                             updatedRevs[s.id] = newInvoiceData.default_revenue;
+                                                            allIds.push(s.id);
                                                         });
                                                         setVehicleRevenues(updatedRevs);
+                                                        setSelectedVehicles(allIds);
                                                     }
                                                 }}
                                             >
@@ -639,7 +647,20 @@ export default function TripInvoices() {
                                                             {sheets.map((sheet: any) => (
                                                                 <div key={sheet.id} className="flex items-center justify-between gap-4 p-2 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100">
                                                                     <div className="flex items-center gap-3">
-                                                                        <Truck className="w-4 h-4 text-slate-400" />
+                                                                        <div 
+                                                                            className={cn("w-5 h-5 rounded flex items-center justify-center cursor-pointer transition-colors border", selectedVehicles.includes(sheet.id) ? "bg-primary border-primary text-white" : "bg-white border-slate-300 text-transparent hover:border-primary")}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                if (selectedVehicles.includes(sheet.id)) {
+                                                                                    setSelectedVehicles(selectedVehicles.filter(id => id !== sheet.id));
+                                                                                } else {
+                                                                                    setSelectedVehicles([...selectedVehicles, sheet.id]);
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            <CheckSquare className="w-4 h-4" />
+                                                                        </div>
+                                                                        <Truck className="w-4 h-4 text-slate-400 ml-1" />
                                                                         <div>
                                                                             <span className="font-bold text-sm text-slate-700">{sheet.vehicle?.vehicle_no}</span>
                                                                             <span className="text-[10px] text-slate-400 ml-2">{sheet.origin} → {sheet.destination}</span>
@@ -673,10 +694,10 @@ export default function TripInvoices() {
                         <Button variant="ghost" onClick={() => setCreateModalOpen(false)}>Cancel</Button>
                         <Button 
                             onClick={() => createGroupInvoiceMutation.mutate()} 
-                            disabled={!selectedTripGroup || !newInvoiceData.invoice_no || createGroupInvoiceMutation.isPending}
+                            disabled={!selectedTripGroup || selectedVehicles.length === 0 || !newInvoiceData.invoice_no || createGroupInvoiceMutation.isPending}
                             className="bg-primary hover:bg-primary/90 shadow-md"
                         >
-                            {createGroupInvoiceMutation.isPending ? "Creating Invoice..." : "Create & Attach Vehicles"}
+                            {createGroupInvoiceMutation.isPending ? "Creating Invoice..." : `Attach ${selectedVehicles.length} Vehicle(s)`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

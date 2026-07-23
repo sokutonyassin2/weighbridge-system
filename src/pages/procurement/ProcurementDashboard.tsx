@@ -185,12 +185,13 @@ const ProcurementDashboard = () => {
         setIsAddingAccount(true);
         try {
             const { data, error } = await sb
-                .from("company_payment_methods")
+                .from("garage_supplier_payment_methods")
                 .insert([{ 
                     account_name: newAccountName.trim(),
                     bank_name: newAccountBank.trim(),
                     account_number: newAccountNumber.trim(),
-                    type: "Bank" 
+                    method_type: "Bank",
+                    supplier_id: batchSharedDetails.supplier_id
                 }])
                 .select("*")
                 .single();
@@ -198,7 +199,7 @@ const ProcurementDashboard = () => {
             
             toast({ title: "Success", description: "Account added successfully." });
             setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: data.id });
-            queryClient.invalidateQueries({ queryKey: ["company-payment-methods"] });
+            queryClient.invalidateQueries({ queryKey: ["procurement-payment-methods"] });
             setNewAccountName("");
             setNewAccountBank("");
             setNewAccountNumber("");

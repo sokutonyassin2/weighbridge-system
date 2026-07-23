@@ -44,7 +44,8 @@ import {
     AlertCircle,
     CheckCircle,
     Printer,
-    Settings2
+    Settings2,
+    Loader2
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -340,7 +341,7 @@ function ManageRoutesDialog() {
 interface TripSheetProps {
     tripId?: string;
     duplicateData?: any;
-    onSaveSuccess?: () => void;
+    onSaveSuccess?: (sheetId?: string) => void;
 }
 
 interface ExpenseItem {
@@ -510,22 +511,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         }
     }, [expenses, countryRates, revenueData, tripId, isLoading]);
 
-    // 🔄 Load Draft on Mount
-    useEffect(() => {
-        if (tripId) {
-            const savedDraft = localStorage.getItem(`trip_draft_${tripId}`);
-            if (savedDraft && expenses.length === 0) {
-                try {
-                    const draft = JSON.parse(savedDraft);
-                    setExpenses(draft.expenses || []);
-                    setCountryRates(draft.countryRates || {});
-                    if (draft.revenueData) setRevenueData(draft.revenueData);
-                } catch (e) {
-                    console.error("Failed to load draft", e);
-                }
-            }
-        }
-    }, [tripId]);
+
 
     // Fetch Settlements for Audit (Superadmin only)
     useEffect(() => {
@@ -774,6 +760,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                            
                                     if (!isDefaultState) {
                                         hasDraftExpenses = true;
+                                        setExpenses(draft.expenses);
+                                        if (draft.countryRates) setCountryRates(draft.countryRates);
+                                        if (draft.revenueData) setRevenueData(draft.revenueData);
                                     }
                                 }
                             } catch (e) {}
@@ -1240,7 +1229,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 localStorage.removeItem('trip_sheet_draft');
             }
 
-            if (onSaveSuccess) onSaveSuccess();
+            if (onSaveSuccess) onSaveSuccess(activeSheetId);
         } catch (error: any) {
             toast({
                 variant: "destructive",
@@ -3433,6 +3422,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                     />
                                 </div>
                             )}
+                            {activeCountries.includes('DRC') && (
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-[9px] text-red-600">DRC ($ Price):</Label>
+                                    <Input
+                                        type="number"
+                                        className="h-6 w-20 text-[10px] px-2"
+                                        value={countryRates["extra_DRC"] || countryRates["DRC"] || ''}
+                                        onChange={(e) => setCountryRates({ ...countryRates, "extra_DRC": parseFloat(e.target.value) || 0 })}
+                                        disabled={isExtraLocked}
+                                    />
+                                </div>
+                            )}
                             {activeCountries.includes('Rwanda') && (
                                 <div className="flex items-center gap-2">
                                     <Label className="text-[9px] text-red-600">RWF to TZS:</Label>
@@ -3460,7 +3461,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         </div>
                     )}
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 gap-6">
                         {[
                             { id: 'TZ', label: 'Tanzania', color: 'blue' },
                             { id: 'Zambia', label: 'Zambia', color: 'green' },
@@ -3529,39 +3530,43 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                 const inputCurrencyLabel = country.id === 'Zambia' ? 'ZMW' : country.id === 'DRC' ? 'USD' : country.id === 'Rwanda' ? 'RWF' : country.id === 'Burundi' ? 'BIF' : 'TZS';
                                                 
                                                 return (
-                                                    <div key={item.originalIndex} className="group flex gap-2 items-center bg-red-50/30 border border-red-100 p-1.5 rounded-lg hover:border-red-200 transition-all">
-                                                        <Input
-                                                            className="flex-1 min-w-[120px] h-7 bg-white border border-slate-200 rounded-md px-2 text-[12px] text-slate-700 font-normal focus-visible:ring-1 ring-red-300"
-                                                            placeholder="What was the expense?"
-                                                            value={item.item_name}
-                                                            onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
-                                                            disabled={isExtraLocked}
-                                                        />
-                                                        <Select
-                                                            value={item.nature}
-                                                            onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
-                                                            disabled={isExtraLocked}
-                                                        >
-                                                            <SelectTrigger className="w-28 h-7 !text-[11px] bg-white border-red-100 shadow-none text-red-500">
-                                                                <SelectValue placeholder="Nature" />
-                                                            </SelectTrigger>
-                                                            <SelectContent className="z-[100]">
-                                                                <SelectItem value="Unbudgeted">Unbudgeted</SelectItem>
-                                                                <SelectItem value="Emergency">Emergency</SelectItem>
-                                                                <SelectItem value="Breakdown">Breakdown</SelectItem>
-                                                                <SelectItem value="Fine / Penalty">Fine / Penalty</SelectItem>
-                                                                <SelectItem value="Extra Fuel">Extra Fuel</SelectItem>
-                                                                <SelectItem value="Other">Other</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <div className="flex items-center gap-1 w-40">
+                                                    <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-red-100 hover:border-red-200 transition-all">
+                                                        <div className="flex-[8] min-w-[200px]">
+                                                            <Input
+                                                                className="w-full h-7 bg-white border border-slate-200 rounded-md px-2 text-[12px] text-slate-700 font-normal focus-visible:ring-1 ring-red-300"
+                                                                placeholder="What was the expense?"
+                                                                value={item.item_name}
+                                                                onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                                                disabled={isExtraLocked}
+                                                            />
+                                                        </div>
+                                                        <div className="w-28">
+                                                            <Select
+                                                                value={item.nature}
+                                                                onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
+                                                                disabled={isExtraLocked}
+                                                            >
+                                                                <SelectTrigger className="w-full h-7 !text-[12px] bg-white border-slate-100 shadow-none font-normal text-slate-500 hover:text-slate-700">
+                                                                    <SelectValue placeholder="Nature" />
+                                                                </SelectTrigger>
+                                                                <SelectContent className="z-[100]">
+                                                                    <SelectItem value="Unbudgeted">Unbudgeted</SelectItem>
+                                                                    <SelectItem value="Emergency">Emergency</SelectItem>
+                                                                    <SelectItem value="Breakdown">Breakdown</SelectItem>
+                                                                    <SelectItem value="Fine / Penalty">Fine / Penalty</SelectItem>
+                                                                    <SelectItem value="Extra Fuel">Extra Fuel</SelectItem>
+                                                                    <SelectItem value="Other">Other</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="w-40 flex items-center gap-1">
                                                             {country.id === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
                                                             <Select
                                                                 value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
                                                                 onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val)}
                                                                 disabled={isExtraLocked}
                                                             >
-                                                                <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-white border-red-100 text-red-500 hover:bg-red-50 focus:ring-0">
+                                                                <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-slate-100 border-none shadow-none px-1.5 text-slate-500 hover:bg-slate-200 focus:ring-0">
                                                                     <SelectValue />
                                                                 </SelectTrigger>
                                                                 <SelectContent className="z-[100]">
@@ -3572,7 +3577,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                 </SelectContent>
                                                             </Select>
                                                             <Input
-                                                                className="h-7 text-right text-[12px] font-medium text-red-700 bg-white border-red-100 focus-visible:ring-1 ring-red-300 w-full tabular-nums"
+                                                                className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
                                                                 type="text"
                                                                 placeholder="0"
                                                                 value={formatWithCommas(item.amount || '')}
@@ -3580,15 +3585,21 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                 disabled={isExtraLocked}
                                                             />
                                                         </div>
-                                                        <span className="text-[10px] text-slate-400 w-12 text-right shrink-0">${usd.toFixed(0)}</span>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-6 w-6 text-red-300 hover:text-destructive hover:bg-destructive/5 transition-opacity shrink-0"
-                                                            onClick={() => removeExpense(item.originalIndex)}
-                                                        >
-                                                            <Trash2 size={12} />
-                                                        </Button>
+                                                        <div className="w-20 text-right shrink-0">
+                                                            <p className="text-[11px] font-semibold text-slate-400">
+                                                                ${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                            </p>
+                                                        </div>
+                                                        <div className="w-6 flex justify-end shrink-0">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6 text-red-300 hover:text-destructive hover:bg-destructive/5 transition-opacity shrink-0"
+                                                                onClick={() => removeExpense(item.originalIndex)}
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 );
                                             })}

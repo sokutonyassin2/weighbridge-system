@@ -348,10 +348,11 @@ const TripSheets = () => {
                     <TripSheet 
                         tripId={selectedTrip?.id} 
                         duplicateData={duplicateSourceTrip} 
-                        onSaveSuccess={() => {
-                            setIsSheetOpen(false);
+                        onSaveSuccess={(sheetId) => {
+                            if (sheetId && !selectedTrip?.id) {
+                                setSelectedTrip({ id: sheetId } as any);
+                            }
                             setDuplicateSourceTrip(null);
-                            setSelectedTrip(null);
                             refetch();
                         }} 
                     />

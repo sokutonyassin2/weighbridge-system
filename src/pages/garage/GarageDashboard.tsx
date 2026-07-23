@@ -2119,7 +2119,6 @@ const GarageDashboard = () => {
 
 
 
-                                                            {/* Update Physical count hidden as per user request to automate via payment portal
                                                             <Button
                                                                 size="sm"
                                                                 variant="ghost"
@@ -2131,9 +2130,8 @@ const GarageDashboard = () => {
                                                                 }}
                                                                 title={language === 'en' ? 'Update Physical count' : 'Sasisha idadi halisi'}
                                                             >
-                                                                <ClipboardCheck className="h-4 w-4" />
+                                                                <PackagePlus className="h-4 w-4" />
                                                             </Button>
-                                                            */}
 
                                                             <Button
                                                                 size="sm"

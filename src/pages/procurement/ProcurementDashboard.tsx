@@ -479,9 +479,8 @@ const ProcurementDashboard = () => {
                 const subtotal = unitPrice * qty;
                 const vat = sharedDetails.includes_vat ? subtotal * 0.18 : 0;
                 
-                return {
+                const updateObj: any = {
                     id: req.id,
-                    status: isUpdateOnly ? 'Pending' : 'Awaiting Approval',
                     unit_price: unitPrice,
                     total_price: subtotal + vat,
                     supplier_id: sharedDetails.supplier_id || null,
@@ -491,6 +490,12 @@ const ProcurementDashboard = () => {
                     payment_details: allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null,
                     quantity_approved: qty
                 };
+
+                if (!isUpdateOnly) {
+                    updateObj.status = 'Awaiting Approval';
+                }
+
+                return updateObj;
             });
 
             await Promise.all(updates.map(async (updateData) => {
@@ -982,6 +987,35 @@ const ProcurementDashboard = () => {
                         <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-semibold animate-pulse mt-1 md:mt-0">Live Syncing</Badge>
                     </h1>
                     <p className="text-xs md:text-sm text-slate-500 mt-1 font-medium tracking-tight">Purchase Order (PO) Management & Strategic Sourcing</p>
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="mt-3 text-xs bg-red-50 text-red-700 border-red-200 hover:bg-red-100 uppercase tracking-widest font-bold"
+                        onClick={async () => {
+                            try {
+                                const { data: suppliers } = await sb.from("garage_suppliers").select("*").ilike("name", "%JOSHEM%");
+                                if (!suppliers || suppliers.length === 0) throw new Error("JOSHEM CO LTD not found in database.");
+                                const joshem = suppliers[0];
+
+                                const { data: pms } = await sb.from("garage_supplier_payment_methods").select("*").eq("supplier_id", joshem.id);
+                                const pm = pms && pms.length > 0 ? (pms.find((p: any) => p.type === 'Bank') || pms[0]) : null;
+                                if (!pm) throw new Error("No payment methods found for JOSHEM CO LTD.");
+
+                                const { error } = await sb.from("garage_requisitions").update({ 
+                                    supplier_id: joshem.id,
+                                    payment_details: pm 
+                                }).eq("po_number", "PO-20260722-0002");
+                                
+                                if (error) throw error;
+                                queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+                                toast({ title: "PO Fixed", description: `PO-20260722-0002 has been successfully transferred to JOSHEM CO LTD.` });
+                            } catch (e: any) {
+                                toast({ variant: "destructive", title: "Error", description: e.message });
+                            }
+                        }}
+                    >
+                        Fix PO Mistake (PO-20260722-0002)
+                    </Button>
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
                     {(isLoadingRequisitions || isLoadingInventory) && (

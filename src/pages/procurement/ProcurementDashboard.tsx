@@ -987,7 +987,6 @@ const ProcurementDashboard = () => {
                         <Badge className="bg-emerald-50 text-emerald-600 border-emerald-100 text-[10px] uppercase font-semibold animate-pulse mt-1 md:mt-0">Live Syncing</Badge>
                     </h1>
                     <p className="text-xs md:text-sm text-slate-500 mt-1 font-medium tracking-tight">Purchase Order (PO) Management & Strategic Sourcing</p>
-
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
                     {(isLoadingRequisitions || isLoadingInventory) && (

@@ -204,6 +204,21 @@ const FleetCommand = () => {
         }
     });
 
+    const { data: garageRequisitions } = useQuery({
+        queryKey: ["logistics-garage-requisitions"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("garage_requisitions")
+                .select(`*, vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model), profiles!garage_requisitions_requested_by_fkey(full_name)`)
+                .neq("is_deleted", true)
+                .not("status", "in", '("Closed","Paid","Stocked","Rejected","Revoked")')
+                .order("created_at", { ascending: false })
+                .limit(100);
+            if (error) throw error;
+            return data;
+        }
+    });
+
     const [fleetDocuments, setFleetDocuments] = useState<any[]>([]);
 
     const handleDocumentUpload = async (file: File) => {
@@ -1539,7 +1554,7 @@ const FleetCommand = () => {
                     {activeTab === 'maintenance' ? (
                         <Tabs defaultValue="all" value={maintenanceSubTab} onValueChange={setMaintenanceSubTab} className="w-full">
                             <div className="px-6 pt-4">
-                                <TabsList className="grid w-full max-w-[400px] grid-cols-2">
+                                <TabsList className="grid w-full max-w-[600px] grid-cols-3">
                                     <TabsTrigger value="all">All Maintenance ({activeGarageJobs?.length || 0})</TabsTrigger>
                                     <TabsTrigger value="pending" className="relative">
                                         Pending Issues
@@ -1549,6 +1564,7 @@ const FleetCommand = () => {
                                             </Badge>
                                         )}
                                     </TabsTrigger>
+                                    <TabsTrigger value="requisitions">Garage Requisitions</TabsTrigger>
                                 </TabsList>
                             </div>
                             
@@ -1743,6 +1759,67 @@ const FleetCommand = () => {
                                                             <CheckCircle2 className="w-8 h-8 text-green-500 opacity-20" />
                                                             <p>No vehicles with pending issues.</p>
                                                         </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="requisitions" className="mt-0">
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader className="bg-slate-50">
+                                            <TableRow>
+                                                <TableHead>Date</TableHead>
+                                                <TableHead>Vehicle</TableHead>
+                                                <TableHead>Item Name</TableHead>
+                                                <TableHead className="text-center">Qty</TableHead>
+                                                <TableHead>Requested By</TableHead>
+                                                <TableHead>Status</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {garageRequisitions && garageRequisitions.length > 0 ? (
+                                                garageRequisitions.map((req: any) => (
+                                                    <TableRow key={req.id}>
+                                                        <TableCell className="text-xs text-slate-500 font-medium">
+                                                            {new Date(req.created_at).toLocaleDateString()}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-slate-700">
+                                                                    {req.vehicle?.vehicle_no || req.vehicle?.horse_number || req.vehicle?.trailer_number || 'STOO (General)'}
+                                                                </span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-sm font-medium text-slate-700">
+                                                            {req.item_name}
+                                                        </TableCell>
+                                                        <TableCell className="text-center font-mono">
+                                                            {req.quantity_requested}
+                                                        </TableCell>
+                                                        <TableCell className="text-xs text-slate-600">
+                                                            {req.profiles?.full_name || 'System'}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-tight ${
+                                                                req.status === 'Waiting Review' || req.status === 'Pending' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                                                                req.status === 'Reviewed & Pending' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                                                                req.status === 'Awaiting Approval' ? 'bg-amber-50 text-amber-600 border border-amber-200' :
+                                                                req.status === 'Approved' ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' :
+                                                                req.status === 'Closed' || req.status === 'Paid' || req.status === 'Stocked' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
+                                                                ['Revoked', 'Rejected'].includes(req.status) ? 'bg-rose-50 text-rose-600 border border-rose-200' :
+                                                                'bg-slate-50 text-slate-600 border border-slate-200'
+                                                            }`}>{req.status === 'Pending' ? 'Waiting Review' : req.status}</Badge>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                                        No garage requisitions found.
                                                     </TableCell>
                                                 </TableRow>
                                             )}

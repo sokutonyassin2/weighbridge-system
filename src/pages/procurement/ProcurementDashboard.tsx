@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image, Check, ChevronsUpDown } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image, Check, ChevronsUpDown, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -593,11 +593,13 @@ const ProcurementDashboard = () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-suppliers"] });
             toast({ title: "Supplier Deleted", description: "Supplier removed from directory." });
         }
-    });
+    });    
+    const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
+    const [quickEditData, setQuickEditData] = useState({ id: "", quantity_requested: 0, unit_price: 0, quantity_approved: 0, item_name: "" });
 
     const deleteRequisitionMutation = useMutation({
         mutationFn: async (id: string) => {
-            const { error } = await sb.from("garage_requisitions").update({
+            const { error } = await supabase.from("garage_requisitions").update({
                 is_deleted: true,
                 deleted_at: new Date().toISOString()
             }).eq("id", id);
@@ -613,6 +615,60 @@ const ProcurementDashboard = () => {
                 title: "Deletion Failed",
                 description: error.message || "Could not delete requisition."
             });
+        }
+    });
+
+    const deleteRequisitionGroupMutation = useMutation({
+        mutationFn: async (reqIds: string[]) => {
+            for (const id of reqIds) {
+                const { error } = await supabase.from("garage_requisitions").update({
+                    is_deleted: true,
+                    deleted_at: new Date().toISOString()
+                }).eq("id", id);
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            toast({ title: "Group Deleted", description: "The requisitions have been removed." });
+        },
+        onError: (error: any) => {
+            toast({
+                variant: "destructive",
+                title: "Deletion Failed",
+                description: error.message || "Could not delete requisitions."
+            });
+        }
+    });
+
+    const quickEditMutation = useMutation({
+        mutationFn: async (data: typeof quickEditData) => {
+            const { data: reqData, error: fetchError } = await supabase.from("garage_requisitions")
+                .select("includes_vat")
+                .eq("id", data.id)
+                .single();
+                
+            if (fetchError) throw fetchError;
+            
+            const subtotal = data.quantity_approved * data.unit_price;
+            const vat = reqData?.includes_vat ? (subtotal * 0.18) : 0;
+            const totalPrice = subtotal + vat;
+
+            const { error } = await supabase.from("garage_requisitions")
+                .update({ 
+                    quantity_requested: data.quantity_requested,
+                    quantity_approved: data.quantity_approved,
+                    unit_price: data.unit_price,
+                    vat_amount: vat,
+                    total_price: totalPrice
+                })
+                .eq("id", data.id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
+            setIsQuickEditOpen(false);
+            toast({ title: "Updated", description: "Price, quantity and totals recalculated successfully." });
         }
     });
 
@@ -1485,9 +1541,25 @@ const ProcurementDashboard = () => {
                                                                         </div>
                                                                     </TableCell>
                                                                     <TableCell className="text-right px-2 md:px-6" colSpan={2}>
-                                                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
-                                                                            {isExpanded ? 'Hide' : 'View'}
-                                                                        </Button>
+                                                                        <div className="flex items-center justify-end gap-2">
+                                                                            <Button 
+                                                                                variant="ghost" 
+                                                                                    size="sm" 
+                                                                                    className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                                                                                    disabled={deleteRequisitionGroupMutation.isPending}
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        if (window.confirm(`Are you sure you want to delete all ${item.reqs.length} requisition(s) for this vehicle? This will remove them from the system entirely.`)) {
+                                                                                            deleteRequisitionGroupMutation.mutate(item.reqs.map((r: any) => r.id));
+                                                                                        }
+                                                                                    }}
+                                                                                >
+                                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                                </Button>
+                                                                            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
+                                                                                {isExpanded ? 'Hide' : 'View'}
+                                                                            </Button>
+                                                                        </div>
                                                                     </TableCell>
                                                                 </TableRow>
                                                             );
@@ -1615,6 +1687,28 @@ const ProcurementDashboard = () => {
                                                         </TableCell>
                                                         <TableCell className="text-right px-6">
                                                             <div className="flex items-center justify-end gap-2">
+                                                                {/* ADMIN QUICK EDIT */}
+                                                                {(userRole === 'admin' || userRole === 'super_admin') && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                                                                        title="Admin Quick Edit"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setQuickEditData({
+                                                                                id: req.id,
+                                                                                item_name: req.item_name,
+                                                                                quantity_requested: req.quantity_requested || 0,
+                                                                                quantity_approved: req.quantity_approved || 0,
+                                                                                unit_price: req.unit_price || 0
+                                                                            });
+                                                                            setIsQuickEditOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Pencil className="w-3.5 h-3.5" />
+                                                                    </Button>
+                                                                )}
                                                                 {/* PROCUREMENT OFFICER: Prepare Quote */}
                                                                 {(req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked') && (
                                                                     <div className="flex items-center gap-2">
@@ -3625,6 +3719,54 @@ const ProcurementDashboard = () => {
                             className="bg-blue-600 hover:bg-blue-700 text-white"
                         >
                             {isAddingAccount ? "Saving..." : "Save Account"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isQuickEditOpen} onOpenChange={setIsQuickEditOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-slate-800">Admin Quick Edit</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Directly modify quantity and unit price. This immediately updates the database.
+                            <div className="mt-2 font-bold text-indigo-600">{quickEditData.item_name}</div>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Requested</Label>
+                            <Input
+                                type="number"
+                                value={quickEditData.quantity_requested}
+                                onChange={(e) => setQuickEditData({ ...quickEditData, quantity_requested: Number(e.target.value) })}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Approved</Label>
+                            <Input
+                                type="number"
+                                value={quickEditData.quantity_approved}
+                                onChange={(e) => setQuickEditData({ ...quickEditData, quantity_approved: Number(e.target.value) })}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Unit Price (TZS)</Label>
+                            <Input
+                                type="number"
+                                value={quickEditData.unit_price}
+                                onChange={(e) => setQuickEditData({ ...quickEditData, unit_price: Number(e.target.value) })}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsQuickEditOpen(false)}>Cancel</Button>
+                        <Button 
+                            className="bg-indigo-600 text-white hover:bg-indigo-700" 
+                            disabled={quickEditMutation.isPending}
+                            onClick={() => quickEditMutation.mutate(quickEditData)}
+                        >
+                            {quickEditMutation.isPending ? "Saving..." : "Save Changes"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

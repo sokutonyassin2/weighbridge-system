@@ -17,6 +17,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, CheckCircle, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus, PackageCheck } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
+import { printGarageRequisitions } from "@/utils/printUtils";
 
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -203,6 +205,7 @@ const GarageDashboard = () => {
         } catch { return []; }
     });
     const [expandedReqGroups, setExpandedReqGroups] = useState<string[]>([]);
+    const [selectedReqGroupIds, setSelectedReqGroupIds] = useState<string[]>([]);
     const [usageForm, setUsageForm] = useState({
         item_id: "",
         item_name: "",
@@ -2405,6 +2408,32 @@ const GarageDashboard = () => {
                                                 />
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                {selectedReqGroupIds.length > 0 && (
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-8 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap border border-indigo-200"
+                                                        onClick={() => {
+                                                            const groups: Record<string, any> = {};
+                                                            (requisitions || []).forEach((req: any) => {
+                                                                const created = new Date(req.created_at);
+                                                                if (req.request_type !== 'Job' || !req.vehicle) {
+                                                                    const key = `general-${req.id}`;
+                                                                    groups[key] = { id: key, vehicle: null, category: 'General', status: req.status, items: [req] };
+                                                                    return;
+                                                                }
+                                                                const dateStr = created.toLocaleDateString();
+                                                                const key = `${dateStr}-${req.vehicle.id}-${req.requirement_category || 'Uncategorized'}`;
+                                                                if (!groups[key]) groups[key] = { id: key, vehicle: req.vehicle, category: req.requirement_category || 'Uncategorized', status: req.status, items: [] };
+                                                                groups[key].items.push(req);
+                                                            });
+                                                            const selectedGroups = Object.values(groups).filter(g => selectedReqGroupIds.includes(g.id));
+                                                            const currentUserProfile = { full_name: user?.user_metadata?.full_name || user?.email || 'System User' };
+                                                            printGarageRequisitions({ reqGroups: selectedGroups, userProfile: currentUserProfile });
+                                                        }}
+                                                    >
+                                                        <Printer className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Print Selected' : 'Chapisha'}
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     size="sm"
                                                     className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
@@ -2449,6 +2478,7 @@ const GarageDashboard = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50/30">
+                                                <TableHead className="w-[40px] px-2 text-center"></TableHead>
                                                 <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Sent Date' : 'Tarehe'}</TableHead>
                                                 <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Model' : 'Muundo'}</TableHead>
                                                 <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Truck No' : 'Gari'}</TableHead>
@@ -2531,7 +2561,7 @@ const GarageDashboard = () => {
                                                 if (filteredGroups.length === 0) {
                                                     return (
                                                         <TableRow>
-                                                            <TableCell colSpan={6} className="h-32 text-center text-slate-400 font-medium text-sm">
+                                                            <TableCell colSpan={7} className="h-32 text-center text-slate-400 font-medium text-sm">
                                                                 {language === 'en' ? `No ${activeReqStatusTab} requisitions found` : 'Hakuna maombi yaliyopatikana'}
                                                             </TableCell>
                                                         </TableRow>
@@ -2547,6 +2577,18 @@ const GarageDashboard = () => {
                                                                     setExpandedReqGroups(prev => isExpanded ? prev.filter(id => id !== group.id) : [...prev, group.id]);
                                                                 }
                                                             }}>
+                                                                <TableCell className="px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                                                    <Checkbox 
+                                                                        checked={selectedReqGroupIds.includes(group.id)}
+                                                                        onCheckedChange={(checked) => {
+                                                                            if (checked) {
+                                                                                setSelectedReqGroupIds(prev => [...prev, group.id]);
+                                                                            } else {
+                                                                                setSelectedReqGroupIds(prev => prev.filter(id => id !== group.id));
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                </TableCell>
                                                                 <TableCell className="text-xs text-slate-500 font-medium">
                                                                     <div className="flex flex-col">
                                                                         <span>{group.dateStr}</span>
@@ -2597,9 +2639,14 @@ const GarageDashboard = () => {
                                                                 <TableCell className="text-right">
                                                                     <div className="flex items-center justify-end gap-2">
                                                                         {group.category !== 'General' && (
-                                                                            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
-                                                                                {isExpanded ? (language === 'en' ? 'Hide' : 'Ficha') : (language === 'en' ? 'View' : 'Ona')}
-                                                                            </Button>
+                                                                            <>
+                                                                                {(group.status === 'Pending' || group.status === 'Waiting Review') && (
+                                                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete entire group?")) { group.items.forEach((i: any) => deleteRequisitionMutation.mutate(i.id)); } }}><Trash2 className="w-4 h-4" /></Button>
+                                                                                )}
+                                                                                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
+                                                                                    {isExpanded ? (language === 'en' ? 'Hide' : 'Ficha') : (language === 'en' ? 'View' : 'Ona')}
+                                                                                </Button>
+                                                                            </>
                                                                         )}
                                                                         {group.category === 'General' && (group.status === 'Pending' || group.status === 'Waiting Review') && (
                                                                             <>
@@ -2612,7 +2659,7 @@ const GarageDashboard = () => {
                                                             </TableRow>
                                                             {isExpanded && group.category !== 'General' && (
                                                                 <TableRow className="bg-slate-50/50">
-                                                                    <TableCell colSpan={6} className="p-0 border-b">
+                                                                    <TableCell colSpan={7} className="p-0 border-b">
                                                                         <div className="p-4 pl-12 pr-6 border-l-2 border-indigo-200">
                                                                             <table className="w-full text-xs">
                                                                                 <thead>

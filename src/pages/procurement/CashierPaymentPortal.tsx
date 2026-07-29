@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { printPurchaseOrder } from "@/utils/printUtils";
@@ -75,7 +75,7 @@ const CashierPaymentPortal = () => {
     const sb = supabase as any;
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const { userProfile } = useAuth();
+    const { userProfile, userRole } = useAuth();
 
     const [searchTerm, setSearchTerm] = useState("");
     const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
@@ -96,6 +96,10 @@ const CashierPaymentPortal = () => {
 
     // Confirmation dialog for Unseen
     const [unseenConfirmReq, setUnseenConfirmReq] = useState<any>(null);
+
+    // Admin Quick Edit
+    const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
+    const [quickEditData, setQuickEditData] = useState({ id: "", quantity_requested: 0, unit_price: 0, quantity_approved: 0, item_name: "" });
 
     // Filtering states for History
     const [selectedMonth, setSelectedMonth] = useState<string>("All");
@@ -270,6 +274,38 @@ const CashierPaymentPortal = () => {
     }, [historicalRecords, selectedMonth, selectedDay, searchTerm]);
 
     // Payment Mutation
+    const quickEditMutation = useMutation({
+        mutationFn: async (data: typeof quickEditData) => {
+            const { data: reqData, error: fetchError } = await sb.from("garage_requisitions")
+                .select("includes_vat")
+                .eq("id", data.id)
+                .single();
+                
+            if (fetchError) throw fetchError;
+            
+            const subtotal = data.quantity_approved * data.unit_price;
+            const vat = reqData?.includes_vat ? (subtotal * 0.18) : 0;
+            const totalPrice = subtotal + vat;
+
+            const { error } = await sb.from("garage_requisitions")
+                .update({ 
+                    quantity_requested: data.quantity_requested,
+                    quantity_approved: data.quantity_approved,
+                    unit_price: data.unit_price,
+                    vat_amount: vat,
+                    total_price: totalPrice
+                })
+                .eq("id", data.id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["cashier-approved"] });
+            queryClient.invalidateQueries({ queryKey: ["cashier-history"] });
+            setIsQuickEditOpen(false);
+            toast({ title: "Updated", description: "Price, quantity and totals recalculated successfully." });
+        }
+    });
+
     const paymentMutation = useMutation({
         mutationFn: async ({ reqs, reference, file }: { reqs: any[], reference: string, file?: File | null }) => {
             let receiptUrl: string | null = null;
@@ -494,7 +530,32 @@ const CashierPaymentPortal = () => {
                                 <TableBody>
                                     {reqs.map((r: any) => (
                                         <TableRow key={r.id}>
-                                            <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
+                                            <TableCell className="pl-6 font-semibold text-slate-800">
+                                                <div className="flex items-center gap-1.5">
+                                                    {r.item_name}
+                                                    {(userRole === 'admin' || userRole === 'super_admin') && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 w-6 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                                                            title="Admin Quick Edit"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setQuickEditData({
+                                                                    id: r.id,
+                                                                    item_name: r.item_name,
+                                                                    quantity_requested: r.quantity_requested || 0,
+                                                                    quantity_approved: r.quantity_approved || 0,
+                                                                    unit_price: r.unit_price || 0
+                                                                });
+                                                                setIsQuickEditOpen(true);
+                                                            }}
+                                                        >
+                                                            <Pencil className="w-3 h-3" />
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </TableCell>
                                             <TableCell>
                                                 {r.vehicle ? (
                                                     <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
@@ -1455,6 +1516,37 @@ const CashierPaymentPortal = () => {
                 supplierName={previewSupplier}
                 reqs={previewReqs}
             />
+            <Dialog open={isQuickEditOpen} onOpenChange={setIsQuickEditOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-slate-800">Admin Quick Edit</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Directly modify quantity and unit price.
+                            <div className="mt-2 font-bold text-indigo-600">{quickEditData.item_name}</div>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Requested</Label>
+                            <Input type="number" value={quickEditData.quantity_requested} onChange={(e) => setQuickEditData({ ...quickEditData, quantity_requested: Number(e.target.value) })} />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Approved</Label>
+                            <Input type="number" value={quickEditData.quantity_approved} onChange={(e) => setQuickEditData({ ...quickEditData, quantity_approved: Number(e.target.value) })} />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Unit Price (TZS)</Label>
+                            <Input type="number" value={quickEditData.unit_price} onChange={(e) => setQuickEditData({ ...quickEditData, unit_price: Number(e.target.value) })} />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsQuickEditOpen(false)}>Cancel</Button>
+                        <Button className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={quickEditMutation.isPending} onClick={() => quickEditMutation.mutate(quickEditData)}>
+                            {quickEditMutation.isPending ? "Saving..." : "Save Changes"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div >
     );
 };

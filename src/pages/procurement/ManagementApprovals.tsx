@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2 } from "lucide-react";
+import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2, Pencil } from "lucide-react";
+import { DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -23,6 +24,8 @@ const ManagementApprovals = () => {
     
     // State for Management Review
     const [reviewEdits, setReviewEdits] = useState<Record<string, { qty: number, note: string }>>({});
+    const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
+    const [quickEditData, setQuickEditData] = useState({ id: "", quantity_requested: 0, unit_price: 0, quantity_approved: 0, item_name: "" });
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return "N/A";
@@ -137,6 +140,38 @@ const ManagementApprovals = () => {
                 title: "Deletion Failed",
                 description: error.message || "Could not delete requisition."
             });
+        }
+    });
+
+    const quickEditMutation = useMutation({
+        mutationFn: async (data: typeof quickEditData) => {
+            const { data: reqData, error: fetchError } = await sb.from("garage_requisitions")
+                .select("includes_vat")
+                .eq("id", data.id)
+                .single();
+                
+            if (fetchError) throw fetchError;
+            
+            const subtotal = data.quantity_approved * data.unit_price;
+            const vat = reqData?.includes_vat ? (subtotal * 0.18) : 0;
+            const totalPrice = subtotal + vat;
+
+            const { error } = await sb.from("garage_requisitions")
+                .update({ 
+                    quantity_requested: data.quantity_requested,
+                    quantity_approved: data.quantity_approved,
+                    unit_price: data.unit_price,
+                    vat_amount: vat,
+                    total_price: totalPrice
+                })
+                .eq("id", data.id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["management-reviews"] });
+            queryClient.invalidateQueries({ queryKey: ["management-approvals"] });
+            setIsQuickEditOpen(false);
+            toast({ title: "Updated", description: "Price, quantity and totals recalculated successfully." });
         }
     });
 
@@ -271,6 +306,24 @@ const ManagementApprovals = () => {
                                         </TableCell>
                                         <TableCell className="text-right pr-6">
                                             <div className="flex justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                                                    title="Admin Quick Edit"
+                                                    onClick={() => {
+                                                        setQuickEditData({
+                                                            id: req.id,
+                                                            item_name: req.garage_inventory?.item_name || req.item_name,
+                                                            quantity_requested: req.quantity_requested || 0,
+                                                            quantity_approved: req.quantity_approved || 0,
+                                                            unit_price: req.unit_price || 0
+                                                        });
+                                                        setIsQuickEditOpen(true);
+                                                    }}
+                                                >
+                                                    <Pencil className="w-3.5 h-3.5" />
+                                                </Button>
                                                 <Button 
                                                     size="sm" 
                                                     className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
@@ -526,6 +579,37 @@ const ManagementApprovals = () => {
                             Approve PO Batch
                         </Button>
                     </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={isQuickEditOpen} onOpenChange={setIsQuickEditOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-slate-800">Admin Quick Edit</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Directly modify quantity and unit price.
+                            <div className="mt-2 font-bold text-indigo-600">{quickEditData.item_name}</div>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Requested</Label>
+                            <Input type="number" value={quickEditData.quantity_requested} onChange={(e) => setQuickEditData({ ...quickEditData, quantity_requested: Number(e.target.value) })} />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Approved</Label>
+                            <Input type="number" value={quickEditData.quantity_approved} onChange={(e) => setQuickEditData({ ...quickEditData, quantity_approved: Number(e.target.value) })} />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">Unit Price (TZS)</Label>
+                            <Input type="number" value={quickEditData.unit_price} onChange={(e) => setQuickEditData({ ...quickEditData, unit_price: Number(e.target.value) })} />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsQuickEditOpen(false)}>Cancel</Button>
+                        <Button className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={quickEditMutation.isPending} onClick={() => quickEditMutation.mutate(quickEditData)}>
+                            {quickEditMutation.isPending ? "Saving..." : "Save Changes"}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

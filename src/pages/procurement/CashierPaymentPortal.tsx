@@ -23,7 +23,7 @@ const compressImage = async (file: File): Promise<File> => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = (event) => {
-            const img = new Image();
+            const img = new window.Image();
             img.src = event.target?.result as string;
             img.onload = () => {
                 const canvas = document.createElement('canvas');
@@ -427,11 +427,12 @@ const CashierPaymentPortal = () => {
 
     const receiptUploadMutation = useMutation({
         mutationFn: async ({ reqId, file, type }: { reqId: string, file: File, type: 'payment' | 'delivery' }) => {
-            const fileExt = file.name.split('.').pop();
+            const fileToUpload = file.type.startsWith('image/') ? await compressImage(file) : file;
+            const fileExt = fileToUpload.name.split('.').pop() || 'jpeg';
             const filePath = `${type}-receipts/REQ-${reqId}-${Date.now()}.${fileExt}`;
             const { error: uploadError } = await (supabase as any).storage
                 .from('receipts')
-                .upload(filePath, file);
+                .upload(filePath, fileToUpload);
             if (uploadError) throw uploadError;
             
             const { data: urlData } = (supabase as any).storage

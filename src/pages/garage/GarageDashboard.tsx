@@ -1940,7 +1940,7 @@ const GarageDashboard = () => {
                                                 </div>
                                             </div>
                                             <Badge className={`px-2.5 py-1 text-xs font-bold ${isLow ? 'bg-red-500 animate-pulse' : 'bg-green-600'}`}>
-                                                {item.quantity} {item.unit_measure}
+                                                {Math.max(0, item.quantity || 0)} {item.unit_measure}
                                             </Badge>
                                         </div>
 
@@ -1971,7 +1971,7 @@ const GarageDashboard = () => {
                                                 className="col-span-2 h-8 text-[11px] font-semibold border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-indigo-600 rounded-lg"
                                                 onClick={() => {
                                                     setSelectedInventoryItem(item);
-                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
+                                                    setUpdateQtyDetails({ quantity: Math.max(0, item.quantity || 0) });
                                                     setIsUpdateQtyOpen(true);
                                                 }}
                                             >
@@ -2078,7 +2078,7 @@ const GarageDashboard = () => {
                                                     </TableCell>
                                                     <TableCell className="py-4 text-center">
                                                         <Badge className={`px-2.5 py-0.5 text-xs font-bold ${isLow ? 'bg-red-500' : 'bg-green-600'}`}>
-                                                            {item.quantity} {item.unit_measure}
+                                                            {Math.max(0, item.quantity || 0)} {item.unit_measure}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell className="py-4 px-6 text-right">
@@ -2128,7 +2128,7 @@ const GarageDashboard = () => {
                                                                 className="h-8 w-8 p-0 text-emerald-600 hover:bg-emerald-50 rounded-lg group"
                                                                 onClick={() => {
                                                                     setSelectedInventoryItem(item);
-                                                                    setUpdateQtyDetails({ quantity: item.quantity || 0 });
+                                                                    setUpdateQtyDetails({ quantity: Math.max(0, item.quantity || 0) });
                                                                     setIsUpdateQtyOpen(true);
                                                                 }}
                                                                 title={language === 'en' ? 'Update Physical count' : 'Sasisha idadi halisi'}
@@ -3406,10 +3406,7 @@ const GarageDashboard = () => {
                                                     />
                                                     {language === 'en' ? "None (Not vehicle specific)" : "Hakuna (Haitaunganishwa na gari)"}
                                                 </CommandItem>
-                                                {(vehicles || []).filter((v: any) => 
-                                                    v.status === 'Maintenance' || 
-                                                    (jobCards || []).some((j: any) => j.vehicle_id === v.id && j.status !== 'Closed')
-                                                ).map((v: any) => (
+                                                {(vehicles || []).map((v: any) => (
                                                     <CommandItem
                                                         key={v.id}
                                                         value={v.plate_number}
@@ -3651,7 +3648,7 @@ const GarageDashboard = () => {
                             <Input
                                 type="number"
                                 value={updateQtyDetails.quantity}
-                                onChange={(e) => setUpdateQtyDetails({ quantity: parseInt(e.target.value) || 0 })}
+                                onChange={(e) => setUpdateQtyDetails({ quantity: Math.max(0, parseInt(e.target.value) || 0) })}
                                 className="h-12 text-2xl font-mono font-semibold text-indigo-600"
                             />
                             <p className="text-[10px] text-slate-400 italic font-medium">{language === 'en' ? 'Enter the actual count from the physical store.' : 'Weka idadi halisi kutoka ghalani.'}</p>

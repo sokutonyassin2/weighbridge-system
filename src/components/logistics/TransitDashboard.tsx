@@ -6,14 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import {
     Plus, Search, Truck, Globe, Printer, Eye, FileText,
     RefreshCw, BarChart3, CalendarDays, MapPin, AlertTriangle,
-    CheckCircle2, X, Edit2, ChevronDown, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw
+    CheckCircle2, X, Edit2, ChevronDown, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw,
+    Building2, ChevronsUpDown, Check
 } from "lucide-react";
+
 import { format, differenceInDays } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
@@ -22,6 +27,37 @@ const fmt = (d: any) => d ? format(new Date(d), "dd MMM yy") : "—";
 const daysBetween = (a: any, b: any): number | null => {
     if (!a || !b) return null;
     return Math.ceil((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+};
+
+const computeLiveCycle = (t: any): number | null => {
+    const start = t.arrival_loading_date || t.loading_date || t.dispatch_date;
+    if (!start) return null;
+    
+    if (t.hq_arrival_date) return daysBetween(start, t.hq_arrival_date);
+    
+    const dates = [
+        t.offloading_date,
+        t.arrive_offloading_site_date,
+        t.borders_data?.[2]?.departure,
+        t.borders_data?.[2]?.arrival,
+        t.borders_data?.[1]?.departure,
+        t.borders_data?.[1]?.arrival,
+        t.borders_data?.[0]?.departure,
+        t.borders_data?.[0]?.arrival,
+        t.checkpoint_3_departure_date,
+        t.checkpoint_3_arrival_date,
+        t.checkpoint_2_departure_date,
+        t.checkpoint_2_arrival_date,
+        t.checkpoint_1_departure_date,
+        t.checkpoint_1_arrival_date,
+        t.dispatch_date,
+        t.loading_date,
+        t.arrival_loading_date
+    ].filter(d => !!d);
+    
+    if (dates.length === 0) return null;
+    dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    return daysBetween(start, dates[0]);
 };
 
 const TRANSIT_STATUSES = ["Positioning", "Loading", "Dispatched", "Checkpoint 1", "Checkpoint 2", "Checkpoint 3", "In Transit", "Offloading", "Completed", "Cancelled"] as const;
@@ -98,6 +134,49 @@ const TransitDashboard = () => {
     const [form, setForm] = useState(emptyForm());
     const [yearFilter, setYearFilter] = useState("All");
     const [activeTab, setActiveTab] = useState<"ALL" | "OUTBOUND" | "BACKLOAD" | "TANKERS" | "ARCHIVE">("ALL");
+
+    // Fetch clients registry
+    const { data: clientsList = [], refetch: refetchClients } = useQuery({
+        queryKey: ["logistics-clients"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_clients")
+                .select("*")
+                .order("name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
+    const [newClientName, setNewClientName] = useState("");
+    const [isAddingClient, setIsAddingClient] = useState(false);
+
+    const handleAddClient = async () => {
+        if (!newClientName.trim()) return;
+        setIsAddingClient(true);
+        try {
+            const { data, error } = await supabase
+                .from("logistics_clients")
+                .insert([{ name: newClientName.trim() }])
+                .select();
+            if (error) throw error;
+            toast({
+                title: "Client Added",
+                description: `Successfully added "${newClientName}" to the registry.`
+            });
+            setNewClientName("");
+            refetchClients();
+            setForm(prev => ({ ...prev, client_name: newClientName.trim() }));
+        } catch (err: any) {
+            toast({
+                variant: "destructive",
+                title: "Error adding client",
+                description: err.message
+            });
+        } finally {
+            setIsAddingClient(false);
+        }
+    };
 
     // ─── Fetch Data ───────────────────────────────────────────────────────────
     const { data: fleet = [] } = useQuery({
@@ -196,10 +275,7 @@ const TransitDashboard = () => {
                 leg_type: data.leg_type,
                 nature: data.nature || null,
                 trip_sheet_id: data.source_sheet_id || null,
-                total_trip_days: daysBetween(
-                    data.arrival_loading_date || data.loading_date || data.dispatch_date, 
-                    data.hq_arrival_date || new Date().toISOString().slice(0, 10)
-                ),
+                total_trip_days: computeLiveCycle(data),
                 contact_no: data.contact_no || null,
                 passport_no: data.passport_no || null,
                 license_no: data.license_no || null,
@@ -504,16 +580,16 @@ const TransitDashboard = () => {
                                                         </td>
                                                         <td className="px-3 py-3 text-center border-r border-slate-50 min-w-[120px]">
                                                             <div className="flex flex-col items-center gap-1.5">
-                                                                {t.total_trip_days != null && (
+                                                                {computeLiveCycle(t) != null && (
                                                                     <span className="font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 leading-none">
-                                                                        {t.total_trip_days} <span className="text-[9px] text-slate-400 font-medium uppercase">Days</span>
+                                                                        {computeLiveCycle(t)} <span className="text-[9px] text-slate-400 font-medium uppercase">Days</span>
                                                                     </span>
                                                                 )}
                                                                 {t.leg_type === "R" && trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G')) && (
                                                                     <div className="flex flex-col items-center p-1.5 bg-emerald-50 rounded-lg border border-emerald-100 shadow-sm">
                                                                         <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Round Trip Total</span>
                                                                         <span className="text-sm font-black text-emerald-700 tabular-nums">
-                                                                            {(t.total_trip_days || 0) + (trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G'))?.total_trip_days || 0)} <span className="text-[9px] uppercase">DYS</span>
+                                                                            {(computeLiveCycle(t) || 0) + (computeLiveCycle(trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G'))) || 0)} <span className="text-[9px] uppercase">DYS</span>
                                                                         </span>
                                                                     </div>
                                                                 )}
@@ -521,7 +597,7 @@ const TransitDashboard = () => {
                                                                     <div className="flex flex-col items-center p-1.5 bg-emerald-50 rounded-lg border border-emerald-100 shadow-sm">
                                                                         <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Round Trip Total</span>
                                                                         <span className="text-sm font-black text-emerald-700 tabular-nums">
-                                                                            {(t.total_trip_days || 0) + (trips.find(x => x.trip_id === t.trip_id.replace('/G', '/R'))?.total_trip_days || 0)} <span className="text-[9px] uppercase">DYS</span>
+                                                                            {(computeLiveCycle(t) || 0) + (computeLiveCycle(trips.find(x => x.trip_id === t.trip_id.replace('/G', '/R'))) || 0)} <span className="text-[9px] uppercase">DYS</span>
                                                                         </span>
                                                                     </div>
                                                                 )}
@@ -820,7 +896,97 @@ const TransitDashboard = () => {
                             </div>
 
                             {/* Row 1 - Basics */}
-                            <div className="space-y-2 md:col-span-2"><Label className="text-xs font-semibold text-slate-600">Client / Convoy Entity *</Label><Input className="h-11 rounded-xl bg-slate-50 border-slate-200" value={form.client_name} onChange={e => setForm(f => ({ ...f, client_name: e.target.value }))} /></div>
+                            <div className="space-y-2 md:col-span-2">
+                                <Label className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                                    Client / Convoy Entity <span className="text-red-500">*</span>
+                                </Label>
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    className={cn(
+                                                        "w-full h-11 justify-between bg-slate-50 text-left font-medium text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-700 shadow-sm rounded-xl px-4",
+                                                        !form.client_name && "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Building2 size={16} className="text-primary opacity-50" />
+                                                        <span>{form.client_name || "Select client..."}</span>
+                                                    </div>
+                                                    <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[300px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder="Search client..." className="h-9 border-none focus:ring-0" />
+                                                    <CommandList>
+                                                        <CommandEmpty>No client found.</CommandEmpty>
+                                                        <CommandGroup>
+                                                            {(clientsList || [])
+                                                                .filter((client: any, idx: number, arr: any[]) =>
+                                                                    arr.findIndex((c: any) => c.name.trim().toUpperCase() === client.name.trim().toUpperCase()) === idx
+                                                                )
+                                                                .map((client: any) => (
+                                                                <CommandItem
+                                                                    key={client.id}
+                                                                    value={client.name}
+                                                                    onSelect={() => {
+                                                                        setForm(prev => ({ ...prev, client_name: client.name }));
+                                                                    }}
+                                                                    className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2"
+                                                                >
+                                                                    <Check
+                                                                        className={cn(
+                                                                            "mr-2 h-4 w-4 text-indigo-600",
+                                                                            form.client_name === client.name ? "opacity-100" : "opacity-0"
+                                                                        )}
+                                                                    />
+                                                                    {client.name}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
+
+                                    {/* Quick Add Client Dialog */}
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button variant="outline" className="h-11 px-3 border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/50 shadow-sm rounded-xl" title="Register New Client">
+                                                <Plus size={16} />
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-6 max-w-sm">
+                                            <DialogHeader>
+                                                <DialogTitle className="text-sm font-bold uppercase text-slate-800 tracking-wider">Register New Client</DialogTitle>
+                                            </DialogHeader>
+                                            <div className="space-y-4 py-2">
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs font-semibold text-slate-500">Client Name</Label>
+                                                    <Input 
+                                                        value={newClientName} 
+                                                        onChange={(e) => setNewClientName(e.target.value)} 
+                                                        placeholder="e.g. AFRICA WAKAWAKA" 
+                                                        className="h-10 border-slate-200"
+                                                    />
+                                                </div>
+                                                <Button 
+                                                    onClick={handleAddClient} 
+                                                    disabled={isAddingClient || !newClientName.trim()}
+                                                    className="w-full h-10 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase"
+                                                >
+                                                    {isAddingClient ? "Registering..." : "Add Client"}
+                                                </Button>
+                                            </div>
+                                        </DialogContent>
+                                    </Dialog>
+                                </div>
+                            </div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Status *</Label>
                                 <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as TransitStatus }))}>
                                     <SelectTrigger className="h-11 rounded-xl border-slate-200 shadow-sm"><SelectValue /></SelectTrigger>

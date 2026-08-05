@@ -259,43 +259,66 @@ const TripSheets = () => {
 
     const groupedTrips = filteredSheets?.filter(t => t.status !== 'Completed')?.reduce((acc, trip) => {
         const client = trip.client_name || 'Individual / Unspecified';
-        
-        // Group by client and invoice number (if invoiced) OR creation date (if not invoiced)
-        // This prevents different convoys from mixing together
         const dateStr = trip.created_at ? trip.created_at.split('T')[0] : 'Unknown Date';
-        const key = trip.invoice_no ? `${client}_inv_${trip.invoice_no}` : `${client}_date_${dateStr}`;
-        const displayName = trip.invoice_no ? `${client} (Invoice: ${trip.invoice_no})` : `${client} (Convoy: ${dateStr})`;
         
-        if (!acc[key]) {
-            acc[key] = { 
-                name: displayName,
-                destinations: [],
-                trips: [], 
-                totals: { revenueUSD: 0, revenueTZS: 0, expensesUSD: 0, expensesTZS: 0, profitUSD: 0, profitTZS: 0 } 
+        const subGroupKey = trip.invoice_no ? `inv_${trip.invoice_no}` : `date_${dateStr}`;
+        const subGroupName = trip.invoice_no ? `Invoice: ${trip.invoice_no}` : `Convoy: ${dateStr}`;
+        
+        if (!acc[client]) {
+            acc[client] = {
+                name: client,
+                subGroups: {},
+                totals: { revenueUSD: 0, revenueTZS: 0, expensesUSD: 0, expensesTZS: 0, profitUSD: 0, profitTZS: 0 },
+                tripsCount: 0
             };
         }
-
-        acc[key].trips.push(trip);
         
-        // Track unique destinations for the group
-        if (trip.destination && !acc[key].destinations.includes(trip.destination)) {
-            acc[key].destinations.push(trip.destination);
+        if (!acc[client].subGroups[subGroupKey]) {
+            acc[client].subGroups[subGroupKey] = {
+                name: subGroupName,
+                destinations: [],
+                trips: [],
+                totals: { revenueUSD: 0, revenueTZS: 0, expensesUSD: 0, expensesTZS: 0, profitUSD: 0, profitTZS: 0 }
+            };
         }
-
+        
+        const subGroup = acc[client].subGroups[subGroupKey];
+        subGroup.trips.push(trip);
+        
+        if (trip.destination && !subGroup.destinations.includes(trip.destination)) {
+            subGroup.destinations.push(trip.destination);
+        }
+        
         const rate = parseFloat(trip.exchange_rate) || 2700;
         const revAmt = parseFloat(trip.revenue_amount) || 0;
         const revUSD = trip.revenue_currency === 'USD' ? revAmt : revAmt / rate;
         const revTZS = trip.revenue_currency === 'TZS' ? revAmt : revAmt * rate;
-
-        acc[key].totals.revenueUSD += revUSD;
-        acc[key].totals.revenueTZS += revTZS;
-        acc[key].totals.expensesUSD += parseFloat(trip.total_expenses_usd) || 0;
-        acc[key].totals.expensesTZS += parseFloat(trip.total_expenses_tzs) || 0;
-        acc[key].totals.profitUSD += (revUSD - (parseFloat(trip.total_expenses_usd) || 0));
-        acc[key].totals.profitTZS += revTZS - (parseFloat(trip.total_expenses_tzs) || 0);
-
+        const expUSD = parseFloat(trip.total_expenses_usd) || 0;
+        const expTZS = parseFloat(trip.total_expenses_tzs) || 0;
+        const profUSD = revUSD - expUSD;
+        const profTZS = revTZS - expTZS;
+        
+        // Update subGroup totals
+        subGroup.totals.revenueUSD += revUSD;
+        subGroup.totals.revenueTZS += revTZS;
+        subGroup.totals.expensesUSD += expUSD;
+        subGroup.totals.expensesTZS += expTZS;
+        subGroup.totals.profitUSD += profUSD;
+        subGroup.totals.profitTZS += profTZS;
+        
+        // Update client totals
+        acc[client].totals.revenueUSD += revUSD;
+        acc[client].totals.revenueTZS += revTZS;
+        acc[client].totals.expensesUSD += expUSD;
+        acc[client].totals.expensesTZS += expTZS;
+        acc[client].totals.profitUSD += profUSD;
+        acc[client].totals.profitTZS += profTZS;
+        
+        acc[client].tripsCount += 1;
+        
         return acc;
     }, {} as Record<string, any>) || {};
+
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -455,78 +478,54 @@ const TripSheets = () => {
                                 <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">No Transit Records Found</p>
                             </TableCell></TableRow>
                         ) : (
-                            Object.entries(groupedTrips).map(([groupKey, group]: [string, any]) => {
-                                const isExpanded = expandedGroups.includes(groupKey);
-                                const totalProfit = group.totals.profitUSD * (tripSheets?.[0]?.exchange_rate || 2700);
+                            Object.entries(groupedTrips).map(([clientName, clientGroup]: [string, any]) => {
+                                const isClientExpanded = expandedGroups.includes(clientName);
 
                                 return (
-                                    <Fragment key={groupKey}>
+                                    <Fragment key={clientName}>
+                                        {/* Level 1: Client Accordion Header */}
                                         <TableRow
-                                            className="bg-slate-50/80 border-y border-slate-100 sticky top-0 z-10 transition-colors cursor-pointer hover:bg-slate-100 group/header"
-                                            onClick={() => toggleGroup(groupKey)}
+                                            className="bg-slate-100/90 border-y border-slate-200 sticky top-0 z-10 transition-colors cursor-pointer hover:bg-slate-200/80 group/client"
+                                            onClick={() => toggleGroup(clientName)}
                                         >
                                             <TableCell colSpan={4} className="py-4 px-6">
                                                 <div className="flex items-center gap-4">
-                                                    <div className="transition-transform duration-200">
-                                                        {isExpanded ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+                                                    <div className="transition-transform duration-200 text-slate-500">
+                                                        {isClientExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                                                     </div>
-                                                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 shadow-sm">
+                                                    <div className="p-2 bg-slate-900 text-white rounded-lg shadow-sm">
                                                         <Folders size={16} />
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <div className="flex items-center gap-3">
-                                                            <span className="text-base font-bold text-slate-900 tracking-tight">{group.name}</span>
-                                                            <div className="flex flex-wrap items-center gap-1.5">
-                                                                {(group.destinations.length > 0 ? group.destinations : ['No Route']).map((dest: string, idx: number) => (
-                                                                    <div key={idx} className="flex items-center gap-1.5 px-2 py-0.5 bg-white border border-slate-200 rounded-full shadow-sm">
-                                                                        <RouteIcon size={10} className="text-indigo-400" />
-                                                                        <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">{dest}</span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                            <Badge variant="secondary" className="text-[10px] h-5 font-black bg-slate-900 text-white rounded-md px-2">
-                                                                {group.trips.length} ASSETS
+                                                            <span className="text-sm font-black text-slate-800 tracking-tight uppercase">{clientName}</span>
+                                                            <Badge variant="secondary" className="text-[9px] h-5 font-black bg-slate-800 text-white rounded-md px-2">
+                                                                {clientGroup.tripsCount} ASSETS TOTAL
                                                             </Badge>
-                                                            {(isSuperAdmin || isAdmin) && (
-                                                                <Button 
-                                                                    variant="outline" 
-                                                                    size="sm" 
-                                                                    className="h-6 px-2 text-[9px] font-bold border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-600 hover:text-white rounded-md flex items-center gap-1.5"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setBatchDialog({ open: true, groupKey, trips: group.trips });
-                                                                        setBatchData({ invoice_no: '', payment_status: 'Pending' });
-                                                                        setSelectedBatchTrips(group.trips.map((t: any) => t.id));
-                                                                    }}
-                                                                >
-                                                                    <CreditCard size={10} />
-                                                                    BATCH INVOICE
-                                                                </Button>
-                                                            )}
-                                                            <div className="flex items-center gap-6 ml-auto pl-6 border-l border-slate-200 hidden xl:flex">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Gross Revenue</span>
-                                                                    <div className="flex items-baseline gap-2">
-                                                                        <span className="text-sm font-black text-orange-600">{formatTSh(group.totals.revenueTZS)}</span>
-                                                                        <span className="text-[10px] font-bold text-slate-400">${group.totals.revenueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Expenses</span>
-                                                                    <div className="flex items-baseline gap-2">
-                                                                        <span className="text-sm font-black text-rose-600">{formatTSh(group.totals.expensesTZS)}</span>
-                                                                        <span className="text-[10px] font-bold text-slate-400">${group.totals.expensesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Expected Surplus</span>
-                                                                    <div className="flex items-baseline gap-2">
-                                                                        <span className={cn("text-sm font-black", group.totals.profitTZS >= 0 ? "text-emerald-600" : "text-rose-600")}>
-                                                                            {formatTSh(group.totals.profitTZS)}
-                                                                        </span>
-                                                                        <span className="text-[10px] font-bold text-slate-400">${group.totals.profitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                                                    </div>
-                                                                </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-6 ml-auto pl-6 border-l border-slate-200 hidden xl:flex">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Gross Revenue</span>
+                                                            <div className="flex items-baseline gap-2">
+                                                                <span className="text-sm font-black text-orange-600">{formatTSh(clientGroup.totals.revenueTZS)}</span>
+                                                                <span className="text-[10px] font-bold text-slate-400">${clientGroup.totals.revenueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Total Expenses</span>
+                                                            <div className="flex items-baseline gap-2">
+                                                                <span className="text-sm font-black text-rose-600">{formatTSh(clientGroup.totals.expensesTZS)}</span>
+                                                                <span className="text-[10px] font-bold text-slate-400">${clientGroup.totals.expensesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Expected Surplus</span>
+                                                            <div className="flex items-baseline gap-2">
+                                                                <span className={cn("text-sm font-black", clientGroup.totals.profitTZS >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                                                                    {formatTSh(clientGroup.totals.profitTZS)}
+                                                                </span>
+                                                                <span className="text-[10px] font-bold text-slate-400">${clientGroup.totals.profitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -535,206 +534,279 @@ const TripSheets = () => {
                                             <TableCell />
                                         </TableRow>
 
-                                        {isExpanded && (
-                                            <TableRow className="bg-slate-50/30 hover:bg-slate-50/30 transition-none border-none">
-                                                <TableCell colSpan={5} className="p-4 bg-slate-50/50">
-                                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                        {group.trips.map((trip: any, tIndex: number) => {
+                                        {isClientExpanded && Object.entries(clientGroup.subGroups).map(([subKey, subGroup]: [string, any]) => {
+                                            const subGroupKey = `${clientName}_${subKey}`;
+                                            const isSubExpanded = expandedGroups.includes(subGroupKey);
 
-                                                            const rate = trip.exchange_rate || 2700;
-                                                            const revTSh = trip.revenue_currency === 'TZS' ? trip.revenue_amount : trip.revenue_amount * rate;
-                                                            const expTSh = trip.total_expenses_tzs || 0;
-                                                            const netTSh = revTSh - expTSh;
-                                                            const isProfit = netTSh >= 0;
-                                                            
-                                                                    const revUSD = trip.revenue_currency === 'USD' ? (parseFloat(trip.revenue_amount) || 0) : (parseFloat(trip.revenue_amount) || 0) / rate;
-                                                                    const expUSD = parseFloat(trip.total_expenses_usd) || 0;
-                                                                    const netUSD = revUSD - expUSD;
-
-                                                                    return (
-                                                                        <div key={trip.id} className="relative group/card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-6 overflow-hidden">
-                                                                            {/* Left Decoration */}
-                                                                            <div className={cn(
-                                                                                "absolute left-0 top-0 bottom-0 w-1.5",
-                                                                                trip.status === 'Planned' ? 'bg-amber-400' :
-                                                                                trip.status === 'Approved' ? 'bg-blue-400' :
-                                                                                trip.status === 'Active' ? 'bg-emerald-400' : 'bg-slate-300'
-                                                                            )} />
-
-                                                                            {/* 1. Identification Section */}
-                                                                            <div className="flex items-start gap-4 flex-1">
-                                                                                <div className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
-                                                                                    {(tIndex + 1).toString().padStart(2, '0')}
+                                            return (
+                                                <Fragment key={subGroupKey}>
+                                                    {/* Level 2: Invoice / Convoy Accordion Header */}
+                                                    <TableRow
+                                                        className="bg-slate-50/70 border-b border-slate-100 transition-colors cursor-pointer hover:bg-slate-100 group/sub"
+                                                        onClick={() => toggleGroup(subGroupKey)}
+                                                    >
+                                                        <TableCell colSpan={4} className="py-3 pl-12 pr-6">
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="transition-transform duration-200 text-slate-400">
+                                                                    {isSubExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                                </div>
+                                                                <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-md border border-indigo-100 shadow-sm">
+                                                                    <CreditCard size={12} />
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+                                                                        <span className="text-xs font-bold text-slate-700">{subGroup.name}</span>
+                                                                        <div className="flex flex-wrap items-center gap-1">
+                                                                            {(subGroup.destinations.length > 0 ? subGroup.destinations : ['No Route']).map((dest: string, idx: number) => (
+                                                                                <div key={idx} className="flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-200 rounded-full shadow-sm">
+                                                                                    <RouteIcon size={8} className="text-indigo-400" />
+                                                                                    <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{dest}</span>
                                                                                 </div>
-                                                                                <div className="space-y-1.5">
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        <h4 className="font-bold text-slate-900 text-sm tracking-tight group-hover/card:text-indigo-600 transition-colors">
-                                                                                            {trip.vehicle?.vehicle_no || "PENDING VEHICLE"}
-                                                                                        </h4>
-                                                                                        {getStatusBadge(trip.status)}
-                                                                                        <Badge variant="outline" className={cn(
-                                                                                            "text-[9px] font-bold tracking-tighter uppercase px-1.5 py-0 h-4 rounded border-dashed",
-                                                                                            trip.journey_type === 'Go & Return' ? 'border-indigo-200 text-indigo-600' : 'border-orange-200 text-orange-600'
-                                                                                        )}>
-                                                                                            {trip.journey_type || 'G&R'}
-                                                                                        </Badge>
-                                                                                    </div>
-                                                                                    <div className="flex flex-wrap items-center gap-3">
-                                                                                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                                                                                            <User size={10} className="text-slate-400" />
-                                                                                            {trip.driver?.full_name || "AWAITING DRIVER"}
-                                                                                        </div>
-                                                                                        <div className="h-1 w-1 rounded-full bg-slate-200" />
-                                                                                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.1em]">
-                                                                                            Ref: {trip.reference_number}
-                                                                                        </div>
-                                                                                        {trip.invoice_no && (
-                                                                                            <>
-                                                                                                <div className="h-1 w-1 rounded-full bg-slate-200" />
-                                                                                                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-600 uppercase tracking-tighter">
-                                                                                                    <CreditCard size={10} className="text-slate-400" />
-                                                                                                    INV: {trip.invoice_no}
-                                                                                                </div>
-                                                                                                <Badge variant="outline" className={cn(
-                                                                                                    "text-[8px] h-4 px-1 border-none font-black uppercase tracking-widest",
-                                                                                                    trip.payment_status === 'Paid' ? "bg-emerald-50 text-emerald-600" :
-                                                                                                    trip.payment_status === 'Partial' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
-                                                                                                )}>
-                                                                                                    {trip.payment_status || 'Unpaid'}
-                                                                                                </Badge>
-                                                                                            </>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            {/* 2. Financials Section */}
-                                                                            <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-4 xl:pt-0 xl:pl-6 w-full xl:w-auto">
-                                                                                <div className="space-y-1">
-                                                                                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Revenue</p>
-                                                                                    <div className="font-black text-orange-600 text-sm">{formatTSh(revTSh)}</div>
-                                                                                    <div className="text-[10px] text-slate-500 font-bold">${revUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                                                                </div>
-                                                                                <div className="space-y-1">
-                                                                                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Expenses</p>
-                                                                                    <div className="font-black text-rose-600 text-sm">{formatTSh(expTSh)}</div>
-                                                                                    <div className="text-[10px] text-slate-500 font-bold">${expUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                                                                </div>
-                                                                                <div className="space-y-1">
-                                                                                    <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expected Surplus</p>
-                                                                                    <div className={cn("font-black text-sm", isProfit ? "text-emerald-600" : "text-rose-600")}>{formatTSh(netTSh)}</div>
-                                                                                    <div className="text-[10px] text-slate-500 font-bold">${netUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                                                                </div>
-                                                                            </div>
-
-                                                                    {/* 3. Actions Section */}
-                                                                    <div className="flex items-center gap-2 pl-0 sm:pl-4 border-l-0 sm:border-l border-slate-100 flex-wrap sm:flex-nowrap">
-                                                                        {isAdmin && trip.status === 'Planned' && (
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-600 hover:text-white flex-1 sm:flex-none"
-                                                                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Approved'); }}
-                                                                            >
-                                                                                <ShieldCheck size={14} className="mr-1.5" /> Approve
-                                                                            </Button>
-                                                                        )}
-                                                                        
-                                                                        {isAdmin && trip.status === 'Approved' && (
-                                                                            <div className="flex items-center gap-2">
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
-                                                                                    onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
-                                                                                >
-                                                                                    <Zap size={14} className="mr-1.5" /> ACTIVATE TRIP
-                                                                                </Button>
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white flex-1 sm:flex-none"
-                                                                                    onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Planned'); }}
-                                                                                >
-                                                                                    UNAPPROVE
-                                                                                </Button>
-                                                                            </div>
-                                                                        )}
-                                                                        
-                                                                        {trip.status === 'Active' && (
-                                                                            <div className="flex items-center gap-2 flex-1 sm:flex-none">
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    disabled
-                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-100 border-emerald-300 text-emerald-700 opacity-80"
-                                                                                >
-                                                                                    <Zap size={14} className="mr-1.5" /> ACTIVATED
-                                                                                </Button>
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-slate-900 border-slate-900 text-white hover:bg-slate-800 hover:text-white"
-                                                                                    onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Completed'); }}
-                                                                                >
-                                                                                    <ShieldCheck size={14} className="mr-1.5" /> CLOSE TRIP
-                                                                                </Button>
-                                                                            </div>
-                                                                        )}
-
-                                                                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="icon"
-                                                                                className="h-9 w-9 rounded-xl border border-slate-200 hover:bg-white hover:text-indigo-600 shadow-sm"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setDuplicateSourceTrip(trip);
-                                                                                    setSelectedTrip(null);
-                                                                                    setIsSheetOpen(true);
-                                                                                }}
-                                                                                title="Duplicate"
-                                                                            >
-                                                                                <Copy size={16} />
-                                                                            </Button>
-
-                                                                            {trip.status === 'Planned' && (
-                                                                                <Button
-                                                                                    variant="ghost"
-                                                                                    size="icon"
-                                                                                    className="h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        handleDeleteTrip(trip.id);
-                                                                                    }}
-                                                                                    title="Delete Draft Trip"
-                                                                                >
-                                                                                    <Trash2 size={16} />
-                                                                                </Button>
-                                                                            )}
-
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="h-9 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-md active:scale-95 transition-all flex-1"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    setDuplicateSourceTrip(null);
-                                                                                    setSelectedTrip(trip);
-                                                                                    setIsSheetOpen(true);
-                                                                                }}
-                                                                            >
-                                                                                Manage
-                                                                            </Button>
+                                                                            ))}
                                                                         </div>
+                                                                        <Badge variant="outline" className="text-[9px] h-4 font-bold bg-white text-slate-600 px-1.5 border-slate-200">
+                                                                            {subGroup.trips.length} ASSETS
+                                                                        </Badge>
+                                                                        {(isSuperAdmin || isAdmin) && (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-6 px-2 text-[8px] font-bold border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-600 hover:text-white rounded flex items-center gap-1"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setBatchDialog({ open: true, groupKey: subGroupKey, trips: subGroup.trips });
+                                                                                    setBatchData({ invoice_no: '', payment_status: 'Pending' });
+                                                                                    setSelectedBatchTrips(subGroup.trips.map((t: any) => t.id));
+                                                                                }}
+                                                                            >
+                                                                                <CreditCard size={8} />
+                                                                                BATCH INVOICE
+                                                                            </Button>
+                                                                        )}
                                                                     </div>
                                                                 </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
+                                                                <div className="flex items-center gap-6 ml-auto pl-6 border-l border-slate-100 hidden lg:flex">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Revenue</span>
+                                                                        <span className="text-xs font-black text-orange-600">{formatTSh(subGroup.totals.revenueTZS)}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Expenses</span>
+                                                                        <span className="text-xs font-black text-rose-600">{formatTSh(subGroup.totals.expensesTZS)}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Expected Surplus</span>
+                                                                        <span className={cn("text-xs font-black", subGroup.totals.profitTZS >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                                                                            {formatTSh(subGroup.totals.profitTZS)}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell />
+                                                    </TableRow>
+
+                                                    {isSubExpanded && (
+                                                        <TableRow className="bg-slate-50/10 hover:bg-slate-50/10 transition-none border-none">
+                                                            <TableCell colSpan={5} className="p-4 pl-20 pr-6 bg-slate-50/20">
+                                                                <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                                    {subGroup.trips.map((trip: any, tIndex: number) => {
+                                                                        const rate = trip.exchange_rate || 2700;
+                                                                        const revTSh = trip.revenue_currency === 'TZS' ? trip.revenue_amount : trip.revenue_amount * rate;
+                                                                        const expTSh = trip.total_expenses_tzs || 0;
+                                                                        const netTSh = revTSh - expTSh;
+                                                                        const isProfit = netTSh >= 0;
+                                                                        const revUSD = trip.revenue_currency === 'USD' ? (parseFloat(trip.revenue_amount) || 0) : (parseFloat(trip.revenue_amount) || 0) / rate;
+                                                                        const expUSD = parseFloat(trip.total_expenses_usd) || 0;
+                                                                        const netUSD = revUSD - expUSD;
+
+                                                                        return (
+                                                                            <div key={trip.id} className="relative group/card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-6 overflow-hidden">
+                                                                                {/* Left Decoration */}
+                                                                                <div className={cn(
+                                                                                    "absolute left-0 top-0 bottom-0 w-1.5",
+                                                                                    trip.status === 'Planned' ? 'bg-amber-400' :
+                                                                                    trip.status === 'Approved' ? 'bg-blue-400' :
+                                                                                    trip.status === 'Active' ? 'bg-emerald-400' : 'bg-slate-300'
+                                                                                )} />
+
+                                                                                {/* 1. Identification Section */}
+                                                                                <div className="flex items-start gap-4 flex-1">
+                                                                                    <div className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                                                                        {(tIndex + 1).toString().padStart(2, '0')}
+                                                                                    </div>
+                                                                                    <div className="space-y-1.5">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <h4 className="font-bold text-slate-900 text-sm tracking-tight group-hover/card:text-indigo-600 transition-colors">
+                                                                                                {trip.vehicle?.vehicle_no || "PENDING VEHICLE"}
+                                                                                            </h4>
+                                                                                            {getStatusBadge(trip.status)}
+                                                                                            <Badge variant="outline" className={cn(
+                                                                                                "text-[9px] font-bold tracking-tighter uppercase px-1.5 py-0 h-4 rounded border-dashed",
+                                                                                                trip.journey_type === 'Go & Return' ? 'border-indigo-200 text-indigo-600' : 'border-orange-200 text-orange-600'
+                                                                                            )}>
+                                                                                                {trip.journey_type || 'G&R'}
+                                                                                            </Badge>
+                                                                                        </div>
+                                                                                        <div className="flex flex-wrap items-center gap-3">
+                                                                                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                                                                                                <User size={10} className="text-slate-400" />
+                                                                                                {trip.driver?.full_name || "AWAITING DRIVER"}
+                                                                                            </div>
+                                                                                            <div className="h-1 w-1 rounded-full bg-slate-200" />
+                                                                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.1em]">
+                                                                                                Ref: {trip.reference_number}
+                                                                                            </div>
+                                                                                            {trip.invoice_no && (
+                                                                                                <>
+                                                                                                    <div className="h-1 w-1 rounded-full bg-slate-200" />
+                                                                                                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-bold text-slate-600 uppercase tracking-tighter">
+                                                                                                        <CreditCard size={10} className="text-slate-400" />
+                                                                                                        INV: {trip.invoice_no}
+                                                                                                    </div>
+                                                                                                    <Badge variant="outline" className={cn(
+                                                                                                        "text-[8px] h-4 px-1 border-none font-black uppercase tracking-widest",
+                                                                                                        trip.payment_status === 'Paid' ? "bg-emerald-50 text-emerald-600" :
+                                                                                                        trip.payment_status === 'Partial' ? "bg-amber-50 text-amber-600" : "bg-slate-50 text-slate-400"
+                                                                                                    )}>
+                                                                                                        {trip.payment_status || 'Unpaid'}
+                                                                                                    </Badge>
+                                                                                                </>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {/* 2. Financials Section */}
+                                                                                <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-4 xl:pt-0 xl:pl-6 w-full xl:w-auto">
+                                                                                    <div className="space-y-1">
+                                                                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Revenue</p>
+                                                                                        <div className="font-black text-orange-600 text-sm">{formatTSh(revTSh)}</div>
+                                                                                        <div className="text-[10px] text-slate-500 font-bold">${revUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                    </div>
+                                                                                    <div className="space-y-1">
+                                                                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Expenses</p>
+                                                                                        <div className="font-black text-rose-600 text-sm">{formatTSh(expTSh)}</div>
+                                                                                        <div className="text-[10px] text-slate-500 font-bold">${expUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                    </div>
+                                                                                    <div className="space-y-1">
+                                                                                        <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expected Surplus</p>
+                                                                                        <div className={cn("font-black text-sm", isProfit ? "text-emerald-600" : "text-rose-600")}>{formatTSh(netTSh)}</div>
+                                                                                        <div className="text-[10px] text-slate-500 font-bold">${netUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {/* 3. Actions Section */}
+                                                                                <div className="flex items-center gap-2 pl-0 sm:pl-4 border-l-0 sm:border-l border-slate-100 flex-wrap sm:flex-nowrap">
+                                                                                    {isAdmin && trip.status === 'Planned' && (
+                                                                                        <Button
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-600 hover:text-white flex-1 sm:flex-none"
+                                                                                            onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Approved'); }}
+                                                                                        >
+                                                                                            <ShieldCheck size={14} className="mr-1.5" /> Approve
+                                                                                        </Button>
+                                                                                    )}
+                                                                                    
+                                                                                    {isAdmin && trip.status === 'Approved' && (
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <Button
+                                                                                                variant="outline"
+                                                                                                size="sm"
+                                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-600 hover:text-white flex-1 sm:flex-none"
+                                                                                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Active'); }}
+                                                                                            >
+                                                                                                <Zap size={14} className="mr-1.5" /> ACTIVATE TRIP
+                                                                                            </Button>
+                                                                                            <Button
+                                                                                                variant="outline"
+                                                                                                size="sm"
+                                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-red-50 border-red-200 text-red-600 hover:bg-red-600 hover:text-white flex-1 sm:flex-none"
+                                                                                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Planned'); }}
+                                                                                            >
+                                                                                                UNAPPROVE
+                                                                                            </Button>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    
+                                                                                    {trip.status === 'Active' && (
+                                                                                        <div className="flex items-center gap-2 flex-1 sm:flex-none">
+                                                                                            <Button
+                                                                                                variant="outline"
+                                                                                                size="sm"
+                                                                                                disabled
+                                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-emerald-100 border-emerald-300 text-emerald-700 opacity-80"
+                                                                                            >
+                                                                                                <Zap size={14} className="mr-1.5" /> ACTIVATED
+                                                                                            </Button>
+                                                                                            <Button
+                                                                                                variant="outline"
+                                                                                                size="sm"
+                                                                                                className="h-9 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest bg-slate-900 border-slate-900 text-white hover:bg-slate-800 hover:text-white"
+                                                                                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(trip.id, 'Completed'); }}
+                                                                                            >
+                                                                                                <ShieldCheck size={14} className="mr-1.5" /> CLOSE TRIP
+                                                                                            </Button>
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                                                                        <Button
+                                                                                            variant="ghost"
+                                                                                            size="icon"
+                                                                                            className="h-9 w-9 rounded-xl border border-slate-200 hover:bg-white hover:text-indigo-600 shadow-sm"
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setDuplicateSourceTrip(trip);
+                                                                                                setSelectedTrip(null);
+                                                                                                setIsSheetOpen(true);
+                                                                                            }}
+                                                                                            title="Duplicate"
+                                                                                        >
+                                                                                            <Copy size={16} />
+                                                                                        </Button>
+
+                                                                                        {trip.status === 'Planned' && (
+                                                                                            <Button
+                                                                                                variant="ghost"
+                                                                                                size="icon"
+                                                                                                className="h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200"
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    handleDeleteTrip(trip.id);
+                                                                                                }}
+                                                                                                title="Delete Draft Trip"
+                                                                                            >
+                                                                                                <Trash2 size={16} />
+                                                                                            </Button>
+                                                                                        )}
+
+                                                                                        <Button
+                                                                                            variant="outline"
+                                                                                            size="sm"
+                                                                                            className="h-9 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-md active:scale-95 transition-all flex-1"
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                setDuplicateSourceTrip(null);
+                                                                                                setSelectedTrip(trip);
+                                                                                                setIsSheetOpen(true);
+                                                                                            }}
+                                                                                        >
+                                                                                            Manage
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    )}
+                                                </Fragment>
+                                            );
+                                        })}
                                     </Fragment>
                                 );
                             })

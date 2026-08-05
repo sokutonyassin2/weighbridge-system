@@ -379,6 +379,49 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
 
 
+    // Fetch clients registry
+    const { data: clientsList, refetch: refetchClients } = useQuery({
+        queryKey: ["logistics-clients"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_clients")
+                .select("*")
+                .order("name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
+    const [newClientName, setNewClientName] = useState("");
+    const [isAddingClient, setIsAddingClient] = useState(false);
+
+    const handleAddClient = async () => {
+        if (!newClientName.trim()) return;
+        setIsAddingClient(true);
+        try {
+            const { data, error } = await supabase
+                .from("logistics_clients")
+                .insert([{ name: newClientName.trim() }])
+                .select();
+            if (error) throw error;
+            toast({
+                title: "Client Added",
+                description: `Successfully added "${newClientName}" to the registry.`
+            });
+            setNewClientName("");
+            refetchClients();
+            setTripData(prev => ({ ...prev, client_name: newClientName.trim() }));
+        } catch (err: any) {
+            toast({
+                variant: "destructive",
+                title: "Error adding client",
+                description: err.message
+            });
+        } finally {
+            setIsAddingClient(false);
+        }
+    };
+
     // Trip Planning State (For New Sheets)
     const [tripData, setTripData] = useState({
         trip_number: "",
@@ -596,6 +639,73 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             resolveTrailer();
         }
     }, [tripData.trailer_id]); // Only re-run when the selected trailer ID changes
+
+    // Smart Route Expense Templating
+    const handleDestinationChange = async (newDestination: string) => {
+        setTripData(prev => ({ ...prev, destination: newDestination }));
+
+        // Only auto-fill if this is a new trip and the user hasn't heavily modified expenses yet
+        const isNewTrip = !tripId;
+        const hasNoRealExpenses = expenses.length <= 1 && (expenses.length === 0 || !expenses[0].amount);
+        
+        if (isNewTrip && hasNoRealExpenses && tripData.origin && newDestination) {
+            try {
+                // Find most recent trip for this route
+                const { data: previousTrip } = await supabase
+                    .from('logistics_trip_sheets' as any)
+                    .select('id, fuel_liters, fuel_price, fuel_amount, country_rates, active_countries')
+                    .eq('origin', tripData.origin)
+                    .eq('destination', newDestination)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+
+                if (previousTrip) {
+                    // 1. Fetch expenses for that trip (only budgeted operational expenses)
+                    const { data: previousExpenses } = await supabase
+                        .from('logistics_trip_expenses' as any)
+                        .select('*')
+                        .eq('trip_sheet_id', previousTrip.id)
+                        .eq('is_extra', false);
+
+                    if (previousExpenses && previousExpenses.length > 0) {
+                        const templateExpenses = previousExpenses.map(e => ({
+                            item_name: e.item_name,
+                            amount: e.amount,
+                            category: e.category,
+                            currency: e.currency,
+                            nature: e.nature || e.category,
+                            is_extra: false
+                        }));
+                        
+                        setExpenses(templateExpenses as ExpenseItem[]);
+                        
+                        // 2. Fetch Fuel
+                        if (previousTrip.fuel_liters) {
+                            setRevenueData(prev => ({
+                                ...prev,
+                                fuel_liters: previousTrip.fuel_liters,
+                                fuel_price: previousTrip.fuel_price || prev.fuel_price,
+                                fuel_amount: previousTrip.fuel_amount || prev.fuel_amount,
+                                fuel_entries: previousTrip.country_rates?.fuel_entries || [{ liters: previousTrip.fuel_liters, price: previousTrip.fuel_price || '' }]
+                            }));
+                        }
+
+                        if (previousTrip.active_countries && Array.isArray(previousTrip.active_countries)) {
+                            setActiveCountries(previousTrip.active_countries);
+                        }
+
+                        toast({
+                            title: "Smart Template Applied 🧠",
+                            description: `Auto-filled ${templateExpenses.length} typical expenses and fuel for ${tripData.origin} → ${newDestination}`
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load route template:", err);
+            }
+        }
+    };
 
     // Financial Totals
     const [totals, setTotals] = useState({
@@ -2269,22 +2379,97 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                                 {/* LEFT COLUMN: Assets & IDs */}
                                 <div className="space-y-6">
-                                    {/* NEW: Client Name (Mandatory) */}
+                                    {/* NEW: Client Name (Registry Dropdown) */}
                                     <div className="space-y-2">
                                         <Label className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                                             Client / Company Name <span className="text-red-500">*</span>
                                         </Label>
-                                        <div className="relative group">
-                                            <div className="absolute left-3 top-3 text-primary opacity-50">
-                                                <Building2 size={16} />
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            variant="outline"
+                                                            role="combobox"
+                                                            disabled={isLocked}
+                                                            className={cn(
+                                                                "w-full h-11 justify-between bg-white pl-10 text-left font-medium text-slate-700 border-slate-200 hover:bg-white hover:text-slate-700 shadow-sm",
+                                                                !tripData.client_name && "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            <div className="absolute left-3 top-3 text-primary opacity-50">
+                                                                <Building2 size={16} />
+                                                            </div>
+                                                            {tripData.client_name || "Select client..."}
+                                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-[300px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
+                                                        <Command>
+                                                            <CommandInput placeholder="Search client..." className="h-9 border-none focus:ring-0" />
+                                                            <CommandList>
+                                                                <CommandEmpty>No client found.</CommandEmpty>
+                                                                <CommandGroup>
+                                                                    {(clientsList || [])
+                                                                        .filter((client: any, idx: number, arr: any[]) =>
+                                                                            arr.findIndex((c: any) => c.name.trim().toUpperCase() === client.name.trim().toUpperCase()) === idx
+                                                                        )
+                                                                        .map((client: any) => (
+                                                                        <CommandItem
+                                                                            key={client.id}
+                                                                            value={client.name}
+                                                                            onSelect={() => {
+                                                                                setTripData(prev => ({ ...prev, client_name: client.name }));
+                                                                            }}
+                                                                            className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2"
+                                                                        >
+                                                                            <Check
+                                                                                className={cn(
+                                                                                    "mr-2 h-4 w-4 text-indigo-600",
+                                                                                    tripData.client_name === client.name ? "opacity-100" : "opacity-0"
+                                                                                )}
+                                                                            />
+                                                                            {client.name}
+                                                                        </CommandItem>
+                                                                    ))}
+                                                                </CommandGroup>
+                                                            </CommandList>
+                                                        </Command>
+                                                    </PopoverContent>
+                                                </Popover>
                                             </div>
-                                            <Input 
-                                                className="h-11 bg-white border-slate-200 pl-10 font-medium text-slate-700 shadow-sm focus:ring-primary/20"
-                                                value={tripData.client_name || ''}
-                                                onChange={(e) => setTripData({ ...tripData, client_name: e.target.value })}
-                                                placeholder="Who is paying for this trip?"
-                                                disabled={isLocked}
-                                            />
+
+                                            {/* Quick Add Client Dialog */}
+                                            <Dialog>
+                                                <DialogTrigger asChild disabled={isLocked}>
+                                                    <Button variant="outline" className="h-11 px-3 border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/50 shadow-sm animate-in fade-in" title="Register New Client">
+                                                        <Plus size={16} />
+                                                    </Button>
+                                                </DialogTrigger>
+                                                <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-6 max-w-sm">
+                                                    <DialogHeader>
+                                                        <DialogTitle className="text-sm font-bold uppercase text-slate-800 tracking-wider">Register New Client</DialogTitle>
+                                                    </DialogHeader>
+                                                    <div className="space-y-4 py-2">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-xs font-semibold text-slate-500">Client Name</Label>
+                                                            <Input 
+                                                                value={newClientName} 
+                                                                onChange={(e) => setNewClientName(e.target.value)} 
+                                                                placeholder="e.g. AFRICA WAKAWAKA" 
+                                                                className="h-10 border-slate-200"
+                                                            />
+                                                        </div>
+                                                        <Button 
+                                                            onClick={handleAddClient} 
+                                                            disabled={isAddingClient || !newClientName.trim()}
+                                                            className="w-full h-10 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase"
+                                                        >
+                                                            {isAddingClient ? "Registering..." : "Add Client"}
+                                                        </Button>
+                                                    </div>
+                                                </DialogContent>
+                                            </Dialog>
                                         </div>
                                         <p className="text-[9px] text-slate-400 font-medium italic">Used for automatic grouping of vehicles.</p>
                                     </div>
@@ -2465,7 +2650,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             <Label className="text-xs font-semibold text-slate-500">Route Destination</Label>
                                             <RouteCombobox
                                                 value={tripData.destination}
-                                                onChange={(val) => setTripData({ ...tripData, destination: val })}
+                                                onChange={handleDestinationChange}
                                                 disabled={isLocked}
                                                 placeholder="Target City/Port"
                                                 items={routesList || []}

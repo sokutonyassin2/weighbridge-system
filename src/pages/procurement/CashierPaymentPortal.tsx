@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff, Pencil } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff, Pencil, Undo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { printPurchaseOrder } from "@/utils/printUtils";
@@ -460,6 +460,36 @@ const CashierPaymentPortal = () => {
         }
     });
 
+    const sendBackToApprovalMutation = useMutation({
+        mutationFn: async (reqs: any[]) => {
+            for (const item of reqs) {
+                const { error } = await sb
+                    .from("garage_requisitions")
+                    .update({
+                        status: 'Awaiting Approval',
+                        status_updated_at: new Date().toISOString()
+                    })
+                    .eq("id", item.id);
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["cashier-authorized-items"] });
+            queryClient.invalidateQueries({ queryKey: ["management-approvals"] });
+            toast({
+                title: "Sent Back to Approval",
+                description: "The PO has been sent back to Management Approvals for re-review.",
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: "Failed",
+                description: error?.message || "Could not send back.",
+                variant: "destructive"
+            });
+        }
+    });
+
     const filteredItems = (authorizedItems || []).filter((item: any) =>
         item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -605,9 +635,20 @@ const CashierPaymentPortal = () => {
                         </div>
                     )}
                     
-                    <CardFooter className="bg-white border-t p-4 flex justify-end">
+                    <CardFooter className="bg-white border-t p-4 flex justify-between">
+                        {(userRole === 'admin' || userRole === 'super_admin') && (
+                            <Button
+                                variant="outline"
+                                className="border-orange-300 text-orange-600 hover:bg-orange-50 hover:text-orange-700 uppercase text-xs font-bold px-4"
+                                disabled={sendBackToApprovalMutation.isPending}
+                                onClick={() => sendBackToApprovalMutation.mutate(reqs)}
+                            >
+                                {sendBackToApprovalMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Undo2 className="w-4 h-4 mr-2" />}
+                                Send Back to Approval
+                            </Button>
+                        )}
                         <Button
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md uppercase text-xs font-bold px-6"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md uppercase text-xs font-bold px-6 ml-auto"
                             onClick={() => {
                                 setSelectedPOReqs(reqs);
                                 setIsPaymentDialogOpen(true);

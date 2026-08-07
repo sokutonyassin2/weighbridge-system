@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2, Pencil } from "lucide-react";
-import { DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2, Pencil, ChevronsUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const ManagementApprovals = () => {
@@ -22,6 +25,18 @@ const ManagementApprovals = () => {
     const [selectedPOItems, setSelectedPOItems] = useState<any[]>([]);
     const [revokeReason, setRevokeReason] = useState("");
     
+    // Edit PO Batch State
+    const [batchSharedDetails, setBatchSharedDetails] = useState({
+        supplier_id: "",
+        po_number: "",
+        includes_vat: false,
+        payment_method_id: ""
+    });
+    const [batchItemPrices, setBatchItemPrices] = useState<Record<string, number>>({});
+    const [batchItemQuantities, setBatchItemQuantities] = useState<Record<string, number>>({});
+    const [submittingBatchType, setSubmittingBatchType] = useState<"update" | "send" | null>(null);
+    const [singleSupplierOpen, setSingleSupplierOpen] = useState(false);
+
     // State for Management Review
     const [reviewEdits, setReviewEdits] = useState<Record<string, { qty: number, note: string }>>({});
     const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
@@ -89,6 +104,26 @@ const ManagementApprovals = () => {
             return data;
         },
         refetchInterval: 5000 // Real-time
+    });
+
+    // Fetch Suppliers
+    const { data: suppliers } = useQuery({
+        queryKey: ["management-suppliers"],
+        queryFn: async () => {
+            const { data, error } = await sb.from("garage_suppliers").select("*").order("name");
+            if (error) throw error;
+            return data;
+        }
+    });
+
+    // Fetch Payment Methods
+    const { data: allPaymentMethods } = useQuery({
+        queryKey: ["management-payment-methods"],
+        queryFn: async () => {
+            const { data, error } = await sb.from("garage_supplier_payment_methods").select("*");
+            if (error) throw error;
+            return data;
+        }
     });
 
     // Workflow Mutation for Forwarding to Procurement
@@ -175,9 +210,46 @@ const ManagementApprovals = () => {
         }
     });
 
+    // Update PO Batch (Save changes without approving)
+    const updatePOBatchMutation = useMutation({
+        mutationFn: async ({ reqs, sharedDetails, itemPrices, itemQuantities }: any) => {
+            const paymentDetails = allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null;
+            
+            for (const req of reqs) {
+                const price = itemPrices[req.id] || 0;
+                const qty = itemQuantities[req.id] || 0;
+                const subtotal = price * qty;
+                const vat = sharedDetails.includes_vat ? (subtotal * 0.18) : 0;
+                const total = subtotal + vat;
+
+                const { error } = await sb.from("garage_requisitions").update({
+                    supplier_id: sharedDetails.supplier_id,
+                    po_number: sharedDetails.po_number,
+                    includes_vat: sharedDetails.includes_vat,
+                    payment_details: paymentDetails,
+                    unit_price: price,
+                    quantity_approved: qty, // Note: we are updating quantity_approved
+                    vat_amount: vat,
+                    total_price: total
+                }).eq("id", req.id);
+
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["management-approvals"] });
+            toast({ title: "Updated", description: "PO details saved successfully." });
+            setSubmittingBatchType(null);
+        },
+        onError: (error: any) => {
+            toast({ variant: "destructive", title: "Update Failed", description: error.message });
+            setSubmittingBatchType(null);
+        }
+    });
+
     // Workflow Mutation (Approve or Revoke)
     const workflowMutation = useMutation({
-        mutationFn: async ({ reqs, nextStatus }: { reqs: any[], nextStatus: string }) => {
+        mutationFn: async ({ reqs, nextStatus, sharedDetails, itemPrices, itemQuantities }: any) => {
             const updateData: any = {
                 status: nextStatus,
                 status_updated_at: new Date().toISOString(),
@@ -187,9 +259,34 @@ const ManagementApprovals = () => {
             if (nextStatus === 'Revoked') {
                 updateData.revoke_reason = revokeReason;
             }
+            
+            const paymentDetails = sharedDetails?.payment_method_id ? 
+                (allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null) : null;
 
             for (const req of reqs) {
-                const { error: reqError } = await sb.from("garage_requisitions").update(updateData).eq("id", req.id);
+                const price = itemPrices?.[req.id] ?? req.unit_price;
+                const qty = itemQuantities?.[req.id] ?? req.quantity_approved;
+                const subtotal = price * qty;
+                const vat = sharedDetails?.includes_vat ? (subtotal * 0.18) : (req.includes_vat ? (subtotal * 0.18) : 0);
+                const total = subtotal + vat;
+                
+                const finalUpdate = { ...updateData };
+                
+                // Only update these if we are approving (i.e. not just revoking)
+                if (nextStatus === 'Approved') {
+                    finalUpdate.supplier_id = sharedDetails?.supplier_id || req.supplier_id;
+                    finalUpdate.po_number = sharedDetails?.po_number || req.po_number;
+                    finalUpdate.includes_vat = sharedDetails?.includes_vat ?? req.includes_vat;
+                    if (paymentDetails) {
+                        finalUpdate.payment_details = paymentDetails;
+                    }
+                    finalUpdate.unit_price = price;
+                    finalUpdate.quantity_approved = qty;
+                    finalUpdate.vat_amount = vat;
+                    finalUpdate.total_price = total;
+                }
+
+                const { error: reqError } = await sb.from("garage_requisitions").update(finalUpdate).eq("id", req.id);
                 if (reqError) throw reqError;
 
                 // Reduce Stock Only on Approval
@@ -476,6 +573,30 @@ const ManagementApprovals = () => {
                                     className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md uppercase text-xs font-bold px-6"
                                     onClick={() => {
                                         setSelectedPOItems(reqs);
+                                        
+                                        // Pre-fill the edit state
+                                        // Attempt to match the existing payment_details back to a payment method id if possible
+                                        let matchedPaymentMethodId = "";
+                                        if (firstReq.payment_details && firstReq.payment_details.id) {
+                                            matchedPaymentMethodId = firstReq.payment_details.id;
+                                        }
+
+                                        setBatchSharedDetails({
+                                            supplier_id: firstReq.supplier_id || "",
+                                            po_number: firstReq.po_number || "",
+                                            includes_vat: firstReq.includes_vat || false,
+                                            payment_method_id: matchedPaymentMethodId
+                                        });
+                                        
+                                        const initialPrices: Record<string, number> = {};
+                                        const initialQuantities: Record<string, number> = {};
+                                        reqs.forEach((r: any) => {
+                                            initialPrices[r.id] = r.unit_price || 0;
+                                            initialQuantities[r.id] = r.quantity_approved || r.quantity_requested || 0;
+                                        });
+                                        setBatchItemPrices(initialPrices);
+                                        setBatchItemQuantities(initialQuantities);
+                                        
                                         setIsApproveDialogOpen(true);
                                     }}
                                 >
@@ -521,28 +642,188 @@ const ManagementApprovals = () => {
 
             {/* ACTION DIALOG */}
             <Dialog open={isApproveDialogOpen} onOpenChange={setIsApproveDialogOpen}>
-                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 bg-slate-50 border-0">
-                    <div className="p-6 bg-white border-b sticky top-0 z-10 shadow-sm">
+                <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 bg-slate-50 border-0">
+                    <div className="p-6 bg-white border-b sticky top-0 z-10 shadow-sm flex justify-between items-center">
                         <DialogHeader>
                             <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
                                 <Receipt className="w-6 h-6 text-indigo-600" />
                                 Finalize Purchase Order
                             </DialogTitle>
                         </DialogHeader>
-                        <div className="mt-4 flex justify-between items-center">
-                            <div>
-                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Value</p>
-                                <p className="text-3xl font-black text-indigo-900">
-                                    {selectedPOItems.reduce((acc, curr) => acc + (curr.total_price || 0), 0).toLocaleString()} TZS
-                                </p>
-                            </div>
-                            <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-xs px-3 py-1">
-                                {selectedPOItems.length} Items
-                            </Badge>
-                        </div>
+                        <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-xs px-3 py-1">
+                            {selectedPOItems.length} Items
+                        </Badge>
                     </div>
                     
                     <div className="p-6 space-y-6">
+                        {/* Supplier & Payment Details */}
+                        <div className="grid grid-cols-2 gap-6 bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Supplier</Label>
+                                <Popover open={singleSupplierOpen} onOpenChange={setSingleSupplierOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={singleSupplierOpen}
+                                            className="w-full justify-between h-9 text-xs font-normal"
+                                        >
+                                            {batchSharedDetails.supplier_id
+                                                ? (suppliers || []).find((s: any) => s.id === batchSharedDetails.supplier_id)?.name
+                                                : "Choose Supplier..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[300px] p-0" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search supplier..." />
+                                            <CommandList>
+                                                <CommandEmpty>No supplier found.</CommandEmpty>
+                                                <CommandGroup>
+                                                    <CommandItem
+                                                        key="none"
+                                                        value="None (Unassign Supplier)"
+                                                        onSelect={() => {
+                                                            setBatchSharedDetails({ ...batchSharedDetails, supplier_id: "" });
+                                                            setSingleSupplierOpen(false);
+                                                        }}
+                                                    >
+                                                        <Check
+                                                            className={`mr-2 h-4 w-4 ${!batchSharedDetails.supplier_id ? "opacity-100" : "opacity-0"}`}
+                                                        />
+                                                        <span className="italic text-slate-500">None (Unassign Supplier)</span>
+                                                    </CommandItem>
+                                                    {(suppliers || []).map((s: any) => (
+                                                        <CommandItem
+                                                            key={s.id}
+                                                            value={s.name}
+                                                            onSelect={() => {
+                                                                setBatchSharedDetails({ ...batchSharedDetails, supplier_id: s.id });
+                                                                setSingleSupplierOpen(false);
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={`mr-2 h-4 w-4 ${batchSharedDetails.supplier_id === s.id ? "opacity-100" : "opacity-0"}`}
+                                                            />
+                                                            {s.name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Payment Mode</Label>
+                                <Select
+                                    value={batchSharedDetails.payment_method_id}
+                                    onValueChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, payment_method_id: val })}
+                                    disabled={!batchSharedDetails.supplier_id}
+                                >
+                                    <SelectTrigger className="h-9 text-xs">
+                                        <SelectValue placeholder="Choose Account..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(allPaymentMethods || [])
+                                            .filter((m: any) => m.supplier_id === batchSharedDetails.supplier_id || m.type === 'Cash')
+                                            .map((m: any) => (
+                                                <SelectItem key={m.id} value={m.id} className="text-[11px]">
+                                                    {m.method_type || m.type}: {m.bank_name || ''} {m.account_number ? `(${m.account_number})` : ''}
+                                                </SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">PO Number</Label>
+                                <Input
+                                    value={batchSharedDetails.po_number}
+                                    onChange={(e) => setBatchSharedDetails({ ...batchSharedDetails, po_number: e.target.value })}
+                                    className="h-9 font-mono text-xs"
+                                />
+                            </div>
+                            <div className="space-y-2 flex flex-col justify-end">
+                                <div className="flex items-center gap-2 border p-2 rounded-md bg-white">
+                                    <Switch
+                                        checked={batchSharedDetails.includes_vat}
+                                        onCheckedChange={(val) => setBatchSharedDetails({ ...batchSharedDetails, includes_vat: val })}
+                                        id="batch-vat"
+                                    />
+                                    <Label htmlFor="batch-vat" className="text-[11px] font-semibold cursor-pointer">Include VAT (18%)</Label>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Items List */}
+                        <div className="space-y-3">
+                            <Label className="text-[11px] font-semibold text-slate-500 uppercase border-b pb-1 flex justify-between">
+                                <span>Items to Review</span>
+                                <span>{selectedPOItems.length}</span>
+                            </Label>
+                            {selectedPOItems.map((req) => {
+                                return (
+                                <div key={req.id} className="flex items-center gap-4 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                                    <div className="flex-1">
+                                        <p className="font-bold text-sm text-slate-800">{req.item_name}</p>
+                                        <p className="text-[10px] text-slate-500 uppercase">Requested: {req.quantity_requested}</p>
+                                    </div>
+                                    <div className="w-24 space-y-1">
+                                        <Label className="text-[9px] text-slate-500 uppercase">Qty to Buy</Label>
+                                        <Input
+                                            type="number"
+                                            value={batchItemQuantities[req.id] || ''}
+                                            onChange={(e) => setBatchItemQuantities({ ...batchItemQuantities, [req.id]: parseInt(e.target.value) || 0 })}
+                                            className="h-8 font-semibold text-center"
+                                            min={1}
+                                        />
+                                    </div>
+                                    <div className="w-32 space-y-1">
+                                        <Label className="text-[9px] text-slate-500 uppercase">Unit Price</Label>
+                                        <Input
+                                            type="number"
+                                            value={batchItemPrices[req.id] || ''}
+                                            onChange={(e) => setBatchItemPrices({ ...batchItemPrices, [req.id]: parseFloat(e.target.value) || 0 })}
+                                            className="h-8 font-semibold text-right"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <div className="w-28 text-right">
+                                        <p className="text-[9px] text-slate-500 uppercase mb-1">Subtotal</p>
+                                        <p className="font-bold text-sm">
+                                            {((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)).toLocaleString()}
+                                        </p>
+                                    </div>
+                                </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Totals */}
+                        <div className="border-t pt-4 space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-slate-500">Subtotal:</span>
+                                <span className="font-semibold">
+                                    {selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0).toLocaleString()} TZS
+                                </span>
+                            </div>
+                            {batchSharedDetails.includes_vat && (
+                                <div className="flex justify-between text-sm text-indigo-900 font-medium">
+                                    <span>VAT (18%):</span>
+                                    <span>
+                                        {(selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * 0.18).toLocaleString()} TZS
+                                    </span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-lg font-black border-t pt-2">
+                                <span>TOTAL:</span>
+                                <span>
+                                    {(selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Revoke */}
                         <div className="space-y-2 bg-rose-50/50 p-4 rounded-lg border border-rose-100">
                             <Label className="text-[11px] font-bold text-rose-600 uppercase flex items-center gap-2">
                                 <AlertTriangle className="w-3 h-3" />
@@ -568,14 +849,41 @@ const ManagementApprovals = () => {
                         </div>
                     </div>
 
-                    <div className="flex justify-between items-center bg-white p-4 border-t sticky bottom-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-                        <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)}>Cancel</Button>
+                    <div className="flex gap-2 bg-white p-4 border-t sticky bottom-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                        <Button variant="outline" onClick={() => setIsApproveDialogOpen(false)} className="flex-1 h-11 font-semibold uppercase text-[11px]">Cancel</Button>
+                        
                         <Button
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase shadow-lg shadow-emerald-200 px-8"
-                            disabled={workflowMutation.isPending}
-                            onClick={() => workflowMutation.mutate({ reqs: selectedPOItems, nextStatus: 'Approved' })}
+                            variant="outline"
+                            className="flex-1 h-11 border-indigo-200 text-indigo-900 hover:bg-indigo-50 font-semibold uppercase text-[11px]"
+                            disabled={updatePOBatchMutation.isPending || selectedPOItems.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
+                            onClick={() => {
+                                setSubmittingBatchType("update");
+                                updatePOBatchMutation.mutate({
+                                    reqs: selectedPOItems,
+                                    sharedDetails: batchSharedDetails,
+                                    itemPrices: batchItemPrices,
+                                    itemQuantities: batchItemQuantities
+                                });
+                            }}
                         >
-                            {workflowMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                            {updatePOBatchMutation.isPending && submittingBatchType === "update" ? "Updating..." : "Update"}
+                        </Button>
+
+                        <Button
+                            className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase shadow-lg shadow-emerald-200"
+                            disabled={!batchSharedDetails.supplier_id || !batchSharedDetails.payment_method_id || workflowMutation.isPending || selectedPOItems.some(r => !batchItemPrices[r.id] || batchItemPrices[r.id] <= 0 || !batchItemQuantities[r.id] || batchItemQuantities[r.id] <= 0)}
+                            onClick={() => {
+                                setSubmittingBatchType("send");
+                                workflowMutation.mutate({ 
+                                    reqs: selectedPOItems, 
+                                    nextStatus: 'Approved',
+                                    sharedDetails: batchSharedDetails,
+                                    itemPrices: batchItemPrices,
+                                    itemQuantities: batchItemQuantities
+                                });
+                            }}
+                        >
+                            {workflowMutation.isPending && submittingBatchType === "send" ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
                             Approve PO Batch
                         </Button>
                     </div>

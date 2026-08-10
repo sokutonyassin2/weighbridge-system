@@ -1149,7 +1149,7 @@ const TransitDashboard = () => {
                                             const { error: insErr } = await supabase.from("logistics_route_templates" as any).insert([payload]);
                                             error = insErr;
                                         }
-                                        if (error) toast({ title: "Error saving template", variant: "destructive" });
+                                        if (error) toast({ title: "Error saving template", description: error.message, variant: "destructive" });
                                         else {
                                             toast({ title: "Route Template Saved" });
                                             qc.invalidateQueries({ queryKey: ["logistics_route_templates"] });

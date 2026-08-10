@@ -82,9 +82,9 @@ const systemItems = [
 ];
 
 const financeItems = [
-  { title: "Finance Dashboard", url: "/finance-dashboard", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
-  { title: "Shift Analytics", url: "/analytics", icon: TrendingUp, roles: ["finance", "admin", "super_admin"] },
-  { title: "Revenue History", url: "/cashier", icon: DollarSign, roles: ["finance", "admin", "super_admin"] },
+  { title: "Logistics P&L", url: "/finance-dashboard", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
+  { title: "Accounts Receivable", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
+  { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
 ];
 
 const getCurrentShift = () => {

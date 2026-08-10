@@ -54,6 +54,9 @@ import ProcurementReports from "./pages/procurement/ProcurementReports";
 import ReplacedVehicleParts from "./pages/procurement/ReplacedVehicleParts";
 import GuardianEye from "./pages/GuardianEye";
 import TripSheets from "./pages/logistics/TripSheets";
+import KoridorAccount from "./pages/finance/KoridorAccount";
+import AccountsReceivable from "./pages/finance/AccountsReceivable";
+import ReconciliationsReview from "./pages/finance/ReconciliationsReview";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -179,6 +182,36 @@ const App = () => {
                 <ProtectedRoute allowedRoles={['admin', 'finance']}>
                   <Layout>
                     <FinanceDashboard />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/koridor"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <KoridorAccount />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/receivables"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <AccountsReceivable />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/reconciliations"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <ReconciliationsReview />
                   </Layout>
                 </ProtectedRoute>
               }

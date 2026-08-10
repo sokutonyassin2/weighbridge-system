@@ -152,34 +152,58 @@ const LogisticsDashboard = () => {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
-                .select("revenue_amount, revenue_currency, exchange_rate, total_expenses_tzs, total_expenses_usd");
+                .select("revenue_amount, revenue_currency, return_revenue_amount, return_revenue_currency, exchange_rate, total_expenses_tzs, total_expenses_usd, status")
+                .eq("status", "Approved");
             
             if (error) throw error;
             
             let totalRevTzs = 0;
             let totalExpTzs = 0;
+            let totalRevUsd = 0;
+            let totalExpUsd = 0;
             
             data.forEach((trip: any) => {
                 const rate = trip.exchange_rate || 2700;
-                const revAmt = parseFloat(trip.revenue_amount) || 0;
-                const revTzs = trip.revenue_currency === 'TZS' ? revAmt : revAmt * rate;
-                const expTzs = parseFloat(trip.total_expenses_tzs) || 0;
                 
-                totalRevTzs += revTzs;
+                // Outbound Revenue
+                const outRevAmt = parseFloat(trip.revenue_amount) || 0;
+                const outRevTzs = trip.revenue_currency === 'TZS' ? outRevAmt : outRevAmt * rate;
+                const outRevUsd = trip.revenue_currency === 'USD' ? outRevAmt : outRevAmt / rate;
+
+                // Return Revenue
+                const retRevAmt = parseFloat(trip.return_revenue_amount) || 0;
+                const retRevTzs = trip.return_revenue_currency === 'TZS' ? retRevAmt : retRevAmt * rate;
+                const retRevUsd = trip.return_revenue_currency === 'USD' ? retRevAmt : retRevAmt / rate;
+                
+                const expTzs = parseFloat(trip.total_expenses_tzs) || 0;
+                const expUsd = parseFloat(trip.total_expenses_usd) || 0;
+                
+                totalRevTzs += (outRevTzs + retRevTzs);
                 totalExpTzs += expTzs;
+                totalRevUsd += (outRevUsd + retRevUsd);
+                totalExpUsd += expUsd;
             });
             
             return {
                 totalRevenue: totalRevTzs,
                 totalExpenses: totalExpTzs,
-                profit: totalRevTzs - totalExpTzs
+                profit: totalRevTzs - totalExpTzs,
+                totalRevenueUSD: totalRevUsd,
+                totalExpensesUSD: totalExpUsd,
+                profitUSD: totalRevUsd - totalExpUsd
             };
-        }
+        },
+        refetchInterval: 5000
     });
 
     const formatTSh = (val: any) => {
         if (val === undefined || val === null || isNaN(val)) return "TShs. 0";
         return `TShs. ${val.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    };
+
+    const formatUsd = (val: any) => {
+        if (val === undefined || val === null || isNaN(val)) return "$ 0.00";
+        return `$ ${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     };
 
     return (
@@ -201,9 +225,12 @@ const LogisticsDashboard = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                {formatTSh(financialStats?.totalRevenue)}
+                                {formatUsd(financialStats?.totalRevenueUSD)}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1">All time gross income</p>
+                            <p className="text-xs font-medium text-emerald-600/70 mt-1">
+                                {formatTSh(financialStats?.totalRevenue)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-1">All time gross income</p>
                         </CardContent>
                     </Card>
 
@@ -214,9 +241,12 @@ const LogisticsDashboard = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                {formatTSh(financialStats?.totalExpenses)}
+                                {formatUsd(financialStats?.totalExpensesUSD)}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1">All time operational costs</p>
+                            <p className="text-xs font-medium text-rose-600/70 mt-1">
+                                {formatTSh(financialStats?.totalExpenses)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-1">All time operational costs</p>
                         </CardContent>
                     </Card>
 
@@ -227,9 +257,12 @@ const LogisticsDashboard = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                {formatTSh(financialStats?.profit)}
+                                {formatUsd(financialStats?.profitUSD)}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1">Overall expected surplus</p>
+                            <p className="text-xs font-medium text-indigo-600/70 mt-1">
+                                {formatTSh(financialStats?.profit)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-1">Overall expected surplus</p>
                         </CardContent>
                     </Card>
                 </div>

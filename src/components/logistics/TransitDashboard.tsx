@@ -16,7 +16,7 @@ import {
     Plus, Search, Truck, Globe, Printer, Eye, FileText,
     RefreshCw, BarChart3, CalendarDays, MapPin, AlertTriangle,
     CheckCircle2, X, Edit2, ChevronDown, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw,
-    Building2, ChevronsUpDown, Check
+    Building2, ChevronsUpDown, Check, Trash2
 } from "lucide-react";
 
 import { format, differenceInDays } from "date-fns";
@@ -132,6 +132,8 @@ const TransitDashboard = () => {
     const [editingTrip, setEditingTrip] = useState<any>(null);
     const [selectedTripDetails, setSelectedTripDetails] = useState<any>(null);
     const [form, setForm] = useState(emptyForm());
+    const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
+    const [expandedClients, setExpandedClients] = useState<string[]>([]);
     const [yearFilter, setYearFilter] = useState("All");
     const [activeTab, setActiveTab] = useState<"ALL" | "OUTBOUND" | "BACKLOAD" | "TANKERS" | "ARCHIVE">("ALL");
 
@@ -197,7 +199,7 @@ const TransitDashboard = () => {
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
                 .select("*, vehicle:vehicle_id(vehicle_no, asset_type), trailer:trailer_id(vehicle_no, trailer_number), driver:driver_id(full_name, license_no, id_number)")
-                .in("status", ["Approved", "Active", "Completed"])
+                .eq("status", "Approved")
                 .order("created_at", { ascending: false });
             if (error) console.error("Error fetching approved trips:", error);
             return (data || []) as any[];
@@ -237,69 +239,87 @@ const TransitDashboard = () => {
         return `${cleanTruck}/${CODE}/${legType}${seq}`;
     };
 
+    const buildPayload = (data: any, tripSheet?: any) => {
+        const src = tripSheet || data;
+        const truckNo = tripSheet ? (tripSheet.vehicle?.vehicle_no || "") : (fleet.find((f: any) => f.id === data.selected_vehicle_id)?.vehicle_no || data.truck_no);
+        const tripId = tripSheet ? generateTripId(truckNo, data.leg_type) : (data.trip_id || generateTripId(truckNo, data.leg_type));
+
+        return {
+            client_name: (tripSheet?.client_name || data.client_name) || null,
+            truck_no: truckNo,
+            trailer_no: (tripSheet?.trailer?.vehicle_no || tripSheet?.trailer?.trailer_number || data.trailer_no) || null,
+            trip_id: tripId,
+            driver_name: (tripSheet?.driver?.full_name || data.driver_name) || null,
+            status: data.status,
+            destination: data.destination || null,
+            arrival_loading_date: data.arrival_loading_date || null,
+            loading_date: data.loading_date || null,
+            dispatch_date: data.dispatch_date || null,
+            checkpoint_1_name: data.borders?.[0]?.name || null,
+            checkpoint_1_arrival_date: data.borders?.[0]?.arrival || null,
+            checkpoint_1_departure_date: data.borders?.[0]?.departure || null,
+            days_at_checkpoint_1: daysBetween(data.borders?.[0]?.arrival, data.borders?.[0]?.departure),
+            checkpoint_2_name: data.borders?.[1]?.name || null,
+            checkpoint_2_arrival_date: data.borders?.[1]?.arrival || null,
+            checkpoint_2_departure_date: data.borders?.[1]?.departure || null,
+            days_at_checkpoint_2: daysBetween(data.borders?.[1]?.arrival, data.borders?.[1]?.departure),
+            checkpoint_3_name: data.borders?.[2]?.name || null,
+            checkpoint_3_arrival_date: data.borders?.[2]?.arrival || null,
+            checkpoint_3_departure_date: data.borders?.[2]?.departure || null,
+            days_at_checkpoint_3: daysBetween(data.borders?.[2]?.arrival, data.borders?.[2]?.departure),
+            hq_arrival_date: data.hq_arrival_date || null,
+            standing_charges: Number(data.standing_charges) || 0,
+            arrive_offloading_site_date: data.arrive_offloading_site_date || null,
+            offloading_date: data.offloading_date || null,
+            leg_type: data.leg_type,
+            nature: (tripSheet?.journey_type || data.nature) || null,
+            trip_sheet_id: (tripSheet?.id || data.source_sheet_id) || null,
+            total_trip_days: computeLiveCycle(data),
+            contact_no: data.contact_no || null,
+            passport_no: (tripSheet?.driver?.id_number || data.passport_no) || null,
+            license_no: (tripSheet?.driver?.license_no || data.license_no) || null,
+            location: data.location || null,
+            bl_number: (tripSheet?.bl_number || data.bl_number) || null,
+            container_no: (tripSheet?.container_no || data.container_no) || null,
+            borders_data: data.borders || [],
+            cargo: (tripSheet?.cargo_outbound || data.cargo) || null,
+            invoice_no: (tripSheet?.invoice_no || data.invoice_no) || null,
+            reference_number: (tripSheet?.reference_number || data.trip_number) || null,
+        };
+    };
+
     const saveMutation = useMutation({
         mutationFn: async (data: any) => {
-            const truckNo = fleet.find((f: any) => f.id === data.selected_vehicle_id)?.vehicle_no || data.truck_no;
-            let tripId = data.trip_id || generateTripId(truckNo, data.leg_type);
-
-            const payload: any = {
-                client_name: data.client_name || null,
-                truck_no: truckNo,
-                trailer_no: data.trailer_no || null,
-                trip_id: tripId,
-                driver_name: data.driver_name || null,
-                status: data.status,
-                destination: data.destination || null,
-                arrival_loading_date: data.arrival_loading_date || null,
-                loading_date: data.loading_date || null,
-                dispatch_date: data.dispatch_date || null,
-                
-                checkpoint_1_name: data.borders?.[0]?.name || null,
-                checkpoint_1_arrival_date: data.borders?.[0]?.arrival || null,
-                checkpoint_1_departure_date: data.borders?.[0]?.departure || null,
-                days_at_checkpoint_1: daysBetween(data.borders?.[0]?.arrival, data.borders?.[0]?.departure),
-                
-                checkpoint_2_name: data.borders?.[1]?.name || null,
-                checkpoint_2_arrival_date: data.borders?.[1]?.arrival || null,
-                checkpoint_2_departure_date: data.borders?.[1]?.departure || null,
-                days_at_checkpoint_2: daysBetween(data.borders?.[1]?.arrival, data.borders?.[1]?.departure),
-                
-                checkpoint_3_name: data.borders?.[2]?.name || null,
-                checkpoint_3_arrival_date: data.borders?.[2]?.arrival || null,
-                checkpoint_3_departure_date: data.borders?.[2]?.departure || null,
-                days_at_checkpoint_3: daysBetween(data.borders?.[2]?.arrival, data.borders?.[2]?.departure),
-                hq_arrival_date: data.hq_arrival_date || null,
-                standing_charges: Number(data.standing_charges) || 0,
-                arrive_offloading_site_date: data.arrive_offloading_site_date || null,
-                offloading_date: data.offloading_date || null,
-                leg_type: data.leg_type,
-                nature: data.nature || null,
-                trip_sheet_id: data.source_sheet_id || null,
-                total_trip_days: computeLiveCycle(data),
-                contact_no: data.contact_no || null,
-                passport_no: data.passport_no || null,
-                license_no: data.license_no || null,
-                location: data.location || null,
-                bl_number: data.bl_number || null,
-                container_no: data.container_no || null,
-                borders_data: data.borders || [],
-                cargo: data.cargo || null,
-                invoice_no: data.invoice_no || null,
-                reference_number: data.trip_number || null,
-            };
-
             if (editingTrip) {
+                // Single update (editing existing trip)
+                const payload = buildPayload(data);
                 const { error } = await supabase.from("logistics_transit_trips" as any).update(payload).eq("id", editingTrip.id);
                 if (error) throw error;
+            } else if (selectedSheetIds.length > 1) {
+                // Bulk insert — one transit trip per selected trip sheet
+                const payloads = selectedSheetIds.map(sheetId => {
+                    const tripSheet = approvedTrips.find(x => x.id === sheetId);
+                    return buildPayload(data, tripSheet);
+                });
+                const { error } = await supabase.from("logistics_transit_trips" as any).insert(payloads);
+                if (error) throw error;
             } else {
+                // Single insert
+                const payload = buildPayload(data);
                 const { error } = await supabase.from("logistics_transit_trips" as any).insert([payload]);
                 if (error) throw error;
             }
         },
         onSuccess: async (_, vars) => {
-            if (!editingTrip && vars.source_sheet_id) {
-                await supabase.from("logistics_trip_sheets" as any).update({ status: "Active", activated_at: new Date().toISOString() }).eq("id", vars.source_sheet_id);
-                qc.invalidateQueries({ queryKey: ["approved_trip_sheets"] });
+            // Mark all selected trip sheets as Active
+            if (!editingTrip) {
+                const sheetIdsToActivate = selectedSheetIds.length > 0 ? selectedSheetIds : (vars.source_sheet_id ? [vars.source_sheet_id] : []);
+                for (const sheetId of sheetIdsToActivate) {
+                    await supabase.from("logistics_trip_sheets" as any).update({ status: "Active", activated_at: new Date().toISOString() }).eq("id", sheetId);
+                }
+                if (sheetIdsToActivate.length > 0) {
+                    qc.invalidateQueries({ queryKey: ["approved_trip_sheets"] });
+                }
             }
             
             // Sync return invoice + revenue amount + date back to the original trip sheet when saving a Return leg
@@ -323,7 +343,8 @@ const TransitDashboard = () => {
             setIsFormOpen(false);
             setEditingTrip(null);
             setForm(emptyForm());
-            toast({ title: "Success", description: "Record saved successfully." });
+            setSelectedSheetIds([]);
+            toast({ title: "Success", description: selectedSheetIds.length > 1 ? `${selectedSheetIds.length} transit assets deployed successfully.` : "Record saved successfully." });
         },
         onError: (error: any) => {
             toast({ title: "Error Saving", description: error.message || "Failed to save record.", variant: "destructive" });
@@ -742,10 +763,9 @@ const TransitDashboard = () => {
 
             <Dialog open={isFormOpen} onOpenChange={o => { if(!o) { setIsFormOpen(false); setEditingTrip(null); } }}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl p-0 border-none shadow-2xl">
-                    <DialogHeader className="bg-[#1e3a5f] text-white p-8 rounded-t-3xl relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent)] pointer-events-none" />
-                        <DialogTitle className="text-3xl font-black tracking-tighter uppercase mb-1">{editingTrip ? "Edit Mission Record" : "Deploy New Transit Assets"}</DialogTitle>
-                        <DialogDescription className="text-blue-200 text-[11px] font-bold tracking-[0.2em] uppercase opacity-80">
+                    <DialogHeader className="bg-white text-slate-800 p-6 border-b border-slate-100 rounded-t-3xl">
+                        <DialogTitle className="text-xl font-bold uppercase tracking-tight">{editingTrip ? "Edit Mission Record" : "Deploy Transit Assets"}</DialogTitle>
+                        <DialogDescription className="text-slate-500 text-xs font-medium mt-1">
                             Configure Mission Parameters & Border Logistics
                         </DialogDescription>
                     </DialogHeader>
@@ -754,58 +774,180 @@ const TransitDashboard = () => {
                         {!editingTrip && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200">
                                 <div className="space-y-3">
-                                    <Label className="text-sm font-bold text-slate-700">1. Select Approved Mission Plan</Label>
-                                    <Select onValueChange={(v) => {
-                                        const t = approvedTrips.find(x => x.id === v);
-                                        if(t) setForm(f => ({ 
-                                            ...f, 
-                                            truck_no: t.vehicle?.vehicle_no || "", 
-                                            trailer_no: t.trailer?.vehicle_no || t.trailer?.trailer_number || "", 
-                                            driver_name: t.driver?.full_name || "",
-                                            license_no: t.driver?.license_no || "",
-                                            passport_no: t.driver?.id_number || "",
-                                            client_name: t.client_name || "", 
-                                            destination: t.destination || "", 
-                                            cargo: t.cargo_outbound || "", 
-                                            bl_number: t.bl_number || "",
-                                            container_no: t.container_no || "",
-                                            nature: t.journey_type || "Go & Return",
-                                            source_sheet_id: t.id, 
-                                            trip_number: t.reference_number || "",
-                                            invoice_no: t.invoice_no || "",
-                                            return_invoice_no: t.return_invoice_no || ""
-                                        }));
-                                    }}>
-                                        <SelectTrigger className="h-12 bg-white rounded-xl shadow-sm border-slate-200"><SelectValue placeholder="Mission Plans..." /></SelectTrigger>
-                                        <SelectContent>
-                                            {approvedTrips.length === 0 ? <SelectItem value="none" disabled>No pending plans</SelectItem> : approvedTrips.map(x => (
-                                                <SelectItem key={x.id} value={x.id}>{x.reference_number} | {x.client_name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label className="text-sm font-bold text-slate-700">1. Select Approved Mission Plans</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                role="combobox"
+                                                className="w-full h-12 justify-between bg-white rounded-xl shadow-sm border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700"
+                                            >
+                                                <span className="truncate">
+                                                    {selectedSheetIds.length === 0
+                                                        ? "Select mission plans..."
+                                                        : selectedSheetIds.length === 1
+                                                            ? (() => { const t = approvedTrips.find(x => x.id === selectedSheetIds[0]); return t ? `${t.reference_number} | ${t.client_name}` : "1 selected"; })()
+                                                            : `${selectedSheetIds.length} trips selected`
+                                                    }
+                                                </span>
+                                                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[460px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
+                                            <Command>
+                                                <CommandInput placeholder="Search trip, client or destination..." className="h-9 border-none focus:ring-0" />
+                                                <CommandList className="max-h-[350px] overflow-y-auto">
+                                                    <CommandEmpty>No approved mission plans found.</CommandEmpty>
+                                                    {Array.from(new Set(approvedTrips.map(t => t.client_name))).sort().map(clientName => (
+                                                        <div key={clientName} className="border-b border-slate-100 last:border-0">
+                                                            <div 
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setExpandedClients(prev => 
+                                                                        prev.includes(clientName) 
+                                                                            ? prev.filter(c => c !== clientName) 
+                                                                            : [...prev, clientName]
+                                                                    );
+                                                                }}
+                                                                className="px-3 py-2 bg-slate-50/80 font-bold text-xs text-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
+                                                            >
+                                                                <span>{clientName || "Unknown Client"}</span>
+                                                                <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", expandedClients.includes(clientName) && "rotate-180")} />
+                                                            </div>
+                                                            {expandedClients.includes(clientName) && (
+                                                                <CommandGroup>
+                                                                    {approvedTrips.filter(t => t.client_name === clientName).map((x: any) => (
+                                                                        <CommandItem
+                                                                            key={x.id}
+                                                                            value={`${x.reference_number} ${x.client_name} ${x.destination || ''}`}
+                                                                            onSelect={() => {
+                                                                                setSelectedSheetIds(prev => {
+                                                                                    const newIds = prev.includes(x.id)
+                                                                                        ? prev.filter(id => id !== x.id)
+                                                                                        : [...prev, x.id];
+                                                                                    if (newIds.length > 0) {
+                                                                                        const t = approvedTrips.find(a => a.id === newIds[0]);
+                                                                                        if (t) setForm(f => ({
+                                                                                            ...f,
+                                                                                            truck_no: t.vehicle?.vehicle_no || "",
+                                                                                            trailer_no: t.trailer?.vehicle_no || t.trailer?.trailer_number || "",
+                                                                                            driver_name: t.driver?.full_name || "",
+                                                                                            license_no: t.driver?.license_no || "",
+                                                                                            passport_no: t.driver?.id_number || "",
+                                                                                            client_name: t.client_name || "",
+                                                                                            destination: t.destination || "",
+                                                                                            cargo: t.cargo_outbound || "",
+                                                                                            bl_number: t.bl_number || "",
+                                                                                            container_no: t.container_no || "",
+                                                                                            nature: t.journey_type || "Go & Return",
+                                                                                            source_sheet_id: t.id,
+                                                                                            trip_number: t.reference_number || "",
+                                                                                            invoice_no: t.invoice_no || "",
+                                                                                            return_invoice_no: t.return_invoice_no || ""
+                                                                                        }));
+                                                                                    }
+                                                                                    return newIds;
+                                                                                });
+                                                                            }}
+                                                                            className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2.5"
+                                                                        >
+                                                                            <Check className={cn("mr-2 h-4 w-4 text-emerald-600 shrink-0", selectedSheetIds.includes(x.id) ? "opacity-100" : "opacity-0")} />
+                                                                            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                                                                                <span className="font-bold text-sm text-slate-800">{x.reference_number}</span>
+                                                                                <span className="text-[11px] text-slate-500 flex items-center gap-1"><MapPin size={10} />{x.destination || 'No destination'}</span>
+                                                                            </div>
+                                                                        </CommandItem>
+                                                                    ))}
+                                                                </CommandGroup>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                    {/* Show selected trips summary */}
+                                    {selectedSheetIds.length > 1 && (
+                                        <div className="space-y-1.5 pt-1">
+                                            {selectedSheetIds.map(id => {
+                                                const t = approvedTrips.find(x => x.id === id);
+                                                return t ? (
+                                                    <div key={id} className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-100 text-xs">
+                                                        <Truck size={12} className="text-slate-400 shrink-0" />
+                                                        <span className="font-bold text-slate-700">{t.reference_number}</span>
+                                                        <span className="text-slate-400">•</span>
+                                                        <span className="text-slate-500 truncate">{t.client_name}</span>
+                                                        <span className="text-slate-400">•</span>
+                                                        <span className="text-indigo-500 truncate text-[10px]">{t.destination || '—'}</span>
+                                                        <button onClick={() => setSelectedSheetIds(prev => prev.filter(i => i !== id))} className="ml-auto text-slate-400 hover:text-red-500">
+                                                            <X size={12} />
+                                                        </button>
+                                                    </div>
+                                                ) : null;
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="space-y-3">
                                     <Label className="text-sm font-semibold text-slate-700">2. Apply Route Template (Tracking Plan)</Label>
-                                    <Select onValueChange={(v) => {
-                                        const route = routeTemplates.find(x => x.id === v);
-                                        if(route) {
-                                            const ms = route.milestones || [];
-                                            setForm(f => ({
-                                                ...f,
-                                                destination: route.destination,
-                                                nature: route.nature || f.nature,
-                                                borders: (ms || []).map((m: any) => ({ name: m, arrival: "", crossing: "", departure: "" }))
-                                            }));
-                                        }
-                                    }}>
-                                        <SelectTrigger className="h-12 bg-white rounded-xl shadow-sm border-slate-200"><SelectValue placeholder="Standard Routes..." /></SelectTrigger>
-                                        <SelectContent>
-                                            {routeTemplates.length === 0 ? <SelectItem value="none" disabled>No templates saved</SelectItem> : routeTemplates.map(x => (
-                                                <SelectItem key={x.id} value={x.id}>{x.route_name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                role="combobox"
+                                                className="w-full h-12 justify-between bg-white rounded-xl shadow-sm border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700"
+                                            >
+                                                <span>Select route template...</span>
+                                                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[360px] p-2 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
+                                            <div className="max-h-[300px] overflow-y-auto space-y-1">
+                                                {routeTemplates.length === 0 ? (
+                                                    <div className="p-4 text-center text-sm text-slate-500">No templates saved yet.</div>
+                                                ) : (
+                                                    routeTemplates.map((x: any) => (
+                                                        <div
+                                                            key={x.id}
+                                                            onClick={() => {
+                                                                const ms = x.milestones || [];
+                                                                setForm(f => ({
+                                                                    ...f,
+                                                                    destination: x.destination,
+                                                                    nature: x.nature || f.nature,
+                                                                    borders: (ms || []).map((m: any) => ({ name: m, arrival: "", crossing: "", departure: "" }))
+                                                                }));
+                                                            }}
+                                                            className="cursor-pointer hover:bg-slate-50 text-slate-700 p-2 rounded-lg flex items-center justify-between"
+                                                        >
+                                                            <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                                                                <span className="font-bold text-sm">{x.route_name}</span>
+                                                                <span className="text-[10px] text-slate-400">{x.destination} • {(x.milestones || []).length} checkpoints</span>
+                                                            </div>
+                                                            <div
+                                                                onPointerDown={(e) => e.stopPropagation()}
+                                                                onClick={async (e) => {
+                                                                    e.stopPropagation();
+                                                                    if (confirm(`Delete template "${x.route_name}"?`)) {
+                                                                        const { error } = await supabase.from("logistics_route_templates" as any).delete().eq("id", x.id);
+                                                                        if (error) toast({ title: "Error deleting", description: error.message, variant: "destructive" });
+                                                                        else {
+                                                                            toast({ title: "Template deleted" });
+                                                                            qc.invalidateQueries({ queryKey: ["logistics_route_templates"] });
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors shrink-0 z-50 cursor-pointer"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </PopoverContent>
+                                    </Popover>
                                 </div>
                             </div>
                         )}
@@ -895,98 +1037,7 @@ const TransitDashboard = () => {
                                 )}
                             </div>
 
-                            {/* Row 1 - Basics */}
-                            <div className="space-y-2 md:col-span-2">
-                                <Label className="text-xs font-semibold text-slate-600 flex items-center gap-1">
-                                    Client / Convoy Entity <span className="text-red-500">*</span>
-                                </Label>
-                                <div className="flex gap-2">
-                                    <div className="relative flex-1">
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="outline"
-                                                    role="combobox"
-                                                    className={cn(
-                                                        "w-full h-11 justify-between bg-slate-50 text-left font-medium text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-700 shadow-sm rounded-xl px-4",
-                                                        !form.client_name && "text-muted-foreground"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <Building2 size={16} className="text-primary opacity-50" />
-                                                        <span>{form.client_name || "Select client..."}</span>
-                                                    </div>
-                                                    <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[300px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
-                                                <Command>
-                                                    <CommandInput placeholder="Search client..." className="h-9 border-none focus:ring-0" />
-                                                    <CommandList>
-                                                        <CommandEmpty>No client found.</CommandEmpty>
-                                                        <CommandGroup>
-                                                            {(clientsList || [])
-                                                                .filter((client: any, idx: number, arr: any[]) =>
-                                                                    arr.findIndex((c: any) => c.name.trim().toUpperCase() === client.name.trim().toUpperCase()) === idx
-                                                                )
-                                                                .map((client: any) => (
-                                                                <CommandItem
-                                                                    key={client.id}
-                                                                    value={client.name}
-                                                                    onSelect={() => {
-                                                                        setForm(prev => ({ ...prev, client_name: client.name }));
-                                                                    }}
-                                                                    className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2"
-                                                                >
-                                                                    <Check
-                                                                        className={cn(
-                                                                            "mr-2 h-4 w-4 text-indigo-600",
-                                                                            form.client_name === client.name ? "opacity-100" : "opacity-0"
-                                                                        )}
-                                                                    />
-                                                                    {client.name}
-                                                                </CommandItem>
-                                                            ))}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
-                                    </div>
 
-                                    {/* Quick Add Client Dialog */}
-                                    <Dialog>
-                                        <DialogTrigger asChild>
-                                            <Button variant="outline" className="h-11 px-3 border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/50 shadow-sm rounded-xl" title="Register New Client">
-                                                <Plus size={16} />
-                                            </Button>
-                                        </DialogTrigger>
-                                        <DialogContent className="bg-white border-none shadow-2xl rounded-2xl p-6 max-w-sm">
-                                            <DialogHeader>
-                                                <DialogTitle className="text-sm font-bold uppercase text-slate-800 tracking-wider">Register New Client</DialogTitle>
-                                            </DialogHeader>
-                                            <div className="space-y-4 py-2">
-                                                <div className="space-y-1">
-                                                    <Label className="text-xs font-semibold text-slate-500">Client Name</Label>
-                                                    <Input 
-                                                        value={newClientName} 
-                                                        onChange={(e) => setNewClientName(e.target.value)} 
-                                                        placeholder="e.g. AFRICA WAKAWAKA" 
-                                                        className="h-10 border-slate-200"
-                                                    />
-                                                </div>
-                                                <Button 
-                                                    onClick={handleAddClient} 
-                                                    disabled={isAddingClient || !newClientName.trim()}
-                                                    className="w-full h-10 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase"
-                                                >
-                                                    {isAddingClient ? "Registering..." : "Add Client"}
-                                                </Button>
-                                            </div>
-                                        </DialogContent>
-                                    </Dialog>
-                                </div>
-                            </div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Status *</Label>
                                 <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as TransitStatus }))}>
                                     <SelectTrigger className="h-11 rounded-xl border-slate-200 shadow-sm"><SelectValue /></SelectTrigger>
@@ -1124,11 +1175,15 @@ const TransitDashboard = () => {
                     </div>
 
                     <DialogFooter className="p-6 bg-slate-50 border-t gap-3">
-                        {!editingTrip && form.destination && (
+                        {!editingTrip && (
                             <Button 
                                 variant="outline" 
                                 className="border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold"
                                 onClick={async () => {
+                                    if (!form.destination) {
+                                        toast({ title: "Missing Destination", description: "Please enter a Delivery Destination in the form first.", variant: "destructive" });
+                                        return;
+                                    }
                                     const name = prompt("Enter Route Name (e.g. Lubumbashi Standard):");
                                     if (name) {
                                         // Check if it already exists to allow updates
@@ -1161,7 +1216,7 @@ const TransitDashboard = () => {
                             </Button>
                         )}
                         <Button variant="ghost" onClick={() => setIsFormOpen(false)} className="font-bold">Discard</Button>
-                        <Button className="px-10 h-12 bg-[#1a3a5c] hover:bg-black text-white font-black rounded-xl shadow-xl shadow-blue-900/20" onClick={() => saveMutation.mutate(form)}>{editingTrip ? "UPDATE ASSET DATA" : "DEPLOY TRANSIT ASSET"}</Button>
+                        <Button className="px-10 h-12 bg-[#1a3a5c] hover:bg-black text-white font-black rounded-xl shadow-xl shadow-blue-900/20" onClick={() => saveMutation.mutate(form)}>{editingTrip ? "UPDATE ASSET DATA" : selectedSheetIds.length > 1 ? `DEPLOY ${selectedSheetIds.length} TRANSIT ASSETS` : "DEPLOY TRANSIT ASSET"}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

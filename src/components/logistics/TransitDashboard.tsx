@@ -1189,7 +1189,9 @@ const TransitDashboard = () => {
                                         // Check if it already exists to allow updates
                                         const existing = routeTemplates.find(x => x.route_name.toLowerCase() === name.toLowerCase());
                                         const payload = {
+                                            name: name,
                                             route_name: name,
+                                            origin: "TBD",
                                             destination: form.destination,
                                             nature: form.nature,
                                             milestones: (form.borders || []).map(b => b.name).filter(Boolean)

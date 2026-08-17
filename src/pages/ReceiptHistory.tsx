@@ -132,6 +132,9 @@ export default function ReceiptHistory() {
             firstRecord,
             lastRecord,
             vehicle_type_name: entry.vehicle_types?.type_name,
+            first_weigh_fee: entry.vehicle_types?.first_weigh_fee || 0,
+            second_weigh_fee: entry.vehicle_types?.second_weigh_fee || 0,
+            has_multiple_fees: entry.status === "Completed" || (entry.weigh_records && entry.weigh_records.length > 1),
             price: (entry.status === "Completed" || (entry.weigh_records && entry.weigh_records.length > 1))
                 ? (entry.vehicle_types?.first_weigh_fee || 0) + (entry.vehicle_types?.second_weigh_fee || 0)
                 : (entry.vehicle_types?.first_weigh_fee || 0),
@@ -507,13 +510,42 @@ const ReceiptPreview = ({ data }: { data: any }) => {
 
                             {/* Payment Display Section */}
                             {(data.payment_amount > 0 || data.price > 0) && (
-                                <div className="mt-4 pt-4 border-t border-slate-200">
-                                    <div className="flex justify-between items-center bg-green-50/50 p-3 rounded-xl border border-green-100">
-                                        <span className="text-xs font-black text-green-700 uppercase tracking-widest">Amount Paid:</span>
-                                        <span className="font-black text-green-800 text-xl">
-                                            TZS {Number(data.payment_amount || data.price).toLocaleString()}
-                                        </span>
-                                    </div>
+                                <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                                    {data.has_multiple_fees && data.second_weigh_fee > 0 ? (
+                                        <>
+                                            <div className="flex justify-between items-center bg-green-50/50 p-3 rounded-xl border border-green-100">
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs font-black text-green-700 uppercase tracking-widest">1st Weigh Fee</span>
+                                                    {data.firstRecord && <span className="text-[10px] text-green-600 font-medium">{format(new Date(data.firstRecord.weigh_time || data.created_at), "dd/MM/yyyy HH:mm:ss")}</span>}
+                                                </div>
+                                                <span className="font-black text-green-800 text-lg">
+                                                    TZS {Number(data.first_weigh_fee).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-center bg-green-50/50 p-3 rounded-xl border border-green-100">
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs font-black text-green-700 uppercase tracking-widest">2nd Weigh Fee</span>
+                                                    {data.lastRecord && <span className="text-[10px] text-green-600 font-medium">{format(new Date(data.lastRecord.weigh_time || data.weigh_time), "dd/MM/yyyy HH:mm:ss")}</span>}
+                                                </div>
+                                                <span className="font-black text-green-800 text-lg">
+                                                    TZS {Number(data.second_weigh_fee).toLocaleString()}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-center bg-green-100 p-3 rounded-xl border border-green-200 mt-2">
+                                                <span className="text-sm font-black text-green-800 uppercase tracking-widest">Total Amount Paid</span>
+                                                <span className="font-black text-green-900 text-xl">
+                                                    TZS {Number(data.price).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex justify-between items-center bg-green-50/50 p-3 rounded-xl border border-green-100">
+                                            <span className="text-xs font-black text-green-700 uppercase tracking-widest">Amount Paid:</span>
+                                            <span className="font-black text-green-800 text-xl">
+                                                TZS {Number(data.payment_amount || data.price).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

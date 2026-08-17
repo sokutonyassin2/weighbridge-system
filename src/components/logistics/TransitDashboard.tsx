@@ -137,6 +137,13 @@ const TransitDashboard = () => {
     const [yearFilter, setYearFilter] = useState("All");
     const [activeTab, setActiveTab] = useState<"ALL" | "OUTBOUND" | "BACKLOAD" | "TANKERS" | "ARCHIVE">("ALL");
 
+    const STANDARD_DESTINATIONS = Array.from(new Set([
+        "CCSA", "CHAMBISHI", "CHINGOLA", "CHIPATA", "CIKO MINING", 
+        "DAR ES SALAAM", "KABWE", "KALULUSHI", "KAMBOVE", "LUSAKA", 
+        "LUSAKA / CHAMBISHI", "NDOLA",
+        ...routeTemplates.map(rt => rt.destination).filter(Boolean)
+    ])).sort();
+
     // Fetch clients registry
     const { data: clientsList = [], refetch: refetchClients } = useQuery({
         queryKey: ["logistics-clients"],
@@ -1060,7 +1067,45 @@ const TransitDashboard = () => {
                             <div className="space-y-2 md:col-span-3"><Label className="text-xs font-semibold text-slate-600">Cargo Description</Label><Input placeholder="e.g. Copper Cathodes" className="h-11 rounded-xl border-slate-200 bg-slate-50" value={form.cargo} onChange={e => setForm(f => ({ ...f, cargo: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">BL / Consignment No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.bl_number} onChange={e => setForm(f => ({ ...f, bl_number: e.target.value }))} /></div>
                             <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Container No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.container_no} onChange={e => setForm(f => ({ ...f, container_no: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Delivery Destination *</Label><Input className="h-11 rounded-xl border-slate-200" value={form.destination} onChange={e => setForm(f => ({ ...f, destination: e.target.value }))} /></div>
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-slate-600">Delivery Destination *</Label>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            className={cn(
+                                                "w-full h-11 justify-between bg-white rounded-xl border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700 shadow-sm",
+                                                !form.destination && "text-muted-foreground"
+                                            )}
+                                        >
+                                            {form.destination || "Select destination..."}
+                                            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[300px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search location..." className="h-9 border-none focus:ring-0" onValueChange={v => setForm(f => ({ ...f, destination: v.toUpperCase() }))} />
+                                            <CommandList className="max-h-[250px] overflow-y-auto">
+                                                <CommandEmpty>Press enter to use "{form.destination}"</CommandEmpty>
+                                                <CommandGroup>
+                                                    {STANDARD_DESTINATIONS.map(dest => (
+                                                        <CommandItem
+                                                            key={dest}
+                                                            value={dest}
+                                                            onSelect={() => setForm(f => ({ ...f, destination: dest }))}
+                                                            className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2 font-medium"
+                                                        >
+                                                            <Check className={cn("mr-2 h-4 w-4 text-indigo-600", form.destination === dest ? "opacity-100" : "opacity-0")} />
+                                                            {dest}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
                             {/* Row 4 - Trip Configuration */}
                             <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-4">Mission Setup</div>
                             <div className="space-y-2">
@@ -1184,7 +1229,7 @@ const TransitDashboard = () => {
                                         toast({ title: "Missing Destination", description: "Please enter a Delivery Destination in the form first.", variant: "destructive" });
                                         return;
                                     }
-                                    const name = prompt("Enter Route Name (e.g. Lubumbashi Standard):");
+                                    const name = form.destination;
                                     if (name) {
                                         // Check if it already exists to allow updates
                                         const existing = routeTemplates.find(x => x.route_name.toLowerCase() === name.toLowerCase());

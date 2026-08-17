@@ -132,7 +132,9 @@ export default function ReceiptHistory() {
             firstRecord,
             lastRecord,
             vehicle_type_name: entry.vehicle_types?.type_name,
-            price: entry.vehicle_types?.first_weigh_fee || 0, // Fallback price
+            price: (entry.status === "Completed" || (entry.weigh_records && entry.weigh_records.length > 1))
+                ? (entry.vehicle_types?.first_weigh_fee || 0) + (entry.vehicle_types?.second_weigh_fee || 0)
+                : (entry.vehicle_types?.first_weigh_fee || 0),
             weighed_by: operatorName,
             weigh_time: entry.updated_at || entry.created_at,
             settings: settings

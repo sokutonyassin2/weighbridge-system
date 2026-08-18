@@ -323,6 +323,19 @@ const ManagementApprovals = () => {
         });
     };
 
+    const groupRequisitionsByVehicle = (reqs: any[]) => {
+        const groups: Record<string, any[]> = {};
+        reqs.forEach(req => {
+            let key = "STORE ROOM";
+            if (req.vehicle) {
+                key = req.vehicle.vehicle_no || req.vehicle.horse_number || "Unknown Vehicle";
+            }
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(req);
+        });
+        return groups;
+    };
+
     const renderReviewTable = () => {
         if (!reviewsPending || reviewsPending.length === 0) return (
             <Card className="border-dashed border-2 border-slate-200 bg-transparent shadow-none mb-8">
@@ -338,116 +351,132 @@ const ManagementApprovals = () => {
             </Card>
         );
 
+        const grouped = groupRequisitionsByVehicle(reviewsPending);
+
         return (
-            <div className="bg-white border rounded-lg shadow-sm mb-8 overflow-hidden">
-                <div className="bg-amber-50 px-6 py-4 border-b flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <Eye className="w-5 h-5 text-amber-600" />
-                        <h2 className="text-lg font-bold text-slate-800 tracking-tight">Review New Requests</h2>
-                    </div>
-                    <Badge className="bg-amber-100 text-amber-700 border-amber-200">{reviewsPending.length} Pending</Badge>
+            <div className="mb-8">
+                <div className="flex items-center gap-2 mb-4">
+                    <Eye className="w-5 h-5 text-amber-600" />
+                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">Review New Requests</h2>
+                    <Badge className="bg-amber-100 text-amber-700 border-amber-200 ml-2">{reviewsPending.length} Pending</Badge>
                 </div>
-                <div className="overflow-x-auto">
-                    <Table>
-                        <TableHeader className="bg-slate-50">
-                            <TableRow>
-                                <TableHead className="pl-6">Date</TableHead>
-                                <TableHead>Item</TableHead>
-                                <TableHead>Vehicle</TableHead>
-                                <TableHead>Requester</TableHead>
-                                <TableHead className="w-[150px]">Approved Qty</TableHead>
-                                <TableHead>Boss Note (Optional)</TableHead>
-                                <TableHead className="text-right pr-6">Action</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {reviewsPending.map((req: any) => {
-                                const currentEdits = reviewEdits[req.id] || { qty: req.quantity_requested, note: "" };
-                                return (
-                                    <TableRow key={req.id}>
-                                        <TableCell className="pl-6 text-xs text-slate-500">{formatDate(req.created_at)}</TableCell>
-                                        <TableCell className="font-semibold text-slate-800">
-                                            {req.garage_inventory?.item_name || req.item_name}
-                                            <div className="text-[10px] text-slate-400 mt-0.5">Original Qty: {req.quantity_requested}</div>
-                                        </TableCell>
-                                        <TableCell>
-                                            {req.vehicle ? (
-                                                <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
-                                                    <Truck className="w-3 h-3 mr-1" />
-                                                    {req.vehicle.vehicle_no || req.vehicle.horse_number}
-                                                </Badge>
-                                            ) : req.requirement_category === 'General' || req.request_type === 'General' ? (
-                                                <Badge variant="secondary" className="text-[10px] bg-slate-100 text-slate-700 border-slate-200">
-                                                    <Building2 className="w-3 h-3 mr-1" />
-                                                    STORE ROOM
-                                                </Badge>
-                                            ) : '-'}
-                                        </TableCell>
-                                        <TableCell className="text-xs">{req.profiles?.full_name}</TableCell>
-                                        <TableCell>
-                                            <Input 
-                                                type="number" 
-                                                min="1" 
-                                                className="h-8 text-sm font-bold w-20"
-                                                value={currentEdits.qty}
-                                                onChange={(e) => handleEditChange(req.id, 'qty', parseInt(e.target.value) || 1, req.quantity_requested)}
-                                            />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Input 
-                                                placeholder="Add a note for procurement..." 
-                                                className="h-8 text-xs"
-                                                value={currentEdits.note}
-                                                onChange={(e) => handleEditChange(req.id, 'note', e.target.value, req.quantity_requested)}
-                                            />
-                                        </TableCell>
-                                        <TableCell className="text-right pr-6">
-                                            <div className="flex justify-end gap-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
-                                                    title="Admin Quick Edit"
-                                                    onClick={() => {
-                                                        setQuickEditData({
-                                                            id: req.id,
-                                                            item_name: req.garage_inventory?.item_name || req.item_name,
-                                                            quantity_requested: req.quantity_requested || 0,
-                                                            quantity_approved: req.quantity_approved || 0,
-                                                            unit_price: req.unit_price || 0
-                                                        });
-                                                        setIsQuickEditOpen(true);
-                                                    }}
-                                                >
-                                                    <Pencil className="w-3.5 h-3.5" />
-                                                </Button>
-                                                <Button 
-                                                    size="sm" 
-                                                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
-                                                    disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
-                                                    onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
-                                                >
-                                                    {forwardToProcurementMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
-                                                    Send to Procurement
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="px-3"
-                                                    disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
-                                                    onClick={() => deleteRequisitionMutation.mutate(req.id)}
-                                                    title="Delete Requisition"
-                                                >
-                                                    {deleteRequisitionMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                                                </Button>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                </div>
+                
+                <Accordion type="multiple" className="space-y-4">
+                    {Object.entries(grouped).map(([vehicleKey, reqs]) => {
+                        return (
+                            <AccordionItem key={vehicleKey} value={vehicleKey} className="overflow-hidden border border-amber-200/60 rounded-lg shadow-sm bg-white">
+                                <AccordionTrigger className="hover:no-underline bg-amber-50/30 px-6 py-4 data-[state=open]:border-b">
+                                    <div className="flex justify-between items-center w-full pr-4 text-left">
+                                        <div className="flex items-center gap-3">
+                                            {vehicleKey === "STORE ROOM" ? (
+                                                <Building2 className="w-5 h-5 text-amber-600" />
+                                            ) : (
+                                                <Truck className="w-5 h-5 text-blue-600" />
+                                            )}
+                                            <span className="text-lg font-bold text-slate-800 uppercase tracking-tight">
+                                                {vehicleKey}
+                                            </span>
+                                        </div>
+                                        <div className="text-right">
+                                            <Badge variant="outline" className="text-xs text-amber-700 bg-amber-50 border-amber-200">
+                                                {reqs.length} Items Pending
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                </AccordionTrigger>
+                                <AccordionContent className="p-0">
+                                    <div className="overflow-x-auto">
+                                        <Table>
+                                            <TableHeader className="bg-slate-50">
+                                                <TableRow>
+                                                    <TableHead className="pl-6">Date</TableHead>
+                                                    <TableHead>Item</TableHead>
+                                                    <TableHead>Requester</TableHead>
+                                                    <TableHead className="w-[150px]">Approved Qty</TableHead>
+                                                    <TableHead>Boss Note (Optional)</TableHead>
+                                                    <TableHead className="text-right pr-6">Action</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {reqs.map((req: any) => {
+                                                    const currentEdits = reviewEdits[req.id] || { qty: req.quantity_requested, note: "" };
+                                                    return (
+                                                        <TableRow key={req.id}>
+                                                            <TableCell className="pl-6 text-xs text-slate-500">{formatDate(req.created_at)}</TableCell>
+                                                            <TableCell className="font-semibold text-slate-800">
+                                                                {req.garage_inventory?.item_name || req.item_name}
+                                                                <div className="text-[10px] text-slate-400 mt-0.5">Original Qty: {req.quantity_requested}</div>
+                                                            </TableCell>
+                                                            <TableCell className="text-xs">{req.profiles?.full_name}</TableCell>
+                                                            <TableCell>
+                                                                <Input 
+                                                                    type="number" 
+                                                                    min="1" 
+                                                                    className="h-8 text-sm font-bold w-20"
+                                                                    value={currentEdits.qty}
+                                                                    onChange={(e) => handleEditChange(req.id, 'qty', parseInt(e.target.value) || 1, req.quantity_requested)}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <Input 
+                                                                    placeholder="Add a note for procurement..." 
+                                                                    className="h-8 text-xs"
+                                                                    value={currentEdits.note}
+                                                                    onChange={(e) => handleEditChange(req.id, 'note', e.target.value, req.quantity_requested)}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell className="text-right pr-6">
+                                                                <div className="flex justify-end gap-2">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                                                                        title="Admin Quick Edit"
+                                                                        onClick={() => {
+                                                                            setQuickEditData({
+                                                                                id: req.id,
+                                                                                item_name: req.garage_inventory?.item_name || req.item_name,
+                                                                                quantity_requested: req.quantity_requested || 0,
+                                                                                quantity_approved: req.quantity_approved || 0,
+                                                                                unit_price: req.unit_price || 0
+                                                                            });
+                                                                            setIsQuickEditOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Pencil className="w-3.5 h-3.5" />
+                                                                    </Button>
+                                                                    <Button 
+                                                                        size="sm" 
+                                                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
+                                                                        disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
+                                                                        onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
+                                                                    >
+                                                                        {forwardToProcurementMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
+                                                                        Send
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="destructive"
+                                                                        className="px-3"
+                                                                        disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
+                                                                        onClick={() => deleteRequisitionMutation.mutate(req.id)}
+                                                                        title="Delete Requisition"
+                                                                    >
+                                                                        {deleteRequisitionMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                                                    </Button>
+                                                                </div>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </AccordionContent>
+                            </AccordionItem>
+                        );
+                    })}
+                </Accordion>
             </div>
         );
     };

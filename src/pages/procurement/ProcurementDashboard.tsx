@@ -76,9 +76,9 @@ const ProcurementDashboard = () => {
     const sb = supabase as any;
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const { userProfile } = useAuth();
+    const { userProfile, userRole } = useAuth();
 
-    // Fetch User Role
+    // Fetch User Profile (for display purposes - role comes from useAuth)
     const { data: profile } = useQuery({
         queryKey: ["user-profile"],
         queryFn: async () => {
@@ -89,7 +89,6 @@ const ProcurementDashboard = () => {
             return data;
         }
     });
-    const userRole = profile?.role;
     const [searchTerm, setSearchTerm] = useState("");
     const [inventorySearch, setInventorySearch] = useState("");
     const [activeTab, setActiveTab] = useState("requisitions");
@@ -650,15 +649,12 @@ const ProcurementDashboard = () => {
 
     const deleteRequisitionMutation = useMutation({
         mutationFn: async (id: string) => {
-            const { error } = await supabase.from("garage_requisitions").update({
-                is_deleted: true,
-                deleted_at: new Date().toISOString()
-            }).eq("id", id);
+            const { error } = await supabase.from("garage_requisitions").delete().eq("id", id);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
-            toast({ title: "Requisition Deleted", description: "The request has been removed." });
+            toast({ title: "Requisition Deleted", description: "The request has been fully removed from the system." });
         },
         onError: (error: any) => {
             toast({
@@ -672,16 +668,13 @@ const ProcurementDashboard = () => {
     const deleteRequisitionGroupMutation = useMutation({
         mutationFn: async (reqIds: string[]) => {
             for (const id of reqIds) {
-                const { error } = await supabase.from("garage_requisitions").update({
-                    is_deleted: true,
-                    deleted_at: new Date().toISOString()
-                }).eq("id", id);
+                const { error } = await supabase.from("garage_requisitions").delete().eq("id", id);
                 if (error) throw error;
             }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
-            toast({ title: "Group Deleted", description: "The requisitions have been removed." });
+            toast({ title: "Deleted", description: "The requisition(s) have been fully removed from the system." });
         },
         onError: (error: any) => {
             toast({
@@ -1593,20 +1586,6 @@ const ProcurementDashboard = () => {
                                                                     </TableCell>
                                                                     <TableCell className="text-right px-2 md:px-6" colSpan={2}>
                                                                         <div className="flex items-center justify-end gap-2">
-                                                                            <Button 
-                                                                                variant="ghost" 
-                                                                                    size="sm" 
-                                                                                    className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
-                                                                                    disabled={deleteRequisitionGroupMutation.isPending}
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        if (window.confirm(`Are you sure you want to delete all ${item.reqs.length} requisition(s) for this vehicle? This will remove them from the system entirely.`)) {
-                                                                                            deleteRequisitionGroupMutation.mutate(item.reqs.map((r: any) => r.id));
-                                                                                        }
-                                                                                    }}
-                                                                                >
-                                                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                                                </Button>
                                                                             <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
                                                                                 {isExpanded ? 'Hide' : 'View'}
                                                                             </Button>
@@ -1738,8 +1717,9 @@ const ProcurementDashboard = () => {
                                                         </TableCell>
                                                         <TableCell className="text-right px-6">
                                                             <div className="flex items-center justify-end gap-2">
-                                                                {/* ADMIN QUICK EDIT */}
+                                                                {/* ADMIN QUICK EDIT AND DELETE */}
                                                                 {(userRole === 'admin' || userRole === 'super_admin') && (
+                                                                    <>
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="sm"
@@ -1759,6 +1739,22 @@ const ProcurementDashboard = () => {
                                                                     >
                                                                         <Pencil className="w-3.5 h-3.5" />
                                                                     </Button>
+                                                                    <Button 
+                                                                        variant="ghost" 
+                                                                        size="sm" 
+                                                                        className="h-7 w-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                                                                        title="Delete Requisition completely"
+                                                                        disabled={deleteRequisitionGroupMutation.isPending}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            if (window.confirm(`Are you sure you want to delete this requisition? This will remove it from the system entirely up to the garage area.`)) {
+                                                                                deleteRequisitionGroupMutation.mutate([req.id]);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                    </Button>
+                                                                    </>
                                                                 )}
                                                                 {/* PROCUREMENT OFFICER: Prepare Quote */}
                                                                 {(req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked') && (

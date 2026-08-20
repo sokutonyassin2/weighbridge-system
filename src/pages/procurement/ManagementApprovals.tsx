@@ -30,7 +30,8 @@ const ManagementApprovals = () => {
         supplier_id: "",
         po_number: "",
         includes_vat: false,
-        payment_method_id: ""
+        payment_method_id: "",
+        discount_percentage: 0
     });
     const [batchItemPrices, setBatchItemPrices] = useState<Record<string, number>>({});
     const [batchItemQuantities, setBatchItemQuantities] = useState<Record<string, number>>({});
@@ -219,14 +220,17 @@ const ManagementApprovals = () => {
                 const price = itemPrices[req.id] || 0;
                 const qty = itemQuantities[req.id] || 0;
                 const subtotal = price * qty;
-                const vat = sharedDetails.includes_vat ? (subtotal * 0.18) : 0;
-                const total = subtotal + vat;
+                const discount = subtotal * ((sharedDetails.discount_percentage || 0) / 100);
+                const discountedSubtotal = subtotal - discount;
+                const vat = sharedDetails.includes_vat ? (discountedSubtotal * 0.18) : 0;
+                const total = discountedSubtotal + vat;
 
                 const { error } = await sb.from("garage_requisitions").update({
                     supplier_id: sharedDetails.supplier_id,
                     po_number: sharedDetails.po_number,
                     includes_vat: sharedDetails.includes_vat,
                     payment_details: paymentDetails,
+                    discount_percentage: sharedDetails.discount_percentage || 0,
                     unit_price: price,
                     quantity_approved: qty, // Note: we are updating quantity_approved
                     vat_amount: vat,
@@ -244,6 +248,27 @@ const ManagementApprovals = () => {
         onError: (error: any) => {
             toast({ variant: "destructive", title: "Update Failed", description: error.message });
             setSubmittingBatchType(null);
+        }
+    });
+
+    const pushBackMutation = useMutation({
+        mutationFn: async ({ reqs }: { reqs: any[] }) => {
+            for (const req of reqs) {
+                const { error } = await sb.from("garage_requisitions").update({
+                    status: 'Pending Quotes',
+                    po_number: null,
+                    status_updated_at: new Date().toISOString()
+                }).eq("id", req.id);
+                if (error) throw error;
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["management-approvals"] });
+            setIsApproveDialogOpen(false);
+            toast({ title: "Pushed Back", description: "PO pushed back to procurement successfully." });
+        },
+        onError: (error: any) => {
+            toast({ variant: "destructive", title: "Error", description: error.message });
         }
     });
 
@@ -267,8 +292,12 @@ const ManagementApprovals = () => {
                 const price = itemPrices?.[req.id] ?? req.unit_price;
                 const qty = itemQuantities?.[req.id] ?? req.quantity_approved;
                 const subtotal = price * qty;
-                const vat = sharedDetails?.includes_vat ? (subtotal * 0.18) : (req.includes_vat ? (subtotal * 0.18) : 0);
-                const total = subtotal + vat;
+                const discountPercentage = sharedDetails?.discount_percentage ?? req.discount_percentage ?? 0;
+                const discount = subtotal * (discountPercentage / 100);
+                const discountedSubtotal = subtotal - discount;
+                
+                const vat = sharedDetails?.includes_vat ? (discountedSubtotal * 0.18) : (req.includes_vat ? (discountedSubtotal * 0.18) : 0);
+                const total = discountedSubtotal + vat;
                 
                 const finalUpdate = { ...updateData };
                 
@@ -277,6 +306,7 @@ const ManagementApprovals = () => {
                     finalUpdate.supplier_id = sharedDetails?.supplier_id || req.supplier_id;
                     finalUpdate.po_number = sharedDetails?.po_number || req.po_number;
                     finalUpdate.includes_vat = sharedDetails?.includes_vat ?? req.includes_vat;
+                    finalUpdate.discount_percentage = discountPercentage;
                     if (paymentDetails) {
                         finalUpdate.payment_details = paymentDetails;
                     }
@@ -614,7 +644,8 @@ const ManagementApprovals = () => {
                                             supplier_id: firstReq.supplier_id || "",
                                             po_number: firstReq.po_number || "",
                                             includes_vat: firstReq.includes_vat || false,
-                                            payment_method_id: matchedPaymentMethodId
+                                            payment_method_id: matchedPaymentMethodId,
+                                            discount_percentage: firstReq.discount_percentage || 0
                                         });
                                         
                                         const initialPrices: Record<string, number> = {};
@@ -772,6 +803,17 @@ const ManagementApprovals = () => {
                                     className="h-9 font-mono text-xs"
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Discount (%)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={batchSharedDetails.discount_percentage}
+                                    onChange={(e) => setBatchSharedDetails({ ...batchSharedDetails, discount_percentage: parseFloat(e.target.value) || 0 })}
+                                    className="h-9 font-mono text-xs"
+                                />
+                            </div>
                             <div className="space-y-2 flex flex-col justify-end">
                                 <div className="flex items-center gap-2 border p-2 rounded-md bg-white">
                                     <Switch
@@ -836,27 +878,35 @@ const ManagementApprovals = () => {
                                     {selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0).toLocaleString()} TZS
                                 </span>
                             </div>
+                            {batchSharedDetails.discount_percentage > 0 && (
+                                <div className="flex justify-between text-sm text-green-700 font-medium">
+                                    <span>Discount ({batchSharedDetails.discount_percentage}%):</span>
+                                    <span>
+                                        -{ (selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (batchSharedDetails.discount_percentage / 100)).toLocaleString() } TZS
+                                    </span>
+                                </div>
+                            )}
                             {batchSharedDetails.includes_vat && (
                                 <div className="flex justify-between text-sm text-indigo-900 font-medium">
                                     <span>VAT (18%):</span>
                                     <span>
-                                        {(selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * 0.18).toLocaleString()} TZS
+                                        {((selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * 0.18).toLocaleString()} TZS
                                     </span>
                                 </div>
                             )}
                             <div className="flex justify-between text-lg font-black border-t pt-2">
                                 <span>TOTAL:</span>
                                 <span>
-                                    {(selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
+                                    {((selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
                                 </span>
                             </div>
                         </div>
 
-                        {/* Revoke */}
-                        <div className="space-y-2 bg-rose-50/50 p-4 rounded-lg border border-rose-100">
+                        {/* Revoke / Push Back */}
+                        <div className="space-y-3 bg-rose-50/50 p-4 rounded-lg border border-rose-100">
                             <Label className="text-[11px] font-bold text-rose-600 uppercase flex items-center gap-2">
                                 <AlertTriangle className="w-3 h-3" />
-                                Revoke Entire PO (Optional)
+                                Reject / Push Back PO
                             </Label>
                             <div className="flex gap-2">
                                 <Input
@@ -865,6 +915,15 @@ const ManagementApprovals = () => {
                                     value={revokeReason}
                                     onChange={(e) => setRevokeReason(e.target.value)}
                                 />
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 px-4 uppercase text-[10px] font-bold shrink-0 border-rose-200 text-rose-700 hover:bg-rose-100"
+                                    disabled={pushBackMutation.isPending}
+                                    onClick={() => pushBackMutation.mutate({ reqs: selectedPOItems })}
+                                >
+                                    {pushBackMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Push Back"}
+                                </Button>
                                 <Button
                                     variant="destructive"
                                     size="sm"

@@ -1,12 +1,12 @@
 export const printPurchaseOrder = (params: { poNumber?: string, reqId?: string, requisitions: any[], userProfile: any }) => {
     const { requisitions, userProfile } = params;
-    let relatedReqs: any[] = [];
+    let relatedReqs: any[] = requisitions || [];
 
     if (params.poNumber) {
-        relatedReqs = (requisitions || []).filter((r: any) => r.po_number === params.poNumber);
+        relatedReqs = relatedReqs.filter((r: any) => r.po_number === params.poNumber);
     } else if (params.reqId) {
-        const single = (requisitions || []).find((r: any) => r.id === params.reqId);
-        if (single) relatedReqs = [single];
+        const single = relatedReqs.find((r: any) => r.id === params.reqId);
+        relatedReqs = single ? [single] : [];
     }
 
     if (relatedReqs.length === 0) {

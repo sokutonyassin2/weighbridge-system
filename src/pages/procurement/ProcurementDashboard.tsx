@@ -147,7 +147,8 @@ const ProcurementDashboard = () => {
         supplier_id: "",
         po_number: "",
         includes_vat: false,
-        payment_method_id: ""
+        payment_method_id: "",
+        discount_percentage: 0
     });
     const [batchItemPrices, setBatchItemPrices] = useState<Record<string, number>>({});
     const [batchItemQuantities, setBatchItemQuantities] = useState<Record<string, number>>({});
@@ -526,16 +527,19 @@ const ProcurementDashboard = () => {
                 const qty = itemQuantities[req.id] || req.quantity_requested || 0;
                 const unitPrice = itemPrices[req.id] || 0;
                 const subtotal = unitPrice * qty;
-                const vat = sharedDetails.includes_vat ? subtotal * 0.18 : 0;
+                const discount = subtotal * ((sharedDetails.discount_percentage || 0) / 100);
+                const discountedSubtotal = subtotal - discount;
+                const vat = sharedDetails.includes_vat ? discountedSubtotal * 0.18 : 0;
                 
                 const updateObj: any = {
                     id: req.id,
                     unit_price: unitPrice,
-                    total_price: subtotal + vat,
+                    total_price: discountedSubtotal + vat,
                     supplier_id: sharedDetails.supplier_id || null,
                     po_number: sharedDetails.po_number || null,
                     includes_vat: sharedDetails.includes_vat,
                     vat_amount: vat,
+                    discount_percentage: sharedDetails.discount_percentage || 0,
                     payment_details: allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null,
                     quantity_approved: qty
                 };
@@ -1390,7 +1394,7 @@ const ProcurementDashboard = () => {
                                                                                             className="h-8 text-[10px] font-bold uppercase border-slate-200"
                                                                                             onClick={(e) => {
                                                                                                 e.stopPropagation();
-                                                                                                printPurchaseOrder({ reqId: firstReq.id });
+                                                                                                printPurchaseOrder({ poNumber: firstReq.po_number });
                                                                                             }}
                                                                                         >
                                                                                             <Printer className="w-3 h-3 mr-1" />
@@ -1506,7 +1510,8 @@ const ProcurementDashboard = () => {
                                                                                                 supplier_id: firstReq.supplier_id || "",
                                                                                                 po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
                                                                                                 includes_vat: firstReq.includes_vat || false,
-                                                                                                payment_method_id: firstReq.payment_details?.id || ""
+                                                                                                payment_method_id: firstReq.payment_details?.id || "",
+                                                                                                discount_percentage: firstReq.discount_percentage || 0
                                                                                             });
                                                                                             const initialPrices: Record<string, number> = {};
                                                                                             const initialQuantities: Record<string, number> = {};
@@ -1924,7 +1929,8 @@ const ProcurementDashboard = () => {
                                                     supplier_id: "",
                                                     po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
                                                     includes_vat: false,
-                                                    payment_method_id: ""
+                                                    payment_method_id: "",
+                                                    discount_percentage: 0
                                                 });
                                                 setBatchItemPrices(initialPrices);
                                                 setBatchItemQuantities(initialQuantities);
@@ -2425,6 +2431,17 @@ const ProcurementDashboard = () => {
                                     className="h-9 font-mono text-xs"
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label className="text-[11px] font-semibold text-slate-500 uppercase">Discount (%)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={batchSharedDetails.discount_percentage}
+                                    onChange={(e) => setBatchSharedDetails({ ...batchSharedDetails, discount_percentage: parseFloat(e.target.value) || 0 })}
+                                    className="h-9 font-mono text-xs"
+                                />
+                            </div>
                             <div className="space-y-2 flex flex-col justify-end">
                                 <div className="flex items-center gap-2 border p-2 rounded-md bg-white">
                                     <Switch
@@ -2495,18 +2512,26 @@ const ProcurementDashboard = () => {
                                     {batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0).toLocaleString()} TZS
                                 </span>
                             </div>
+                            {batchSharedDetails.discount_percentage > 0 && (
+                                <div className="flex justify-between text-sm text-green-700 font-medium">
+                                    <span>Discount ({batchSharedDetails.discount_percentage}%):</span>
+                                    <span>
+                                        -{ (batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (batchSharedDetails.discount_percentage / 100)).toLocaleString() } TZS
+                                    </span>
+                                </div>
+                            )}
                             {batchSharedDetails.includes_vat && (
                                 <div className="flex justify-between text-sm text-blue-900 font-medium">
                                     <span>VAT (18%):</span>
                                     <span>
-                                        {(batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * 0.18).toLocaleString()} TZS
+                                        {((batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * 0.18).toLocaleString()} TZS
                                     </span>
                                 </div>
                             )}
                             <div className="flex justify-between text-lg font-black border-t pt-2">
                                 <span>TOTAL:</span>
                                 <span>
-                                    {(batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
+                                    {((batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
                                 </span>
                             </div>
                         </div>

@@ -137,12 +137,7 @@ const TransitDashboard = () => {
     const [yearFilter, setYearFilter] = useState("All");
     const [activeTab, setActiveTab] = useState<"ALL" | "OUTBOUND" | "BACKLOAD" | "TANKERS" | "ARCHIVE">("ALL");
 
-    const STANDARD_DESTINATIONS = Array.from(new Set([
-        "CCSA", "CHAMBISHI", "CHINGOLA", "CHIPATA", "CIKO MINING", 
-        "DAR ES SALAAM", "KABWE", "KALULUSHI", "KAMBOVE", "LUSAKA", 
-        "LUSAKA / CHAMBISHI", "NDOLA",
-        ...routeTemplates.map(rt => rt.destination).filter(Boolean)
-    ])).sort();
+    // We will define STANDARD_DESTINATIONS after fetching routeTemplates
 
     // Fetch clients registry
     const { data: clientsList = [], refetch: refetchClients } = useQuery({
@@ -220,6 +215,13 @@ const TransitDashboard = () => {
             return (data || []) as any[];
         }
     });
+
+    const STANDARD_DESTINATIONS = Array.from(new Set([
+        "CCSA", "CHAMBISHI", "CHINGOLA", "CHIPATA", "CIKO MINING", 
+        "DAR ES SALAAM", "KABWE", "KALULUSHI", "KAMBOVE", "LUSAKA", 
+        "LUSAKA / CHAMBISHI", "NDOLA",
+        ...routeTemplates.map(rt => rt.destination).filter(Boolean)
+    ])).sort();
 
     const { data: trips = [], isLoading, isError, error: tripsError } = useQuery({
         queryKey: ["transit_trips", yearFilter, statusFilter],

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 const InventoryReports = () => {
     const sb = supabase as any;
-    const [timeframe, setTimeframe] = useState<"daily" | "monthly">("daily");
+    const [timeframe, setTimeframe] = useState<"daily" | "monthly">("monthly");
 
     // Fetch Usage Logs
     const { data: usageLogs, isLoading } = useQuery({
@@ -20,7 +20,16 @@ const InventoryReports = () => {
                 .from("garage_inventory_usage")
                 .select("*, item:garage_inventory(category, unit_price)");
             if (error) throw error;
-            return data;
+            
+            // fetch reqs to augment missing unit_prices from procurement
+            const { data: reqs } = await sb.from("garage_requisitions").select("item_id, unit_price").gt("unit_price", 0);
+            const priceMap: Record<string, number> = {};
+            (reqs || []).forEach((r: any) => { if(r.item_id) priceMap[r.item_id] = r.unit_price; });
+            
+            return data.map((log: any) => ({
+                ...log,
+                augmented_price: log.item?.unit_price > 0 ? log.item.unit_price : (priceMap[log.item_id] || 0)
+            }));
         }
     });
 
@@ -39,7 +48,7 @@ const InventoryReports = () => {
         });
 
         const totalItems = filtered.reduce((acc: number, log: any) => acc + (log.quantity_used || 0), 0);
-        const totalValue = filtered.reduce((acc: number, log: any) => acc + ((log.quantity_used || 0) * (log.item?.unit_price || 0)), 0);
+        const totalValue = filtered.reduce((acc: number, log: any) => acc + ((log.quantity_used || 0) * (log.augmented_price || 0)), 0);
 
         // Top Item
         const itemCounts: Record<string, number> = {};
@@ -175,7 +184,7 @@ const InventoryReports = () => {
                                             {log.quantity_used}
                                         </TableCell>
                                         <TableCell className="text-right font-bold text-[11px] text-emerald-600 py-3 px-6">
-                                            {((log.quantity_used || 0) * (log.item?.unit_price || 0)).toLocaleString()}
+                                            {((log.quantity_used || 0) * (log.augmented_price || 0)).toLocaleString()}
                                         </TableCell>
                                     </TableRow>
                                 )) : (

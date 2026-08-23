@@ -57,6 +57,10 @@ import TripSheets from "./pages/logistics/TripSheets";
 import KoridorAccount from "./pages/finance/KoridorAccount";
 import AccountsReceivable from "./pages/finance/AccountsReceivable";
 import ReconciliationsReview from "./pages/finance/ReconciliationsReview";
+import Payroll from "./pages/finance/Payroll";
+import CompanyExpenses from "./pages/finance/CompanyExpenses";
+import AssetDepreciation from "./pages/finance/AssetDepreciation";
+import GeneralLedger from "./pages/finance/GeneralLedger";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -212,6 +216,46 @@ const App = () => {
                 <ProtectedRoute allowedRoles={['admin', 'finance']}>
                   <Layout>
                     <ReconciliationsReview />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/payroll"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <Payroll />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/expenses"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <CompanyExpenses />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/assets"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <AssetDepreciation />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finance/ledger"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                  <Layout>
+                    <GeneralLedger />
                   </Layout>
                 </ProtectedRoute>
               }

@@ -1,4 +1,10 @@
-import { Scale, Truck, Clock, DollarSign, Settings, List, LogOut, User, Sun, Moon, Activity, Users, FileText, CheckCircle, BarChart3, AlertTriangle, TrendingUp, History, TimerOff, Menu, Printer, Map, Shield, ChevronRight, LayoutGrid, UserCheck, Send, Wrench, Package, FileBarChart, FileCheck, Eye, Trash2, CreditCard } from "lucide-react";
+import { 
+  Home, Truck, Scale, Settings, Users, Activity, BarChart3, Clock, 
+  FileText, TrendingUp, AlertTriangle, Printer, UserCheck, Shield,
+  CreditCard, TimerOff, DollarSign, List, LayoutGrid, Wrench, Package,
+  History, Calendar, Send, CheckCircle, FileBarChart, Trash2, Banknote, BookOpen, TrendingDown,
+  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye
+} from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -50,9 +56,6 @@ const logisticsItems = [
   { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Invoices", url: "/logistics/invoices", icon: CreditCard, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["audit_clerk", "super_admin", "admin"] },
   { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
 ];
 
@@ -82,8 +85,15 @@ const systemItems = [
 ];
 
 const financeItems = [
+  { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Trip Invoices", url: "/logistics/invoices", icon: CreditCard, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["finance", "audit_clerk", "super_admin", "admin"] },
   { title: "Logistics P&L", url: "/finance-dashboard", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
   { title: "Accounts Receivable", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
+  { title: "Payroll Management", url: "/finance/payroll", icon: Users, roles: ["finance", "admin", "super_admin"] },
+  { title: "Company Expenses", url: "/finance/expenses", icon: Banknote, roles: ["finance", "admin", "super_admin"] },
+  { title: "Asset Depreciation", url: "/finance/assets", icon: TrendingDown, roles: ["finance", "admin", "super_admin"] },
+  { title: "General Ledger", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
   { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
 ];
 

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Search, TrendingUp, AlertTriangle, Clock, Wrench, Package, Calendar, ChevronsUpDown, ArrowRight } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Activity, Search, TrendingUp, AlertTriangle, Clock, Wrench, Package, Calendar, ChevronsUpDown, ArrowRight, DollarSign, Gauge, Truck } from "lucide-react";
 
 interface VehicleLifecycleProps {
   language: "en" | "sw";
@@ -17,6 +18,22 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
   const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
   const [vehicleSearchOpen, setVehicleSearchOpen] = useState(false);
   const [vehicleSearchTerm, setVehicleSearchTerm] = useState("");
+  const now = new Date();
+  const [selectedMonth, setSelectedMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+
+  const monthOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [];
+    const d = new Date();
+    for (let i = 0; i < 12; i++) {
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const val = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const label = d.toLocaleString('en', { month: 'long', year: 'numeric' });
+      opts.push({ value: val, label });
+      d.setMonth(d.getMonth() - 1);
+    }
+    return opts;
+  }, []);
 
   const filteredVehicles = useMemo(() => {
     return vehicles.filter((v: any) =>
@@ -46,21 +63,77 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
     }
   });
 
-  // Fetch Part Usage
+  // Fetch Part Usage (Combined from Garage Store and Procurement Requisitions)
   const { data: partUsage = [], isLoading: isLoadingParts } = useQuery({
     queryKey: ["lifecycle-parts", selectedVehicle?.id],
     enabled: !!selectedVehicle?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // 1. Fetch Garage Store Issues
+      const { data: usageData, error: usageError } = await supabase
         .from("garage_inventory_usage")
-        .select("*")
+        .select("*, item:garage_inventory(unit_price)")
         .eq("vehicle_id", selectedVehicle.id)
         .order("created_at", { ascending: false });
       
-      if (error) throw error;
-      return data || [];
+      if (usageError) throw usageError;
+
+      // 2. Fetch Procurement Purchases
+      const { data: reqData, error: reqError } = await supabase
+        .from("garage_requisitions")
+        .select("*")
+        .eq("vehicle_id", selectedVehicle.id)
+        .eq("status", "Closed")
+        .order("status_updated_at", { ascending: false });
+      
+      if (reqError) throw reqError;
+
+      // Price mapping fallback for garage issues
+      const { data: reqs } = await supabase.from("garage_requisitions").select("item_id, unit_price").gt("unit_price", 0);
+      const priceMap: Record<string, number> = {};
+      (reqs || []).forEach((r: any) => { if(r.item_id) priceMap[r.item_id] = r.unit_price; });
+
+      const processedUsage = (usageData || []).map((p: any) => ({
+          ...p,
+          source: 'store',
+          augmented_price: p.item?.unit_price > 0 ? p.item.unit_price : (priceMap[p.item_id] || 0)
+      }));
+
+      const processedReqs = (reqData || []).map((r: any) => ({
+          ...r,
+          source: 'procurement',
+          augmented_price: r.unit_price || 0,
+          quantity_used: r.quantity_requested || 1,
+          created_at: r.status_updated_at || r.created_at,
+          item_name: r.item_name || 'Procured Part',
+          issued_to: r.requested_by || 'Direct Procure',
+          notes: r.description ? `Procured: ${r.description}` : 'Procured directly via requisitions'
+      }));
+
+      const combined = [...processedUsage, ...processedReqs];
+      return combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
   });
+
+  const filteredMonthCost = useMemo(() => {
+    if (!selectedVehicle || partUsage.length === 0) return 0;
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return partUsage.filter((p: any) => {
+      const d = new Date(p.created_at);
+      return d.getMonth() === (m - 1) && d.getFullYear() === y;
+    }).reduce((sum: number, p: any) => sum + (p.quantity_used * (p.augmented_price || 0)), 0);
+  }, [partUsage, selectedVehicle, selectedMonth]);
+
+  const totalOverallCost = useMemo(() => {
+    if (!selectedVehicle || partUsage.length === 0) return 0;
+    return partUsage.reduce((sum: number, p: any) => sum + (p.quantity_used * (p.augmented_price || 0)), 0);
+  }, [partUsage, selectedVehicle]);
+
+  const latestOdometer = useMemo(() => {
+    if (!selectedVehicle || jobHistory.length === 0) return null;
+    const withOdo = jobHistory.filter((j: any) => j.odometer_at_fault && j.odometer_at_fault > 0);
+    if (withOdo.length === 0) return null;
+    return withOdo[0].odometer_at_fault;
+  }, [jobHistory, selectedVehicle]);
 
   // Generate unified timeline
   const timeline = useMemo(() => {
@@ -89,11 +162,12 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
       events.push({
         type: 'part',
         date: new Date(part.created_at),
-        title: `Item Requested: ${part.item_name}`,
+        title: part.source === 'procurement' ? `Procured/Replaced: ${part.item_name}` : `Item Requested: ${part.item_name}`,
         quantity: part.quantity_used,
         issued_to: part.issued_to,
         notes: part.notes,
-        rawName: part.item_name
+        rawName: part.item_name,
+        source: part.source
       });
     });
 
@@ -256,10 +330,18 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
           </Card>
           
           {selectedVehicle && (
+            <>
             <Card className="border-none shadow-md bg-gradient-to-br from-slate-800 to-slate-900 text-white">
               <CardContent className="p-6">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Vehicle Selected</p>
                 <p className="text-2xl font-bold tracking-tight">{selectedVehicle.plate_number}</p>
+                {latestOdometer && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <Gauge className="w-3.5 h-3.5 text-sky-400" />
+                    <span className="text-[11px] font-bold text-sky-400">{Number(latestOdometer).toLocaleString()} KM</span>
+                    <span className="text-[9px] text-slate-500 uppercase">Current Odometer</span>
+                  </div>
+                )}
                 <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-700 pt-4">
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Faults</p>
@@ -272,6 +354,36 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
                 </div>
               </CardContent>
             </Card>
+
+            <Card className="border-none shadow-md bg-white">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Repair Cost Analysis</p>
+                </div>
+                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                  <SelectTrigger className="w-full h-9 text-xs font-medium border-slate-200 bg-slate-50">
+                    <SelectValue placeholder="Select Month" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {monthOptions.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-rose-50 rounded-lg p-3 border border-rose-100">
+                    <p className="text-[9px] font-bold text-rose-400 uppercase tracking-widest">Selected Month</p>
+                    <p className="text-lg font-bold text-rose-700 mt-1">TZS {filteredMonthCost.toLocaleString()}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">All-Time Total</p>
+                    <p className="text-lg font-bold text-slate-800 mt-1">TZS {totalOverallCost.toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            </>
           )}
         </div>
 
@@ -407,9 +519,16 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
                                   </>
                                 ) : (
                                   <>
-                                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600 mb-2">
                                       <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">Qty: {event.quantity}</span>
-                                      <span>Issued to: {event.issued_to}</span>
+                                      <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
+                                        <Truck className="w-3 h-3 text-slate-400" /> Issued to: {event.issued_to}
+                                      </span>
+                                      {event.source === 'procurement' ? (
+                                        <Badge variant="outline" className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200">Procured Directly</Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200">From Garage Store</Badge>
+                                      )}
                                     </div>
                                     {event.notes && (
                                       <p className="text-xs text-slate-600 italic border-l-2 border-slate-300 pl-2">"{event.notes}"</p>

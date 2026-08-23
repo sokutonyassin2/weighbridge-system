@@ -14,11 +14,12 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, CheckCircle, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus, PackageCheck } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, CheckCircle, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus, PackageCheck, ImagePlus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { printGarageRequisitions } from "@/utils/printUtils";
+import * as XLSX from 'xlsx';
 
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -151,6 +152,47 @@ const GarageDashboard = () => {
     const [inventoryViewMode, setInventoryViewMode] = useState<"list" | "grid">("list");
     const [jobViewTab, setJobViewTab] = useState<'active' | 'closed'>('active');
 
+    const exportToExcel = () => {
+        const groups: Record<string, any> = {};
+        (requisitions || []).forEach((req: any) => {
+            const created = new Date(req.created_at);
+            if (req.request_type !== 'Job' || !req.vehicle) {
+                const key = `general-${req.id}`;
+                groups[key] = { id: key, date: created.toLocaleDateString(), vehicle: 'Store Room', category: 'General', status: req.status, items: [req] };
+                return;
+            }
+            const dateStr = created.toLocaleDateString();
+            const key = `${dateStr}-${req.vehicle.id}-${req.requirement_category || 'Uncategorized'}`;
+            if (!groups[key]) groups[key] = { id: key, date: dateStr, vehicle: req.vehicle.vehicle_no || req.vehicle.plate_number || req.vehicle.make_model, category: req.requirement_category || 'Uncategorized', status: req.status, items: [] };
+            groups[key].items.push(req);
+        });
+
+        const selectedGroups = Object.values(groups).filter(g => selectedReqGroupIds.includes(g.id));
+        
+        const exportData: any[] = [];
+        selectedGroups.forEach(group => {
+            group.items.forEach((item: any) => {
+                exportData.push({
+                    "Date": group.date,
+                    "Vehicle / Target": group.vehicle,
+                    "Category": group.category,
+                    "Item Name": item.garage_inventory?.item_name || item.item_name,
+                    "Quantity": item.quantity_requested,
+                    "Unit": item.unit_measure || 'pcs',
+                    "Requested By": item.profiles?.full_name || 'System User',
+                    "Status": item.status,
+                    "Emergency": item.is_emergency ? "Yes" : "No"
+                });
+            });
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet([["Energy Feeds SudSud Group - Requisition Logs"], []]);
+        XLSX.utils.sheet_add_json(ws, exportData, { origin: "A3" });
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Requisitions");
+        XLSX.writeFile(wb, `Requisitions_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
 
     const t = (key: keyof typeof translations.en) => translations[language][key] || key;
 
@@ -192,12 +234,30 @@ const GarageDashboard = () => {
     const [updateQtyDetails, setUpdateQtyDetails] = useState({ quantity: 0 });
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
-    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string }[]>(() => {
+    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string; description?: string; image_url?: string }[]>(() => {
         try {
             const saved = localStorage.getItem('draftReqItems');
             return saved ? JSON.parse(saved) : [{ item_name: "", quantity: 1, category: "Uncategorized" }];
         } catch { return [{ item_name: "", quantity: 1, category: "Uncategorized" }]; }
     });
+    const [uploadingImageIdx, setUploadingImageIdx] = useState<number | null>(null);
+
+    const handleReqImageUpload = async (file: File, globalIdx: number) => {
+        setUploadingImageIdx(globalIdx);
+        try {
+            const fileName = `req-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+            const { error: uploadError } = await (supabase as any).storage.from('garage-requisitions').upload(fileName, file);
+            if (uploadError) throw uploadError;
+            const { data: urlData } = (supabase as any).storage.from('garage-requisitions').getPublicUrl(fileName);
+            const newItems = [...requisitionItems];
+            newItems[globalIdx].image_url = urlData.publicUrl;
+            setRequisitionItems(newItems);
+        } catch (err: any) {
+            toast({ variant: "destructive", title: "Upload Failed", description: err.message || "Could not upload image." });
+        } finally {
+            setUploadingImageIdx(null);
+        }
+    };
     const [reqCategories, setReqCategories] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem('draftReqCategories');
@@ -2409,30 +2469,39 @@ const GarageDashboard = () => {
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 {selectedReqGroupIds.length > 0 && (
-                                                    <Button
-                                                        size="sm"
-                                                        className="h-8 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap border border-indigo-200"
-                                                        onClick={() => {
-                                                            const groups: Record<string, any> = {};
-                                                            (requisitions || []).forEach((req: any) => {
-                                                                const created = new Date(req.created_at);
-                                                                if (req.request_type !== 'Job' || !req.vehicle) {
-                                                                    const key = `general-${req.id}`;
-                                                                    groups[key] = { id: key, vehicle: null, category: 'General', status: req.status, items: [req] };
-                                                                    return;
-                                                                }
-                                                                const dateStr = created.toLocaleDateString();
-                                                                const key = `${dateStr}-${req.vehicle.id}-${req.requirement_category || 'Uncategorized'}`;
-                                                                if (!groups[key]) groups[key] = { id: key, vehicle: req.vehicle, category: req.requirement_category || 'Uncategorized', status: req.status, items: [] };
-                                                                groups[key].items.push(req);
-                                                            });
-                                                            const selectedGroups = Object.values(groups).filter(g => selectedReqGroupIds.includes(g.id));
-                                                            const currentUserProfile = { full_name: user?.user_metadata?.full_name || user?.email || 'System User' };
-                                                            printGarageRequisitions({ reqGroups: selectedGroups, userProfile: currentUserProfile });
-                                                        }}
-                                                    >
-                                                        <Printer className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Print Selected' : 'Chapisha'}
-                                                    </Button>
+                                                    <>
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap border border-indigo-200"
+                                                            onClick={() => {
+                                                                const groups: Record<string, any> = {};
+                                                                (requisitions || []).forEach((req: any) => {
+                                                                    const created = new Date(req.created_at);
+                                                                    if (req.request_type !== 'Job' || !req.vehicle) {
+                                                                        const key = `general-${req.id}`;
+                                                                        groups[key] = { id: key, vehicle: null, category: 'General', status: req.status, items: [req] };
+                                                                        return;
+                                                                    }
+                                                                    const dateStr = created.toLocaleDateString();
+                                                                    const key = `${dateStr}-${req.vehicle.id}-${req.requirement_category || 'Uncategorized'}`;
+                                                                    if (!groups[key]) groups[key] = { id: key, vehicle: req.vehicle, category: req.requirement_category || 'Uncategorized', status: req.status, items: [] };
+                                                                    groups[key].items.push(req);
+                                                                });
+                                                                const selectedGroups = Object.values(groups).filter(g => selectedReqGroupIds.includes(g.id));
+                                                                const currentUserProfile = { full_name: user?.user_metadata?.full_name || user?.email || 'System User' };
+                                                                printGarageRequisitions({ reqGroups: selectedGroups, userProfile: currentUserProfile });
+                                                            }}
+                                                        >
+                                                            <Printer className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Print Selected' : 'Chapisha'}
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                                            onClick={exportToExcel}
+                                                        >
+                                                            <FileText className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Export Excel' : 'Hamisha Excel'}
+                                                        </Button>
+                                                    </>
                                                 )}
                                                 <Button
                                                     size="sm"
@@ -3092,44 +3161,76 @@ const GarageDashboard = () => {
                                 {requisitionItems.filter(i => ((reqType === 'Job' || reqType === 'Emergency') ? i.category === categoryName : true)).map((item, localIdx) => {
                                     const globalIdx = requisitionItems.indexOf(item);
                                     return (
-                                        <div key={globalIdx} className="flex items-end gap-2 p-2 border border-slate-100 rounded-md bg-slate-50/30 relative group">
-                                            <div className="flex-1 space-y-1">
-                                                <Label className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{language === 'en' ? 'Item' : 'Kipuri'}</Label>
-                                                <Input
-                                                    placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Kinachohitajika? (mfano: Break Pads)"}
-                                                    value={item.item_name}
-                                                    onChange={(e) => {
-                                                        const newItems = [...requisitionItems];
-                                                        newItems[globalIdx].item_name = e.target.value;
-                                                        setRequisitionItems(newItems);
-                                                    }}
-                                                    className="h-8 bg-white text-xs border-slate-200 focus-visible:ring-indigo-500/50"
-                                                />
+                                        <div key={globalIdx} className="flex flex-col gap-2 p-2 border border-slate-100 rounded-md bg-slate-50/30 relative group">
+                                            <div className="flex items-end gap-2">
+                                                <div className="flex-1 space-y-1">
+                                                    <Label className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{language === 'en' ? 'Item' : 'Kipuri'}</Label>
+                                                    <Input
+                                                        placeholder={language === 'en' ? "What is needed? (e.g. Brake Pads)" : "Kinachohitajika? (mfano: Break Pads)"}
+                                                        value={item.item_name}
+                                                        onChange={(e) => {
+                                                            const newItems = [...requisitionItems];
+                                                            newItems[globalIdx].item_name = e.target.value;
+                                                            setRequisitionItems(newItems);
+                                                        }}
+                                                        className="h-8 bg-white text-xs border-slate-200 focus-visible:ring-indigo-500/50"
+                                                    />
+                                                </div>
+                                                <div className="w-20 space-y-1">
+                                                    <Label className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{language === 'en' ? 'Qty' : 'Idadi'}</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min={1}
+                                                        value={item.quantity}
+                                                        onChange={(e) => {
+                                                            const newItems = [...requisitionItems];
+                                                            newItems[globalIdx].quantity = parseInt(e.target.value) || 1;
+                                                            setRequisitionItems(newItems);
+                                                        }}
+                                                        className="h-8 bg-white text-xs text-center border-slate-200 focus-visible:ring-indigo-500/50"
+                                                    />
+                                                </div>
+                                                {requisitionItems.filter(i => ((reqType === 'Job' || reqType === 'Emergency') ? i.category === categoryName : true)).length > 1 && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
+                                                        onClick={() => setRequisitionItems(requisitionItems.filter((_, i) => i !== globalIdx))}
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                )}
                                             </div>
-                                            <div className="w-20 space-y-1">
-                                                <Label className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.1em]">{language === 'en' ? 'Qty' : 'Idadi'}</Label>
-                                                <Input
-                                                    type="number"
-                                                    min={1}
-                                                    value={item.quantity}
-                                                    onChange={(e) => {
-                                                        const newItems = [...requisitionItems];
-                                                        newItems[globalIdx].quantity = parseInt(e.target.value) || 1;
-                                                        setRequisitionItems(newItems);
-                                                    }}
-                                                    className="h-8 bg-white text-xs text-center border-slate-200 focus-visible:ring-indigo-500/50"
-                                                />
+                                            <textarea
+                                                placeholder={language === 'en' ? "Description / reason (optional)" : "Maelezo / sababu (hiari)"}
+                                                value={item.description || ''}
+                                                onChange={(e) => {
+                                                    const newItems = [...requisitionItems];
+                                                    newItems[globalIdx].description = e.target.value;
+                                                    setRequisitionItems(newItems);
+                                                }}
+                                                rows={2}
+                                                className="w-full text-xs border border-slate-200 rounded-md px-2.5 py-1.5 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-none"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-medium text-slate-500 hover:text-indigo-600 transition-colors">
+                                                    <ImagePlus className="w-3.5 h-3.5" />
+                                                    {uploadingImageIdx === globalIdx ? 'Uploading...' : (item.image_url ? 'Change Image' : (language === 'en' ? 'Attach Image' : 'Ambatisha Picha'))}
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) handleReqImageUpload(file, globalIdx);
+                                                            e.target.value = '';
+                                                        }}
+                                                    />
+                                                </label>
+                                                {item.image_url && (
+                                                    <a href={item.image_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-600 underline">View</a>
+                                                )}
                                             </div>
-                                            {requisitionItems.filter(i => ((reqType === 'Job' || reqType === 'Emergency') ? i.category === categoryName : true)).length > 1 && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0"
-                                                    onClick={() => setRequisitionItems(requisitionItems.filter((_, i) => i !== globalIdx))}
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </Button>
-                                            )}
                                         </div>
                                     );
                                 })}
@@ -3170,7 +3271,9 @@ const GarageDashboard = () => {
                                     quantity_requested: item.quantity,
                                     requirement_category: item.category || 'Uncategorized',
                                     status: 'Waiting Review',
-                                    is_emergency: reqType === 'Emergency'
+                                    is_emergency: reqType === 'Emergency',
+                                    description: item.description || null,
+                                    image_url: item.image_url || null
                                 }));
 
                                 createRequisitionMutation.mutate(payloads);

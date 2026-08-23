@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Users, CalendarCheck2, FileCheck, Plus, Trash2, Clock, UserCheck, UserX, Loader2 } from "lucide-react";
+import { Users, CalendarCheck2, FileCheck, Plus, Trash2, Clock, UserCheck, UserX, Loader2, Pencil, AlertTriangle } from "lucide-react";
 
 const GarageAttendance = () => {
     const { toast } = useToast();
@@ -20,6 +20,10 @@ const GarageAttendance = () => {
     const [isAddPersonnelOpen, setIsAddPersonnelOpen] = useState(false);
     const [newPersonnel, setNewPersonnel] = useState({ name: "", position: "" });
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isEditPersonnelOpen, setIsEditPersonnelOpen] = useState(false);
+    const [editingPersonnel, setEditingPersonnel] = useState({ id: "", name: "", position: "" });
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [personnelToDelete, setPersonnelToDelete] = useState<string | null>(null);
 
     // Fetch Personnel
     const { data: personnel, isLoading: isLoadingPersonnel } = useQuery({
@@ -89,6 +93,33 @@ const GarageAttendance = () => {
         onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
     });
 
+    const editPersonnelMutation = useMutation({
+        mutationFn: async (person: typeof editingPersonnel) => {
+            const { data, error } = await sb.from("garage_personnel").update({ name: person.name, position: person.position }).eq("id", person.id).select();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-personnel"] });
+            toast({ title: "Success", description: "Personnel updated successfully." });
+            setIsEditPersonnelOpen(false);
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
+    });
+
+    const deletePersonnelMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const { error } = await sb.from("garage_personnel").update({ is_active: false }).eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["garage-personnel"] });
+            toast({ title: "Success", description: "Personnel removed successfully." });
+            setIsDeleteDialogOpen(false);
+        },
+        onError: (err: any) => toast({ variant: "destructive", title: "Error", description: err.message })
+    });
+
     const markAttendanceMutation = useMutation({
         mutationFn: async ({ personnel_id, status, time_in, time_out }: any) => {
             const { error } = await sb.from("garage_attendance").upsert({
@@ -153,13 +184,11 @@ const GarageAttendance = () => {
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Status</TableHead>
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Personnel Name</TableHead>
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Position</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Time In</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Time Out</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {isLoadingPersonnel ? (
-                                        <TableRow><TableCell colSpan={5} className="h-40 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={3} className="h-40 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></TableCell></TableRow>
                                     ) : personnel?.map((p) => {
                                         const record = attendance?.find(a => a.personnel_id === p.id);
                                         return (
@@ -190,22 +219,6 @@ const GarageAttendance = () => {
                                                     <Badge variant="outline" className="text-[11px] font-medium py-0.5 px-2 bg-slate-50 text-slate-500 border-slate-200">
                                                         {p.position}
                                                     </Badge>
-                                                </TableCell>
-                                                <TableCell className="py-4 px-6">
-                                                    <Input
-                                                        type="time"
-                                                        value={record?.time_in || ""}
-                                                        onChange={(e) => markAttendanceMutation.mutate({ personnel_id: p.id, status: record?.status || 'Present', time_in: e.target.value, time_out: record?.time_out })}
-                                                        className="h-8 w-28 text-[11px] bg-white border-slate-100"
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="py-4 px-6">
-                                                    <Input
-                                                        type="time"
-                                                        value={record?.time_out || ""}
-                                                        onChange={(e) => markAttendanceMutation.mutate({ personnel_id: p.id, status: record?.status || 'Present', time_in: record?.time_in, time_out: e.target.value })}
-                                                        className="h-8 w-28 text-[11px] bg-white border-slate-100"
-                                                    />
                                                 </TableCell>
                                             </TableRow>
                                         );
@@ -249,8 +262,27 @@ const GarageAttendance = () => {
                                             <TableCell className="py-4 px-6">
                                                 <Badge className="bg-green-500 text-white text-[10px] font-bold uppercase px-2 shadow-sm border-none">Active</Badge>
                                             </TableCell>
-                                            <TableCell className="text-right py-4 px-6">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50">
+                                            <TableCell className="text-right py-4 px-6 flex justify-end gap-2">
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-8 w-8 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                                    onClick={() => {
+                                                        setEditingPersonnel({ id: p.id, name: p.name, position: p.position });
+                                                        setIsEditPersonnelOpen(true);
+                                                    }}
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                </Button>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                                                    onClick={() => {
+                                                        setPersonnelToDelete(p.id);
+                                                        setIsDeleteDialogOpen(true);
+                                                    }}
+                                                >
                                                     <Trash2 className="w-4 h-4" />
                                                 </Button>
                                             </TableCell>
@@ -348,6 +380,78 @@ const GarageAttendance = () => {
                             disabled={!newPersonnel.name || !newPersonnel.position || addPersonnelMutation.isPending}
                         >
                             {addPersonnelMutation.isPending ? "Adding..." : "Add Personnel"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Edit Personnel Dialog */}
+            <Dialog open={isEditPersonnelOpen} onOpenChange={setIsEditPersonnelOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <Pencil className="w-5 h-5 text-indigo-600" />
+                            Edit Personnel
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="space-y-2">
+                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Personnel Name</Label>
+                            <Input
+                                placeholder="Full Name"
+                                value={editingPersonnel.name}
+                                onChange={(e) => setEditingPersonnel({ ...editingPersonnel, name: e.target.value })}
+                                className="h-10 text-sm border-slate-200"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-[11px] font-bold text-slate-500 uppercase">Position / Role</Label>
+                            <Input
+                                placeholder="e.g. Mechanic, Electrician"
+                                value={editingPersonnel.position}
+                                onChange={(e) => setEditingPersonnel({ ...editingPersonnel, position: e.target.value })}
+                                className="h-10 text-sm border-slate-200"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditPersonnelOpen(false)} className="h-10 text-[11px] font-bold uppercase">Cancel</Button>
+                        <Button
+                            className="h-10 text-[11px] font-bold uppercase bg-indigo-600 hover:bg-indigo-700"
+                            onClick={() => editPersonnelMutation.mutate(editingPersonnel)}
+                            disabled={!editingPersonnel.name || !editingPersonnel.position || editPersonnelMutation.isPending}
+                        >
+                            {editPersonnelMutation.isPending ? "Saving..." : "Save Changes"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold text-red-600 flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5" />
+                            Confirm Deletion
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-sm text-slate-600">
+                            Are you sure you want to remove this personnel? This action cannot be undone.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} className="h-10 text-[11px] font-bold uppercase">Cancel</Button>
+                        <Button
+                            variant="destructive"
+                            className="h-10 text-[11px] font-bold uppercase bg-red-600 hover:bg-red-700"
+                            onClick={() => {
+                                if (personnelToDelete) deletePersonnelMutation.mutate(personnelToDelete);
+                            }}
+                            disabled={deletePersonnelMutation.isPending}
+                        >
+                            {deletePersonnelMutation.isPending ? "Deleting..." : "Delete"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

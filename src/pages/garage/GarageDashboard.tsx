@@ -3256,6 +3256,15 @@ const GarageDashboard = () => {
                         <Button
                             className="bg-indigo-600 hover:bg-indigo-700 h-10"
                             onClick={() => {
+                                if ((reqType === 'Job' || reqType === 'Emergency') && !reqTargetVehicleId) {
+                                    toast({ 
+                                        variant: "destructive", 
+                                        title: language === 'en' ? "Vehicle Required" : "Gari Inahitajika", 
+                                        description: language === 'en' ? "Please select a vehicle first." : "Tafadhali chagua gari kwanza." 
+                                    });
+                                    return;
+                                }
+
                                 const validItems = requisitionItems.filter(i => i.item_name.trim());
                                 if (validItems.length === 0) {
                                     toast({ variant: "destructive", title: language === 'en' ? "Missing Items" : "Vipuri Havipo", description: language === 'en' ? "Please enter at least one item name." : "Tafadhali weka jina la angalau kipuri kimoja." });
@@ -3272,7 +3281,6 @@ const GarageDashboard = () => {
                                     requirement_category: item.category || 'Uncategorized',
                                     status: 'Waiting Review',
                                     is_emergency: reqType === 'Emergency',
-                                    description: item.description || null,
                                     image_url: item.image_url || null
                                 }));
 

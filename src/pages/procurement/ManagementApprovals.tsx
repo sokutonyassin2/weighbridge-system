@@ -392,7 +392,7 @@ const ManagementApprovals = () => {
                 </div>
                 
                 <Accordion type="multiple" className="space-y-4">
-                    {Object.entries(grouped).map(([vehicleKey, reqs]) => {
+                    {Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0])).map(([vehicleKey, reqs]) => {
                         return (
                             <AccordionItem key={vehicleKey} value={vehicleKey} className="overflow-hidden border border-amber-200/60 rounded-lg shadow-sm bg-white">
                                 <AccordionTrigger className="hover:no-underline bg-amber-50/30 px-6 py-4 data-[state=open]:border-b">
@@ -530,7 +530,7 @@ const ManagementApprovals = () => {
 
         return (
             <Accordion type="multiple" className="space-y-4">
-                {Object.entries(grouped).map(([key, reqs]) => {
+                {Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0])).map(([key, reqs]) => {
                     const firstReq = reqs[0];
                     const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
                     const poNumber = firstReq.po_number || 'DRAFT-PO';

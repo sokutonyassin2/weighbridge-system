@@ -1097,9 +1097,14 @@ const CashierPaymentPortal = () => {
                                                         {item.payment_reference}
                                                     </TableCell>
                                                     <TableCell>
-                                                        <div className="flex flex-col">
+                                                        <div className="flex flex-col items-start">
                                                             <span className="text-xs font-bold text-slate-800">{item.item_name}</span>
                                                             <span className="text-[10px] text-slate-400 italic">#{item.po_number}</span>
+                                                            {item.vehicle && (
+                                                                <div className="text-[10px] text-blue-700 font-bold mt-0.5 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 inline-block">
+                                                                    {item.vehicle.vehicle_no || item.vehicle.horse_number || 'N/A'}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-xs font-medium">
@@ -1325,7 +1330,14 @@ const CashierPaymentPortal = () => {
                                                             {reqs.map((r: any) => (
                                                                 <TableRow key={r.id}>
                                                                     <TableCell className="pl-6 text-xs">{formatDate(r.status_updated_at)}</TableCell>
-                                                                    <TableCell className="font-semibold text-slate-800">{r.item_name}</TableCell>
+                                                                    <TableCell className="font-semibold text-slate-800">
+                                                                        <div className="font-medium text-slate-900">{r.item_name}</div>
+                                                                        {r.vehicle && (
+                                                                            <div className="text-[10px] text-blue-700 font-bold mt-0.5 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 inline-block">
+                                                                                {r.vehicle.vehicle_no || r.vehicle.horse_number || 'N/A'}
+                                                                            </div>
+                                                                        )}
+                                                                    </TableCell>
                                                                     <TableCell className="font-medium">{r.quantity_approved}</TableCell>
                                                                     <TableCell className="text-right pr-6 font-bold text-slate-900">
                                                                         {(r.total_price || 0).toLocaleString()} TZS

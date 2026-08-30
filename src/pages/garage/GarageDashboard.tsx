@@ -24,6 +24,7 @@ import * as XLSX from 'xlsx';
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import VehicleEquipment from "./VehicleEquipment";
 import VehicleLifecycle from "./VehicleLifecycle";
 
@@ -195,6 +196,7 @@ const GarageDashboard = () => {
 
 
     const t = (key: keyof typeof translations.en) => translations[language][key] || key;
+    const isStorekeeper = userRole === 'storekeeper';
 
     // Initial state based on URL
     const [activeTab, setActiveTab] = useState<"jobs" | "inventory" | "logs" | "deleted" | "equipment" | "lifecycle">(
@@ -1256,17 +1258,67 @@ const GarageDashboard = () => {
 
         const faultsHtml = Object.entries(groupedFaults).map(([plate, faults]) => `
             <tr>
-                <td colspan="2" style="background: #f1f5f9; padding: 10px; font-weight: bold; font-size: 13px; color: #475569; border-top: 1px solid #e2e8f0;">
+                <td colspan="3" style="background: #f1f5f9; padding: 10px; font-weight: bold; font-size: 13px; color: #475569; border-top: 1px solid #e2e8f0;">
                     UNIT: ${plate}
                 </td>
             </tr>
-            ${faults.map((f: any) => `
+            ${faults.map((f: any) => {
+                const assignedPersonnel = (personnel || []).find((p: any) => p.id === f.mechanic_id);
+                const assignedName = assignedPersonnel ? assignedPersonnel.name : (f.mechanic?.name || f.assigned_to || 'Unassigned');
+                return `
                 <tr>
-                    <td style="padding: 10px 15px; border-bottom: 1px solid #eee;">${f.mechanic_notes || f.fault_type?.fault_name}</td>
+                    <td style="padding: 10px 15px; border-bottom: 1px solid #eee; font-size: 12px;">${f.mechanic_notes || f.fault_type?.fault_name}</td>
+                    <td style="padding: 10px 15px; border-bottom: 1px solid #eee; font-size: 12px; font-weight: 600; color: #475569;">${assignedName}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #eee; text-transform: uppercase; font-weight: bold; font-size: 10px; color: ${f.status === 'Completed' ? '#10b981' : f.status === 'Partial' ? '#f59e0b' : '#ef4444'}">${f.status}</td>
                 </tr>
-            `).join('')}
-        `).join('') || '<tr><td colspan="2">No faults logged</td></tr>';
+                `;
+            }).join('')}
+        `).join('') || '<tr><td colspan="3">No faults logged</td></tr>';
+
+        // Find all requisitions for this job or associated vehicle
+        const jobRequisitions = (requisitions || []).filter((r: any) => 
+            (r.job_id && r.job_id === job.id) || 
+            (r.vehicle_id && (r.vehicle_id === job.vehicle_id || (partnerJobId && r.vehicle_id === partnerJobId)))
+        );
+
+        const requisitionsHtml = jobRequisitions.length > 0 ? `
+            <div style="margin-top: 30px;">
+                <h3 style="font-size: 14px; font-weight: 700; color: #1e293b; text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+                    Requested Parts & Materials
+                </h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item Name / Description</th>
+                            <th>Target Unit</th>
+                            <th style="text-align: center;">Category</th>
+                            <th style="text-align: center;">Qty Requested</th>
+                            <th style="text-align: right;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${jobRequisitions.map((r: any) => {
+                            const unitLabel = r.vehicle ? getVehicleSpecificPlate(r.vehicle) : 'Main Vehicle';
+                            const statusColor = r.status === 'Closed' || r.status === 'Issued' ? '#10b981' : r.status === 'Approved' ? '#3b82f6' : r.status === 'Rejected' ? '#ef4444' : '#f59e0b';
+                            return `
+                                <tr>
+                                    <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 11px; font-weight: 600;">
+                                        ${r.item_name}
+                                        ${r.notes ? `<div style="font-size: 10px; color: #64748b; font-weight: normal;">${r.notes}</div>` : ''}
+                                    </td>
+                                    <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 11px; color: #475569;">${unitLabel}</td>
+                                    <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center; color: #64748b;">${r.requirement_category || 'Spare'}</td>
+                                    <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 11px; text-align: center; font-weight: bold;">${r.quantity_requested || r.quantity || 1}</td>
+                                    <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 10px; font-weight: bold; text-align: right; text-transform: uppercase; color: ${statusColor};">
+                                        ${r.status}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        ` : '';
 
         printWindow.document.write(`
             <html>
@@ -1276,9 +1328,9 @@ const GarageDashboard = () => {
                         body { font-family: sans-serif; padding: 20px; color: #333; }
                         .header { border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
                         .plate { font-size: 24px; font-weight: bold; color: #1e293b; }
-                        .details { margin-bottom: 30px; display: grid; grid-template-cols: 1fr 1fr; gap: 20px; }
-                        table { width: 100%; border-collapse: collapse; }
-                        th { text-align: left; background: #f8fafc; padding: 8px; border-bottom: 1px solid #cbd5e1; }
+                        .details { margin-bottom: 25px; display: grid; grid-template-cols: 1fr 1fr; gap: 20px; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+                        th { text-align: left; background: #f8fafc; padding: 8px 12px; border-bottom: 1px solid #cbd5e1; font-size: 11px; text-transform: uppercase; color: #475569; }
                     </style>
                 </head>
                 <body>
@@ -1286,7 +1338,7 @@ const GarageDashboard = () => {
                         <div>
                             <h1 style="margin:0; font-size: 22px; color: #dc2626; font-weight: 800;">SUDENERGY <span style="color: #1e3a8a;">LOGISTICS</span></h1>
                             <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px;">Garage & Maintenance Division</div>
-                            <div class="plate" style="margin-top: 8px;">${job.vehicle?.plate_number}</div>
+                            <div class="plate" style="margin-top: 8px;">${job.vehicle?.plate_number || getVehicleSpecificPlate(job.vehicle)}</div>
                         </div>
                         <div style="text-align: right">
                             <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 600;">Job Card</div>
@@ -1303,10 +1355,14 @@ const GarageDashboard = () => {
                             <strong>Odometer at Entry:</strong> ${job.odometer_at_fault || 'N/A'} KM
                         </div>
                     </div>
+                    <h3 style="font-size: 14px; font-weight: 700; color: #1e293b; text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+                        Reported Tasks & Faults
+                    </h3>
                     <table>
                         <thead>
                             <tr>
                                 <th>Fault Description</th>
+                                <th>Assigned Mechanic / Personnel</th>
                                 <th>Current Status</th>
                             </tr>
                         </thead>
@@ -1314,7 +1370,10 @@ const GarageDashboard = () => {
                             ${faultsHtml}
                         </tbody>
                     </table>
-                    <div style="margin-top: 50px; border-top: 1px dashed #ccc; padding-top: 20px; font-size: 11px; color: #94a3b8; text-align: center;">
+
+                    ${requisitionsHtml}
+
+                    <div style="margin-top: 40px; border-top: 1px dashed #ccc; padding-top: 15px; font-size: 11px; color: #94a3b8; text-align: center;">
                         Generated by SudEnergy Logistics Platform - Garage & Maintenance Division
                     </div>
                     <script>window.onload = () => { window.print(); window.close(); };</script>
@@ -1440,10 +1499,12 @@ const GarageDashboard = () => {
                             />
                             <Label htmlFor="language-toggle" className="text-[10px] font-semibold uppercase tracking-tighter text-slate-500">Swahili</Label>
                         </div>
-                        <Button onClick={() => setIsLogFaultOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-semibold uppercase tracking-wider text-xs h-11 px-6">
-                            <Plus className="w-4 h-4 mr-2" />
-                            {t('log_new_fault')}
-                        </Button>
+                        {!isStorekeeper && (
+                            <Button onClick={() => setIsLogFaultOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 font-semibold uppercase tracking-wider text-xs h-11 px-6">
+                                <Plus className="w-4 h-4 mr-2" />
+                                {t('log_new_fault')}
+                            </Button>
+                        )}
 
                     </div>
                 </div>
@@ -2503,30 +2564,34 @@ const GarageDashboard = () => {
                                                         </Button>
                                                     </>
                                                 )}
-                                                <Button
-                                                    size="sm"
-                                                    className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
-                                                    onClick={() => {
-                                                        setReqType("Job");
-                                                        setReqTargetVehicleId("");
-                                                        setReqTargetJobId(null);
-                                                        setIsRequisitionDialogOpen(true);
-                                                    }}
-                                                >
-                                                    <Plus className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    className="h-8 bg-red-600 hover:bg-red-700 text-[10px] font-bold uppercase tracking-wider text-white whitespace-nowrap"
-                                                    onClick={() => {
-                                                        setReqType("Emergency");
-                                                        setReqTargetVehicleId("");
-                                                        setReqTargetJobId(null);
-                                                        setIsRequisitionDialogOpen(true);
-                                                    }}
-                                                >
-                                                    <AlertTriangle className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Emergency' : 'Dharura'}
-                                                </Button>
+                                                {!isStorekeeper && (
+                                                    <>
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                                            onClick={() => {
+                                                                setReqType("Job");
+                                                                setReqTargetVehicleId("");
+                                                                setReqTargetJobId(null);
+                                                                setIsRequisitionDialogOpen(true);
+                                                            }}
+                                                        >
+                                                            <Plus className="w-3 h-3 mr-1.5 hidden sm:block" /> {language === 'en' ? 'Create Requisition' : 'Tengeneza Ombi'}
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 bg-red-600 hover:bg-red-700 text-[10px] font-bold uppercase tracking-wider text-white whitespace-nowrap"
+                                                            onClick={() => {
+                                                                setReqType("Emergency");
+                                                                setReqTargetVehicleId("");
+                                                                setReqTargetJobId(null);
+                                                                setIsRequisitionDialogOpen(true);
+                                                            }}
+                                                        >
+                                                            <AlertTriangle className="w-3 h-3 mr-1.5" /> {language === 'en' ? 'Emergency' : 'Dharura'}
+                                                        </Button>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -2709,7 +2774,7 @@ const GarageDashboard = () => {
                                                                     <div className="flex items-center justify-end gap-2">
                                                                         {group.category !== 'General' && (
                                                                             <>
-                                                                                {(group.status === 'Pending' || group.status === 'Waiting Review') && (
+                                                                                {!isStorekeeper && (group.status === 'Pending' || group.status === 'Waiting Review') && (
                                                                                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete entire group?")) { group.items.forEach((i: any) => deleteRequisitionMutation.mutate(i.id)); } }}><Trash2 className="w-4 h-4" /></Button>
                                                                                 )}
                                                                                 <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
@@ -2717,7 +2782,7 @@ const GarageDashboard = () => {
                                                                                 </Button>
                                                                             </>
                                                                         )}
-                                                                        {group.category === 'General' && (group.status === 'Pending' || group.status === 'Waiting Review') && (
+                                                                        {!isStorekeeper && group.category === 'General' && (group.status === 'Pending' || group.status === 'Waiting Review') && (
                                                                             <>
                                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: group.items[0].id, item_name: group.items[0].item_name, quantity: group.items[0].quantity_requested, vehicle_id: group.items[0].vehicle_id || "", requirement_category: group.category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-4 h-4" /></Button>
                                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete?")) { deleteRequisitionMutation.mutate(group.items[0].id); } }}><Trash2 className="w-4 h-4" /></Button>
@@ -2748,7 +2813,7 @@ const GarageDashboard = () => {
                                                                                                 <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' || item.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>{item.status === 'Pending' ? 'Waiting Review' : item.status}</Badge>
                                                                                             </td>
                                                                                             <td className="py-2 text-right">
-                                                                                                {(item.status === 'Pending' || item.status === 'Waiting Review') ? (
+                                                                                                    {!isStorekeeper && (item.status === 'Pending' || item.status === 'Waiting Review') ? (
                                                                                                     <div className="flex items-center justify-end gap-1">
                                                                                                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-indigo-500" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: item.id, item_name: item.item_name, quantity: item.quantity_requested, vehicle_id: item.vehicle_id || "", requirement_category: item.requirement_category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-3 h-3" /></Button>
                                                                                                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-rose-500" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete item?")) { deleteRequisitionMutation.mutate(item.id); } }}><Trash2 className="w-3 h-3" /></Button>
@@ -3084,43 +3149,74 @@ const GarageDashboard = () => {
                                 <div className="flex items-center gap-2 border-b border-indigo-100 pb-2">
                                     <Truck className="w-5 h-5 text-indigo-500" />
                                     <div className="flex-1 min-w-0">
-                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] mb-2 block">{language === 'en' ? 'Select Vehicle' : 'Chagua Gari'}</Label>
-                                        <Popover open={isReqVehiclePopoverOpen} onOpenChange={setIsReqVehiclePopoverOpen}>
-                                            <PopoverTrigger asChild>
-                                                <Button variant="outline" role="combobox" aria-expanded={isReqVehiclePopoverOpen} className="w-full justify-between font-normal h-9 bg-white">
-                                                    {reqTargetVehicleId
-                                                        ? (() => {
-                                                            const v = (vehicles || []).find((v: any) => v.id === reqTargetVehicleId);
-                                                            return v ? `${getVehicleSpecificPlate(v)} ${v.model ? `- ${v.model}` : ''}` : 'Select a vehicle...';
-                                                        })()
-                                                        : language === 'en' ? "Select a vehicle..." : "Chagua gari..."}
-                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[380px] p-0" align="start">
-                                                <Command>
-                                                    <CommandInput placeholder={language === 'en' ? "Search vehicle..." : "Tafuta gari..."} />
-                                                    <CommandList>
-                                                        <CommandEmpty>{language === 'en' ? "No vehicle found." : "Hakuna gari lililopatikana."}</CommandEmpty>
-                                                        <CommandGroup>
-                                                            {(vehicles || []).map((v: any) => (
-                                                                <CommandItem
-                                                                    key={v.id}
-                                                                    value={`${v.plate_number} ${v.model} ${v.vehicle_no || ''} ${v.horse_number || ''} ${v.trailer_number || ''}`}
-                                                                    onSelect={() => {
-                                                                        setReqTargetVehicleId(v.id);
-                                                                        setIsReqVehiclePopoverOpen(false);
-                                                                    }}
-                                                                >
-                                                                    <Check className={`mr-2 h-4 w-4 ${reqTargetVehicleId === v.id ? "opacity-100" : "opacity-0"}`} />
-                                                                    {getVehicleSpecificPlate(v)} {v.model ? `- ${v.model}` : ''}
-                                                                </CommandItem>
-                                                            ))}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] mb-2 block">{language === 'en' ? 'Select Vehicle / Unit' : 'Chagua Gari / Kitengo'}</Label>
+                                        
+                                        {/* If opened from a Job Card with coupled units, show direct plate selector */}
+                                        {reqTargetJobId && selectedJobForTasks ? (() => {
+                                            const mainVeh = selectedJobForTasks.vehicle;
+                                            const coupledUnits = [];
+                                            if (mainVeh) {
+                                                coupledUnits.push({ id: selectedJobForTasks.vehicle_id, label: `${getVehicleSpecificPlate(mainVeh)} (Main Unit)` });
+                                            }
+                                            if (partnerJob?.vehicle) {
+                                                coupledUnits.push({ id: partnerJob.vehicle_id, label: `${getVehicleSpecificPlate(partnerJob.vehicle)} (Coupled Trailer)` });
+                                            }
+
+                                            return (
+                                                <Select
+                                                    value={reqTargetVehicleId || selectedJobForTasks.vehicle_id}
+                                                    onValueChange={(val) => setReqTargetVehicleId(val)}
+                                                >
+                                                    <SelectTrigger className="w-full h-9 bg-white border-slate-200 text-xs font-bold">
+                                                        <SelectValue placeholder="Select target unit..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {coupledUnits.map((u: any) => (
+                                                            <SelectItem key={u.id} value={u.id} className="text-xs font-semibold">
+                                                                {u.label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            );
+                                        })() : (
+                                            <Popover open={isReqVehiclePopoverOpen} onOpenChange={setIsReqVehiclePopoverOpen}>
+                                                <PopoverTrigger asChild>
+                                                    <Button variant="outline" role="combobox" aria-expanded={isReqVehiclePopoverOpen} className="w-full justify-between font-normal h-9 bg-white">
+                                                        {reqTargetVehicleId
+                                                            ? (() => {
+                                                                const v = (vehicles || []).find((v: any) => v.id === reqTargetVehicleId);
+                                                                return v ? `${getVehicleSpecificPlate(v)} ${v.model ? `- ${v.model}` : ''}` : 'Select a vehicle...';
+                                                            })()
+                                                            : language === 'en' ? "Select a vehicle..." : "Chagua gari..."}
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[380px] p-0" align="start">
+                                                    <Command>
+                                                        <CommandInput placeholder={language === 'en' ? "Search vehicle..." : "Tafuta gari..."} />
+                                                        <CommandList>
+                                                            <CommandEmpty>{language === 'en' ? "No vehicle found." : "Hakuna gari lililopatikana."}</CommandEmpty>
+                                                            <CommandGroup>
+                                                                {(vehicles || []).map((v: any) => (
+                                                                    <CommandItem
+                                                                        key={v.id}
+                                                                        value={`${v.plate_number} ${v.model} ${v.vehicle_no || ''} ${v.horse_number || ''} ${v.trailer_number || ''}`}
+                                                                        onSelect={() => {
+                                                                            setReqTargetVehicleId(v.id);
+                                                                            setIsReqVehiclePopoverOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <Check className={`mr-2 h-4 w-4 ${reqTargetVehicleId === v.id ? "opacity-100" : "opacity-0"}`} />
+                                                                        {getVehicleSpecificPlate(v)} {v.model ? `- ${v.model}` : ''}
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        </CommandList>
+                                                    </Command>
+                                                </PopoverContent>
+                                            </Popover>
+                                        )}
                                     </div>
                                 </div>
                                 
@@ -4129,10 +4225,31 @@ const GarageDashboard = () => {
                         <div className={`grid ${maintenanceDebt && maintenanceDebt.length > 0 ? 'md:grid-cols-2 gap-6' : 'grid-cols-1'} h-[400px]`}>
                             {/* Left Column: Current Job Faults */}
                             <div className="flex flex-col gap-3">
-                                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2 px-1">
-                                    <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                    {language === 'en' ? 'Active Job Tasks' : 'Kazi Amilifu'}
-                                </h3>
+                                <div className="flex items-center justify-between px-1">
+                                    <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                        {language === 'en' ? 'Active Job Tasks' : 'Kazi Amilifu'}
+                                    </h3>
+                                    {!isStorekeeper && selectedJobForTasks?.status !== 'Closed' && (
+                                        <Button
+                                            size="sm"
+                                            className="h-7 text-[11px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5 shadow-sm px-2.5 rounded-lg"
+                                            onClick={() => {
+                                                setReqType("Job");
+                                                setReqTargetJobId(selectedJobForTasks.id);
+                                                setReqTargetVehicleId(selectedJobForTasks.vehicle_id);
+                                                if (reqCategories.length === 0) {
+                                                    setReqCategories(['Spare']);
+                                                    setRequisitionItems([{ item_name: "", quantity: 1, category: 'Spare' }]);
+                                                }
+                                                setIsRequisitionDialogOpen(true);
+                                            }}
+                                        >
+                                            <ShoppingCart className="w-3.5 h-3.5" />
+                                            {language === 'en' ? 'Add Requisition' : 'Omba Vifaa / Vipuri'}
+                                        </Button>
+                                    )}
+                                </div>
                                 <div className="flex-1 overflow-y-auto border rounded-xl bg-slate-50/30 p-2 space-y-4">
 
                                     {/* Main Vehicle */}
@@ -4142,7 +4259,7 @@ const GarageDashboard = () => {
                                                 {getVehicleSpecificPlate(selectedJobForTasks?.vehicle)}
                                             </Badge>
                                             <div className="ml-auto flex items-center gap-2">
-                                                {selectedJobForTasks?.status !== 'Closed' && (
+                                                {!isStorekeeper && selectedJobForTasks?.status !== 'Closed' && (
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
@@ -4165,30 +4282,42 @@ const GarageDashboard = () => {
                                                         {f.mechanic_notes || f.fault_type?.fault_name}
                                                     </span>
                                                     <div className="flex items-center gap-2">
-                                                        <Select value={f.mechanic_id || "unassigned"} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, mechanicId: val })}>
-                                                            <SelectTrigger className="h-7 text-[10px] w-36 border-slate-200 bg-white">
-                                                                <SelectValue placeholder={language === 'en' ? "Assign Mechanic" : "Teua Mekanika"} />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="unassigned" className="text-slate-400 italic">{language === 'en' ? 'Unassigned' : 'Hajapangiwa'}</SelectItem>
-                                                                {(personnel || []).map((p: any) => (
-                                                                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
-                                                            <SelectTrigger className={`h-7 text-[10px] w-32 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-
-                                                            <SelectContent>
-                                                                <SelectItem value="Pending">{language === 'en' ? 'Pending' : 'Inasubiri'}</SelectItem>
-                                                                <SelectItem value="In Progress">{language === 'en' ? 'In Progress' : 'Inaendelea'}</SelectItem>
-                                                                <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
-                                                                <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
-                                                                <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
+                                                        {isStorekeeper ? (
+                                                            <>
+                                                                <Badge variant="outline" className="h-7 text-[10px] px-2 border-slate-200 bg-white text-slate-600">
+                                                                    {(personnel || []).find((p: any) => p.id === f.mechanic_id)?.name || (language === 'en' ? 'Unassigned' : 'Hajapangiwa')}
+                                                                </Badge>
+                                                                <Badge className={`h-7 text-[10px] px-2 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                                    {f.status}
+                                                                </Badge>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Select value={f.mechanic_id || "unassigned"} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, mechanicId: val })}>
+                                                                    <SelectTrigger className="h-7 text-[10px] w-36 border-slate-200 bg-white">
+                                                                        <SelectValue placeholder={language === 'en' ? "Assign Mechanic" : "Teua Mekanika"} />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="unassigned" className="text-slate-400 italic">{language === 'en' ? 'Unassigned' : 'Hajapangiwa'}</SelectItem>
+                                                                        {(personnel || []).map((p: any) => (
+                                                                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                                                        ))}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
+                                                                    <SelectTrigger className={`h-7 text-[10px] w-32 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="Pending">{language === 'en' ? 'Pending' : 'Inasubiri'}</SelectItem>
+                                                                        <SelectItem value="In Progress">{language === 'en' ? 'In Progress' : 'Inaendelea'}</SelectItem>
+                                                                        <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
+                                                                        <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
+                                                                        <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </div>
                                             )) : <div className="p-4 text-center text-xs text-muted-foreground italic">{language === 'en' ? 'No faults logged' : 'Hakuna hitilafu zilizoandikwa'}</div>}
@@ -4205,7 +4334,7 @@ const GarageDashboard = () => {
                                                 </Badge>
                                                 <span className="text-[10px] text-indigo-500 font-medium uppercase tracking-wider">Coupled Unit</span>
                                                 <div className="ml-auto flex items-center gap-2">
-                                                    {partnerJob.status !== 'Closed' && (
+                                                    {!isStorekeeper && partnerJob.status !== 'Closed' && (
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
@@ -4228,30 +4357,42 @@ const GarageDashboard = () => {
                                                             {f.mechanic_notes || f.fault_type?.fault_name}
                                                         </span>
                                                         <div className="flex items-center gap-2">
-                                                            <Select value={f.mechanic_id || "unassigned"} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, mechanicId: val })}>
-                                                                <SelectTrigger className="h-7 text-[10px] w-36 border-indigo-100 bg-white">
-                                                                    <SelectValue placeholder={language === 'en' ? "Assign Mechanic" : "Teua Mekanika"} />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="unassigned" className="text-slate-400 italic">{language === 'en' ? 'Unassigned' : 'Hajapangiwa'}</SelectItem>
-                                                                    {(personnel || []).map((p: any) => (
-                                                                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                            <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
-                                                                <SelectTrigger className={`h-7 text-[10px] w-32 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-
-                                                                <SelectContent>
-                                                                    <SelectItem value="Pending">{language === 'en' ? 'Pending' : 'Inasubiri'}</SelectItem>
-                                                                    <SelectItem value="In Progress">{language === 'en' ? 'In Progress' : 'Inaendelea'}</SelectItem>
-                                                                    <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
-                                                                    <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
-                                                                    <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
+                                                            {isStorekeeper ? (
+                                                                <>
+                                                                    <Badge variant="outline" className="h-7 text-[10px] px-2 border-indigo-100 bg-white text-slate-600">
+                                                                        {(personnel || []).find((p: any) => p.id === f.mechanic_id)?.name || (language === 'en' ? 'Unassigned' : 'Hajapangiwa')}
+                                                                    </Badge>
+                                                                    <Badge className={`h-7 text-[10px] px-2 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                                        {f.status}
+                                                                    </Badge>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Select value={f.mechanic_id || "unassigned"} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, mechanicId: val })}>
+                                                                        <SelectTrigger className="h-7 text-[10px] w-36 border-indigo-100 bg-white">
+                                                                            <SelectValue placeholder={language === 'en' ? "Assign Mechanic" : "Teua Mekanika"} />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="unassigned" className="text-slate-400 italic">{language === 'en' ? 'Unassigned' : 'Hajapangiwa'}</SelectItem>
+                                                                            {(personnel || []).map((p: any) => (
+                                                                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                                                            ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
+                                                                        <SelectTrigger className={`h-7 text-[10px] w-32 font-semibold ${f.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' : f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                                            <SelectValue />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="Pending">{language === 'en' ? 'Pending' : 'Inasubiri'}</SelectItem>
+                                                                            <SelectItem value="In Progress">{language === 'en' ? 'In Progress' : 'Inaendelea'}</SelectItem>
+                                                                            <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
+                                                                            <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
+                                                                            <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 )) : <div className="p-4 text-center text-xs text-muted-foreground italic">{language === 'en' ? 'No faults logged' : 'Hakuna hitilafu zilizoandikwa'}</div>}
@@ -4294,17 +4435,22 @@ const GarageDashboard = () => {
                                                         </div>
 
                                                     </div>
-                                                    <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
-                                                        <SelectTrigger className={`h-8 text-[10px] w-32 font-semibold ${f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-
-                                                        <SelectContent>
-                                                            <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
-                                                            <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
-                                                            <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
+                                                    {isStorekeeper ? (
+                                                        <Badge className={`h-8 text-[10px] px-2 font-semibold ${f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                            {f.status}
+                                                        </Badge>
+                                                    ) : (
+                                                        <Select value={f.status} onValueChange={(val) => updateFaultStatusMutation.mutate({ faultId: f.id, status: val })}>
+                                                            <SelectTrigger className={`h-8 text-[10px] w-32 font-semibold ${f.status === 'Partial' ? 'bg-amber-50 text-amber-700 border-amber-200' : f.status === 'Not Repaired' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="Partial">{language === 'en' ? 'Partial Repair' : 'Kiasi'}</SelectItem>
+                                                                <SelectItem value="Not Repaired">{language === 'en' ? 'Not Repaired' : 'Haikutengenezwa'}</SelectItem>
+                                                                <SelectItem value="Completed">{language === 'en' ? 'Completed' : 'Ilikamilika'}</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    )}
 
                                                 </div>
                                             );
@@ -4317,7 +4463,11 @@ const GarageDashboard = () => {
 
                     <DialogFooter className="flex-shrink-0 bg-slate-50 -mx-6 -mb-6 p-6 rounded-b-lg border-t gap-2 sm:justify-between items-center">
                         <div className="flex items-center gap-2">
-                            {allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) ? (
+                            {selectedJobForTasks?.status === 'Closed' ? (
+                                <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5 bg-slate-200/80 px-2.5 py-1 rounded-md">
+                                    <CheckCircle2 className="w-4 h-4 text-slate-600" /> {language === 'en' ? 'VEHICLE RELEASED (JOB CLOSED)' : 'GARI LILIKWISHA RUHUSIWA (KAZI IMEFUNGWA)'}
+                                </span>
+                            ) : allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) ? (
                                 <span className="text-xs font-semibold text-green-600 flex items-center gap-1">
                                     <CheckCircle2 className="w-4 h-4" /> {language === 'en' ? 'READY FOR RELEASE' : 'TAYARI KURUHUSIWA'}
                                 </span>
@@ -4330,13 +4480,30 @@ const GarageDashboard = () => {
 
                         <div className="flex gap-2">
                             <Button variant="outline" onClick={() => setIsManageTasksOpen(false)}>{language === 'en' ? 'Close' : 'Funga'}</Button>
-                            <Button
-                                disabled={!allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) || releaseVehicleMutation.isPending}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 font-medium"
-                                onClick={handleReleaseClick}
-                            >
-                                {releaseVehicleMutation.isPending ? (language === 'en' ? "Releasing..." : "Kuruhusu...") : <><Truck className="w-4 h-4" /> {language === 'en' ? 'Release Vehicle' : 'Ruhusu Gari'}</>}
-                            </Button>
+                            {!isStorekeeper && (
+                                <Button
+                                    disabled={
+                                        selectedJobForTasks?.status === 'Closed' ||
+                                        !allTaskFaults.every((f: any) => ['Completed', 'Partial', 'Not Repaired'].includes(f.status)) || 
+                                        releaseVehicleMutation.isPending
+                                    }
+                                    className={cn(
+                                        "gap-2 font-medium",
+                                        selectedJobForTasks?.status === 'Closed'
+                                            ? "bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed hover:bg-slate-200"
+                                            : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    )}
+                                    onClick={handleReleaseClick}
+                                >
+                                    {selectedJobForTasks?.status === 'Closed' ? (
+                                        <><CheckCircle2 className="w-4 h-4 text-slate-400" /> {language === 'en' ? 'Vehicle Already Released' : 'Gari Limeruhusiwa Tayari'}</>
+                                    ) : releaseVehicleMutation.isPending ? (
+                                        language === 'en' ? "Releasing..." : "Kuruhusu..."
+                                    ) : (
+                                        <><Truck className="w-4 h-4" /> {language === 'en' ? 'Release Vehicle' : 'Ruhusu Gari'}</>
+                                    )}
+                                </Button>
+                            )}
                         </div>
                     </DialogFooter>
 

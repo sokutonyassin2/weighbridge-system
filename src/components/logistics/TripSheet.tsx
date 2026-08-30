@@ -392,6 +392,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         }
     });
 
+    // Fetch approved trip orders for quick pre-filling
+    const { data: approvedOrders = [] } = useQuery({
+        queryKey: ["approved_trip_orders_for_sheets"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("*")
+                .in("status", ["Approved", "Pending Approval"])
+                .order("created_at", { ascending: false });
+            if (error) return [];
+            return data || [];
+        }
+    });
+
+    const [selectedOrderId, setSelectedOrderId] = useState<string>("");
+
     const [newClientName, setNewClientName] = useState("");
     const [isAddingClient, setIsAddingClient] = useState(false);
 
@@ -2376,6 +2392,73 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-8">
+                            {/* 🚀 QUICK IMPORT FROM APPROVED LOGISTICS ORDER */}
+                            {!isLocked && approvedOrders.length > 0 && !tripId && (
+                                <div className="mb-8 p-4 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-sm">
+                                            <FileText size={18} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">Import from Approved Logistics Order</h4>
+                                            <p className="text-[11px] text-indigo-700 font-medium">Select an approved order to automatically fill all vehicle, driver, route, client, and trip reference details.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full sm:w-72">
+                                        <Select 
+                                            value={selectedOrderId} 
+                                            onValueChange={(orderId) => {
+                                                setSelectedOrderId(orderId);
+                                                const order = approvedOrders.find((o: any) => o.id === orderId);
+                                                if (order) {
+                                                    setTripData(prev => ({
+                                                        ...prev,
+                                                        trip_number: order.trip_number || prev.trip_number,
+                                                        vehicle_id: order.vehicle_id || prev.vehicle_id,
+                                                        trailer_id: order.trailer_id || prev.trailer_id,
+                                                        driver_id: order.driver_id || prev.driver_id,
+                                                        license_no: order.license_no || prev.license_no,
+                                                        passport_no: order.passport_no || prev.passport_no,
+                                                        client_name: order.client_name || prev.client_name,
+                                                        origin: order.origin || prev.origin,
+                                                        destination: order.destination || prev.destination,
+                                                        journey_type: order.journey_type || prev.journey_type,
+                                                        cargo_outbound: order.cargo_description || prev.cargo_outbound,
+                                                        agreed_days: order.agreed_days ? String(order.agreed_days) : prev.agreed_days,
+                                                        daily_fine_amount: order.daily_penalty_fine ? String(order.daily_penalty_fine) : prev.daily_fine_amount
+                                                    }));
+
+                                                    if (order.agreed_amount_usd) {
+                                                        setRevenueData(prev => ({
+                                                            ...prev,
+                                                            revenue_amount: String(order.agreed_amount_usd),
+                                                            revenue_currency: 'USD'
+                                                        }));
+                                                    }
+
+                                                    toast({
+                                                        title: "Order Loaded Successfully",
+                                                        description: `Imported ${order.trip_number || order.order_number} for ${order.client_name}. All details pre-filled!`
+                                                    });
+                                                }
+                                            }}
+                                        >
+                                            <SelectTrigger className="h-10 bg-white border-indigo-200 text-xs font-bold text-indigo-900 shadow-sm rounded-xl">
+                                                <SelectValue placeholder="-- Select Approved Order --" />
+                                            </SelectTrigger>
+                                            <SelectContent className="max-h-[250px]">
+                                                {approvedOrders.map((ord: any) => (
+                                                    <SelectItem key={ord.id} value={ord.id} className="text-xs">
+                                                        <span className="font-bold">{ord.trip_number || ord.order_number}</span> - {ord.client_name} ({ord.truck_reg})
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                                 {/* LEFT COLUMN: Assets & IDs */}
                                 <div className="space-y-6">

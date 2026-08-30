@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
     Users, Plus, Search, Filter, Phone, Calendar, ShieldCheck, UserMinus, UserCheck,
     Edit, Trash2, Truck, AlertTriangle, ShieldAlert, FileText, History,
-    Camera, FileUp, Printer, AlertCircle, ChevronDown, ChevronUp, Check, ChevronsUpDown
+    Camera, FileUp, Printer, AlertCircle, ChevronDown, ChevronUp, Check, ChevronsUpDown, UserPlus
 } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -612,11 +612,11 @@ const DriverRegistry = () => {
 
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                     <DialogTrigger asChild>
-                        <Button className="bg-[#1e293b] hover:bg-[#0f172a] text-white px-6 h-11 rounded-lg text-sm font-semibold shadow-sm transition-all hover:scale-[1.02]">
-                            <Plus className="w-4 h-4 mr-2" /> Enroll Driver
+                        <Button className="h-11 bg-slate-900 hover:bg-slate-800 text-white font-bold gap-2 shadow-lg shadow-slate-900/10">
+                            <UserPlus className="w-4 h-4" /> Enroll New Driver
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[500px]">
+                    <DialogContent className="sm:max-w-2xl p-6">
                         <DialogHeader>
                             <DialogTitle className="text-xl font-bold text-slate-800">Enroll New Driver</DialogTitle>
                             <DialogDescription className="text-xs text-slate-500">
@@ -779,6 +779,7 @@ const DriverRegistry = () => {
                                             className="h-7 text-[10px] font-bold uppercase gap-1 border-primary/20 bg-primary/5 text-primary"
                                             onClick={() => setDriverDocuments([...driverDocuments, {
                                                 document_type: (docTypes as any)?.find((t: any) => t.category === 'Driver')?.name || "Driving License",
+                                                document_number: "",
                                                 expiry_date: "",
                                                 is_mandatory: true,
                                                 document_url: "pending"
@@ -799,7 +800,7 @@ const DriverRegistry = () => {
                                                 <Trash2 className="w-3.5 h-3.5" />
                                             </Button>
 
-                                            <div className="grid grid-cols-2 gap-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <div className="space-y-1">
                                                     <Label className="text-[10px]">Type</Label>
                                                     <Select
@@ -825,6 +826,22 @@ const DriverRegistry = () => {
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
+
+                                                <div className="space-y-1">
+                                                    <Label className="text-[10px]">Document / License No</Label>
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="e.g. DL-984210"
+                                                        className="h-8 text-xs bg-white"
+                                                        value={doc.document_number || ""}
+                                                        onChange={(e) => {
+                                                            const updated = [...driverDocuments];
+                                                            updated[idx].document_number = e.target.value;
+                                                            setDriverDocuments(updated);
+                                                        }}
+                                                    />
+                                                </div>
+
                                                 <div className="space-y-1">
                                                     <Label className="text-[10px]">Expiry Date</Label>
                                                     {doc.document_type?.toLowerCase().includes("permanent") || doc.document_type?.toLowerCase().includes("truck card") ? (
@@ -835,7 +852,7 @@ const DriverRegistry = () => {
                                                         <Input
                                                             type="date"
                                                             className="h-8 text-xs"
-                                                            value={doc.expiry_date}
+                                                            value={doc.expiry_date || ""}
                                                             onChange={(e) => {
                                                                 const updated = [...driverDocuments];
                                                                 updated[idx].expiry_date = e.target.value;
@@ -1020,11 +1037,14 @@ const DriverRegistry = () => {
                                                     return (
                                                         <div key={i} className="flex flex-col">
                                                             <div className="flex items-center gap-1.5">
-                                                                <span className="text-[10px] font-bold text-slate-600 truncate max-w-[80px]">{doc.document_type}</span>
+                                                                <span className="text-[10px] font-bold text-slate-600 truncate max-w-[120px]">{doc.document_type}</span>
                                                                 <div className={`w-1.5 h-1.5 rounded-full ${status === 'Expired' ? 'bg-rose-500 animate-pulse' : status === 'Expiring' ? 'bg-amber-500' : 'bg-green-500'}`} />
                                                             </div>
+                                                            {doc.document_number && (
+                                                                <span className="text-[10px] font-bold text-indigo-700">{doc.document_number}</span>
+                                                            )}
                                                             <span className={`text-[9px] font-medium ${status === 'Expired' ? 'text-rose-600 font-bold' : status === 'Expiring' ? 'text-amber-600' : 'text-slate-400'}`}>
-                                                                Exp: {doc.expiry_date}
+                                                                Exp: {doc.expiry_date || "—"}
                                                             </span>
                                                         </div>
                                                     );
@@ -1119,7 +1139,7 @@ const DriverRegistry = () => {
 
             {/* Edit Driver Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[500px]">
+                <DialogContent className="sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold text-slate-800">Edit Driver Details</DialogTitle>
                         <DialogDescription className="text-xs text-slate-500">
@@ -1127,7 +1147,7 @@ const DriverRegistry = () => {
                         </DialogDescription>
                     </DialogHeader>
                     {editingDriver && (
-                        <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                        <div className="grid gap-4 py-4 max-h-[75vh] overflow-y-auto pr-2">
                             {/* Photo Upload Section */}
                             <div className="flex flex-col items-center gap-3 p-4 border-2 border-dashed rounded-xl bg-slate-50/50">
                                 <div className="relative group">
@@ -1191,21 +1211,40 @@ const DriverRegistry = () => {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => setShowSecondaryPhone(true)}
-                                            className="h-7 px-2 text-xs font-bold text-primary hover:bg-primary/5 border border-primary/20 rounded-md"
+                                            className="h-6 text-[10px] text-primary hover:text-primary/80 font-semibold gap-1 p-0"
                                         >
-                                            <Plus className="w-3.5 h-3.5 mr-1" /> Add 2nd Number
+                                            <Plus className="w-3 h-3" /> Add 2nd Number
                                         </Button>
                                     )}
                                 </div>
                                 <Input id="edit-phone" placeholder="Enter primary contact" value={editingDriver.phone_no} onChange={e => setEditingDriver({ ...editingDriver, phone_no: e.target.value })} />
-                            </div>
 
-                            {showSecondaryPhone && (
-                                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                                    <Label htmlFor="edit-phone_sec" className="text-slate-500">Secondary Phone Number</Label>
-                                    <Input id="edit-phone_sec" placeholder="Backup contact" value={editingDriver.phone_secondary} onChange={e => setEditingDriver({ ...editingDriver, phone_secondary: e.target.value })} />
-                                </div>
-                            )}
+                                {showSecondaryPhone && (
+                                    <div className="space-y-1 pt-1 animate-in fade-in slide-in-from-top-1">
+                                        <div className="flex items-center justify-between">
+                                            <Label htmlFor="edit-phone2" className="text-xs text-slate-500 font-medium">Alternative Contact</Label>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setShowSecondaryPhone(false);
+                                                    setEditingDriver({ ...editingDriver, phone_secondary: "" });
+                                                }}
+                                                className="h-5 text-[9px] text-rose-500 hover:text-rose-700 font-semibold gap-1 p-0"
+                                            >
+                                                Remove
+                                            </Button>
+                                        </div>
+                                        <Input
+                                            id="edit-phone2"
+                                            placeholder="Enter secondary contact"
+                                            value={editingDriver.phone_secondary || ""}
+                                            onChange={e => setEditingDriver({ ...editingDriver, phone_secondary: e.target.value })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
 
                             {/* Row 4: Vehicle Assignment */}
                             <div className="space-y-2">
@@ -1216,7 +1255,7 @@ const DriverRegistry = () => {
                                             variant="outline"
                                             role="combobox"
                                             aria-expanded={openEditDriverCombobox}
-                                            className="w-full justify-between"
+                                            className="w-full justify-between font-normal"
                                         >
                                             {editingDriver.assigned_vehicle_id
                                                 ? getAvailableForAssignment(editingDriver.assigned_vehicle_id, editingDriver.operation_type).find((unit: any) => unit.id === editingDriver.assigned_vehicle_id)?.label
@@ -1284,6 +1323,7 @@ const DriverRegistry = () => {
                                         className="h-7 text-[10px] font-bold uppercase gap-1 border-primary/20 bg-primary/5 text-primary"
                                         onClick={() => setDriverDocuments([...driverDocuments, {
                                             document_type: (docTypes as any)?.find((t: any) => t.category === 'Driver')?.name || "Driving License",
+                                            document_number: "",
                                             expiry_date: "",
                                             is_mandatory: true,
                                             document_url: "pending"
@@ -1294,19 +1334,19 @@ const DriverRegistry = () => {
                                 </div>
 
                                 {(driverDocuments || []).map((doc: any, idx: number) => (
-                                    <div key={idx} className="p-3 border rounded-lg bg-slate-50 space-y-3 relative">
+                                    <div key={idx} className="p-3.5 border rounded-xl bg-slate-50 space-y-3 relative shadow-sm">
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="absolute top-1 right-1 h-6 w-6 text-slate-400 hover:text-rose-500"
+                                            className="absolute top-1.5 right-1.5 h-6 w-6 text-slate-400 hover:text-rose-500"
                                             onClick={() => handleDeleteDocument(idx, driverDocuments, setDriverDocuments)}
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
                                         </Button>
 
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                             <div className="space-y-1">
-                                                <Label className="text-[10px]">Type</Label>
+                                                <Label className="text-[10px] font-semibold text-slate-600">Type</Label>
                                                 <Select
                                                     value={doc.document_type}
                                                     onValueChange={(v) => {
@@ -1315,23 +1355,39 @@ const DriverRegistry = () => {
                                                         setDriverDocuments(updated);
                                                     }}
                                                 >
-                                                    <SelectTrigger className="h-8 text-xs">
+                                                    <SelectTrigger className="h-9 text-xs bg-white">
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         {(docTypes as any[])?.filter((t: any) => t.category === 'Driver' || t.category === 'General').map((type: any) => (
-                                                            <SelectItem key={type.id} value={type.name}>{type.name}</SelectItem>
+                                                             <SelectItem key={type.id} value={type.name}>{type.name}</SelectItem>
                                                         ))}
                                                         <SelectItem value="Custom">Custom / Other...</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                             </div>
+
                                             <div className="space-y-1">
-                                                <Label className="text-[10px]">Expiry Date</Label>
+                                                <Label className="text-[10px] font-semibold text-slate-600">License / Doc No</Label>
+                                                <Input
+                                                    type="text"
+                                                    placeholder="e.g. DL-984210"
+                                                    className="h-9 text-xs bg-white font-medium"
+                                                    value={doc.document_number || ""}
+                                                    onChange={(e) => {
+                                                        const updated = [...driverDocuments];
+                                                        updated[idx].document_number = e.target.value;
+                                                        setDriverDocuments(updated);
+                                                    }}
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-semibold text-slate-600">Expiry Date</Label>
                                                 <Input
                                                     type="date"
-                                                    className="h-8 text-xs"
-                                                    value={doc.expiry_date}
+                                                    className="h-9 text-xs bg-white"
+                                                    value={doc.expiry_date || ""}
                                                     onChange={(e) => {
                                                         const updated = [...driverDocuments];
                                                         updated[idx].expiry_date = e.target.value;
@@ -1342,12 +1398,43 @@ const DriverRegistry = () => {
                                         </div>
 
                                         <div className="flex items-center gap-3">
-                                            <div className="flex-1 flex items-center gap-2 px-3 py-1.5 bg-white border rounded text-xs text-slate-500">
-                                                <FileText className="w-3.5 h-3.5" />
-                                                <span>{doc.document_url !== "pending" ? "File Attached" : "Browse for PDF"}</span>
-                                                <Button size="sm" variant="ghost" className="ml-auto h-6 px-1.5 text-[10px] text-primary">Browse</Button>
+                                            <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-600 relative overflow-hidden group">
+                                                <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
+                                                <span className="truncate max-w-[240px] font-medium">
+                                                    {doc.file ? doc.file.name : (doc.document_url && doc.document_url !== "pending" ? "Attached: View File" : "No file attached (Click to browse)")}
+                                                </span>
+
+                                                {/* Hidden interactive file input covering browse button */}
+                                                <Input
+                                                    type="file"
+                                                    accept=".pdf,image/*"
+                                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                            const updated = [...driverDocuments];
+                                                            updated[idx].file = file;
+                                                            setDriverDocuments(updated);
+                                                        }
+                                                    }}
+                                                />
+
+                                                <div className="ml-auto flex items-center gap-1.5 relative z-20">
+                                                    {doc.document_url && doc.document_url !== "pending" && !doc.file && (
+                                                        <a 
+                                                            href={doc.document_url} 
+                                                            target="_blank" 
+                                                            rel="noreferrer"
+                                                            className="text-[10px] text-indigo-600 hover:underline font-bold px-1.5 py-0.5 bg-indigo-50 rounded"
+                                                        >
+                                                            Open PDF
+                                                        </a>
+                                                    )}
+                                                    <span className="text-[10px] font-bold text-primary px-2 py-0.5 bg-primary/5 rounded border border-primary/10">Browse</span>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
+
+                                            <div className="flex items-center gap-2 shrink-0">
                                                 <Switch
                                                     checked={doc.is_mandatory}
                                                     onCheckedChange={(v) => {

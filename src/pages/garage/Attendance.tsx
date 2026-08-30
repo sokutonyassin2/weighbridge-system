@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Users, CalendarCheck2, FileCheck, Plus, Trash2, Clock, UserCheck, UserX, Loader2, Pencil, AlertTriangle } from "lucide-react";
+import { Users, CalendarCheck2, FileCheck, Plus, Trash2, Clock, UserCheck, UserX, Loader2, Pencil, AlertTriangle, Printer, Calendar } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const GarageAttendance = () => {
     const { toast } = useToast();
@@ -52,29 +53,152 @@ const GarageAttendance = () => {
         }
     });
 
-    // Fetch Monthly Attendance for Reports
-    const currentMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const { data: monthlyAttendance, isLoading: isLoadingMonthly } = useQuery({
-        queryKey: ["garage-attendance-monthly"],
+    // Report Filter States
+    const [reportViewMode, setReportViewMode] = useState<"daily" | "monthly">("monthly");
+    const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+    const [reportMonth, setReportMonth] = useState(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+
+    // Fetch Attendance for Reports based on reportViewMode
+    const { data: reportAttendance, isLoading: isLoadingReportAttendance } = useQuery({
+        queryKey: ["garage-attendance-report", reportViewMode, reportDate, reportMonth],
         queryFn: async () => {
-            const { data, error } = await sb
-                .from("garage_attendance")
-                .select("*")
-                .gte("date", currentMonthStart);
-            if (error) throw error;
-            return data;
+            if (reportViewMode === "daily") {
+                const { data, error } = await sb
+                    .from("garage_attendance")
+                    .select("*")
+                    .eq("date", reportDate);
+                if (error) throw error;
+                return data || [];
+            } else {
+                const [year, month] = reportMonth.split("-");
+                const startDate = `${year}-${month}-01`;
+                const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+                const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
+                
+                const { data, error } = await sb
+                    .from("garage_attendance")
+                    .select("*")
+                    .gte("date", startDate)
+                    .lte("date", endDate);
+                if (error) throw error;
+                return data || [];
+            }
         }
     });
 
     const getMonthlyStats = (personnelId: string) => {
-        if (!monthlyAttendance) return { present: 0, absent: 0, late: 0, leave: 0 };
-        const records = monthlyAttendance.filter((a: any) => a.personnel_id === personnelId);
+        if (!reportAttendance) return { present: 0, absent: 0, late: 0, leave: 0 };
+        const records = reportAttendance.filter((a: any) => a.personnel_id === personnelId);
         return {
             present: records.filter((r: any) => r.status === 'Present').length,
             absent: records.filter((r: any) => r.status === 'Absent').length,
             late: records.filter((r: any) => r.status === 'Late').length,
             leave: records.filter((r: any) => r.status === 'On Leave').length,
         };
+    };
+
+    // Print Attendance Report
+    const handlePrintReport = () => {
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) return;
+
+        const titleText = reportViewMode === "daily" 
+            ? `Daily Attendance Report - ${new Date(reportDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`
+            : `Monthly Attendance Summary - ${new Date(reportMonth + '-01').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`;
+
+        let tableRowsHtml = "";
+
+        if (reportViewMode === "daily") {
+            tableRowsHtml = (personnel || []).map((p: any, idx: number) => {
+                const rec = reportAttendance?.find((a: any) => a.personnel_id === p.id);
+                const status = rec?.status || "Pending";
+                const timeIn = rec?.time_in || "—";
+                const timeOut = rec?.time_out || "—";
+                const color = status === 'Present' ? '#10b981' : status === 'Absent' ? '#ef4444' : status === 'Late' ? '#f59e0b' : status === 'On Leave' ? '#3b82f6' : '#64748b';
+                
+                return `
+                    <tr>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center;">${idx + 1}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; font-weight: bold;">${p.name}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">${p.position}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; font-weight: bold; color: ${color}; text-transform: uppercase;">${status}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center;">${timeIn}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center;">${timeOut}</td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            tableRowsHtml = (personnel || []).map((p: any, idx: number) => {
+                const stats = getMonthlyStats(p.id);
+                return `
+                    <tr>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center;">${idx + 1}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; font-weight: bold;">${p.name}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">${p.position}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center; font-weight: bold; color: #10b981;">${stats.present}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center; font-weight: bold; color: #ef4444;">${stats.absent}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center; font-weight: bold; color: #f59e0b;">${stats.late}</td>
+                        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 11px; text-align: center; font-weight: bold; color: #3b82f6;">${stats.leave}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>${titleText}</title>
+                    <style>
+                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 25px; color: #1e293b; }
+                        .header { border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+                        .brand { font-size: 20px; font-weight: 800; color: #dc2626; }
+                        .brand span { color: #1e3a8a; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                        th { background: #f8fafc; padding: 9px 12px; text-align: left; font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; border-bottom: 2px solid #cbd5e1; }
+                        .footer { margin-top: 40px; border-top: 1px dashed #cbd5e1; padding-top: 15px; font-size: 10px; color: #94a3b8; text-align: center; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div>
+                            <div class="brand">SUDENERGY <span>LOGISTICS</span></div>
+                            <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px;">Garage & Maintenance Division - Personnel Attendance</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 14px; font-weight: 700; color: #1e293b;">${titleText}</div>
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Generated on: ${new Date().toLocaleString()}</div>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 40px; text-align: center;">#</th>
+                                <th>Personnel Name</th>
+                                <th>Position</th>
+                                ${reportViewMode === "daily" ? `
+                                    <th>Status</th>
+                                    <th style="text-align: center;">Time In</th>
+                                    <th style="text-align: center;">Time Out</th>
+                                ` : `
+                                    <th style="text-align: center; color: #10b981;">Present</th>
+                                    <th style="text-align: center; color: #ef4444;">Absent</th>
+                                    <th style="text-align: center; color: #f59e0b;">Late</th>
+                                    <th style="text-align: center; color: #3b82f6;">Leave</th>
+                                `}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRowsHtml || '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #94a3b8;">No records found</td></tr>'}
+                        </tbody>
+                    </table>
+                    <div class="footer">
+                        Generated by SudEnergy Logistics Platform - Garage Staff Attendance Records
+                    </div>
+                    <script>window.onload = () => { window.print(); window.close(); };</script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
     };
 
     // Mutations
@@ -184,11 +308,13 @@ const GarageAttendance = () => {
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Status</TableHead>
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Personnel Name</TableHead>
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Position</TableHead>
+                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Time In</TableHead>
+                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Time Out</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {isLoadingPersonnel ? (
-                                        <TableRow><TableCell colSpan={3} className="h-40 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={5} className="h-40 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></TableCell></TableRow>
                                     ) : personnel?.map((p) => {
                                         const record = attendance?.find(a => a.personnel_id === p.id);
                                         return (
@@ -196,7 +322,12 @@ const GarageAttendance = () => {
                                                 <TableCell className="py-4 px-6 text-center">
                                                     <Select
                                                         value={record?.status || "PENDING"}
-                                                        onValueChange={(status) => markAttendanceMutation.mutate({ personnel_id: p.id, status })}
+                                                        onValueChange={(status) => markAttendanceMutation.mutate({ 
+                                                            personnel_id: p.id, 
+                                                            status,
+                                                            time_in: record?.time_in || (status === 'Present' || status === 'Late' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : null),
+                                                            time_out: record?.time_out
+                                                        })}
                                                     >
                                                         <SelectTrigger className={`w-36 h-8 text-[11px] font-bold uppercase mx-auto ${record?.status === 'Present' ? 'bg-green-50 text-green-700 border-green-200' :
                                                             record?.status === 'Absent' ? 'bg-red-50 text-red-700 border-red-200' :
@@ -219,6 +350,32 @@ const GarageAttendance = () => {
                                                     <Badge variant="outline" className="text-[11px] font-medium py-0.5 px-2 bg-slate-50 text-slate-500 border-slate-200">
                                                         {p.position}
                                                     </Badge>
+                                                </TableCell>
+                                                <TableCell className="py-4 px-6 text-center">
+                                                    <Input
+                                                        type="time"
+                                                        value={record?.time_in || ""}
+                                                        onChange={(e) => markAttendanceMutation.mutate({
+                                                            personnel_id: p.id,
+                                                            status: record?.status || "Present",
+                                                            time_in: e.target.value,
+                                                            time_out: record?.time_out
+                                                        })}
+                                                        className="w-28 h-8 text-xs font-semibold mx-auto bg-white border-slate-200 text-center"
+                                                    />
+                                                </TableCell>
+                                                <TableCell className="py-4 px-6 text-center">
+                                                    <Input
+                                                        type="time"
+                                                        value={record?.time_out || ""}
+                                                        onChange={(e) => markAttendanceMutation.mutate({
+                                                            personnel_id: p.id,
+                                                            status: record?.status || "Present",
+                                                            time_in: record?.time_in,
+                                                            time_out: e.target.value
+                                                        })}
+                                                        className="w-28 h-8 text-xs font-semibold mx-auto bg-white border-slate-200 text-center"
+                                                    />
                                                 </TableCell>
                                             </TableRow>
                                         );
@@ -296,11 +453,71 @@ const GarageAttendance = () => {
 
                 <TabsContent value="reports">
                     <Card className="border-none shadow-sm bg-white overflow-hidden">
-                        <CardHeader className="bg-slate-50/50 border-b flex flex-row items-center justify-between py-4">
+                        <CardHeader className="bg-slate-50/50 border-b flex flex-col md:flex-row md:items-center justify-between py-4 gap-3">
                             <CardTitle className="text-[11px] font-bold text-slate-700 uppercase tracking-widest flex items-center gap-2">
                                 <FileCheck className="w-5 h-5 text-indigo-500" />
-                                Monthly Attendance Summary ({new Date().toLocaleString('default', { month: 'long', year: 'numeric' })})
+                                {reportViewMode === "daily" 
+                                    ? `Daily Attendance Report (${new Date(reportDate).toLocaleDateString('default', { day: 'numeric', month: 'long', year: 'numeric' })})`
+                                    : `Monthly Attendance Summary (${new Date(reportMonth + '-01').toLocaleDateString('default', { month: 'long', year: 'numeric' })})`
+                                }
                             </CardTitle>
+
+                            <div className="flex flex-wrap items-center gap-2.5">
+                                {/* Toggle Daily vs Monthly */}
+                                <div className="flex items-center bg-slate-200/70 p-0.5 rounded-lg border border-slate-300/60">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant={reportViewMode === "daily" ? "default" : "ghost"}
+                                        onClick={() => setReportViewMode("daily")}
+                                        className={cn(
+                                            "h-7 px-3 text-[10px] font-bold uppercase rounded-md",
+                                            reportViewMode === "daily" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                                        )}
+                                    >
+                                        Daily View
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant={reportViewMode === "monthly" ? "default" : "ghost"}
+                                        onClick={() => setReportViewMode("monthly")}
+                                        className={cn(
+                                            "h-7 px-3 text-[10px] font-bold uppercase rounded-md",
+                                            reportViewMode === "monthly" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                                        )}
+                                    >
+                                        Monthly View
+                                    </Button>
+                                </div>
+
+                                {/* Date / Month Selector */}
+                                {reportViewMode === "daily" ? (
+                                    <Input
+                                        type="date"
+                                        value={reportDate}
+                                        onChange={(e) => setReportDate(e.target.value)}
+                                        className="w-36 h-8 text-xs bg-white border-slate-200 font-semibold"
+                                    />
+                                ) : (
+                                    <Input
+                                        type="month"
+                                        value={reportMonth}
+                                        onChange={(e) => setReportMonth(e.target.value)}
+                                        className="w-36 h-8 text-xs bg-white border-slate-200 font-semibold"
+                                    />
+                                )}
+
+                                {/* Print Report Button */}
+                                <Button
+                                    size="sm"
+                                    onClick={handlePrintReport}
+                                    className="h-8 px-3 text-xs bg-slate-900 hover:bg-slate-800 text-white font-bold gap-1.5 shadow-sm"
+                                >
+                                    <Printer className="w-3.5 h-3.5" />
+                                    Print Report
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent className="p-0">
                             <Table>
@@ -308,16 +525,55 @@ const GarageAttendance = () => {
                                     <TableRow className="bg-slate-50/40 border-b border-slate-100">
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Name</TableHead>
                                         <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6">Position</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-green-600 py-4 px-6 text-center">Present</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-red-600 py-4 px-6 text-center">Absent</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-amber-600 py-4 px-6 text-center">Late</TableHead>
-                                        <TableHead className="text-[11px] font-bold uppercase tracking-wider text-blue-600 py-4 px-6 text-center">Leave</TableHead>
+                                        {reportViewMode === "daily" ? (
+                                            <>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Status</TableHead>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Time In</TableHead>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-400 py-4 px-6 text-center">Time Out</TableHead>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-green-600 py-4 px-6 text-center">Present</TableHead>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-red-600 py-4 px-6 text-center">Absent</TableHead>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-amber-600 py-4 px-6 text-center">Late</TableHead>
+                                                <TableHead className="text-[11px] font-bold uppercase tracking-wider text-blue-600 py-4 px-6 text-center">Leave</TableHead>
+                                            </>
+                                        )}
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {isLoadingPersonnel || isLoadingMonthly ? (
+                                    {isLoadingPersonnel || isLoadingReportAttendance ? (
                                         <TableRow><TableCell colSpan={6} className="h-40 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-500" /></TableCell></TableRow>
                                     ) : personnel?.map((p) => {
+                                        if (reportViewMode === "daily") {
+                                            const rec = reportAttendance?.find((a: any) => a.personnel_id === p.id);
+                                            const status = rec?.status || "PENDING";
+                                            return (
+                                                <TableRow key={p.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50">
+                                                    <TableCell className="text-[11px] font-bold text-slate-800 py-4 px-6">{p.name}</TableCell>
+                                                    <TableCell className="py-4 px-6 text-[11px] text-slate-500 uppercase">{p.position}</TableCell>
+                                                    <TableCell className="text-center py-4 px-6">
+                                                        <Badge className={cn(
+                                                            "text-[10px] font-bold uppercase px-2 py-0.5 shadow-none border",
+                                                            status === 'Present' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                            status === 'Absent' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                            status === 'Late' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                            status === 'On Leave' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                            'bg-slate-50 text-slate-500 border-slate-200'
+                                                        )}>
+                                                            {status}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-center text-xs font-semibold text-slate-700 py-4 px-6">
+                                                        {rec?.time_in || "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-center text-xs font-semibold text-slate-700 py-4 px-6">
+                                                        {rec?.time_out || "—"}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        }
+
                                         const stats = getMonthlyStats(p.id);
                                         return (
                                             <TableRow key={p.id} className="hover:bg-slate-50 transition-colors border-b border-slate-50">
@@ -330,7 +586,7 @@ const GarageAttendance = () => {
                                             </TableRow>
                                         );
                                     })}
-                                    {!isLoadingMonthly && personnel?.length === 0 && (
+                                    {!isLoadingReportAttendance && personnel?.length === 0 && (
                                         <TableRow>
                                             <TableCell colSpan={6} className="py-20 text-center text-slate-400 text-[11px] italic">
                                                 No personnel records found to generate reports.

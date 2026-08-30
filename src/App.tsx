@@ -53,6 +53,7 @@ import CashierPaymentPortal from "./pages/procurement/CashierPaymentPortal";
 import ProcurementReports from "./pages/procurement/ProcurementReports";
 import ReplacedVehicleParts from "./pages/procurement/ReplacedVehicleParts";
 import GuardianEye from "./pages/GuardianEye";
+import TripOrders from "./pages/logistics/TripOrders";
 import TripSheets from "./pages/logistics/TripSheets";
 import KoridorAccount from "./pages/finance/KoridorAccount";
 import AccountsReceivable from "./pages/finance/AccountsReceivable";
@@ -498,6 +499,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <DriverRegistry />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/orders"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <TripOrders />
                   </Layout>
                 </ProtectedRoute>
               }

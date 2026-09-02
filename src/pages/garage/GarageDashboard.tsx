@@ -236,29 +236,50 @@ const GarageDashboard = () => {
     const [updateQtyDetails, setUpdateQtyDetails] = useState({ quantity: 0 });
     const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
     const [isSingleRestock, setIsSingleRestock] = useState(false);
-    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string; description?: string; image_url?: string }[]>(() => {
+    const [requisitionItems, setRequisitionItems] = useState<{ item_name: string; quantity: number; item_id?: string; category?: string; description?: string; image_url?: string; image_urls?: string[] }[]>(() => {
         try {
             const saved = localStorage.getItem('draftReqItems');
-            return saved ? JSON.parse(saved) : [{ item_name: "", quantity: 1, category: "Uncategorized" }];
-        } catch { return [{ item_name: "", quantity: 1, category: "Uncategorized" }]; }
+            return saved ? JSON.parse(saved) : [{ item_name: "", quantity: 1, category: "Uncategorized", image_urls: [] }];
+        } catch { return [{ item_name: "", quantity: 1, category: "Uncategorized", image_urls: [] }]; }
     });
     const [uploadingImageIdx, setUploadingImageIdx] = useState<number | null>(null);
 
-    const handleReqImageUpload = async (file: File, globalIdx: number) => {
+    const handleReqImageUpload = async (files: FileList | File[], globalIdx: number) => {
         setUploadingImageIdx(globalIdx);
         try {
-            const fileName = `req-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-            const { error: uploadError } = await (supabase as any).storage.from('garage-requisitions').upload(fileName, file);
-            if (uploadError) throw uploadError;
-            const { data: urlData } = (supabase as any).storage.from('garage-requisitions').getPublicUrl(fileName);
+            const fileArray = Array.from(files);
+            const uploadedUrls: string[] = [];
+
+            for (const file of fileArray) {
+                const fileName = `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+                const { error: uploadError } = await (supabase as any).storage.from('garage-requisitions').upload(fileName, file);
+                if (uploadError) throw uploadError;
+                const { data: urlData } = (supabase as any).storage.from('garage-requisitions').getPublicUrl(fileName);
+                uploadedUrls.push(urlData.publicUrl);
+            }
+
             const newItems = [...requisitionItems];
-            newItems[globalIdx].image_url = urlData.publicUrl;
+            const currentImages = newItems[globalIdx].image_urls || (newItems[globalIdx].image_url ? [newItems[globalIdx].image_url!] : []);
+            const mergedImages = [...currentImages, ...uploadedUrls];
+            
+            newItems[globalIdx].image_urls = mergedImages;
+            newItems[globalIdx].image_url = mergedImages.join(','); // keeps full backwards compatibility
             setRequisitionItems(newItems);
+            toast({ title: "Images Uploaded", description: `${uploadedUrls.length} image(s) attached successfully.` });
         } catch (err: any) {
             toast({ variant: "destructive", title: "Upload Failed", description: err.message || "Could not upload image." });
         } finally {
             setUploadingImageIdx(null);
         }
+    };
+
+    const handleRemoveReqImage = (globalIdx: number, imgIdxToRemove: number) => {
+        const newItems = [...requisitionItems];
+        const currentImages = newItems[globalIdx].image_urls || (newItems[globalIdx].image_url ? [newItems[globalIdx].image_url!] : []);
+        const filtered = currentImages.filter((_, idx) => idx !== imgIdxToRemove);
+        newItems[globalIdx].image_urls = filtered;
+        newItems[globalIdx].image_url = filtered.length > 0 ? filtered.join(',') : undefined;
+        setRequisitionItems(newItems);
     };
     const [reqCategories, setReqCategories] = useState<string[]>(() => {
         try {
@@ -3308,24 +3329,62 @@ const GarageDashboard = () => {
                                                 rows={2}
                                                 className="w-full text-xs border border-slate-200 rounded-md px-2.5 py-1.5 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-none"
                                             />
-                                            <div className="flex items-center gap-2">
-                                                <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-medium text-slate-500 hover:text-indigo-600 transition-colors">
-                                                    <ImagePlus className="w-3.5 h-3.5" />
-                                                    {uploadingImageIdx === globalIdx ? 'Uploading...' : (item.image_url ? 'Change Image' : (language === 'en' ? 'Attach Image' : 'Ambatisha Picha'))}
-                                                    <input
-                                                        type="file"
-                                                        accept="image/*"
-                                                        className="hidden"
-                                                        onChange={(e) => {
-                                                            const file = e.target.files?.[0];
-                                                            if (file) handleReqImageUpload(file, globalIdx);
-                                                            e.target.value = '';
-                                                        }}
-                                                    />
-                                                </label>
-                                                {item.image_url && (
-                                                    <a href={item.image_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-600 underline">View</a>
-                                                )}
+                                            <div className="flex flex-col gap-2 pt-0.5">
+                                                {/* Image preview badges */}
+                                                {(() => {
+                                                    const imgList = item.image_urls || (item.image_url ? item.image_url.split(',').filter(Boolean) : []);
+                                                    if (imgList.length === 0) return null;
+                                                    return (
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            {imgList.map((imgUrl, imgIdx) => (
+                                                                <div key={imgIdx} className="relative group/thumb border border-indigo-200 rounded-md overflow-hidden bg-white shadow-xs">
+                                                                    <a href={imgUrl} target="_blank" rel="noopener noreferrer" className="block">
+                                                                        <img src={imgUrl} alt="Part ref" className="w-12 h-12 object-cover hover:opacity-90 transition-opacity" />
+                                                                    </a>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleRemoveReqImage(globalIdx, imgIdx)}
+                                                                        className="absolute top-0.5 right-0.5 bg-red-600/90 text-white rounded-full p-0.5 opacity-80 hover:opacity-100 transition-opacity"
+                                                                        title="Remove image"
+                                                                    >
+                                                                        <XCircle className="w-3 h-3" />
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })()}
+
+                                                <div className="flex items-center gap-3">
+                                                    <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-medium text-slate-600 hover:text-indigo-600 transition-colors bg-white border border-slate-200 hover:border-indigo-300 rounded px-2 py-1 shadow-xs">
+                                                        <ImagePlus className="w-3.5 h-3.5 text-indigo-500" />
+                                                        {uploadingImageIdx === globalIdx ? (
+                                                            <span className="text-indigo-600 animate-pulse">Uploading...</span>
+                                                        ) : (
+                                                            <span>{language === 'en' ? '+ Add Images (Photos)' : '+ Ongeza Picha'}</span>
+                                                        )}
+                                                        <input
+                                                            type="file"
+                                                            accept="image/*"
+                                                            multiple
+                                                            className="hidden"
+                                                            disabled={uploadingImageIdx === globalIdx}
+                                                            onChange={(e) => {
+                                                                const files = e.target.files;
+                                                                if (files && files.length > 0) handleReqImageUpload(files, globalIdx);
+                                                                e.target.value = '';
+                                                            }}
+                                                        />
+                                                    </label>
+                                                    {(() => {
+                                                        const count = (item.image_urls || (item.image_url ? item.image_url.split(',').filter(Boolean) : [])).length;
+                                                        return count > 0 ? (
+                                                            <span className="text-[10px] text-slate-400 font-medium">
+                                                                {count} image{count > 1 ? 's' : ''} attached
+                                                            </span>
+                                                        ) : null;
+                                                    })()}
+                                                </div>
                                             </div>
                                         </div>
                                     );

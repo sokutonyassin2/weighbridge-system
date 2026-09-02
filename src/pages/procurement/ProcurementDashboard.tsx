@@ -1689,6 +1689,25 @@ const ProcurementDashboard = () => {
                                                                         <div className="flex flex-col leading-tight"><span>{req.vehicle.vehicle_no || req.vehicle.horse_number}</span>{req.vehicle.make_model && <span className="text-[10px] text-slate-500 font-medium">{req.vehicle.make_model}</span>}</div>
                                                                     </Badge>
                                                                 )}
+
+                                                                {/* Attached Reference Photos */}
+                                                                {req.image_url && (
+                                                                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                                                                        {req.image_url.split(',').filter(Boolean).map((url: string, i: number) => (
+                                                                            <a
+                                                                                key={i}
+                                                                                href={url}
+                                                                                target="_blank"
+                                                                                rel="noopener noreferrer"
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                className="inline-flex items-center gap-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5 hover:bg-indigo-100 transition-colors"
+                                                                                title="View attached photo"
+                                                                            >
+                                                                                <FileText className="w-2.5 h-2.5" /> Photo {i + 1}
+                                                                            </a>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </TableCell>
                                                         <TableCell className="hidden md:table-cell">

@@ -55,6 +55,7 @@ import ReplacedVehicleParts from "./pages/procurement/ReplacedVehicleParts";
 import GuardianEye from "./pages/GuardianEye";
 import TripOrders from "./pages/logistics/TripOrders";
 import TripSheets from "./pages/logistics/TripSheets";
+import MasterCollection from "./pages/logistics/MasterCollection";
 import KoridorAccount from "./pages/finance/KoridorAccount";
 import AccountsReceivable from "./pages/finance/AccountsReceivable";
 import ReconciliationsReview from "./pages/finance/ReconciliationsReview";
@@ -529,6 +530,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <TripSheets />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/masters"
+              element={
+                <ProtectedRoute allowedRoles={['logistics_admin', 'logistics_manager', 'admin', 'super_admin']}>
+                  <Layout>
+                    <MasterCollection />
                   </Layout>
                 </ProtectedRoute>
               }

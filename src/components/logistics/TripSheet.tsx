@@ -2437,6 +2437,28 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                         }));
                                                     }
 
+                                                    // Auto-pull expenses from Master Collection if available
+                                                    try {
+                                                        const savedExp = localStorage.getItem("master_collection_route_expenses");
+                                                        if (savedExp) {
+                                                            const expMap = JSON.parse(savedExp);
+                                                            const matchedItems = expMap[order.destination];
+                                                            if (matchedItems && matchedItems.length > 0) {
+                                                                const mapped = matchedItems.map((e: any) => ({
+                                                                    item_name: e.item_name,
+                                                                    amount: e.amount,
+                                                                    category: e.category,
+                                                                    currency: e.currency,
+                                                                    nature: e.nature || "Go & Return",
+                                                                    is_extra: false
+                                                                }));
+                                                                setExpenses(mapped);
+                                                            }
+                                                        }
+                                                    } catch (err) {
+                                                        console.warn("Could not load master expenses for order:", err);
+                                                    }
+
                                                     toast({
                                                         title: "Order Loaded Successfully",
                                                         description: `Imported ${order.trip_number || order.order_number} for ${order.client_name}. All details pre-filled!`

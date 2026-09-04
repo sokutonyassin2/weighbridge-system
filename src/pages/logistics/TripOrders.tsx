@@ -44,7 +44,8 @@ import {
     TrendingUp,
     Filter,
     Calendar,
-    ArrowRight
+    ArrowRight,
+    Trash2
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -119,6 +120,57 @@ export default function TripOrders() {
     };
     const [formData, setFormData] = useState(initialFormState);
 
+    // Multi-vehicle assignment state
+    interface VehicleAssignment {
+        id: string;
+        vehicle_id: string;
+        truck_reg: string;
+        trailer_id: string;
+        trailer_reg: string;
+        driver_id: string;
+        driver_name: string;
+        contact_no: string;
+        license_no: string;
+        passport_no: string;
+        trip_number: string;
+        journey_type: string;
+    }
+
+    const initialVehicleItem: VehicleAssignment = {
+        id: "veh-1",
+        vehicle_id: "",
+        truck_reg: "",
+        trailer_id: "",
+        trailer_reg: "",
+        driver_id: "",
+        driver_name: "",
+        contact_no: "",
+        license_no: "",
+        passport_no: "",
+        trip_number: "",
+        journey_type: "Go & Return (Full Cycle)"
+    };
+
+    const [vehicleAssignments, setVehicleAssignments] = useState<VehicleAssignment[]>([initialVehicleItem]);
+
+    const handleAddVehicleSlot = () => {
+        setVehicleAssignments(prev => [
+            ...prev,
+            {
+                ...initialVehicleItem,
+                id: `veh-${Date.now()}`
+            }
+        ]);
+    };
+
+    const handleRemoveVehicleSlot = (index: number) => {
+        if (vehicleAssignments.length <= 1) {
+            toast({ variant: "destructive", title: "At least 1 vehicle is required." });
+            return;
+        }
+        setVehicleAssignments(prev => prev.filter((_, i) => i !== index));
+    };
+
     // Fetch Trip Orders
     const { data: orders = [], isLoading: isLoadingOrders } = useQuery({
         queryKey: ["logistics_trip_orders"],
@@ -187,6 +239,20 @@ export default function TripOrders() {
         }
     });
 
+    // Fetch Real Routes from Database
+    const { data: dbRoutes = [] } = useQuery({
+        queryKey: ["logistics_routes_for_orders"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_routes" as any)
+                .select("location_name")
+                .eq("is_active", true)
+                .order("location_name", { ascending: true });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
     // Handle Register New Client
     const handleAddClient = async () => {
         if (!newClientName.trim()) return;
@@ -222,8 +288,8 @@ export default function TripOrders() {
         return (usd * rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }, [formData.agreed_amount_usd, formData.agreed_client_rate]);
 
-    // Handle Horse Vehicle Selection (Auto-generates Trip Ref & links Trailer + Driver)
-    const handleSelectVehicle = async (v: any) => {
+    // Handle Horse Vehicle Selection for a specific vehicle row slot
+    const handleSelectVehicle = async (v: any, index: number = 0) => {
         // Find trailer coupling
         const activeCoupling = couplings.find((c: any) => 
             String(c.horse_id).toLowerCase().trim() === String(v.id).toLowerCase().trim()
@@ -240,7 +306,7 @@ export default function TripOrders() {
         const cleanHorse = v.vehicle_no.replace(/\s*[A-Z]+$/, "").trim();
         const { count: sheetsCount } = await supabase.from('logistics_trip_sheets' as any).select('*', { count: 'exact', head: true });
         const { count: ordersCount } = await supabase.from('logistics_trip_orders' as any).select('*', { count: 'exact', head: true });
-        const totalTrips = (sheetsCount || 0) + (ordersCount || 0);
+        const totalTrips = (sheetsCount || 0) + (ordersCount || 0) + index;
         const seq = String(totalTrips + 1).padStart(3, '0');
         const legIndicator = isTanker ? "T" : "G";
         const currentYear = new Date().getFullYear();
@@ -273,45 +339,84 @@ export default function TripOrders() {
 
         const resolvedPhone = assignedDriver?.phone_no || assignedDriver?.phone_secondary || assignedDriver?.phone || "";
 
-        setFormData(prev => ({
-            ...prev,
+        const updatedItem: VehicleAssignment = {
+            id: vehicleAssignments[index]?.id || `veh-${Date.now()}`,
             vehicle_id: v.id,
             truck_reg: v.vehicle_no,
             trailer_id: activeCoupling ? activeCoupling.trailer_id : "",
             trailer_reg: trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : (activeCoupling?.trailer_id || ""),
-            driver_id: assignedDriver ? assignedDriver.id : prev.driver_id,
-            driver_name: assignedDriver ? assignedDriver.full_name : prev.driver_name,
-            contact_no: resolvedPhone || prev.contact_no,
-            license_no: resolvedLicense || prev.license_no,
-            passport_no: resolvedPassport || prev.passport_no,
+            driver_id: assignedDriver ? assignedDriver.id : "",
+            driver_name: assignedDriver ? assignedDriver.full_name : "",
+            contact_no: resolvedPhone,
+            license_no: resolvedLicense,
+            passport_no: resolvedPassport,
             trip_number: generatedTripId,
             journey_type: journeyType
-        }));
+        };
+
+        setVehicleAssignments(prev => {
+            const copy = [...prev];
+            copy[index] = updatedItem;
+            return copy;
+        });
+
+        // Also sync primary vehicle to formData for backwards compatibility
+        if (index === 0) {
+            setFormData(prev => ({
+                ...prev,
+                vehicle_id: v.id,
+                truck_reg: v.vehicle_no,
+                trailer_id: activeCoupling ? activeCoupling.trailer_id : "",
+                trailer_reg: trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : (activeCoupling?.trailer_id || ""),
+                driver_id: assignedDriver ? assignedDriver.id : prev.driver_id,
+                driver_name: assignedDriver ? assignedDriver.full_name : prev.driver_name,
+                contact_no: resolvedPhone || prev.contact_no,
+                license_no: resolvedLicense || prev.license_no,
+                passport_no: resolvedPassport || prev.passport_no,
+                trip_number: generatedTripId,
+                journey_type: journeyType
+            }));
+        }
 
         toast({
             title: "Vehicle & Trip Assigned",
-            description: `Trip Reference ${generatedTripId} generated with ${assignedDriver?.full_name || 'driver'} and trailer ${trailerFound?.vehicle_no || 'linked'}.`
+            description: `Assigned ${v.vehicle_no} with Trip #${generatedTripId}.`
         });
     };
 
-    // Submit Order Mutation
+    const updateVehicleSlotField = (index: number, field: keyof VehicleAssignment, value: string) => {
+        setVehicleAssignments(prev => {
+            const copy = [...prev];
+            if (copy[index]) {
+                copy[index] = { ...copy[index], [field]: value };
+            }
+            return copy;
+        });
+        if (index === 0 && field in formData) {
+            setFormData(prev => ({ ...prev, [field]: value }));
+        }
+    };
+
+    // Submit Order Mutation (Supports batch insertions for multiple vehicles)
     const createOrderMutation = useMutation({
-        mutationFn: async (payload: any) => {
+        mutationFn: async (payloads: any[]) => {
             const { data, error } = await supabase
                 .from("logistics_trip_orders" as any)
-                .insert([payload])
+                .insert(payloads)
                 .select();
             if (error) throw error;
             return data;
         },
-        onSuccess: () => {
+        onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
+            const count = data?.length || 1;
             toast({
                 title: "Order Created Successfully",
-                description: "Trip Order has been registered and submitted for Admin Approval."
+                description: `${count} vehicle trip order${count > 1 ? 's' : ''} registered and submitted for Admin Approval.`
             });
             setIsCreateOpen(false);
             setFormData(initialFormState);
+            setVehicleAssignments([initialVehicleItem]);
         },
         onError: (err: any) => {
             toast({
@@ -328,10 +433,13 @@ export default function TripOrders() {
             toast({ variant: "destructive", title: "Client Required", description: "Please choose or register a client." });
             return;
         }
-        if (!formData.vehicle_id || !formData.truck_reg) {
-            toast({ variant: "destructive", title: "Vehicle Required", description: "Please select a vehicle/horse." });
+
+        const validVehicles = vehicleAssignments.filter(v => v.vehicle_id && v.truck_reg);
+        if (validVehicles.length === 0) {
+            toast({ variant: "destructive", title: "Vehicle Required", description: "Please select at least one vehicle/horse." });
             return;
         }
+
         if (!formData.destination) {
             toast({ variant: "destructive", title: "Destination Required", description: "Please select a delivery destination." });
             return;
@@ -341,37 +449,38 @@ export default function TripOrders() {
         const clientRate = parseFloat(formData.agreed_client_rate) || 1.0;
         const localTotal = usdAmount * clientRate;
 
-        const payload = {
-            order_number: `ORD-${Date.now().toString().slice(-6)}`,
-            trip_number: formData.trip_number || `TRP-${Date.now().toString().slice(-6)}`,
+        // Create an order record for each assigned vehicle so each can follow its individual trip lifecycle
+        const payloads = validVehicles.map((v, i) => ({
+            order_number: `ORD-${Date.now().toString().slice(-6)}${validVehicles.length > 1 ? `-${i + 1}` : ''}`,
+            trip_number: v.trip_number || `TRP-${Date.now().toString().slice(-6)}-${i + 1}`,
             client_name: formData.client_name,
             agreed_amount_usd: usdAmount,
             agreed_client_rate: clientRate,
             agreed_amount_local: localTotal,
             currency: "USD",
-            vehicle_id: formData.vehicle_id || null,
-            truck_reg: formData.truck_reg,
-            trailer_id: formData.trailer_id || null,
-            trailer_reg: formData.trailer_reg || null,
-            driver_id: formData.driver_id || null,
-            driver_name: formData.driver_name || null,
-            contact_no: formData.contact_no || null,
-            license_no: formData.license_no || null,
-            passport_no: formData.passport_no || null,
+            vehicle_id: v.vehicle_id || null,
+            truck_reg: v.truck_reg,
+            trailer_id: v.trailer_id || null,
+            trailer_reg: v.trailer_reg || null,
+            driver_id: v.driver_id || null,
+            driver_name: v.driver_name || null,
+            contact_no: v.contact_no || null,
+            license_no: v.license_no || null,
+            passport_no: v.passport_no || null,
             origin: formData.origin || "DAR ES SALAAM",
             destination: formData.destination,
             agreed_days: parseInt(formData.agreed_days) || 0,
             daily_penalty_fine: parseFloat(formData.daily_penalty_fine) || 0,
-            journey_type: formData.journey_type,
+            journey_type: v.journey_type || formData.journey_type,
             cargo_description: formData.cargo_description || null,
             bl_number: formData.bl_number || null,
             container_no: formData.container_no || null,
             notes: formData.notes || null,
             status: "Pending Approval",
             created_by: user?.id
-        };
+        }));
 
-        createOrderMutation.mutate(payload);
+        createOrderMutation.mutate(payloads);
     };
 
     // Approval / Rejection Action Mutation
@@ -412,6 +521,31 @@ export default function TripOrders() {
             toast({
                 variant: "destructive",
                 title: "Action Failed",
+                description: err.message
+            });
+        }
+    });
+
+    // Super Admin Delete Order Mutation
+    const deleteOrderMutation = useMutation({
+        mutationFn: async (orderId: string) => {
+            const { error } = await supabase
+                .from("logistics_trip_orders" as any)
+                .delete()
+                .eq("id", orderId);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
+            toast({
+                title: "Order Deleted",
+                description: "The trip order has been removed successfully."
+            });
+        },
+        onError: (err: any) => {
+            toast({
+                variant: "destructive",
+                title: "Delete Failed",
                 description: err.message
             });
         }
@@ -713,6 +847,22 @@ export default function TripOrders() {
                                                             </Button>
                                                         </>
                                                     )}
+
+                                                    {isSuperAdmin && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                if (window.confirm(`Are you sure you want to delete order "${order.trip_number || order.order_number}"? This cannot be undone.`)) {
+                                                                    deleteOrderMutation.mutate(order.id);
+                                                                }
+                                                            }}
+                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                                            title="Delete Order (Super Admin Only)"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             </TableCell>
                                         </TableRow>
@@ -839,126 +989,181 @@ export default function TripOrders() {
                             </div>
                         </div>
 
-                        {/* Section 2: Vehicle Selection & Auto-generated Trip Number */}
+                        {/* Section 2: Vehicle Selection & Auto-generated Trip Number (Supports Multi-Vehicle Assignment) */}
                         <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-4">
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                                <Truck className="w-4 h-4 text-indigo-600" />
-                                Vehicle Assignment & Trip Reference
-                            </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Vehicle (Horse) *</Label>
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                role="combobox"
-                                                className={cn(
-                                                    "w-full h-10 justify-between bg-white border-slate-200 text-xs font-bold",
-                                                    !formData.vehicle_id && "text-slate-400 font-normal"
-                                                )}
-                                            >
-                                                {formData.vehicle_id
-                                                    ? `${formData.truck_reg} ${fleet.find(f => f.id === formData.vehicle_id)?.make_model ? `(${fleet.find(f => f.id === formData.vehicle_id)?.make_model})` : ''}`
-                                                    : "Search Vehicle / Horse..."}
-                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-[300px] p-0 z-[9999]" align="start">
-                                            <Command>
-                                                <CommandInput placeholder="Type to search vehicle..." className="h-8 text-xs" />
-                                                <CommandList>
-                                                    <CommandEmpty className="p-2 text-xs text-center text-slate-500">No vehicle found.</CommandEmpty>
-                                                    <CommandGroup className="max-h-[220px] overflow-auto">
-                                                        {fleet
-                                                            .filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse')
-                                                            .map(v => (
-                                                                <CommandItem
-                                                                    key={v.id}
-                                                                    value={`${v.vehicle_no} ${v.make_model || ''}`}
-                                                                    onSelect={() => handleSelectVehicle(v)}
-                                                                    className="text-xs font-medium cursor-pointer"
-                                                                >
-                                                                    <Check
-                                                                        className={cn(
-                                                                            "mr-2 h-3.5 w-3.5 text-indigo-600",
-                                                                            formData.vehicle_id === v.id ? "opacity-100" : "opacity-0"
-                                                                        )}
-                                                                    />
-                                                                    <span className="font-bold text-slate-800">{v.vehicle_no}</span>
-                                                                    {v.make_model && <span className="ml-1 text-slate-500">({v.make_model})</span>}
-                                                                </CommandItem>
-                                                            ))
-                                                        }
-                                                    </CommandGroup>
-                                                </CommandList>
-                                            </Command>
-                                        </PopoverContent>
-                                    </Popover>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Truck className="w-4 h-4 text-indigo-600" />
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                                        Vehicle Assignment & Trip Reference
+                                    </h4>
+                                    {vehicleAssignments.length > 1 && (
+                                        <Badge className="bg-indigo-100 text-indigo-800 text-[10px] font-bold border-none px-2">
+                                            {vehicleAssignments.length} Vehicles
+                                        </Badge>
+                                    )}
                                 </div>
-
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Trip Reference Number (Auto-Generated)</Label>
-                                    <Input
-                                        value={formData.trip_number}
-                                        onChange={e => setFormData(prev => ({ ...prev, trip_number: e.target.value }))}
-                                        placeholder="Auto-generated on vehicle select..."
-                                        className="h-10 bg-indigo-50/40 border-indigo-200 text-xs font-bold text-indigo-900"
-                                    />
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Linked Trailer</Label>
-                                    <Input
-                                        value={formData.trailer_reg}
-                                        onChange={e => setFormData(prev => ({ ...prev, trailer_reg: e.target.value }))}
-                                        placeholder="Linked Trailer plate..."
-                                        className="h-10 bg-white border-slate-200 text-xs font-medium text-slate-800"
-                                    />
-                                </div>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleAddVehicleSlot}
+                                    className="h-7 text-[11px] font-bold text-indigo-700 border-indigo-200 bg-white hover:bg-indigo-50 gap-1.5 shadow-xs"
+                                    title="Add another vehicle to this order"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    Add Vehicle
+                                </Button>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Driver Name *</Label>
-                                    <Input
-                                        value={formData.driver_name}
-                                        onChange={e => setFormData(prev => ({ ...prev, driver_name: e.target.value }))}
-                                        placeholder="Driver full name"
-                                        className="h-10 bg-white border-slate-200 text-xs font-semibold text-slate-900"
-                                        required
-                                    />
-                                </div>
+                            <div className="space-y-4">
+                                {vehicleAssignments.map((veh, vIdx) => (
+                                    <div 
+                                        key={veh.id} 
+                                        className={cn(
+                                            "p-3.5 rounded-xl border transition-all",
+                                            vehicleAssignments.length > 1 
+                                                ? "bg-white border-indigo-100 shadow-xs relative" 
+                                                : "bg-transparent border-transparent p-0"
+                                        )}
+                                    >
+                                        {vehicleAssignments.length > 1 && (
+                                            <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+                                                <span className="text-[11px] font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
+                                                    <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[9px]">
+                                                        {vIdx + 1}
+                                                    </span>
+                                                    Vehicle #{vIdx + 1} {veh.truck_reg ? `• ${veh.truck_reg}` : ''}
+                                                </span>
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => handleRemoveVehicleSlot(vIdx)}
+                                                    className="h-6 px-2 text-[10px] text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                                                >
+                                                    <Trash2 className="w-3 h-3 mr-1" /> Remove
+                                                </Button>
+                                            </div>
+                                        )}
 
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Contact No</Label>
-                                    <Input
-                                        value={formData.contact_no}
-                                        onChange={e => setFormData(prev => ({ ...prev, contact_no: e.target.value }))}
-                                        placeholder="e.g. +255..."
-                                        className="h-10 bg-white border-slate-200 text-xs font-medium"
-                                    />
-                                </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">Vehicle (Horse) *</Label>
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            variant="outline"
+                                                            role="combobox"
+                                                            className={cn(
+                                                                "w-full h-9 justify-between bg-white border-slate-200 text-xs font-bold",
+                                                                !veh.vehicle_id && "text-slate-400 font-normal"
+                                                            )}
+                                                        >
+                                                            {veh.vehicle_id
+                                                                ? `${veh.truck_reg} ${fleet.find(f => f.id === veh.vehicle_id)?.make_model ? `(${fleet.find(f => f.id === veh.vehicle_id)?.make_model})` : ''}`
+                                                                : "Search Vehicle / Horse..."}
+                                                            <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-[300px] p-0 z-[9999]" align="start">
+                                                        <Command>
+                                                            <CommandInput placeholder="Type to search vehicle..." className="h-8 text-xs" />
+                                                            <CommandList>
+                                                                <CommandEmpty className="p-2 text-xs text-center text-slate-500">No vehicle found.</CommandEmpty>
+                                                                <CommandGroup className="max-h-[220px] overflow-auto">
+                                                                    {fleet
+                                                                        .filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse')
+                                                                        .map(v => (
+                                                                            <CommandItem
+                                                                                key={v.id}
+                                                                                value={`${v.vehicle_no} ${v.make_model || ''}`}
+                                                                                onSelect={() => handleSelectVehicle(v, vIdx)}
+                                                                                className="text-xs font-medium cursor-pointer"
+                                                                            >
+                                                                                <Check
+                                                                                    className={cn(
+                                                                                        "mr-2 h-3.5 w-3.5 text-indigo-600",
+                                                                                        veh.vehicle_id === v.id ? "opacity-100" : "opacity-0"
+                                                                                    )}
+                                                                                />
+                                                                                <span className="font-bold text-slate-800">{v.vehicle_no}</span>
+                                                                                {v.make_model && <span className="ml-1 text-slate-500">({v.make_model})</span>}
+                                                                            </CommandItem>
+                                                                        ))
+                                                                    }
+                                                                </CommandGroup>
+                                                            </CommandList>
+                                                        </Command>
+                                                    </PopoverContent>
+                                                </Popover>
+                                            </div>
 
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">License No</Label>
-                                    <Input
-                                        value={formData.license_no}
-                                        onChange={e => setFormData(prev => ({ ...prev, license_no: e.target.value }))}
-                                        placeholder="License #"
-                                        className="h-10 bg-white border-slate-200 text-xs font-medium"
-                                    />
-                                </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">Trip Reference Number (Auto-Generated)</Label>
+                                                <Input
+                                                    value={veh.trip_number}
+                                                    onChange={e => updateVehicleSlotField(vIdx, "trip_number", e.target.value)}
+                                                    placeholder="Auto-generated on vehicle select..."
+                                                    className="h-9 bg-indigo-50/40 border-indigo-200 text-xs font-bold text-indigo-900"
+                                                />
+                                            </div>
 
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Passport No</Label>
-                                    <Input
-                                        value={formData.passport_no}
-                                        onChange={e => setFormData(prev => ({ ...prev, passport_no: e.target.value }))}
-                                        placeholder="Passport #"
-                                        className="h-10 bg-white border-slate-200 text-xs font-medium"
-                                    />
-                                </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">Linked Trailer</Label>
+                                                <Input
+                                                    value={veh.trailer_reg}
+                                                    onChange={e => updateVehicleSlotField(vIdx, "trailer_reg", e.target.value)}
+                                                    placeholder="Linked Trailer plate..."
+                                                    className="h-9 bg-white border-slate-200 text-xs font-medium text-slate-800"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-3">
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">Driver Name *</Label>
+                                                <Input
+                                                    value={veh.driver_name}
+                                                    onChange={e => updateVehicleSlotField(vIdx, "driver_name", e.target.value)}
+                                                    placeholder="Driver full name"
+                                                    className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-900"
+                                                    required
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">Contact No</Label>
+                                                <Input
+                                                    value={veh.contact_no}
+                                                    onChange={e => updateVehicleSlotField(vIdx, "contact_no", e.target.value)}
+                                                    placeholder="e.g. +255..."
+                                                    className="h-9 bg-white border-slate-200 text-xs font-medium"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">License No</Label>
+                                                <Input
+                                                    value={veh.license_no}
+                                                    onChange={e => updateVehicleSlotField(vIdx, "license_no", e.target.value)}
+                                                    placeholder="License #"
+                                                    className="h-9 bg-white border-slate-200 text-xs font-medium"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <Label className="text-[11px] font-semibold text-slate-600">Passport No</Label>
+                                                <Input
+                                                    value={veh.passport_no}
+                                                    onChange={e => updateVehicleSlotField(vIdx, "passport_no", e.target.value)}
+                                                    placeholder="Passport #"
+                                                    className="h-9 bg-white border-slate-200 text-xs font-medium"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
 
@@ -1003,15 +1208,45 @@ export default function TripOrders() {
                                     <Label className="text-xs font-semibold text-slate-600">Delivery Destination *</Label>
                                     <Select 
                                         value={formData.destination} 
-                                        onValueChange={v => setFormData(prev => ({ ...prev, destination: v }))}
+                                        onValueChange={v => {
+                                            let autoRate = formData.agreed_amount_usd;
+                                            let autoDays = formData.agreed_days;
+                                            let autoCargo = formData.cargo_description;
+                                            
+                                            // Check Master Collection
+                                            try {
+                                                const savedRoutes = localStorage.getItem("master_collection_routes");
+                                                if (savedRoutes) {
+                                                    const parsed = JSON.parse(savedRoutes);
+                                                    const matched = parsed.find((r: any) => r.destination?.toUpperCase() === v?.toUpperCase());
+                                                    if (matched) {
+                                                        if (matched.default_rate_usd) autoRate = String(matched.default_rate_usd);
+                                                        if (matched.agreed_days) autoDays = String(matched.agreed_days);
+                                                        if (matched.default_cargo && !formData.cargo_description) autoCargo = matched.default_cargo;
+                                                    }
+                                                }
+                                            } catch (e) {}
+
+                                            setFormData(prev => ({ 
+                                                ...prev, 
+                                                destination: v,
+                                                agreed_amount_usd: autoRate,
+                                                agreed_days: autoDays,
+                                                cargo_description: autoCargo
+                                            }));
+                                        }}
                                     >
                                         <SelectTrigger className="h-10 bg-white border-slate-200 text-xs font-semibold">
                                             <SelectValue placeholder="Select Destination..." />
                                         </SelectTrigger>
                                         <SelectContent className="max-h-[220px]">
-                                            {STANDARD_DESTINATIONS.map(d => (
-                                                <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>
-                                            ))}
+                                            {(() => {
+                                                const dbNames = (dbRoutes as any[]).map((r: any) => r.location_name?.toUpperCase()).filter(Boolean);
+                                                const allDests = [...new Set([...dbNames, ...STANDARD_DESTINATIONS])].sort();
+                                                return allDests.map(d => (
+                                                    <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>
+                                                ));
+                                            })()}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1026,24 +1261,13 @@ export default function TripOrders() {
                                     />
                                 </div>
 
-                                <div className="space-y-1.5">
+                                <div className="space-y-1.5 md:col-span-2">
                                     <Label className="text-xs font-semibold text-slate-600">Agreed Duration (Days)</Label>
                                     <Input
                                         type="number"
                                         value={formData.agreed_days}
                                         onChange={e => setFormData(prev => ({ ...prev, agreed_days: e.target.value }))}
                                         placeholder="e.g. 5"
-                                        className="h-10 bg-white border-slate-200 text-xs font-medium"
-                                    />
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Daily Penalty Fine</Label>
-                                    <Input
-                                        type="number"
-                                        value={formData.daily_penalty_fine}
-                                        onChange={e => setFormData(prev => ({ ...prev, daily_penalty_fine: e.target.value }))}
-                                        placeholder="0"
                                         className="h-10 bg-white border-slate-200 text-xs font-medium"
                                     />
                                 </div>

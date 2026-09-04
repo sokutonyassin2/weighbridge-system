@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle, CheckCircle2, Clock, Settings, XCircle, Link, Unlink, FileText, Upload, Wrench, Check, ChevronsUpDown } from "lucide-react";
+import { Truck, Plus, Search, Filter, MoreVertical, Edit, Trash2, AlertTriangle, CheckCircle2, Clock, Settings, XCircle, Link, Unlink, FileText, Upload, Wrench, Check, ChevronsUpDown, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
@@ -1547,6 +1548,40 @@ const FleetCommand = () => {
                             <div className="text-sm font-medium text-slate-500 whitespace-nowrap">
                                 {displayFleet.length} units
                             </div>
+                            {activeTab === "Local" && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex items-center gap-2 text-green-700 border-green-300 hover:bg-green-50"
+                                    onClick={() => {
+                                        const localFleet = fleet?.filter(item =>
+                                            (item.fleet_category || "").toLowerCase() === "local"
+                                        ) || [];
+                                        const rows = localFleet.map(item => ({
+                                            "Vehicle No": item.vehicle_no || "",
+                                            "Horse No": item.horse_number || "",
+                                            "Trailer No": item.trailer_number || "",
+                                            "Asset Type": item.asset_type || "",
+                                            "Make / Model": item.make_model || "",
+                                            "Fleet Category": item.fleet_category || "",
+                                            "Status": item.asset_status || "",
+                                            "Coupling Status": item.coupling_status || "",
+                                            "Odometer (KM)": item.current_odometer || 0,
+                                            "Last Service (KM)": item.last_service_odometer || 0,
+                                            "Next Service (KM)": item.next_service_odometer || 0,
+                                            "Last Service Date": item.last_service_date || "",
+                                            "Notes": item.notes || "",
+                                        }));
+                                        const ws = XLSX.utils.json_to_sheet(rows);
+                                        const wb = XLSX.utils.book_new();
+                                        XLSX.utils.book_append_sheet(wb, ws, "Local Fleet");
+                                        XLSX.writeFile(wb, `Local_Fleet_${new Date().toISOString().slice(0,10)}.xlsx`);
+                                    }}
+                                >
+                                    <Download className="w-4 h-4" />
+                                    Export Excel
+                                </Button>
+                            )}
                         </div>
                     </div>
                 </CardHeader>

@@ -3,7 +3,7 @@ import {
   FileText, TrendingUp, AlertTriangle, Printer, UserCheck, Shield,
   CreditCard, TimerOff, DollarSign, List, LayoutGrid, Wrench, Package,
   History, Calendar, Send, CheckCircle, FileBarChart, Trash2, Banknote, BookOpen, TrendingDown,
-  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye, ClipboardList
+  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye, ClipboardList, Layers
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -58,6 +58,7 @@ const logisticsItems = [
   { title: "Driver Management", url: "/logistics/drivers", icon: UserCheck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Management", url: "/logistics/trips", icon: Send, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Vehicle Reports", url: "/logistics/reports/vehicle", icon: BarChart3, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },
+  { title: "Master Collection", url: "/logistics/masters", icon: Layers, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
 ];
 
 const garageItems = [

@@ -3,15 +3,15 @@ module.exports = {
         {
             name: "weighbridge-api",
             script: "./server/server.js",
-            cwd: "C:/Users/sokut/Desktop/Projects/weighbridge-system",
+            cwd: __dirname,
             watch: false
         },
         {
             name: "weighbridge-ui",
             script: "./node_modules/vite/bin/vite.js",
-            cwd: "C:/Users/sokut/Desktop/Projects/weighbridge-system",
+            cwd: __dirname,
             watch: false,
             interpreter: "node"
         }
     ]
-};
+};

@@ -45,7 +45,10 @@ import {
     Filter,
     Calendar,
     ArrowRight,
-    Trash2
+    Trash2,
+    ChevronDown,
+    ChevronRight,
+    Layers
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -79,6 +82,16 @@ export default function TripOrders() {
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState<string>("ALL");
     const [clientFilter, setClientFilter] = useState<string>("ALL");
+
+    // Group dropdown accordion expansion state
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+    const toggleGroupExpand = (groupKey: string) => {
+        setExpandedGroups(prev => ({
+            ...prev,
+            [groupKey]: !prev[groupKey]
+        }));
+    };
 
     // Modal state
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -288,6 +301,67 @@ export default function TripOrders() {
         return (usd * rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }, [formData.agreed_amount_usd, formData.agreed_client_rate]);
 
+    // Helper to extract driver details from driver record and documents
+    const extractDriverDetails = (driver: any) => {
+        if (!driver) return { phone: "", license: "", passport: "" };
+        let resolvedLicense = driver.license_no || "";
+        let resolvedPassport = driver.passport_no || driver.id_number || "";
+
+        if (driver.logistics_driver_documents && Array.isArray(driver.logistics_driver_documents)) {
+            const licenseDoc = driver.logistics_driver_documents.find((doc: any) =>
+                doc.document_type?.toLowerCase().includes("licen")
+            );
+            if (licenseDoc?.document_number) {
+                resolvedLicense = licenseDoc.document_number;
+            }
+
+            const passportDoc = driver.logistics_driver_documents.find((doc: any) =>
+                doc.document_type?.toLowerCase().includes("pass") || doc.document_type?.toLowerCase().includes("id")
+            );
+            if (passportDoc?.document_number) {
+                resolvedPassport = passportDoc.document_number;
+            }
+        }
+
+        const resolvedPhone = driver.phone_no || driver.phone_secondary || driver.phone || "";
+        return { phone: resolvedPhone, license: resolvedLicense, passport: resolvedPassport };
+    };
+
+    // Handle Manual Driver Selection for a vehicle row
+    const handleSelectDriverForVehicle = (driver: any, index: number = 0) => {
+        const details = extractDriverDetails(driver);
+        setVehicleAssignments(prev => {
+            const copy = [...prev];
+            if (copy[index]) {
+                copy[index] = {
+                    ...copy[index],
+                    driver_id: driver.id,
+                    driver_name: driver.full_name,
+                    contact_no: details.phone || copy[index].contact_no,
+                    license_no: details.license || copy[index].license_no,
+                    passport_no: details.passport || copy[index].passport_no
+                };
+            }
+            return copy;
+        });
+
+        if (index === 0) {
+            setFormData(prev => ({
+                ...prev,
+                driver_id: driver.id,
+                driver_name: driver.full_name,
+                contact_no: details.phone || prev.contact_no,
+                license_no: details.license || prev.license_no,
+                passport_no: details.passport || prev.passport_no
+            }));
+        }
+
+        toast({
+            title: "Driver Assigned",
+            description: `Assigned driver ${driver.full_name} to vehicle slot #${index + 1}.`
+        });
+    };
+
     // Handle Horse Vehicle Selection for a specific vehicle row slot
     const handleSelectVehicle = async (v: any, index: number = 0) => {
         // Find trailer coupling
@@ -317,27 +391,7 @@ export default function TripOrders() {
             String(d.assigned_vehicle_id).toLowerCase().trim() === String(v.id).toLowerCase().trim()
         );
 
-        // Extract License Number & Passport Number from Driver Docs
-        let resolvedLicense = assignedDriver?.license_no || "";
-        let resolvedPassport = assignedDriver?.passport_no || assignedDriver?.id_number || "";
-
-        if (assignedDriver?.logistics_driver_documents && Array.isArray(assignedDriver.logistics_driver_documents)) {
-            const licenseDoc = assignedDriver.logistics_driver_documents.find((doc: any) =>
-                doc.document_type?.toLowerCase().includes("licen")
-            );
-            if (licenseDoc?.document_number) {
-                resolvedLicense = licenseDoc.document_number;
-            }
-
-            const passportDoc = assignedDriver.logistics_driver_documents.find((doc: any) =>
-                doc.document_type?.toLowerCase().includes("pass") || doc.document_type?.toLowerCase().includes("id")
-            );
-            if (passportDoc?.document_number) {
-                resolvedPassport = passportDoc.document_number;
-            }
-        }
-
-        const resolvedPhone = assignedDriver?.phone_no || assignedDriver?.phone_secondary || assignedDriver?.phone || "";
+        const details = extractDriverDetails(assignedDriver);
 
         const updatedItem: VehicleAssignment = {
             id: vehicleAssignments[index]?.id || `veh-${Date.now()}`,
@@ -347,9 +401,9 @@ export default function TripOrders() {
             trailer_reg: trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : (activeCoupling?.trailer_id || ""),
             driver_id: assignedDriver ? assignedDriver.id : "",
             driver_name: assignedDriver ? assignedDriver.full_name : "",
-            contact_no: resolvedPhone,
-            license_no: resolvedLicense,
-            passport_no: resolvedPassport,
+            contact_no: details.phone,
+            license_no: details.license,
+            passport_no: details.passport,
             trip_number: generatedTripId,
             journey_type: journeyType
         };
@@ -370,9 +424,9 @@ export default function TripOrders() {
                 trailer_reg: trailerFound ? (trailerFound.vehicle_no || trailerFound.trailer_number) : (activeCoupling?.trailer_id || ""),
                 driver_id: assignedDriver ? assignedDriver.id : prev.driver_id,
                 driver_name: assignedDriver ? assignedDriver.full_name : prev.driver_name,
-                contact_no: resolvedPhone || prev.contact_no,
-                license_no: resolvedLicense || prev.license_no,
-                passport_no: resolvedPassport || prev.passport_no,
+                contact_no: details.phone || prev.contact_no,
+                license_no: details.license || prev.license_no,
+                passport_no: details.passport || prev.passport_no,
                 trip_number: generatedTripId,
                 journey_type: journeyType
             }));
@@ -427,7 +481,7 @@ export default function TripOrders() {
         }
     });
 
-    const handleCreateOrderSubmit = (e: React.FormEvent) => {
+    const handleCreateOrderSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!formData.client_name) {
             toast({ variant: "destructive", title: "Client Required", description: "Please choose or register a client." });
@@ -445,14 +499,101 @@ export default function TripOrders() {
             return;
         }
 
+        // Validate that no vehicle has an empty trip number
+        for (let i = 0; i < validVehicles.length; i++) {
+            if (!validVehicles[i].trip_number?.trim()) {
+                toast({
+                    variant: "destructive",
+                    title: "Trip Number Required",
+                    description: `Vehicle #${i + 1} (${validVehicles[i].truck_reg}) must have a Trip Reference Number.`
+                });
+                return;
+            }
+        }
+
+        // Check for duplicate trip numbers across vehicles within the same order
+        const enteredTripNumbers = validVehicles.map(v => v.trip_number.trim().toUpperCase());
+        const uniqueSet = new Set(enteredTripNumbers);
+        if (uniqueSet.size < enteredTripNumbers.length) {
+            toast({
+                variant: "destructive",
+                title: "Duplicate Trip Number Detected",
+                description: "Two or more vehicles in this order have the exact same Trip Reference Number. Please make sure each vehicle has a unique Trip Number."
+            });
+            return;
+        }
+
+        // Check for duplicate Trip Numbers against existing database records (both orders and trip sheets)
+        try {
+            const { data: existingOrders, error: orderCheckErr } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("trip_number")
+                .in("trip_number", enteredTripNumbers);
+            
+            if (orderCheckErr) throw orderCheckErr;
+
+            if (existingOrders && existingOrders.length > 0) {
+                const dupNumber = existingOrders[0].trip_number;
+                toast({
+                    variant: "destructive",
+                    title: "Trip Number Already Exists!",
+                    description: `Trip Reference "${dupNumber}" is already in use by an existing Trip Order. Please edit and specify a unique Trip Number.`
+                });
+                return;
+            }
+
+            const { data: existingSheets, error: sheetCheckErr } = await supabase
+                .from("logistics_trip_sheets" as any)
+                .select("trip_number")
+                .in("trip_number", enteredTripNumbers);
+
+            if (sheetCheckErr) throw sheetCheckErr;
+
+            if (existingSheets && existingSheets.length > 0) {
+                const dupNumber = existingSheets[0].trip_number;
+                toast({
+                    variant: "destructive",
+                    title: "Trip Number Already Exists!",
+                    description: `Trip Reference "${dupNumber}" already exists in active Trip Sheets. Please edit and specify a unique Trip Number.`
+                });
+                return;
+            }
+        } catch (err: any) {
+            console.error("Trip number check error:", err);
+        }
+
+        // Calculate next SEL-xxxx sequential order number
+        let nextOrderSeq = 1;
+        try {
+            const { data: allExistingOrders } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("order_number");
+            
+            if (allExistingOrders && allExistingOrders.length > 0) {
+                let maxNum = 0;
+                allExistingOrders.forEach((o: any) => {
+                    const match = o.order_number?.match(/SEL-(\d+)/i);
+                    if (match && match[1]) {
+                        const parsed = parseInt(match[1], 10);
+                        if (!isNaN(parsed) && parsed > maxNum) maxNum = parsed;
+                    }
+                });
+                nextOrderSeq = maxNum > 0 ? maxNum + 1 : allExistingOrders.length + 1;
+            }
+        } catch (err) {
+            nextOrderSeq = (orders?.length || 0) + 1;
+        }
+
+        const formattedOrderNumber = `SEL-${String(nextOrderSeq).padStart(4, '0')}`;
+
         const usdAmount = parseFloat(formData.agreed_amount_usd) || 0;
         const clientRate = parseFloat(formData.agreed_client_rate) || 1.0;
         const localTotal = usdAmount * clientRate;
 
         // Create an order record for each assigned vehicle so each can follow its individual trip lifecycle
         const payloads = validVehicles.map((v, i) => ({
-            order_number: `ORD-${Date.now().toString().slice(-6)}${validVehicles.length > 1 ? `-${i + 1}` : ''}`,
-            trip_number: v.trip_number || `TRP-${Date.now().toString().slice(-6)}-${i + 1}`,
+            order_number: formattedOrderNumber,
+            trip_number: v.trip_number.trim(),
             client_name: formData.client_name,
             agreed_amount_usd: usdAmount,
             agreed_client_rate: clientRate,
@@ -483,9 +624,9 @@ export default function TripOrders() {
         createOrderMutation.mutate(payloads);
     };
 
-    // Approval / Rejection Action Mutation
+    // Approval / Rejection Action Mutation (Supports single ID or array of IDs)
     const approveOrderMutation = useMutation({
-        mutationFn: async ({ orderId, status, rejectionReason }: { orderId: string, status: string, rejectionReason?: string }) => {
+        mutationFn: async ({ orderIds, status, rejectionReason }: { orderIds: string[], status: string, rejectionReason?: string }) => {
             const payload: any = {
                 status: status,
                 updated_at: new Date().toISOString()
@@ -501,17 +642,18 @@ export default function TripOrders() {
             const { error } = await supabase
                 .from("logistics_trip_orders" as any)
                 .update(payload)
-                .eq("id", orderId);
+                .in("id", orderIds);
             if (error) throw error;
         },
         onSuccess: (_, vars) => {
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
             queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
+            const count = vars.orderIds.length;
             toast({
-                title: vars.status === "Approved" ? "Order Approved!" : "Order Rejected",
+                title: vars.status === "Approved" ? "Orders Approved!" : "Orders Rejected",
                 description: vars.status === "Approved" 
-                    ? "Order is now approved and ready for Finance to generate the Trip Sheet." 
-                    : "The order has been rejected."
+                    ? `${count} order(s) approved and ready for Finance to generate Trip Sheets.` 
+                    : `${count} order(s) have been rejected.`
             });
             setIsApprovalDialogOpen(false);
             setOrderToApprove(null);
@@ -526,20 +668,20 @@ export default function TripOrders() {
         }
     });
 
-    // Super Admin Delete Order Mutation
+    // Super Admin Delete Order Mutation (Supports deleting multiple IDs)
     const deleteOrderMutation = useMutation({
-        mutationFn: async (orderId: string) => {
+        mutationFn: async (orderIds: string[]) => {
             const { error } = await supabase
                 .from("logistics_trip_orders" as any)
                 .delete()
-                .eq("id", orderId);
+                .in("id", orderIds);
             if (error) throw error;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
             toast({
-                title: "Order Deleted",
-                description: "The trip order has been removed successfully."
+                title: "Order(s) Deleted",
+                description: "The selected trip order(s) have been removed successfully."
             });
         },
         onError: (err: any) => {
@@ -568,6 +710,27 @@ export default function TripOrders() {
             return matchesSearch && matchesStatus && matchesClient;
         });
     }, [orders, searchTerm, statusFilter, clientFilter]);
+
+    // Grouped Orders for Accordion Table Display
+    const groupedOrderList = useMemo(() => {
+        // Group by `${o.client_name || 'Unknown'}__${o.order_number || 'Single'}`
+        const groupMap: { [key: string]: { key: string, order_number: string, client_name: string, items: any[] } } = {};
+        
+        filteredOrders.forEach((o: any) => {
+            const groupKey = `${(o.client_name || "UNKNOWN").trim().toUpperCase()}__${(o.order_number || o.id).trim().toUpperCase()}`;
+            if (!groupMap[groupKey]) {
+                groupMap[groupKey] = {
+                    key: groupKey,
+                    order_number: o.order_number || "—",
+                    client_name: o.client_name || "—",
+                    items: []
+                };
+            }
+            groupMap[groupKey].items.push(o);
+        });
+
+        return Object.values(groupMap);
+    }, [filteredOrders]);
 
     // Unique clients for filtering
     const uniqueClients = useMemo(() => {
@@ -724,148 +887,444 @@ export default function TripOrders() {
                                         Loading trip orders...
                                     </TableCell>
                                 </TableRow>
-                            ) : filteredOrders.length === 0 ? (
+                            ) : groupedOrderList.length === 0 ? (
                                 <TableRow>
                                     <TableCell colSpan={8} className="py-12 text-center text-slate-400 text-xs">
                                         No trip orders found matching your filters. Click "New Trip Order" to create one.
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                filteredOrders.map((order: any, idx: number) => {
-                                    const isPending = order.status === "Pending Approval";
-                                    const isApproved = order.status === "Approved" || order.status === "Trip Sheet Created";
-                                    const isRejected = order.status === "Rejected";
+                                groupedOrderList.map((group: any, gIdx: number) => {
+                                    const isMulti = group.items.length > 1;
+                                    // If only 1 order in group, render as standard row
+                                    if (!isMulti) {
+                                        const order = group.items[0];
+                                        const isPending = order.status === "Pending Approval";
+                                        const isApproved = order.status === "Approved" || order.status === "Trip Sheet Created";
+                                        const isRejected = order.status === "Rejected";
 
-                                    return (
-                                        <TableRow key={order.id} className="hover:bg-slate-50/60 transition-colors">
-                                            <TableCell className="text-center text-xs font-semibold text-slate-400">
-                                                {(idx + 1).toString().padStart(2, '0')}
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="font-bold text-slate-900 text-xs">{order.trip_number || "—"}</div>
-                                                <div className="text-[10px] text-slate-400 font-medium">{order.order_number}</div>
-                                                <div className="text-[9px] font-semibold text-indigo-600 mt-0.5">{order.journey_type}</div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                                    <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                                                    {order.client_name}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="space-y-0.5">
-                                                    <div className="font-semibold text-slate-800 text-xs flex items-center gap-1">
-                                                        <Truck className="w-3 h-3 text-slate-400" />
-                                                        {order.truck_reg} {order.trailer_reg && <span className="text-slate-400 font-normal">/ {order.trailer_reg}</span>}
+                                        return (
+                                            <TableRow key={order.id} className="hover:bg-slate-50/60 transition-colors">
+                                                <TableCell className="text-center text-xs font-semibold text-slate-400">
+                                                    {(gIdx + 1).toString().padStart(2, '0')}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="font-bold text-slate-900 text-xs">{order.trip_number || "—"}</div>
+                                                    <div className="text-[10px] text-slate-400 font-medium">{order.order_number}</div>
+                                                    <div className="text-[9px] font-semibold text-indigo-600 mt-0.5">{order.journey_type}</div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                                        <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                                                        {order.client_name}
                                                     </div>
-                                                    <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                                                        <User className="w-3 h-3 text-slate-400" />
-                                                        {order.driver_name || "No driver assigned"}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="space-y-0.5">
+                                                        <div className="font-semibold text-slate-800 text-xs flex items-center gap-1">
+                                                            <Truck className="w-3 h-3 text-slate-400" />
+                                                            {order.truck_reg} {order.trailer_reg && <span className="text-slate-400 font-normal">/ {order.trailer_reg}</span>}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                                                            <User className="w-3 h-3 text-slate-400" />
+                                                            {order.driver_name || "No driver assigned"}
+                                                        </div>
+                                                        {order.contact_no && (
+                                                            <div className="text-[10px] text-slate-400">{order.contact_no}</div>
+                                                        )}
                                                     </div>
-                                                    {order.contact_no && (
-                                                        <div className="text-[10px] text-slate-400">{order.contact_no}</div>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="space-y-0.5">
-                                                    <div className="font-semibold text-slate-800 text-xs">{order.destination}</div>
-                                                    <div className="text-[10px] text-slate-500 font-medium">From: {order.origin || 'DAR ES SALAAM'}</div>
-                                                    {order.cargo_description && (
-                                                        <div className="text-[10px] text-indigo-600 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/50 w-fit">
-                                                            {order.cargo_description}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="space-y-0.5">
+                                                        <div className="font-semibold text-slate-800 text-xs">{order.destination}</div>
+                                                        <div className="text-[10px] text-slate-500 font-medium">From: {order.origin || 'DAR ES SALAAM'}</div>
+                                                        {order.cargo_description && (
+                                                            <div className="text-[10px] text-indigo-600 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/50 w-fit">
+                                                                {order.cargo_description}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="font-black text-slate-900 text-xs">
+                                                        ${(parseFloat(order.agreed_amount_usd) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500 font-medium">
+                                                        Rate: @{order.agreed_client_rate || "2700"}
+                                                    </div>
+                                                    <div className="text-[10px] font-semibold text-emerald-700">
+                                                        {(parseFloat(order.agreed_amount_local) || 0).toLocaleString(undefined, { minimumFractionDigits: 0 })} Local
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <Badge
+                                                        className={cn(
+                                                            "text-[10px] font-bold px-2 py-0.5 border shadow-none",
+                                                            isPending && "bg-amber-50 text-amber-700 border-amber-200",
+                                                            isApproved && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                                                            isRejected && "bg-rose-50 text-rose-700 border-rose-200"
+                                                        )}
+                                                    >
+                                                        {order.status}
+                                                    </Badge>
+                                                    {order.approved_at && (
+                                                        <div className="text-[9px] text-slate-400 mt-1">
+                                                            {format(new Date(order.approved_at), "dd MMM yy")}
                                                         </div>
                                                     )}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="font-black text-slate-900 text-xs">
-                                                    ${(parseFloat(order.agreed_amount_usd) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                </div>
-                                                <div className="text-[10px] text-slate-500 font-medium">
-                                                    Rate: @{order.agreed_client_rate || "2700"}
-                                                </div>
-                                                <div className="text-[10px] font-semibold text-emerald-700">
-                                                    {(parseFloat(order.agreed_amount_local) || 0).toLocaleString(undefined, { minimumFractionDigits: 0 })} Local
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                                <Badge
-                                                    className={cn(
-                                                        "text-[10px] font-bold px-2 py-0.5 border shadow-none",
-                                                        isPending && "bg-amber-50 text-amber-700 border-amber-200",
-                                                        isApproved && "bg-emerald-50 text-emerald-700 border-emerald-200",
-                                                        isRejected && "bg-rose-50 text-rose-700 border-rose-200"
-                                                    )}
-                                                >
-                                                    {order.status}
-                                                </Badge>
-                                                {order.approved_at && (
-                                                    <div className="text-[9px] text-slate-400 mt-1">
-                                                        {format(new Date(order.approved_at), "dd MMM yy")}
-                                                    </div>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="flex items-center justify-end gap-1.5">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => setSelectedOrderDetails(order)}
-                                                        className="h-8 px-2.5 text-[11px] text-slate-600 hover:text-slate-900"
-                                                    >
-                                                        <Eye className="w-3.5 h-3.5 mr-1" />
-                                                        View
-                                                    </Button>
-
-                                                    {isAdmin && isPending && (
-                                                        <>
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    setOrderToApprove(order);
-                                                                    setApprovalAction("Approve");
-                                                                    setIsApprovalDialogOpen(true);
-                                                                }}
-                                                                className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-sm"
-                                                            >
-                                                                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                                                                Approve
-                                                            </Button>
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => {
-                                                                    setOrderToApprove(order);
-                                                                    setApprovalAction("Reject");
-                                                                    setIsApprovalDialogOpen(true);
-                                                                }}
-                                                                className="h-8 px-2.5 border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-lg"
-                                                            >
-                                                                <XCircle className="w-3.5 h-3.5 mr-1" />
-                                                                Reject
-                                                            </Button>
-                                                        </>
-                                                    )}
-
-                                                    {isSuperAdmin && (
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex items-center justify-end gap-1.5">
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
-                                                            onClick={() => {
-                                                                if (window.confirm(`Are you sure you want to delete order "${order.trip_number || order.order_number}"? This cannot be undone.`)) {
-                                                                    deleteOrderMutation.mutate(order.id);
-                                                                }
-                                                            }}
-                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
-                                                            title="Delete Order (Super Admin Only)"
+                                                            onClick={() => setSelectedOrderDetails(order)}
+                                                            className="h-8 px-2.5 text-[11px] text-slate-600 hover:text-slate-900"
                                                         >
-                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            <Eye className="w-3.5 h-3.5 mr-1" />
+                                                            View
                                                         </Button>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
+
+                                                        {isAdmin && isPending && (
+                                                            <>
+                                                                <Button
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        setOrderToApprove(order);
+                                                                        setApprovalAction("Approve");
+                                                                        setIsApprovalDialogOpen(true);
+                                                                    }}
+                                                                    className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-sm"
+                                                                >
+                                                                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                                                                    Approve
+                                                                </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        setOrderToApprove(order);
+                                                                        setApprovalAction("Reject");
+                                                                        setIsApprovalDialogOpen(true);
+                                                                    }}
+                                                                    className="h-8 px-2.5 border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-lg"
+                                                                >
+                                                                    <XCircle className="w-3.5 h-3.5 mr-1" />
+                                                                    Reject
+                                                                </Button>
+                                                            </>
+                                                        )}
+
+                                                        {isSuperAdmin && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Are you sure you want to delete order "${order.trip_number || order.order_number}"? This cannot be undone.`)) {
+                                                                        deleteOrderMutation.mutate([order.id]);
+                                                                    }
+                                                                }}
+                                                                className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                                                title="Delete Order (Super Admin Only)"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    }
+
+                                    // Multi-vehicle group: render expandable parent header row + sub-rows
+                                    const isExpanded = expandedGroups[group.key] !== false; // default expanded
+                                    const totalGroupUSD = group.items.reduce((sum: number, o: any) => sum + (parseFloat(o.agreed_amount_usd) || 0), 0);
+                                    const totalGroupLocal = group.items.reduce((sum: number, o: any) => sum + (parseFloat(o.agreed_amount_local) || 0), 0);
+                                    const sampleOrder = group.items[0];
+                                    const allPending = group.items.every((o: any) => o.status === "Pending Approval");
+                                    const allApproved = group.items.every((o: any) => o.status === "Approved" || o.status === "Trip Sheet Created");
+                                    const hasPending = group.items.some((o: any) => o.status === "Pending Approval");
+
+                                    return (
+                                        <div key={group.key} className="contents">
+                                            {/* Group Parent Row */}
+                                            <TableRow 
+                                                className="bg-indigo-50/50 hover:bg-indigo-50/80 border-y border-indigo-100/80 transition-colors cursor-pointer select-none font-medium"
+                                                onClick={() => toggleGroupExpand(group.key)}
+                                            >
+                                                <TableCell className="text-center text-xs font-bold text-indigo-700">
+                                                    {(gIdx + 1).toString().padStart(2, '0')}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 w-6 p-0 text-indigo-700 hover:text-indigo-950 hover:bg-indigo-100 rounded-md"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleGroupExpand(group.key);
+                                                            }}
+                                                        >
+                                                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                                        </Button>
+                                                        <div>
+                                                            <div className="font-black text-indigo-900 text-xs flex items-center gap-1.5">
+                                                                {group.order_number}
+                                                                <Badge className="bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0 h-4 border-none">
+                                                                    {group.items.length} Vehicles
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="text-[10px] text-indigo-600 font-semibold mt-0.5">
+                                                                Click to {isExpanded ? 'collapse' : 'expand'} order drop-down
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                                        <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                                                        {group.client_name}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                                        <Truck className="w-3.5 h-3.5 text-slate-500" />
+                                                        {group.items.map((it: any) => it.truck_reg).filter(Boolean).join(", ")}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500">
+                                                        {group.items.length} assigned driver(s)
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="font-semibold text-slate-800 text-xs">{sampleOrder.destination}</div>
+                                                    <div className="text-[10px] text-slate-500 font-medium">From: {sampleOrder.origin || 'DAR ES SALAAM'}</div>
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="font-black text-indigo-950 text-xs">
+                                                        ${totalGroupUSD.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-500 font-medium">
+                                                        Rate: @{sampleOrder.agreed_client_rate || "2700"}
+                                                    </div>
+                                                    <div className="text-[10px] font-bold text-emerald-700">
+                                                        {totalGroupLocal.toLocaleString(undefined, { minimumFractionDigits: 0 })} Local Total
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                    <Badge
+                                                        className={cn(
+                                                            "text-[10px] font-bold px-2 py-0.5 border shadow-none",
+                                                            allPending && "bg-amber-50 text-amber-700 border-amber-200",
+                                                            allApproved && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                                                            !allPending && !allApproved && "bg-slate-100 text-slate-700 border-slate-300"
+                                                        )}
+                                                    >
+                                                        {allPending ? "Pending All" : allApproved ? "All Approved" : "Mixed Status"}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        {isAdmin && hasPending && (
+                                                            <>
+                                                                <Button
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        setOrderToApprove({
+                                                                            order_number: group.order_number,
+                                                                            trip_number: `${group.order_number} (${group.items.length} vehicles)`,
+                                                                            items: group.items.filter((it: any) => it.status === "Pending Approval")
+                                                                        });
+                                                                        setApprovalAction("Approve");
+                                                                        setIsApprovalDialogOpen(true);
+                                                                    }}
+                                                                    className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-sm"
+                                                                    title="Approve all vehicles in this order"
+                                                                >
+                                                                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                                                                    Approve All
+                                                                </Button>
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => {
+                                                                        setOrderToApprove({
+                                                                            order_number: group.order_number,
+                                                                            trip_number: `${group.order_number} (${group.items.length} vehicles)`,
+                                                                            items: group.items.filter((it: any) => it.status === "Pending Approval")
+                                                                        });
+                                                                        setApprovalAction("Reject");
+                                                                        setIsApprovalDialogOpen(true);
+                                                                    }}
+                                                                    className="h-8 px-2.5 border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-lg"
+                                                                    title="Reject all vehicles in this order"
+                                                                >
+                                                                    <XCircle className="w-3.5 h-3.5 mr-1" />
+                                                                    Reject All
+                                                                </Button>
+                                                            </>
+                                                        )}
+
+                                                        {isSuperAdmin && (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Are you sure you want to delete entire Order "${group.order_number}" with all ${group.items.length} vehicles? This cannot be undone.`)) {
+                                                                        const allIds = group.items.map((it: any) => it.id);
+                                                                        deleteOrderMutation.mutate(allIds);
+                                                                    }
+                                                                }}
+                                                                className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                                                title="Delete Grouped Order (Super Admin Only)"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+
+                                            {/* Sub-Rows (Child Vehicles) inside Drop-down Accordion */}
+                                            {isExpanded && group.items.map((subOrder: any, subIdx: number) => {
+                                                const isSubPending = subOrder.status === "Pending Approval";
+                                                const isSubApproved = subOrder.status === "Approved" || subOrder.status === "Trip Sheet Created";
+                                                const isSubRejected = subOrder.status === "Rejected";
+
+                                                return (
+                                                    <TableRow key={subOrder.id} className="bg-slate-50/40 hover:bg-slate-100/60 border-b border-slate-100 transition-colors">
+                                                        <TableCell className="text-center text-[11px] font-semibold text-slate-400 pl-4">
+                                                            ↳ {subIdx + 1}
+                                                        </TableCell>
+                                                        <TableCell className="pl-6">
+                                                            <div className="font-black text-indigo-900 text-xs">{subOrder.trip_number || "—"}</div>
+                                                            <div className="text-[10px] text-slate-400 font-medium">{subOrder.order_number}</div>
+                                                            <div className="text-[9px] font-semibold text-indigo-600 mt-0.5">{subOrder.journey_type}</div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="font-semibold text-slate-600 text-xs flex items-center gap-1">
+                                                                <Building2 className="w-3 h-3 text-slate-400" />
+                                                                {subOrder.client_name}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="space-y-0.5">
+                                                                <div className="font-bold text-slate-800 text-xs flex items-center gap-1">
+                                                                    <Truck className="w-3 h-3 text-indigo-500" />
+                                                                    {subOrder.truck_reg} {subOrder.trailer_reg && <span className="text-slate-400 font-normal">/ {subOrder.trailer_reg}</span>}
+                                                                </div>
+                                                                <div className="text-[11px] text-slate-600 flex items-center gap-1">
+                                                                    <User className="w-3 h-3 text-slate-400" />
+                                                                    {subOrder.driver_name || "No driver assigned"}
+                                                                </div>
+                                                                {subOrder.contact_no && (
+                                                                    <div className="text-[10px] text-slate-400">{subOrder.contact_no}</div>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="space-y-0.5">
+                                                                <div className="font-semibold text-slate-800 text-xs">{subOrder.destination}</div>
+                                                                <div className="text-[10px] text-slate-500 font-medium">From: {subOrder.origin || 'DAR ES SALAAM'}</div>
+                                                                {subOrder.cargo_description && (
+                                                                    <div className="text-[10px] text-indigo-600 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/50 w-fit">
+                                                                        {subOrder.cargo_description}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right">
+                                                            <div className="font-black text-slate-900 text-xs">
+                                                                ${(parseFloat(subOrder.agreed_amount_usd) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                            </div>
+                                                            <div className="text-[10px] text-slate-500 font-medium">
+                                                                Rate: @{subOrder.agreed_client_rate || "2700"}
+                                                            </div>
+                                                            <div className="text-[10px] font-semibold text-emerald-700">
+                                                                {(parseFloat(subOrder.agreed_amount_local) || 0).toLocaleString(undefined, { minimumFractionDigits: 0 })} Local
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-center">
+                                                            <Badge
+                                                                className={cn(
+                                                                    "text-[10px] font-bold px-2 py-0.5 border shadow-none",
+                                                                    isSubPending && "bg-amber-50 text-amber-700 border-amber-200",
+                                                                    isSubApproved && "bg-emerald-50 text-emerald-700 border-emerald-200",
+                                                                    isSubRejected && "bg-rose-50 text-rose-700 border-rose-200"
+                                                                )}
+                                                            >
+                                                                {subOrder.status}
+                                                            </Badge>
+                                                            {subOrder.approved_at && (
+                                                                <div className="text-[9px] text-slate-400 mt-1">
+                                                                    {format(new Date(subOrder.approved_at), "dd MMM yy")}
+                                                                </div>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell className="text-right">
+                                                            <div className="flex items-center justify-end gap-1.5">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => setSelectedOrderDetails(subOrder)}
+                                                                    className="h-8 px-2.5 text-[11px] text-slate-600 hover:text-slate-900"
+                                                                >
+                                                                    <Eye className="w-3.5 h-3.5 mr-1" />
+                                                                    View
+                                                                </Button>
+
+                                                                {isAdmin && isSubPending && (
+                                                                    <>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            onClick={() => {
+                                                                                setOrderToApprove(subOrder);
+                                                                                setApprovalAction("Approve");
+                                                                                setIsApprovalDialogOpen(true);
+                                                                            }}
+                                                                            className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-sm"
+                                                                        >
+                                                                            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                                                                            Approve
+                                                                        </Button>
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => {
+                                                                                setOrderToApprove(subOrder);
+                                                                                setApprovalAction("Reject");
+                                                                                setIsApprovalDialogOpen(true);
+                                                                            }}
+                                                                            className="h-8 px-2.5 border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-bold rounded-lg"
+                                                                        >
+                                                                            <XCircle className="w-3.5 h-3.5 mr-1" />
+                                                                            Reject
+                                                                        </Button>
+                                                                    </>
+                                                                )}
+
+                                                                {isSuperAdmin && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        onClick={() => {
+                                                                            if (window.confirm(`Are you sure you want to delete order "${subOrder.trip_number || subOrder.order_number}"? This cannot be undone.`)) {
+                                                                                deleteOrderMutation.mutate([subOrder.id]);
+                                                                            }
+                                                                        }}
+                                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                                                        title="Delete Order (Super Admin Only)"
+                                                                    >
+                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </div>
                                     );
                                 })
                             )}
@@ -1123,13 +1582,58 @@ export default function TripOrders() {
                                         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-3">
                                             <div className="space-y-1">
                                                 <Label className="text-[11px] font-semibold text-slate-600">Driver Name *</Label>
-                                                <Input
-                                                    value={veh.driver_name}
-                                                    onChange={e => updateVehicleSlotField(vIdx, "driver_name", e.target.value)}
-                                                    placeholder="Driver full name"
-                                                    className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-900"
-                                                    required
-                                                />
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            variant="outline"
+                                                            role="combobox"
+                                                            className={cn(
+                                                                "w-full h-9 justify-between bg-white border-slate-200 text-xs font-semibold",
+                                                                !veh.driver_name && "text-slate-400 font-normal"
+                                                            )}
+                                                        >
+                                                            <span className="truncate">
+                                                                {veh.driver_name || "Select / Search Driver..."}
+                                                            </span>
+                                                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-[300px] p-0 z-[9999]" align="start">
+                                                        <Command>
+                                                            <CommandInput placeholder="Search driver name..." className="h-8 text-xs" />
+                                                            <CommandList>
+                                                                <CommandEmpty className="p-2 text-xs text-center text-slate-500">No driver found.</CommandEmpty>
+                                                                <CommandGroup className="max-h-[220px] overflow-auto">
+                                                                    {drivers.map((d: any) => {
+                                                                        const isExpired = d.license_expiry && new Date(d.license_expiry) < new Date();
+                                                                        return (
+                                                                            <CommandItem
+                                                                                key={d.id}
+                                                                                value={`${d.full_name} ${d.license_no || ''}`}
+                                                                                onSelect={() => handleSelectDriverForVehicle(d, vIdx)}
+                                                                                className="text-xs font-medium cursor-pointer"
+                                                                            >
+                                                                                <Check
+                                                                                    className={cn(
+                                                                                        "mr-2 h-3.5 w-3.5 text-indigo-600",
+                                                                                        (veh.driver_id === d.id || veh.driver_name === d.full_name) ? "opacity-100" : "opacity-0"
+                                                                                    )}
+                                                                                />
+                                                                                <div className="flex flex-col flex-1">
+                                                                                    <span className="font-semibold text-slate-800">{d.full_name}</span>
+                                                                                    <span className="text-[10px] text-slate-400">{d.phone_no || d.license_no || "No phone listed"}</span>
+                                                                                </div>
+                                                                                {isExpired && (
+                                                                                    <Badge variant="outline" className="text-[8px] text-red-500 border-red-200">Expired</Badge>
+                                                                                )}
+                                                                            </CommandItem>
+                                                                        );
+                                                                    })}
+                                                                </CommandGroup>
+                                                            </CommandList>
+                                                        </Command>
+                                                    </PopoverContent>
+                                                </Popover>
                                             </div>
 
                                             <div className="space-y-1">
@@ -1391,19 +1895,19 @@ export default function TripOrders() {
                             {approvalAction === "Approve" ? (
                                 <>
                                     <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                                    Approve Trip Order
+                                    Approve Trip Order{orderToApprove?.items?.length > 1 ? `s (${orderToApprove.items.length} Vehicles)` : ''}
                                 </>
                             ) : (
                                 <>
                                     <XCircle className="w-5 h-5 text-rose-600" />
-                                    Reject Trip Order
+                                    Reject Trip Order{orderToApprove?.items?.length > 1 ? `s (${orderToApprove.items.length} Vehicles)` : ''}
                                 </>
                             )}
                         </DialogTitle>
                         <p className="text-xs text-slate-500">
                             {approvalAction === "Approve" 
-                                ? `Are you sure you want to approve Order ${orderToApprove?.trip_number}? This will release the order to Finance for Trip Sheet creation.`
-                                : `Please specify why you are rejecting Order ${orderToApprove?.trip_number}.`
+                                ? `Are you sure you want to approve Order ${orderToApprove?.order_number || orderToApprove?.trip_number}? This will release the order${orderToApprove?.items?.length > 1 ? ` (${orderToApprove.items.length} vehicles)` : ''} to Finance for Trip Sheet creation.`
+                                : `Please specify why you are rejecting Order ${orderToApprove?.order_number || orderToApprove?.trip_number}.`
                             }
                         </p>
                     </DialogHeader>
@@ -1431,8 +1935,11 @@ export default function TripOrders() {
                         <Button
                             onClick={() => {
                                 if (orderToApprove) {
+                                    const idsToProcess = orderToApprove.items 
+                                        ? orderToApprove.items.map((it: any) => it.id)
+                                        : [orderToApprove.id];
                                     approveOrderMutation.mutate({
-                                        orderId: orderToApprove.id,
+                                        orderIds: idsToProcess,
                                         status: approvalAction === "Approve" ? "Approved" : "Rejected",
                                         rejectionReason: rejectionReason
                                     });

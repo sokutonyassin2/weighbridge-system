@@ -41,7 +41,13 @@ import {
     ChevronRight,
     Navigation,
     Route as RouteIcon,
-    CreditCard
+    CreditCard,
+    CheckCircle2,
+    DollarSign,
+    Building2,
+    TrendingUp,
+    Sparkles,
+    Send
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { TripSheet } from "@/components/logistics/TripSheet";
@@ -52,7 +58,7 @@ import { cn } from "@/lib/utils";
 
 const TripSheets = () => {
     const { userRole, user, userProfile } = useAuth();
-    const [activeTab, setActiveTab] = useState<'operations' | 'finance' | 'history'>('operations');
+    const [activeTab, setActiveTab] = useState<'approved_orders' | 'operations' | 'finance' | 'history'>('operations');
     const { toast } = useToast();
     const [searchTerm, setSearchTerm] = useState("");
     
@@ -249,6 +255,59 @@ const TripSheets = () => {
         }
     });
 
+    // Fetch Approved Trip Orders awaiting Trip Sheet confirmation
+    const { data: approvedOrders = [], isLoading: isLoadingApprovedOrders, refetch: refetchApprovedOrders } = useQuery({
+        queryKey: ["approved_orders_for_trip_sheets"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("*")
+                .eq("status", "Approved")
+                .order("created_at", { ascending: false });
+            if (error) throw error;
+            return data || [];
+        }
+    });
+
+    // Expanded accordion state for Approved Orders tab
+    const [expandedApprovedClients, setExpandedApprovedClients] = useState<string[]>([]);
+    const toggleApprovedClient = (clientName: string) => {
+        setExpandedApprovedClients(prev => 
+            prev.includes(clientName) ? prev.filter(c => c !== clientName) : [...prev, clientName]
+        );
+    };
+
+    // Filter approved orders by search
+    const filteredApprovedOrders = approvedOrders.filter((order: any) =>
+        (order.trip_number || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (order.order_number || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (order.truck_reg || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (order.driver_name || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (order.destination || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (order.client_name || '')?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    // Group approved orders by Client Name (batches from same client stay grouped together!)
+    const groupedApprovedOrders = filteredApprovedOrders.reduce((acc: Record<string, any>, order: any) => {
+        const client = order.client_name || 'Individual / Unspecified';
+        if (!acc[client]) {
+            acc[client] = {
+                clientName: client,
+                orders: [],
+                totalUSD: 0,
+                totalTZS: 0,
+                vehiclesCount: 0
+            };
+        }
+        acc[client].orders.push(order);
+        acc[client].vehiclesCount += 1;
+        const usd = parseFloat(order.agreed_amount_usd) || 0;
+        const local = parseFloat(order.agreed_amount_local) || (usd * (parseFloat(order.agreed_client_rate) || 2700));
+        acc[client].totalUSD += usd;
+        acc[client].totalTZS += local;
+        return acc;
+    }, {});
+
     const filteredSheets = tripSheets?.filter(trip =>
         trip.reference_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         trip.vehicle?.vehicle_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -399,23 +458,45 @@ const TripSheets = () => {
                     </div>
                     
                     {/* Tab Navigation */}
-                    <div className="flex items-center gap-1 mt-4 bg-slate-100/80 p-1 rounded-xl w-fit">
+                    <div className="flex items-center gap-1.5 mt-4 bg-slate-100/90 p-1 rounded-xl w-fit">
                         <Button 
                             variant="ghost" 
                             size="sm" 
                             className={cn(
-                                "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
-                                activeTab === 'operations' ? "bg-white text-slate-900 shadow-sm shadow-slate-200" : "text-slate-500 hover:text-slate-900"
+                                "h-8 px-3 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5",
+                                activeTab === 'approved_orders' 
+                                    ? "bg-indigo-600 text-white shadow-sm shadow-indigo-200" 
+                                    : "text-slate-600 hover:text-indigo-600 hover:bg-white/60"
                             )}
-                            onClick={() => setActiveTab('operations')}
+                            onClick={() => setActiveTab('approved_orders')}
                         >
-                            Operations
+                            <Sparkles size={12} className={activeTab === 'approved_orders' ? "text-amber-300" : "text-indigo-500"} />
+                            Approved Orders
+                            {approvedOrders.length > 0 && (
+                                <Badge className={cn(
+                                    "ml-1 text-[9px] font-black px-1.5 py-0 h-4 border-none",
+                                    activeTab === 'approved_orders' ? "bg-white text-indigo-900" : "bg-indigo-100 text-indigo-800"
+                                )}>
+                                    {approvedOrders.length}
+                                </Badge>
+                            )}
                         </Button>
                         <Button 
                             variant="ghost" 
                             size="sm" 
                             className={cn(
-                                "h-7 px-3 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all",
+                                "h-8 px-3 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
+                                activeTab === 'operations' ? "bg-white text-slate-900 shadow-sm shadow-slate-200" : "text-slate-500 hover:text-slate-900"
+                            )}
+                            onClick={() => setActiveTab('operations')}
+                        >
+                            Active Operations
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className={cn(
+                                "h-8 px-3 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all",
                                 activeTab === 'history' ? "bg-slate-800 text-white shadow-sm shadow-slate-900" : "text-slate-500 hover:text-slate-900"
                             )}
                             onClick={() => setActiveTab('history')}
@@ -447,7 +528,249 @@ const TripSheets = () => {
 
             {activeTab === 'history' ? (
                 <CompletedTripsHistory tripSheets={tripSheets || []} searchTerm={searchTerm} />
+            ) : activeTab === 'approved_orders' ? (
+                /* ─── APPROVED ORDERS AWAITING FINANCE CONFIRMATION / ACTIVATION ─── */
+                <div className="space-y-4">
+                    <div className="bg-indigo-50/70 border border-indigo-100 p-4 rounded-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
+                                <Sparkles size={16} />
+                            </div>
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-wider text-indigo-950">
+                                    Approved Trip Orders (Pre-Operations Queue)
+                                </h3>
+                                <p className="text-[11px] text-indigo-700 font-medium">
+                                    Orders reviewed & approved by Administration. Grouped by Client and Batch, ready to confirm into Active Operations.
+                                </p>
+                            </div>
+                        </div>
+                        <Badge className="bg-indigo-600 text-white font-bold text-xs px-3 py-1">
+                            {approvedOrders.length} Approved Vehicles
+                        </Badge>
+                    </div>
+
+                    <Card className="border border-slate-200 shadow-xl bg-white overflow-hidden rounded-2xl">
+                        <Table>
+                            <TableHeader className="bg-slate-50/60">
+                                <TableRow className="border-b border-slate-100">
+                                    <TableHead className="w-12 text-center text-xs font-semibold text-slate-500">#</TableHead>
+                                    <TableHead className="text-xs font-semibold text-slate-500 py-3.5">Client & Order Details</TableHead>
+                                    <TableHead className="text-xs font-semibold text-slate-500">Route & Cargo</TableHead>
+                                    <TableHead className="text-right text-xs font-semibold text-slate-500">Commercial Value</TableHead>
+                                    <TableHead className="text-center text-xs font-semibold text-slate-500">Status</TableHead>
+                                    <TableHead className="text-right text-xs font-semibold text-slate-500 pr-6">Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {isLoadingApprovedOrders ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="text-center py-24 text-slate-400 font-bold uppercase tracking-widest text-[10px]">
+                                            Loading Approved Orders...
+                                        </TableCell>
+                                    </TableRow>
+                                ) : Object.keys(groupedApprovedOrders).length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="text-center py-24">
+                                            <div className="flex flex-col items-center gap-2 text-slate-400">
+                                                <CheckCircle2 size={32} className="text-emerald-500/50" />
+                                                <span className="font-bold text-xs uppercase tracking-tight text-slate-600">No Orders Pending Confirmation</span>
+                                                <p className="text-[11px] text-slate-400 max-w-sm text-center">
+                                                    When orders are approved in the Logistics Trip Orders section, they will appear here grouped under their client for final confirmation.
+                                                </p>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    Object.entries(groupedApprovedOrders).map(([clientName, group]: [string, any], cIdx: number) => {
+                                        const isExpanded = expandedApprovedClients.includes(clientName);
+                                        return (
+                                            <Fragment key={clientName}>
+                                                {/* Client Accordion Header */}
+                                                <TableRow
+                                                    className="bg-slate-100/90 border-y border-slate-200 cursor-pointer hover:bg-slate-200/80 transition-colors select-none"
+                                                    onClick={() => toggleApprovedClient(clientName)}
+                                                >
+                                                    <TableCell className="text-center text-xs font-black text-slate-600">
+                                                        {(cIdx + 1).toString().padStart(2, '0')}
+                                                    </TableCell>
+                                                    <TableCell colSpan={2} className="py-4">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="text-slate-500 transition-transform duration-200">
+                                                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                                            </div>
+                                                            <div className="p-2 bg-indigo-600 text-white rounded-lg shadow-xs">
+                                                                <Building2 size={16} />
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-sm font-black text-slate-900 tracking-tight uppercase">
+                                                                        {clientName}
+                                                                    </span>
+                                                                    <Badge className="bg-indigo-100 text-indigo-800 text-[10px] font-black border-none px-2 h-5">
+                                                                        {group.vehiclesCount} VEHICLES TOTAL
+                                                                    </Badge>
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-500 font-semibold mt-0.5">
+                                                                    {isExpanded ? "Click to collapse" : "Click to expand approved vehicles & trips"}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Gross Contracted</span>
+                                                            <div className="flex items-baseline justify-end gap-2">
+                                                                <span className="text-sm font-black text-indigo-700">
+                                                                    ${group.totalUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </span>
+                                                                <span className="text-[10px] font-bold text-emerald-700">
+                                                                    {formatTSh(group.totalTZS)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-black px-2 py-0.5">
+                                                            APPROVED
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right pr-6" onClick={(e) => e.stopPropagation()}>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-8 px-3 text-[10px] font-black uppercase tracking-wider text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                                            onClick={() => toggleApprovedClient(clientName)}
+                                                        >
+                                                            {isExpanded ? "Hide Vehicles" : `View ${group.vehiclesCount} Vehicles`}
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+
+                                                {/* Child Vehicle Cards inside Client Folder */}
+                                                {isExpanded && group.orders.map((order: any, oIdx: number) => {
+                                                    const orderUSD = parseFloat(order.agreed_amount_usd) || 0;
+                                                    const orderRate = parseFloat(order.agreed_client_rate) || 2700;
+                                                    const orderLocal = parseFloat(order.agreed_amount_local) || (orderUSD * orderRate);
+
+                                                    return (
+                                                        <TableRow key={order.id} className="bg-slate-50/40 hover:bg-slate-100/60 border-b border-slate-100 transition-colors">
+                                                            <TableCell className="text-center text-[10px] font-bold text-slate-400 pl-4">
+                                                                ↳ {oIdx + 1}
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <div className="space-y-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="font-black text-indigo-900 text-xs tracking-tight">
+                                                                            Trip ID: {order.trip_number || "PENDING TRIP #"}
+                                                                        </span>
+                                                                        <Badge variant="outline" className="text-[9px] font-black px-1.5 py-0 h-4 border-slate-300 text-slate-700 bg-white">
+                                                                            {order.order_number || "SEL-BATCH"}
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                                                                        <Truck size={13} className="text-indigo-600" />
+                                                                        <span>{order.truck_reg}</span>
+                                                                        {order.trailer_reg && (
+                                                                            <span className="text-slate-400 font-normal">/ {order.trailer_reg}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 text-[11px] text-slate-600 font-medium">
+                                                                        <User size={11} className="text-slate-400" />
+                                                                        <span>{order.driver_name || "No Driver Assigned"}</span>
+                                                                        {order.contact_no && (
+                                                                            <span className="text-slate-400 text-[10px]">({order.contact_no})</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell>
+                                                                <div className="space-y-1">
+                                                                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-900">
+                                                                        <RouteIcon size={12} className="text-indigo-600" />
+                                                                        <span>{order.origin || 'DAR ES SALAAM'}</span>
+                                                                        <ArrowRight size={10} className="text-slate-400" />
+                                                                        <span className="text-indigo-600">{order.destination}</span>
+                                                                    </div>
+                                                                    {order.cargo_description && (
+                                                                        <div className="text-[10px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200/80 w-fit">
+                                                                            Cargo: {order.cargo_description}
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                                                                        Journey: {order.journey_type || "Go & Return"}
+                                                                    </div>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                                <div className="space-y-0.5">
+                                                                    <div className="font-black text-slate-900 text-xs">
+                                                                        ${orderUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                                                    </div>
+                                                                    <div className="text-[10px] font-bold text-emerald-700">
+                                                                        {formatTSh(orderLocal)}
+                                                                    </div>
+                                                                    <div className="text-[9px] font-semibold text-slate-400">
+                                                                        Rate: @{orderRate}
+                                                                    </div>
+                                                                </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-center">
+                                                                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2 py-0.5">
+                                                                    Approved by Admin
+                                                                </Badge>
+                                                                {order.approved_at && (
+                                                                    <div className="text-[9px] text-slate-400 mt-1">
+                                                                        {order.approved_at.split('T')[0]}
+                                                                    </div>
+                                                                )}
+                                                            </TableCell>
+                                                            <TableCell className="text-right pr-6">
+                                                                <Button
+                                                                    size="sm"
+                                                                    className="h-8 px-3 text-[11px] font-black uppercase tracking-wider bg-slate-900 hover:bg-indigo-600 text-white rounded-lg shadow-sm gap-1.5 transition-all"
+                                                                    onClick={() => {
+                                                                        // Open TripSheet pre-filled with this approved order data
+                                                                        setSelectedTrip(null);
+                                                                        setDuplicateSourceTrip({
+                                                                            trip_number: order.trip_number,
+                                                                            reference_number: order.trip_number,
+                                                                            vehicle_id: order.vehicle_id,
+                                                                            trailer_id: order.trailer_id,
+                                                                            driver_id: order.driver_id,
+                                                                            license_no: order.license_no,
+                                                                            passport_no: order.passport_no,
+                                                                            origin: order.origin || 'DAR ES SALAAM',
+                                                                            destination: order.destination,
+                                                                            client_name: order.client_name,
+                                                                            journey_type: order.journey_type || 'Go & Return',
+                                                                            cargo_outbound: order.cargo_description,
+                                                                            revenue_amount: orderUSD,
+                                                                            revenue_currency: 'USD',
+                                                                            exchange_rate: orderRate,
+                                                                            agreed_days: order.agreed_days,
+                                                                            daily_fine_amount: order.daily_penalty_fine
+                                                                        });
+                                                                        setIsSheetOpen(true);
+                                                                    }}
+                                                                >
+                                                                    <Send size={11} />
+                                                                    Review & Activate
+                                                                </Button>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                })}
+                                            </Fragment>
+                                        );
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                    </Card>
+                </div>
             ) : (
+                /* ─── ACTIVE OPERATIONS (EXISTING TRIP SHEETS DATA - UNTOUCHED) ─── */
                 <Fragment>
 
             <Card className="border border-slate-200 shadow-xl bg-white overflow-hidden rounded-2xl">

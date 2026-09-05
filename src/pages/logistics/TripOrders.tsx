@@ -147,6 +147,10 @@ export default function TripOrders() {
         passport_no: string;
         trip_number: string;
         journey_type: string;
+        is_tanker?: boolean;
+        agreed_amount_usd?: string;
+        load_quantity?: string; // Amount to be loaded (litres / kg)
+        rate_per_thousand?: string; // Rate per 1000
     }
 
     const initialVehicleItem: VehicleAssignment = {
@@ -161,7 +165,11 @@ export default function TripOrders() {
         license_no: "",
         passport_no: "",
         trip_number: "",
-        journey_type: "Go & Return (Full Cycle)"
+        journey_type: "Go & Return (Full Cycle)",
+        is_tanker: false,
+        agreed_amount_usd: "",
+        load_quantity: "",
+        rate_per_thousand: ""
     };
 
     const [vehicleAssignments, setVehicleAssignments] = useState<VehicleAssignment[]>([initialVehicleItem]);
@@ -294,12 +302,19 @@ export default function TripOrders() {
         }
     };
 
+    // Auto-calculate order total USD across all vehicle assignments inside modal
+    const formAccumulatedUSD = useMemo(() => {
+        return vehicleAssignments.reduce((sum, v) => {
+            const usd = parseFloat(v.agreed_amount_usd || "") || 0;
+            return sum + usd;
+        }, 0);
+    }, [vehicleAssignments]);
+
     // Auto-calculate local currency agreed total
     const agreedAmountLocal = useMemo(() => {
-        const usd = parseFloat(formData.agreed_amount_usd) || 0;
         const rate = parseFloat(formData.agreed_client_rate) || 0;
-        return (usd * rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }, [formData.agreed_amount_usd, formData.agreed_client_rate]);
+        return (formAccumulatedUSD * rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }, [formAccumulatedUSD, formData.agreed_client_rate]);
 
     // Helper to extract driver details from driver record and documents
     const extractDriverDetails = (driver: any) => {
@@ -376,15 +391,55 @@ export default function TripOrders() {
         const isTanker = v.asset_type?.toLowerCase().includes('tanker') || v.fleet_category?.toLowerCase() === 'tanker' || trailerIsTanker;
         const journeyType = isTanker ? "Go Only (Return Empty)" : "Go & Return (Full Cycle)";
 
-        // Generate Trip Number using standard system numbering
+        // Generate Trip Number: per-vehicle sequential numbering with fixed year 2025
         const cleanHorse = v.vehicle_no.replace(/\s*[A-Z]+$/, "").trim();
-        const { count: sheetsCount } = await supabase.from('logistics_trip_sheets' as any).select('*', { count: 'exact', head: true });
-        const { count: ordersCount } = await supabase.from('logistics_trip_orders' as any).select('*', { count: 'exact', head: true });
-        const totalTrips = (sheetsCount || 0) + (ordersCount || 0) + index;
-        const seq = String(totalTrips + 1).padStart(3, '0');
         const legIndicator = isTanker ? "T" : "G";
-        const currentYear = new Date().getFullYear();
-        const generatedTripId = `${cleanHorse}/${currentYear}/${legIndicator}${seq}`;
+        const fixedYear = "2025";
+
+        // Query last trip number for THIS specific vehicle from both tables
+        const vehicleId = v.id;
+        const { data: lastOrderTrips } = await supabase
+            .from('logistics_trip_orders' as any)
+            .select('trip_number')
+            .eq('vehicle_id', vehicleId)
+            .order('created_at', { ascending: false })
+            .limit(50);
+        const { data: lastSheetTrips } = await supabase
+            .from('logistics_trip_sheets' as any)
+            .select('trip_number')
+            .eq('vehicle_id', vehicleId)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        // Combine all trip numbers for this vehicle and extract the highest sequence
+        const allVehicleTrips = [
+            ...(lastOrderTrips || []).map((r: any) => r.trip_number),
+            ...(lastSheetTrips || []).map((r: any) => r.trip_number)
+        ].filter(Boolean);
+
+        let highestSeq = 120; // Will start at 121 if no previous trips
+        for (const tn of allVehicleTrips) {
+            // Match patterns like G121, G122, T105, etc. at the end of trip number
+            const seqMatch = tn.match(/[GT](\d+)\s*$/i);
+            if (seqMatch) {
+                const num = parseInt(seqMatch[1], 10);
+                if (num > highestSeq) highestSeq = num;
+            }
+        }
+
+        // Also check other vehicle slots in current form to avoid collision
+        for (const slot of vehicleAssignments) {
+            if (slot.vehicle_id === vehicleId && slot.trip_number) {
+                const slotMatch = slot.trip_number.match(/[GT](\d+)\s*$/i);
+                if (slotMatch) {
+                    const num = parseInt(slotMatch[1], 10);
+                    if (num > highestSeq) highestSeq = num;
+                }
+            }
+        }
+
+        const nextSeq = highestSeq + 1;
+        const generatedTripId = `${cleanHorse}/${fixedYear}/${legIndicator}${nextSeq}`;
 
         // Find driver assigned to vehicle
         const assignedDriver = drivers.find((d: any) => 
@@ -405,7 +460,11 @@ export default function TripOrders() {
             license_no: details.license,
             passport_no: details.passport,
             trip_number: generatedTripId,
-            journey_type: journeyType
+            journey_type: journeyType,
+            is_tanker: isTanker,
+            agreed_amount_usd: vehicleAssignments[index]?.agreed_amount_usd || formData.agreed_amount_usd || "",
+            load_quantity: vehicleAssignments[index]?.load_quantity || "",
+            rate_per_thousand: vehicleAssignments[index]?.rate_per_thousand || ""
         };
 
         setVehicleAssignments(prev => {
@@ -428,7 +487,8 @@ export default function TripOrders() {
                 license_no: details.license || prev.license_no,
                 passport_no: details.passport || prev.passport_no,
                 trip_number: generatedTripId,
-                journey_type: journeyType
+                journey_type: journeyType,
+                agreed_amount_usd: updatedItem.agreed_amount_usd || prev.agreed_amount_usd
             }));
         }
 
@@ -438,11 +498,23 @@ export default function TripOrders() {
         });
     };
 
-    const updateVehicleSlotField = (index: number, field: keyof VehicleAssignment, value: string) => {
+    const updateVehicleSlotField = (index: number, field: keyof VehicleAssignment, value: any) => {
         setVehicleAssignments(prev => {
             const copy = [...prev];
             if (copy[index]) {
-                copy[index] = { ...copy[index], [field]: value };
+                const currentSlot = { ...copy[index], [field]: value };
+
+                // Auto-calculate for Tankers if load_quantity or rate_per_thousand changed
+                if (field === "load_quantity" || field === "rate_per_thousand") {
+                    const qty = parseFloat(field === "load_quantity" ? value : currentSlot.load_quantity || "0") || 0;
+                    const rate = parseFloat(field === "rate_per_thousand" ? value : currentSlot.rate_per_thousand || "0") || 0;
+                    if (qty > 0 && rate > 0) {
+                        const calculatedUSD = ((qty / 1000) * rate).toFixed(2);
+                        currentSlot.agreed_amount_usd = calculatedUSD;
+                    }
+                }
+
+                copy[index] = currentSlot;
             }
             return copy;
         });
@@ -586,40 +658,43 @@ export default function TripOrders() {
 
         const formattedOrderNumber = `SEL-${String(nextOrderSeq).padStart(4, '0')}`;
 
-        const usdAmount = parseFloat(formData.agreed_amount_usd) || 0;
         const clientRate = parseFloat(formData.agreed_client_rate) || 1.0;
-        const localTotal = usdAmount * clientRate;
 
         // Create an order record for each assigned vehicle so each can follow its individual trip lifecycle
-        const payloads = validVehicles.map((v, i) => ({
-            order_number: formattedOrderNumber,
-            trip_number: v.trip_number.trim(),
-            client_name: formData.client_name,
-            agreed_amount_usd: usdAmount,
-            agreed_client_rate: clientRate,
-            agreed_amount_local: localTotal,
-            currency: "USD",
-            vehicle_id: v.vehicle_id || null,
-            truck_reg: v.truck_reg,
-            trailer_id: v.trailer_id || null,
-            trailer_reg: v.trailer_reg || null,
-            driver_id: v.driver_id || null,
-            driver_name: v.driver_name || null,
-            contact_no: v.contact_no || null,
-            license_no: v.license_no || null,
-            passport_no: v.passport_no || null,
-            origin: formData.origin || "DAR ES SALAAM",
-            destination: formData.destination,
-            agreed_days: parseInt(formData.agreed_days) || 0,
-            daily_penalty_fine: parseFloat(formData.daily_penalty_fine) || 0,
-            journey_type: v.journey_type || formData.journey_type,
-            cargo_description: formData.cargo_description || null,
-            bl_number: formData.bl_number || null,
-            container_no: formData.container_no || null,
-            notes: formData.notes || null,
-            status: "Pending Approval",
-            created_by: user?.id
-        }));
+        const payloads = validVehicles.map((v, i) => {
+            const vehicleUSD = parseFloat(v.agreed_amount_usd || formData.agreed_amount_usd) || 0;
+            const vehicleLocal = vehicleUSD * clientRate;
+
+            return {
+                order_number: formattedOrderNumber,
+                trip_number: v.trip_number.trim(),
+                client_name: formData.client_name,
+                agreed_amount_usd: vehicleUSD,
+                agreed_client_rate: clientRate,
+                agreed_amount_local: vehicleLocal,
+                currency: "USD",
+                vehicle_id: v.vehicle_id || null,
+                truck_reg: v.truck_reg,
+                trailer_id: v.trailer_id || null,
+                trailer_reg: v.trailer_reg || null,
+                driver_id: v.driver_id || null,
+                driver_name: v.driver_name || null,
+                contact_no: v.contact_no || null,
+                license_no: v.license_no || null,
+                passport_no: v.passport_no || null,
+                origin: formData.origin || "DAR ES SALAAM",
+                destination: formData.destination,
+                agreed_days: parseInt(formData.agreed_days) || 0,
+                daily_penalty_fine: parseFloat(formData.daily_penalty_fine) || 0,
+                journey_type: v.journey_type || formData.journey_type,
+                cargo_description: formData.cargo_description || null,
+                bl_number: formData.bl_number || null,
+                container_no: formData.container_no || null,
+                notes: formData.notes || null,
+                status: "Pending Approval",
+                created_by: user?.id
+            };
+        });
 
         createOrderMutation.mutate(payloads);
     };
@@ -1353,7 +1428,7 @@ export default function TripOrders() {
                                 <DollarSign className="w-4 h-4 text-emerald-600" />
                                 Client & Commercial Agreement
                             </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="space-y-1.5">
                                     <div className="flex items-center justify-between">
                                         <Label className="text-xs font-semibold text-slate-600">Client / Company Name *</Label>
@@ -1414,20 +1489,7 @@ export default function TripOrders() {
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Agreed Amount ($ USD) *</Label>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="e.g. 3500.00"
-                                        value={formData.agreed_amount_usd}
-                                        onChange={e => setFormData(prev => ({ ...prev, agreed_amount_usd: e.target.value }))}
-                                        className="h-10 bg-white border-slate-200 text-xs font-bold text-slate-900"
-                                        required
-                                    />
-                                </div>
-
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Client Agreed Rate (USD to Local) *</Label>
+                                    <Label className="text-xs font-semibold text-slate-600">Client Agreed Rate (USD to Local / TSh) *</Label>
                                     <Input
                                         type="number"
                                         step="0.01"
@@ -1440,11 +1502,19 @@ export default function TripOrders() {
                                 </div>
                             </div>
 
-                            <div className="flex items-center justify-between text-xs bg-white p-3 rounded-lg border border-slate-200/60">
-                                <span className="font-semibold text-slate-600">Client Total in Local Currency:</span>
-                                <span className="font-black text-emerald-700 text-sm">
-                                    {agreedAmountLocal} Local Currency
-                                </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-xl border border-slate-200/60 shadow-2xs">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold text-slate-600">Total Order Contracted USD:</span>
+                                    <span className="font-black text-indigo-700 text-sm">
+                                        ${formAccumulatedUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between border-t sm:border-t-0 sm:border-l border-slate-100 pt-2 sm:pt-0 sm:pl-3">
+                                    <span className="font-semibold text-slate-600">Total in Local Currency (TSh):</span>
+                                    <span className="font-black text-emerald-700 text-sm">
+                                        {agreedAmountLocal}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
@@ -1666,6 +1736,97 @@ export default function TripOrders() {
                                                 />
                                             </div>
                                         </div>
+
+                                        {/* Vehicle Commercial & Pricing Details (Tanker vs Cargo Truck) */}
+                                        <div className="mt-3 p-3 rounded-lg bg-slate-50/70 border border-slate-200/80">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="flex items-center gap-1.5">
+                                                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                                                    <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
+                                                        Vehicle Commercial Agreement {veh.is_tanker ? "(Tanker Calculation)" : "(Cargo / Flat Rate)"}
+                                                    </span>
+                                                </div>
+                                                {veh.is_tanker && (
+                                                    <Badge className="bg-amber-100 text-amber-900 border-amber-200 text-[10px] font-bold px-2 py-0 h-5">
+                                                        Tanker Unit Formula: (Qty ÷ 1000) × Rate
+                                                    </Badge>
+                                                )}
+                                            </div>
+
+                                            {veh.is_tanker ? (
+                                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px] font-semibold text-slate-600">Amount to be Loaded (Litres / KG) *</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="any"
+                                                            placeholder="e.g. 35000"
+                                                            value={veh.load_quantity || ""}
+                                                            onChange={e => updateVehicleSlotField(vIdx, "load_quantity", e.target.value)}
+                                                            className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-800"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px] font-semibold text-slate-600">Rate per 1,000 *</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="any"
+                                                            placeholder="e.g. 100.00"
+                                                            value={veh.rate_per_thousand || ""}
+                                                            onChange={e => updateVehicleSlotField(vIdx, "rate_per_thousand", e.target.value)}
+                                                            className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-800"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px] font-semibold text-slate-600">= Calculated USD ($) *</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.01"
+                                                            placeholder="0.00"
+                                                            value={veh.agreed_amount_usd || ""}
+                                                            onChange={e => updateVehicleSlotField(vIdx, "agreed_amount_usd", e.target.value)}
+                                                            className="h-8 bg-emerald-50/50 border-emerald-300 text-xs font-black text-emerald-800"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px] font-semibold text-slate-600">= Equivalent (TSh)</Label>
+                                                        <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                            <span className="text-[10px] text-slate-400">TSh</span>
+                                                            <span className="font-mono text-emerald-700">
+                                                                {(((parseFloat(veh.agreed_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px] font-semibold text-slate-600">Vehicle Agreed Amount ($ USD) *</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.01"
+                                                            placeholder="e.g. 3500.00"
+                                                            value={veh.agreed_amount_usd || ""}
+                                                            onChange={e => updateVehicleSlotField(vIdx, "agreed_amount_usd", e.target.value)}
+                                                            className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-1">
+                                                        <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
+                                                        <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                            <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
+                                                            <span className="font-mono text-emerald-700">
+                                                                {(((parseFloat(veh.agreed_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -1738,6 +1899,16 @@ export default function TripOrders() {
                                                 agreed_days: autoDays,
                                                 cargo_description: autoCargo
                                             }));
+
+                                            // If cargo vehicles don't have an agreed amount yet, auto-fill with default route rate
+                                            if (autoRate) {
+                                                setVehicleAssignments(prev => prev.map(slot => {
+                                                    if (!slot.is_tanker && (!slot.agreed_amount_usd || slot.agreed_amount_usd === "0")) {
+                                                        return { ...slot, agreed_amount_usd: autoRate };
+                                                    }
+                                                    return slot;
+                                                }));
+                                            }
                                         }}
                                     >
                                         <SelectTrigger className="h-10 bg-white border-slate-200 text-xs font-semibold">
@@ -1774,6 +1945,67 @@ export default function TripOrders() {
                                         placeholder="e.g. 5"
                                         className="h-10 bg-white border-slate-200 text-xs font-medium"
                                     />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Section 4: Order Accumulation Summary */}
+                        <div className="bg-slate-900 text-white p-4 rounded-xl space-y-3">
+                            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                                    Order Accumulation Summary ({vehicleAssignments.length} Vehicle{vehicleAssignments.length > 1 ? 's' : ''})
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                    USD / TSh Rate: <span className="text-white font-mono font-bold">@{formData.agreed_client_rate || "2700"}</span>
+                                </span>
+                            </div>
+
+                            <div className="space-y-1.5 text-xs max-h-40 overflow-y-auto pr-1">
+                                {vehicleAssignments.map((veh, idx) => {
+                                    const vUSD = parseFloat(veh.agreed_amount_usd || "0") || 0;
+                                    const vLocal = vUSD * (parseFloat(formData.agreed_client_rate) || 0);
+                                    return (
+                                        <div key={veh.id || idx} className="flex items-center justify-between py-1 border-b border-slate-800/60 text-slate-300">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-4 h-4 rounded bg-slate-800 text-[10px] flex items-center justify-center font-bold text-slate-400">
+                                                    {idx + 1}
+                                                </span>
+                                                <span className="font-semibold text-white">
+                                                    {veh.truck_reg || `Vehicle #${idx + 1}`}
+                                                </span>
+                                                {veh.is_tanker ? (
+                                                    <Badge className="bg-amber-950 text-amber-300 border-amber-800 text-[9px] px-1.5 py-0 h-4">
+                                                        Tanker {veh.load_quantity ? `(${veh.load_quantity}L @ $${veh.rate_per_thousand})` : ''}
+                                                    </Badge>
+                                                ) : (
+                                                    <Badge className="bg-slate-800 text-slate-300 border-slate-700 text-[9px] px-1.5 py-0 h-4">
+                                                        Cargo
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-mono font-bold text-emerald-400">
+                                                    ${vUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                                <span className="font-mono text-slate-400 text-[11px]">
+                                                    {vLocal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-xs font-bold">
+                                <span className="text-white uppercase tracking-wider">Total Contracted Accumulated:</span>
+                                <div className="text-right">
+                                    <div className="text-base text-emerald-400 font-mono font-black">
+                                        ${formAccumulatedUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                    </div>
+                                    <div className="text-[11px] text-slate-300 font-mono font-semibold">
+                                        ≈ {agreedAmountLocal} TSh
+                                    </div>
                                 </div>
                             </div>
                         </div>

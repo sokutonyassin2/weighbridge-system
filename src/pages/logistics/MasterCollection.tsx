@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +27,9 @@ import {
     FileText,
     TrendingUp,
     Check,
-    ChevronsUpDown
+    ChevronsUpDown,
+    CloudUpload,
+    Database
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -173,6 +175,21 @@ export default function MasterCollection() {
         }
     });
 
+    // Query Supabase table for route expenses master (Universal DB sync)
+    const { data: dbRouteExpensesMaster = [], refetch: refetchDbExpensesMaster, isLoading: isLoadingDbExpenses } = useQuery({
+        queryKey: ["logistics_route_expenses_master_all"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_route_expenses_master" as any)
+                .select("*");
+            if (error) {
+                console.warn("Could not fetch logistics_route_expenses_master (table might need migration):", error.message);
+                return [];
+            }
+            return data || [];
+        }
+    });
+
     // Local Storage based sync for Route Master table
     const [customRoutes, setCustomRoutes] = useState<any[]>(() => {
         try {
@@ -184,8 +201,8 @@ export default function MasterCollection() {
         return [];
     });
 
-    // Save custom routes helper
-    const persistRoutes = (routes: any[]) => {
+    // Save custom routes helper (persists both locally & to Supabase)
+    const persistRoutes = async (routes: any[]) => {
         setCustomRoutes(routes);
         localStorage.setItem("master_collection_routes", JSON.stringify(routes));
     };
@@ -241,9 +258,152 @@ export default function MasterCollection() {
         return {};
     });
 
-    const persistExpenses = (expensesMap: Record<string, any[]>) => {
+    // 🔄 Bi-Directional Auto-Sync:
+    // 1. When DB has data, merge/load into masterExpenses and customRoutes
+    // 2. When local has 14 routes and DB has 0 or fewer, auto-upload to DB!
+    const [isSyncingWithDb, setIsSyncingWithDb] = useState(false);
+
+    useEffect(() => {
+        const syncWithDatabase = async () => {
+            if (isLoadingDbExpenses) return;
+
+            // Load existing local storage items
+            let localExp: Record<string, any[]> = {};
+            let localRts: any[] = [];
+            try {
+                const sExp = localStorage.getItem("master_collection_route_expenses");
+                if (sExp) localExp = JSON.parse(sExp);
+                const sRts = localStorage.getItem("master_collection_routes");
+                if (sRts) localRts = JSON.parse(sRts);
+            } catch (err) {}
+
+            const dbRows = (dbRouteExpensesMaster as any[]) || [];
+            
+            // Scenario A: DB has records! Sync from DB into state and localStorage
+            if (dbRows.length > 0) {
+                const dbExpMap: Record<string, any[]> = {};
+                const dbCustomRoutes: any[] = [];
+
+                dbRows.forEach(row => {
+                    const dest = row.destination?.trim().toUpperCase();
+                    if (dest) {
+                        const items = Array.isArray(row.expenses) ? row.expenses : [];
+                        dbExpMap[dest] = items;
+                        dbCustomRoutes.push({
+                            id: `route-${dest}`,
+                            destination: dest,
+                            origin: row.origin || "DAR ES SALAAM",
+                            default_rate_usd: row.default_rate_usd,
+                            default_exchange_rate: row.default_exchange_rate || 2700,
+                            default_cargo: row.default_cargo,
+                            agreed_days: row.agreed_days,
+                            notes: row.notes || ""
+                        });
+                    }
+                });
+
+                // Merge: give DB priority, but keep any local keys not yet on DB
+                const mergedExp = { ...localExp, ...dbExpMap };
+                setMasterExpenses(mergedExp);
+                localStorage.setItem("master_collection_route_expenses", JSON.stringify(mergedExp));
+
+                // Merge routes
+                const knownDests = new Set(dbCustomRoutes.map(r => r.destination));
+                const extraLocal = localRts.filter(r => !knownDests.has(r.destination?.toUpperCase()));
+                const mergedRoutes = [...dbCustomRoutes, ...extraLocal];
+                setCustomRoutes(mergedRoutes);
+                localStorage.setItem("master_collection_routes", JSON.stringify(mergedRoutes));
+
+                // If local had routes that DB doesn't have, push them to DB
+                if (extraLocal.length > 0 || Object.keys(localExp).some(k => !dbExpMap[k])) {
+                    for (const destKey of Object.keys(localExp)) {
+                        if (!dbExpMap[destKey]) {
+                            const matchedRoute = localRts.find(r => r.destination?.toUpperCase() === destKey);
+                            try {
+                                await supabase.from("logistics_route_expenses_master" as any).upsert({
+                                    destination: destKey,
+                                    expenses: localExp[destKey] || [],
+                                    origin: matchedRoute?.origin || "DAR ES SALAAM",
+                                    default_rate_usd: matchedRoute?.default_rate_usd || null,
+                                    default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
+                                    default_cargo: matchedRoute?.default_cargo || null,
+                                    agreed_days: matchedRoute?.agreed_days || null,
+                                    notes: matchedRoute?.notes || "",
+                                    updated_at: new Date().toISOString()
+                                });
+                            } catch (e) {}
+                        }
+                    }
+                }
+            } 
+            // Scenario B: DB is currently empty (or newly created), but this machine has local routes!
+            // Auto-upload everything to Supabase immediately so production gets all 14 routes!
+            else if (Object.keys(localExp).length > 0 || localRts.length > 0) {
+                const destSet = new Set([...Object.keys(localExp), ...localRts.map(r => r.destination?.toUpperCase()).filter(Boolean)]);
+                const payloads = Array.from(destSet).map(dest => {
+                    const matchedRoute = localRts.find(r => r.destination?.toUpperCase() === dest);
+                    return {
+                        destination: dest,
+                        expenses: localExp[dest] || [],
+                        origin: matchedRoute?.origin || "DAR ES SALAAM",
+                        default_rate_usd: matchedRoute?.default_rate_usd || null,
+                        default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
+                        default_cargo: matchedRoute?.default_cargo || null,
+                        agreed_days: matchedRoute?.agreed_days || null,
+                        notes: matchedRoute?.notes || "",
+                        updated_at: new Date().toISOString()
+                    };
+                });
+
+                if (payloads.length > 0) {
+                    setIsSyncingWithDb(true);
+                    try {
+                        const { error } = await supabase
+                            .from("logistics_route_expenses_master" as any)
+                            .upsert(payloads);
+                        if (!error) {
+                            console.log(`Successfully migrated ${payloads.length} route expense templates to Supabase!`);
+                            refetchDbExpensesMaster();
+                        }
+                    } catch (e) {
+                        console.warn("Auto-sync to DB pending table creation:", e);
+                    } finally {
+                        setIsSyncingWithDb(false);
+                    }
+                }
+            }
+        };
+
+        syncWithDatabase();
+    }, [dbRouteExpensesMaster, isLoadingDbExpenses]);
+
+    // Persist to both local state/cache and Supabase
+    const persistExpenses = async (expensesMap: Record<string, any[]>, destChanged?: string) => {
         setMasterExpenses(expensesMap);
         localStorage.setItem("master_collection_route_expenses", JSON.stringify(expensesMap));
+
+        // Save to Supabase
+        const destinationsToSync = destChanged ? [destChanged] : Object.keys(expensesMap);
+        for (const dest of destinationsToSync) {
+            const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest?.toUpperCase());
+            try {
+                await supabase
+                    .from("logistics_route_expenses_master" as any)
+                    .upsert({
+                        destination: dest,
+                        expenses: expensesMap[dest] || [],
+                        origin: matchedRoute?.origin || "DAR ES SALAAM",
+                        default_rate_usd: matchedRoute?.default_rate_usd || null,
+                        default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
+                        default_cargo: matchedRoute?.default_cargo || null,
+                        agreed_days: matchedRoute?.agreed_days || null,
+                        notes: matchedRoute?.notes || "",
+                        updated_at: new Date().toISOString()
+                    });
+            } catch (err) {
+                console.warn("Failed to persist expenses to Supabase table:", err);
+            }
+        }
     };
 
     // Active Countries for the selected route (so we only show active ones by default!)
@@ -453,12 +613,31 @@ export default function MasterCollection() {
             agreed_days: "",
             notes: ""
         });
+
+        // Upsert route details to Supabase
+        try {
+            supabase.from("logistics_route_expenses_master" as any).upsert({
+                destination: normalizedDest,
+                expenses: masterExpenses[normalizedDest] || [],
+                origin: routeForm.origin.trim().toUpperCase(),
+                default_rate_usd: routeForm.default_rate_usd ? parseFloat(routeForm.default_rate_usd) : null,
+                default_exchange_rate: parseFloat(routeForm.default_exchange_rate) || 2700,
+                default_cargo: routeForm.default_cargo.trim() || null,
+                agreed_days: routeForm.agreed_days ? parseInt(routeForm.agreed_days) : null,
+                notes: routeForm.notes.trim(),
+                updated_at: new Date().toISOString()
+            }).then(() => refetchDbExpensesMaster());
+        } catch (e) {}
     };
 
-    const handleDeleteRoute = (id: string, name: string) => {
+    const handleDeleteRoute = async (id: string, name: string) => {
         if (!window.confirm(`Are you sure you want to delete route "${name}" from Master Collection?`)) return;
         const updated = customRoutes.filter(r => r.id !== id);
         persistRoutes(updated);
+        try {
+            await supabase.from("logistics_route_expenses_master" as any).delete().eq("destination", name.toUpperCase());
+            refetchDbExpensesMaster();
+        } catch (e) {}
         toast({ title: "Route Deleted", description: `Removed route: ${name}` });
     };
 
@@ -906,6 +1085,61 @@ export default function MasterCollection() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isSyncingWithDb}
+                        onClick={async () => {
+                            setIsSyncingWithDb(true);
+                            try {
+                                const localExpRaw = localStorage.getItem("master_collection_route_expenses");
+                                const localRtsRaw = localStorage.getItem("master_collection_routes");
+                                const localExp = localExpRaw ? JSON.parse(localExpRaw) : {};
+                                const localRts = localRtsRaw ? JSON.parse(localRtsRaw) : [];
+                                
+                                const destSet = new Set([...Object.keys(localExp), ...localRts.map((r: any) => r.destination?.toUpperCase()).filter(Boolean)]);
+                                const payloads = Array.from(destSet).map(dest => {
+                                    const matchedRoute = localRts.find((r: any) => r.destination?.toUpperCase() === dest);
+                                    return {
+                                        destination: dest,
+                                        expenses: localExp[dest] || [],
+                                        origin: matchedRoute?.origin || "DAR ES SALAAM",
+                                        default_rate_usd: matchedRoute?.default_rate_usd || null,
+                                        default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
+                                        default_cargo: matchedRoute?.default_cargo || null,
+                                        agreed_days: matchedRoute?.agreed_days || null,
+                                        notes: matchedRoute?.notes || "",
+                                        updated_at: new Date().toISOString()
+                                    };
+                                });
+
+                                if (payloads.length > 0) {
+                                    const { error } = await supabase.from("logistics_route_expenses_master" as any).upsert(payloads);
+                                    if (error) throw error;
+                                    toast({
+                                        title: "Cloud Sync Complete ☁️",
+                                        description: `Successfully uploaded ${payloads.length} route expense templates to live Database!`
+                                    });
+                                    await refetchDbExpensesMaster();
+                                } else {
+                                    toast({ title: "Everything Synced", description: "All routes and expenses are already up to date." });
+                                }
+                            } catch (err: any) {
+                                toast({
+                                    variant: "destructive",
+                                    title: "Cloud Sync Error",
+                                    description: err.message || "Failed to sync to database."
+                                });
+                            } finally {
+                                setIsSyncingWithDb(false);
+                            }
+                        }}
+                        className="h-10 px-3 text-xs font-bold border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-xl gap-2 shadow-xs"
+                    >
+                        <CloudUpload className={`w-4 h-4 ${isSyncingWithDb ? 'animate-bounce' : ''}`} />
+                        {isSyncingWithDb ? "Syncing..." : "Sync to Cloud Database"}
+                    </Button>
+
                     <Button 
                         onClick={() => {
                             setEditingRoute(null);

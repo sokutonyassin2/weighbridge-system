@@ -715,7 +715,50 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             title: "Smart Template Applied 🧠",
                             description: `Auto-filled ${templateExpenses.length} typical expenses and fuel for ${tripData.origin} → ${newDestination}`
                         });
+                        return;
                     }
+                }
+
+                // If no previous trip found, query Master Collection (Database + LocalStorage fallback)
+                let masterItems: any[] = [];
+                try {
+                    const { data: dbMaster } = await supabase
+                        .from('logistics_route_expenses_master' as any)
+                        .select('expenses')
+                        .ilike('destination', newDestination.trim())
+                        .maybeSingle();
+
+                    if (dbMaster && Array.isArray(dbMaster.expenses) && dbMaster.expenses.length > 0) {
+                        masterItems = dbMaster.expenses;
+                    } else {
+                        const savedExp = localStorage.getItem("master_collection_route_expenses");
+                        if (savedExp) {
+                            const expMap = JSON.parse(savedExp);
+                            masterItems = expMap[newDestination.trim().toUpperCase()] || expMap[newDestination.trim()] || [];
+                        }
+                    }
+                } catch (e) {}
+
+                if (masterItems.length > 0) {
+                    const mapped = masterItems.map((e: any) => ({
+                        item_name: e.item_name,
+                        amount: e.amount,
+                        category: e.category,
+                        currency: e.currency,
+                        nature: e.nature || "Go & Return",
+                        is_extra: false
+                    }));
+                    setExpenses(mapped as ExpenseItem[]);
+
+                    const countriesWithData = [...new Set(mapped.map(e => e.category))].filter(c => c !== 'Fixed');
+                    if (countriesWithData.length > 0) {
+                        setActiveCountries(countriesWithData as string[]);
+                    }
+
+                    toast({
+                        title: "Master Expenses Applied 📋",
+                        description: `Auto-filled ${mapped.length} standard expenses for ${newDestination} from Master Collection.`
+                    });
                 }
             } catch (err) {
                 console.error("Failed to load route template:", err);
@@ -930,29 +973,69 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         const fetchDuplicateExpenses = async () => {
             try {
-                const { data: expenseData } = await supabase
-                    .from('logistics_trip_expenses' as any)
-                    .select('*')
-                    .eq('trip_sheet_id', doc.id);
+                if (doc.id) {
+                    const { data: expenseData } = await supabase
+                        .from('logistics_trip_expenses' as any)
+                        .select('*')
+                        .eq('trip_sheet_id', doc.id);
 
-                if (expenseData && expenseData.length > 0) {
-                    const docExpenses = (expenseData as any[]).map(e => {
-                        return {
-                            item_name: e.item_name || e.description || "",
-                            amount: (parseFloat(e.amount) || 0).toString(),
-                            category: normalizeCategory(e.category),
-                            currency: e.currency || (normalizeCategory(e.category) === 'Zambia' ? 'ZMW' : normalizeCategory(e.category) === 'DRC' ? 'USD' : normalizeCategory(e.category) === 'Rwanda' ? 'RWF' : normalizeCategory(e.category) === 'Burundi' ? 'BIF' : 'TZS'),
-                            nature: e.nature || normalizeCategory(e.category),
-                            is_extra: e.is_extra || false
-                        };
-                    }) as ExpenseItem[];
+                    if (expenseData && expenseData.length > 0) {
+                        const docExpenses = (expenseData as any[]).map(e => {
+                            return {
+                                item_name: e.item_name || e.description || "",
+                                amount: (parseFloat(e.amount) || 0).toString(),
+                                category: normalizeCategory(e.category),
+                                currency: e.currency || (normalizeCategory(e.category) === 'Zambia' ? 'ZMW' : normalizeCategory(e.category) === 'DRC' ? 'USD' : normalizeCategory(e.category) === 'Rwanda' ? 'RWF' : normalizeCategory(e.category) === 'Burundi' ? 'BIF' : 'TZS'),
+                                nature: e.nature || normalizeCategory(e.category),
+                                is_extra: e.is_extra || false
+                            };
+                        }) as ExpenseItem[];
 
-                    setExpenses(docExpenses);
+                        setExpenses(docExpenses);
 
-                    // Auto-enable countries that have expenses
-                    const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
-                    if (countriesWithData.length > 0) {
-                        setActiveCountries(countriesWithData as string[]);
+                        // Auto-enable countries that have expenses
+                        const countriesWithData = [...new Set(docExpenses.map(e => e.category))].filter(c => c !== 'Fixed');
+                        if (countriesWithData.length > 0) {
+                            setActiveCountries(countriesWithData as string[]);
+                        }
+                        return;
+                    }
+                }
+
+                // If loading from an Approved Order (or duplicated trip with no expenses), auto-pull from Master Collection
+                if (doc.destination) {
+                    let matchedItems: any[] = [];
+                    const { data: dbMaster } = await supabase
+                        .from('logistics_route_expenses_master' as any)
+                        .select('expenses')
+                        .ilike('destination', doc.destination.trim())
+                        .maybeSingle();
+
+                    if (dbMaster && Array.isArray(dbMaster.expenses) && dbMaster.expenses.length > 0) {
+                        matchedItems = dbMaster.expenses;
+                    } else {
+                        const savedExp = localStorage.getItem("master_collection_route_expenses");
+                        if (savedExp) {
+                            const expMap = JSON.parse(savedExp);
+                            matchedItems = expMap[doc.destination.trim().toUpperCase()] || expMap[doc.destination.trim()] || [];
+                        }
+                    }
+
+                    if (matchedItems && matchedItems.length > 0) {
+                        const mapped = matchedItems.map((e: any) => ({
+                            item_name: e.item_name,
+                            amount: e.amount,
+                            category: e.category,
+                            currency: e.currency,
+                            nature: e.nature || "Go & Return",
+                            is_extra: false
+                        }));
+                        setExpenses(mapped as ExpenseItem[]);
+
+                        const countriesWithData = [...new Set(mapped.map(e => e.category))].filter(c => c !== 'Fixed');
+                        if (countriesWithData.length > 0) {
+                            setActiveCountries(countriesWithData as string[]);
+                        }
                     }
                 }
             } catch (err) {
@@ -961,13 +1044,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         };
 
         setTripData({
-            trip_number: doc.reference_number || "",
-            vehicle_id: "", // Must be re-assigned for new trip
+            trip_number: doc.trip_number || doc.reference_number || "",
+            vehicle_id: doc.vehicle_id || "", // Preserved if activating an approved order
             trailer_id: doc.trailer_id || "", // PRESERVE TRAILER
-            driver_id: "",  // Must be re-assigned for new trip
-            license_no: "",
-            passport_no: "",
-            origin: doc.origin || "Headquarters",
+            driver_id: doc.driver_id || "",  // Preserved if activating an approved order
+            license_no: doc.license_no || "",
+            passport_no: doc.passport_no || "",
+            origin: doc.origin || "DAR ES SALAAM",
             destination: doc.destination || "",
             client_name: doc.client_name || "",
             journey_type: doc.journey_type || "Go & Return",
@@ -2437,12 +2520,26 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                         }));
                                                     }
 
-                                                    // Auto-pull expenses from Master Collection if available
-                                                    try {
-                                                        const savedExp = localStorage.getItem("master_collection_route_expenses");
-                                                        if (savedExp) {
-                                                            const expMap = JSON.parse(savedExp);
-                                                            const matchedItems = expMap[order.destination];
+                                                    // Auto-pull expenses from Master Collection (Supabase first, localStorage fallback)
+                                                    (async () => {
+                                                        try {
+                                                            let matchedItems: any[] = [];
+                                                            const { data: dbMaster } = await supabase
+                                                                .from('logistics_route_expenses_master' as any)
+                                                                .select('expenses')
+                                                                .ilike('destination', (order.destination || '').trim())
+                                                                .maybeSingle();
+
+                                                            if (dbMaster && Array.isArray(dbMaster.expenses) && dbMaster.expenses.length > 0) {
+                                                                matchedItems = dbMaster.expenses;
+                                                            } else {
+                                                                const savedExp = localStorage.getItem("master_collection_route_expenses");
+                                                                if (savedExp) {
+                                                                    const expMap = JSON.parse(savedExp);
+                                                                    matchedItems = expMap[order.destination?.trim().toUpperCase()] || expMap[order.destination] || [];
+                                                                }
+                                                            }
+
                                                             if (matchedItems && matchedItems.length > 0) {
                                                                 const mapped = matchedItems.map((e: any) => ({
                                                                     item_name: e.item_name,
@@ -2453,11 +2550,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                                     is_extra: false
                                                                 }));
                                                                 setExpenses(mapped);
+
+                                                                const countriesWithData = [...new Set(mapped.map((e: any) => e.category))].filter(c => c !== 'Fixed');
+                                                                if (countriesWithData.length > 0) {
+                                                                    setActiveCountries(countriesWithData as string[]);
+                                                                }
                                                             }
+                                                        } catch (err) {
+                                                            console.warn("Could not load master expenses for order:", err);
                                                         }
-                                                    } catch (err) {
-                                                        console.warn("Could not load master expenses for order:", err);
-                                                    }
+                                                    })();
 
                                                     toast({
                                                         title: "Order Loaded Successfully",

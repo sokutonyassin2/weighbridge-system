@@ -313,6 +313,18 @@ export default function TripOrders() {
         }
     });
 
+    // Fetch Route Expense Master from Database for live rates across environments
+    const { data: dbRouteMaster = [] } = useQuery({
+        queryKey: ["logistics_route_expenses_master_for_orders"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_route_expenses_master" as any)
+                .select("destination, default_rate_usd, agreed_days, default_cargo");
+            if (error) return [];
+            return data || [];
+        }
+    });
+
     // Handle Register New Client
     const handleAddClient = async () => {
         if (!newClientName.trim()) return;
@@ -1916,19 +1928,26 @@ export default function TripOrders() {
                                             let autoDays = formData.agreed_days;
                                             let autoCargo = formData.cargo_description;
                                             
-                                            // Check Master Collection
-                                            try {
-                                                const savedRoutes = localStorage.getItem("master_collection_routes");
-                                                if (savedRoutes) {
-                                                    const parsed = JSON.parse(savedRoutes);
-                                                    const matched = parsed.find((r: any) => r.destination?.toUpperCase() === v?.toUpperCase());
-                                                    if (matched) {
-                                                        if (matched.default_rate_usd) autoRate = String(matched.default_rate_usd);
-                                                        if (matched.agreed_days) autoDays = String(matched.agreed_days);
-                                                        if (matched.default_cargo && !formData.cargo_description) autoCargo = matched.default_cargo;
+                                            // Check Master Collection (DB first, then localStorage)
+                                            const dbMatch = (dbRouteMaster as any[]).find((r: any) => r.destination?.toUpperCase() === v?.toUpperCase());
+                                            if (dbMatch) {
+                                                if (dbMatch.default_rate_usd) autoRate = String(dbMatch.default_rate_usd);
+                                                if (dbMatch.agreed_days) autoDays = String(dbMatch.agreed_days);
+                                                if (dbMatch.default_cargo && !formData.cargo_description) autoCargo = dbMatch.default_cargo;
+                                            } else {
+                                                try {
+                                                    const savedRoutes = localStorage.getItem("master_collection_routes");
+                                                    if (savedRoutes) {
+                                                        const parsed = JSON.parse(savedRoutes);
+                                                        const matched = parsed.find((r: any) => r.destination?.toUpperCase() === v?.toUpperCase());
+                                                        if (matched) {
+                                                            if (matched.default_rate_usd) autoRate = String(matched.default_rate_usd);
+                                                            if (matched.agreed_days) autoDays = String(matched.agreed_days);
+                                                            if (matched.default_cargo && !formData.cargo_description) autoCargo = matched.default_cargo;
+                                                        }
                                                     }
-                                                }
-                                            } catch (e) {}
+                                                } catch (e) {}
+                                            }
 
                                             setFormData(prev => ({ 
                                                 ...prev, 
@@ -1955,7 +1974,8 @@ export default function TripOrders() {
                                         <SelectContent className="max-h-[220px]">
                                             {(() => {
                                                 const dbNames = (dbRoutes as any[]).map((r: any) => r.location_name?.toUpperCase()).filter(Boolean);
-                                                const allDests = [...new Set([...dbNames, ...STANDARD_DESTINATIONS])].sort();
+                                                const masterNames = (dbRouteMaster as any[]).map((r: any) => r.destination?.toUpperCase()).filter(Boolean);
+                                                const allDests = [...new Set([...dbNames, ...masterNames, ...STANDARD_DESTINATIONS])].sort();
                                                 return allDests.map(d => (
                                                     <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>
                                                 ));

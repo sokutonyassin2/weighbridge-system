@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS public.logistics_trip_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_number TEXT UNIQUE,
+    order_number TEXT,
     trip_number TEXT,
     client_name TEXT NOT NULL,
     agreed_amount_usd NUMERIC(15, 2) DEFAULT 0,

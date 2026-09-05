@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -131,7 +131,14 @@ export default function TripOrders() {
         trip_number: "",
         notes: ""
     };
-    const [formData, setFormData] = useState(initialFormState);
+    // Load cached draft form from localStorage if user refreshed by mistake
+    const [formData, setFormData] = useState(() => {
+        try {
+            const cached = localStorage.getItem("trip_orders_draft_form");
+            if (cached) return { ...initialFormState, ...JSON.parse(cached) };
+        } catch (e) {}
+        return initialFormState;
+    });
 
     // Multi-vehicle assignment state
     interface VehicleAssignment {
@@ -172,15 +179,47 @@ export default function TripOrders() {
         rate_per_thousand: ""
     };
 
-    const [vehicleAssignments, setVehicleAssignments] = useState<VehicleAssignment[]>([initialVehicleItem]);
+    const [vehicleAssignments, setVehicleAssignments] = useState<VehicleAssignment[]>(() => {
+        try {
+            const cached = localStorage.getItem("trip_orders_draft_vehicles");
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch (e) {}
+        return [initialVehicleItem];
+    });
+
+    // Auto-save form draft to localStorage whenever user edits
+    useEffect(() => {
+        try {
+            localStorage.setItem("trip_orders_draft_form", JSON.stringify(formData));
+        } catch (e) {}
+    }, [formData]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem("trip_orders_draft_vehicles", JSON.stringify(vehicleAssignments));
+        } catch (e) {}
+    }, [vehicleAssignments]);
+
+    // Clear draft helper
+    const clearFormDraft = () => {
+        try {
+            localStorage.removeItem("trip_orders_draft_form");
+            localStorage.removeItem("trip_orders_draft_vehicles");
+        } catch (e) {}
+        setFormData(initialFormState);
+        setVehicleAssignments([initialVehicleItem]);
+    };
 
     const handleAddVehicleSlot = () => {
         setVehicleAssignments(prev => [
-            ...prev,
             {
                 ...initialVehicleItem,
                 id: `veh-${Date.now()}`
-            }
+            },
+            ...prev
         ]);
     };
 
@@ -541,8 +580,7 @@ export default function TripOrders() {
                 description: `${count} vehicle trip order${count > 1 ? 's' : ''} registered and submitted for Admin Approval.`
             });
             setIsCreateOpen(false);
-            setFormData(initialFormState);
-            setVehicleAssignments([initialVehicleItem]);
+            clearFormDraft();
         },
         onError: (err: any) => {
             toast({

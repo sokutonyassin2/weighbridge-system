@@ -136,6 +136,13 @@ export default function MasterCollection() {
     // Selected Route for Expense Master tab
     const [selectedRouteKey, setSelectedRouteKey] = useState<string>("");
 
+    const formatTSh = (val: any) => {
+        if (val === undefined || val === null || val === "") return "TShs. 0";
+        const num = parseFloat(val);
+        if (isNaN(num)) return "TShs. 0";
+        return `TShs. ${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    };
+
     // Route Modal State
     const [isAddRouteOpen, setIsAddRouteOpen] = useState(false);
     const [editingRoute, setEditingRoute] = useState<any>(null);

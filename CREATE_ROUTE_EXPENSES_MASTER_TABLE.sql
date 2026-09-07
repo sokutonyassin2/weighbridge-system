@@ -12,10 +12,19 @@ CREATE TABLE IF NOT EXISTS public.logistics_route_expenses_master (
     default_exchange_rate NUMERIC DEFAULT 2700,
     default_cargo TEXT,
     agreed_days INTEGER,
+    fuel_liters NUMERIC,
+    fuel_rate_usd NUMERIC,
+    fuel_rate_tzs NUMERIC,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure fuel columns exist if table already exists
+ALTER TABLE public.logistics_route_expenses_master
+ADD COLUMN IF NOT EXISTS fuel_liters NUMERIC,
+ADD COLUMN IF NOT EXISTS fuel_rate_usd NUMERIC,
+ADD COLUMN IF NOT EXISTS fuel_rate_tzs NUMERIC;
 
 -- Enable Row Level Security
 ALTER TABLE public.logistics_route_expenses_master ENABLE ROW LEVEL SECURITY;

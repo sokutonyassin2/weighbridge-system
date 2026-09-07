@@ -230,6 +230,104 @@ const TripSheets = () => {
         }
     };
 
+    // ──── BUDGET APPROVAL: Creates trip sheet (Approved) + logistics_trips entry for tracking ────
+    const handleBudgetApproval = async (order: any) => {
+        try {
+            const est = getVehicleEstimatedExpenses(order);
+            const orderUSD = parseFloat(order.agreed_amount_usd) || 0;
+            const orderRate = parseFloat(order.agreed_client_rate) || 2700;
+            const orderLocal = parseFloat(order.agreed_amount_local) || (orderUSD * orderRate);
+
+            // Check if trip sheet already exists for this trip_number
+            const existingSheet = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
+            if (existingSheet) {
+                // If it exists but not approved, approve it
+                if (existingSheet.status !== 'Approved') {
+                    const { error: updateErr } = await supabase
+                        .from('logistics_trip_sheets' as any)
+                        .update({
+                            status: 'Approved',
+                            approved_by: user?.id,
+                            approved_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', existingSheet.id);
+                    if (updateErr) throw updateErr;
+                } else {
+                    toast({ title: "Already Approved", description: `Budget for ${order.trip_number} is already approved.` });
+                    return;
+                }
+            } else {
+                // Create a new trip sheet with status Approved
+                const { error: createErr } = await supabase
+                    .from('logistics_trip_sheets' as any)
+                    .insert({
+                        reference_number: order.trip_number,
+                        vehicle_id: order.vehicle_id || null,
+                        trailer_id: order.trailer_id || null,
+                        driver_id: order.driver_id || null,
+                        origin: order.origin || 'DAR ES SALAAM',
+                        destination: order.destination,
+                        client_name: order.client_name,
+                        journey_type: order.journey_type || 'Go & Return',
+                        cargo_outbound: order.cargo_description || null,
+                        revenue_amount: orderUSD,
+                        revenue_currency: 'USD',
+                        revenue_type: 'With Fuel',
+                        exchange_rate: orderRate,
+                        agreed_days: order.agreed_days || null,
+                        daily_fine_amount: order.daily_penalty_fine || null,
+                        status: 'Approved',
+                        approved_by: user?.id,
+                        approved_at: new Date().toISOString(),
+                        created_by: user?.id
+                    });
+                if (createErr) throw createErr;
+            }
+
+            // Ensure logistics_trips entry exists for tracking visibility
+            const { data: existingTrip } = await supabase
+                .from('logistics_trips' as any)
+                .select('id')
+                .eq('trip_number', order.trip_number)
+                .maybeSingle();
+
+            if (!existingTrip) {
+                await supabase
+                    .from('logistics_trips' as any)
+                    .insert({
+                        trip_number: order.trip_number,
+                        vehicle_id: order.vehicle_id || null,
+                        driver_id: order.driver_id || null,
+                        origin: order.origin || 'DAR ES SALAAM',
+                        destination: order.destination,
+                        status: 'Planned',
+                        created_by: user?.id
+                    });
+            }
+
+            toast({
+                title: "Budget Approved ✓",
+                description: `Trip ${order.trip_number} budget approved & registered for tracking.`,
+            });
+            refetch();
+            refetchApprovedOrders();
+        } catch (error: any) {
+            toast({
+                variant: "destructive",
+                title: "Budget Approval Failed",
+                description: error.message
+            });
+        }
+    };
+
+    const handleBatchBudgetApproval = async (orders: any[]) => {
+        if (!window.confirm(`Approve budgets for all ${orders.length} vehicles in this batch? This will create trip sheets and register them for tracking.`)) return;
+        for (const order of orders) {
+            await handleBudgetApproval(order);
+        }
+    };
+
     // Formatting Helpers
     const formatTSh = (val: any) => {
         if (val === undefined || val === null || val === "") return "TShs. 0";
@@ -269,6 +367,18 @@ const TripSheets = () => {
         }
     });
 
+    // Fetch Master Route Expenses for projecting batch expenses and profit
+    const { data: routeExpensesMaster = [] } = useQuery({
+        queryKey: ["route_expenses_master_for_batch_totals"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_route_expenses_master" as any)
+                .select("destination, expenses, fuel_liters, fuel_rate_usd, fuel_rate_tzs");
+            if (error) return [];
+            return data || [];
+        }
+    });
+
     // Expanded accordion state for Approved Orders tab
     const [expandedApprovedClients, setExpandedApprovedClients] = useState<string[]>([]);
     const toggleApprovedClient = (clientName: string) => {
@@ -287,6 +397,62 @@ const TripSheets = () => {
         (order.client_name || '')?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    // Robust helper to calculate estimated route expenses and profit for a trip order
+    const getVehicleEstimatedExpenses = (order: any) => {
+        const dest = (order.destination || "").trim().toUpperCase();
+        const usd = parseFloat(order.agreed_amount_usd) || 0;
+        const rate = parseFloat(order.agreed_client_rate) || 2700;
+        const local = parseFloat(order.agreed_amount_local) || (usd * rate);
+
+        let items: any[] = [];
+        const routeMatch = routeExpensesMaster.find((r: any) => {
+            const rDest = (r.destination || "").trim().toUpperCase();
+            return rDest === dest || (dest && rDest.includes(dest)) || (rDest && dest.includes(rDest));
+        });
+
+        if (routeMatch && Array.isArray(routeMatch.expenses) && routeMatch.expenses.length > 0) {
+            items = routeMatch.expenses;
+        } else {
+            try {
+                const saved = localStorage.getItem("master_collection_route_expenses");
+                if (saved) {
+                    const expMap = JSON.parse(saved);
+                    items = expMap[dest] || expMap[order.destination?.trim()] || [];
+                    if (items.length === 0) {
+                        const matchedKey = Object.keys(expMap).find(k => k.includes(dest) || dest.includes(k));
+                        if (matchedKey) items = expMap[matchedKey];
+                    }
+                }
+            } catch (e) {}
+        }
+
+        let orderExpUSD = 0;
+        let orderExpTZS = 0;
+
+        if (Array.isArray(items) && items.length > 0) {
+            items.forEach((item: any) => {
+                const amt = parseFloat(item.amount) || 0;
+                if (item.currency === "USD") {
+                    orderExpUSD += amt;
+                    orderExpTZS += amt * rate;
+                } else {
+                    orderExpTZS += amt;
+                    orderExpUSD += rate > 0 ? amt / rate : 0;
+                }
+            });
+        }
+
+        return {
+            orderUSD: usd,
+            orderLocal: local,
+            orderRate: rate,
+            expUSD: orderExpUSD,
+            expTZS: orderExpTZS,
+            profitUSD: usd - orderExpUSD,
+            profitTZS: local - orderExpTZS
+        };
+    };
+
     // Group approved orders by Client Name (batches from same client stay grouped together!)
     const groupedApprovedOrders = filteredApprovedOrders.reduce((acc: Record<string, any>, order: any) => {
         const client = order.client_name || 'Individual / Unspecified';
@@ -296,15 +462,24 @@ const TripSheets = () => {
                 orders: [],
                 totalUSD: 0,
                 totalTZS: 0,
+                totalExpensesUSD: 0,
+                totalExpensesTZS: 0,
+                totalProfitUSD: 0,
+                totalProfitTZS: 0,
                 vehiclesCount: 0
             };
         }
         acc[client].orders.push(order);
         acc[client].vehiclesCount += 1;
-        const usd = parseFloat(order.agreed_amount_usd) || 0;
-        const local = parseFloat(order.agreed_amount_local) || (usd * (parseFloat(order.agreed_client_rate) || 2700));
-        acc[client].totalUSD += usd;
-        acc[client].totalTZS += local;
+
+        const est = getVehicleEstimatedExpenses(order);
+        acc[client].totalUSD += est.orderUSD;
+        acc[client].totalTZS += est.orderLocal;
+        acc[client].totalExpensesUSD += est.expUSD;
+        acc[client].totalExpensesTZS += est.expTZS;
+        acc[client].totalProfitUSD = acc[client].totalUSD - acc[client].totalExpensesUSD;
+        acc[client].totalProfitTZS = acc[client].totalTZS - acc[client].totalExpensesTZS;
+
         return acc;
     }, {});
 
@@ -618,32 +793,56 @@ const TripSheets = () => {
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Gross Contracted</span>
-                                                            <div className="flex items-baseline justify-end gap-2">
-                                                                <span className="text-sm font-black text-indigo-700">
-                                                                    ${group.totalUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                                </span>
-                                                                <span className="text-[10px] font-bold text-emerald-700">
-                                                                    {formatTSh(group.totalTZS)}
-                                                                </span>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="text-right">
+                                                                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest block">Gross Contracted</span>
+                                                                    <span className="text-xs font-black text-indigo-700">
+                                                                        ${group.totalUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-right pl-2 border-l border-slate-300">
+                                                                    <span className="text-[8px] font-bold text-amber-600 uppercase tracking-widest block">Est. Expenses</span>
+                                                                    <span className="text-xs font-black text-amber-700">
+                                                                        ${group.totalExpensesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-right pl-2 border-l border-slate-300">
+                                                                    <span className="text-[8px] font-bold text-emerald-700 uppercase tracking-widest block">Est. Profit</span>
+                                                                    <span className={`text-xs font-black ${group.totalProfitUSD >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                                                        ${group.totalProfitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-[9px] font-semibold text-slate-500">
+                                                                TZS Net: <span className={group.totalProfitTZS >= 0 ? "font-bold text-emerald-700" : "font-bold text-rose-600"}>{formatTSh(group.totalProfitTZS)}</span>
                                                             </div>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="text-center">
                                                         <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-black px-2 py-0.5">
-                                                            APPROVED
+                                                            ORDER APPROVED
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell className="text-right pr-6" onClick={(e) => e.stopPropagation()}>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-8 px-3 text-[10px] font-black uppercase tracking-wider text-indigo-700 border-indigo-200 hover:bg-indigo-50"
-                                                            onClick={() => toggleApprovedClient(clientName)}
-                                                        >
-                                                            {isExpanded ? "Hide Vehicles" : `View ${group.vehiclesCount} Vehicles`}
-                                                        </Button>
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-8 px-3 text-[10px] font-black uppercase tracking-wider text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                                                                onClick={() => toggleApprovedClient(clientName)}
+                                                            >
+                                                                {isExpanded ? "Hide Vehicles" : `View ${group.vehiclesCount} Vehicles`}
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                className="h-8 px-3 text-[10px] font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm gap-1.5"
+                                                                onClick={() => handleBatchBudgetApproval(group.orders)}
+                                                            >
+                                                                <ShieldCheck size={12} />
+                                                                Approve All Budgets
+                                                            </Button>
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
 
@@ -703,60 +902,110 @@ const TripSheets = () => {
                                                                 </div>
                                                             </TableCell>
                                                             <TableCell className="text-right">
-                                                                <div className="space-y-0.5">
-                                                                    <div className="font-black text-slate-900 text-xs">
-                                                                        ${orderUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                                                                    </div>
-                                                                    <div className="text-[10px] font-bold text-emerald-700">
-                                                                        {formatTSh(orderLocal)}
-                                                                    </div>
-                                                                    <div className="text-[9px] font-semibold text-slate-400">
-                                                                        Rate: @{orderRate}
-                                                                    </div>
-                                                                </div>
+                                                                {(() => {
+                                                                    const est = getVehicleEstimatedExpenses(order);
+                                                                    return (
+                                                                        <div className="space-y-0.5">
+                                                                            <div className="font-black text-slate-900 text-xs">
+                                                                                ${orderUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                                                            </div>
+                                                                            <div className="text-[10px] font-bold text-emerald-700">
+                                                                                {formatTSh(orderLocal)}
+                                                                            </div>
+                                                                            <div className="text-[9px] font-semibold text-slate-400">
+                                                                                Rate: @{orderRate}
+                                                                            </div>
+                                                                            <Separator className="my-1" />
+                                                                            <div className="text-[10px] font-bold text-amber-700">
+                                                                                Est. Exp: ${est.expUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </div>
+                                                                            <div className={`text-[10px] font-black ${est.profitUSD >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                                                                Est. Net: {est.profitUSD >= 0 ? '+' : ''}${est.profitUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
                                                             </TableCell>
                                                             <TableCell className="text-center">
-                                                                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2 py-0.5">
-                                                                    Approved by Admin
-                                                                </Badge>
-                                                                {order.approved_at && (
-                                                                    <div className="text-[9px] text-slate-400 mt-1">
-                                                                        {order.approved_at.split('T')[0]}
-                                                                    </div>
-                                                                )}
+                                                                <div className="space-y-1.5">
+                                                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2 py-0.5">
+                                                                        Order: {order.approved_by_name || "Admin"}
+                                                                    </Badge>
+                                                                    {order.approved_at && (
+                                                                        <div className="text-[9px] text-slate-400">
+                                                                            {order.approved_at.split('T')[0]}
+                                                                        </div>
+                                                                    )}
+                                                                    {(() => {
+                                                                        const tripMatch = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
+                                                                        const budgetStatus = tripMatch?.status === 'Approved' ? 'Budget Approved' : tripMatch ? 'Sheet Draft' : 'Sheet Pending';
+                                                                        const isApproved = budgetStatus === 'Budget Approved';
+                                                                        return (
+                                                                            <Badge className={cn(
+                                                                                "text-[9px] font-bold px-2 py-0.5 border",
+                                                                                isApproved ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-50 text-slate-500 border-slate-200"
+                                                                            )}>
+                                                                                {isApproved ? '✓ ' : '○ '}{budgetStatus}
+                                                                            </Badge>
+                                                                        );
+                                                                    })()}
+                                                                </div>
                                                             </TableCell>
                                                             <TableCell className="text-right pr-6">
-                                                                <Button
-                                                                    size="sm"
-                                                                    className="h-8 px-3 text-[11px] font-black uppercase tracking-wider bg-slate-900 hover:bg-indigo-600 text-white rounded-lg shadow-sm gap-1.5 transition-all"
-                                                                    onClick={() => {
-                                                                        // Open TripSheet pre-filled with this approved order data
-                                                                        setSelectedTrip(null);
-                                                                        setDuplicateSourceTrip({
-                                                                            trip_number: order.trip_number,
-                                                                            reference_number: order.trip_number,
-                                                                            vehicle_id: order.vehicle_id,
-                                                                            trailer_id: order.trailer_id,
-                                                                            driver_id: order.driver_id,
-                                                                            license_no: order.license_no,
-                                                                            passport_no: order.passport_no,
-                                                                            origin: order.origin || 'DAR ES SALAAM',
-                                                                            destination: order.destination,
-                                                                            client_name: order.client_name,
-                                                                            journey_type: order.journey_type || 'Go & Return',
-                                                                            cargo_outbound: order.cargo_description,
-                                                                            revenue_amount: orderUSD,
-                                                                            revenue_currency: 'USD',
-                                                                            exchange_rate: orderRate,
-                                                                            agreed_days: order.agreed_days,
-                                                                            daily_fine_amount: order.daily_penalty_fine
-                                                                        });
-                                                                        setIsSheetOpen(true);
-                                                                    }}
-                                                                >
-                                                                    <Send size={11} />
-                                                                    Review & Activate
-                                                                </Button>
+                                                                <div className="flex items-center justify-end gap-1.5">
+                                                                    {(() => {
+                                                                        const tripMatch = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
+                                                                        const isBudgetApproved = tripMatch?.status === 'Approved';
+                                                                        return (
+                                                                            <Button
+                                                                                size="sm"
+                                                                                disabled={isBudgetApproved}
+                                                                                className={cn(
+                                                                                    "h-8 px-3 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm gap-1.5 transition-all",
+                                                                                    isBudgetApproved
+                                                                                        ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                                                                        : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                                                                )}
+                                                                                onClick={() => !isBudgetApproved && handleBudgetApproval(order)}
+                                                                                title={isBudgetApproved ? "Budget already approved" : "Approve budget & register for tracking"}
+                                                                            >
+                                                                                <ShieldCheck size={11} />
+                                                                                {isBudgetApproved ? "Approved" : "Approve Budget"}
+                                                                            </Button>
+                                                                        );
+                                                                    })()}
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-8 px-3 text-[11px] font-black uppercase tracking-wider bg-slate-900 hover:bg-indigo-600 text-white rounded-lg shadow-sm gap-1.5 transition-all"
+                                                                        onClick={() => {
+                                                                            setSelectedTrip(null);
+                                                                            setDuplicateSourceTrip({
+                                                                                trip_number: order.trip_number,
+                                                                                reference_number: order.trip_number,
+                                                                                vehicle_id: order.vehicle_id,
+                                                                                trailer_id: order.trailer_id,
+                                                                                driver_id: order.driver_id,
+                                                                                license_no: order.license_no,
+                                                                                passport_no: order.passport_no,
+                                                                                origin: order.origin || 'DAR ES SALAAM',
+                                                                                destination: order.destination,
+                                                                                client_name: order.client_name,
+                                                                                journey_type: order.journey_type || 'Go & Return',
+                                                                                cargo_outbound: order.cargo_description,
+                                                                                revenue_amount: orderUSD,
+                                                                                revenue_currency: 'USD',
+                                                                                revenue_type: 'With Fuel',
+                                                                                exchange_rate: orderRate,
+                                                                                agreed_days: order.agreed_days,
+                                                                                daily_fine_amount: order.daily_penalty_fine
+                                                                            });
+                                                                            setIsSheetOpen(true);
+                                                                        }}
+                                                                    >
+                                                                        <Send size={11} />
+                                                                        Review & Activate
+                                                                    </Button>
+                                                                </div>
                                                             </TableCell>
                                                         </TableRow>
                                                     );

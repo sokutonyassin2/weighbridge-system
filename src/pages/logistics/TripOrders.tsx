@@ -48,7 +48,9 @@ import {
     Trash2,
     ChevronDown,
     ChevronRight,
-    Layers
+    Layers,
+    Edit2,
+    Save
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -71,7 +73,7 @@ const STANDARD_DESTINATIONS = [
 ];
 
 export default function TripOrders() {
-    const { userRole, user } = useAuth();
+    const { userRole, user, userProfile } = useAuth();
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -82,6 +84,11 @@ export default function TripOrders() {
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState<string>("ALL");
     const [clientFilter, setClientFilter] = useState<string>("ALL");
+    const [pipelineTab, setPipelineTab] = useState<'all' | 'pending' | 'operations' | 'completed'>('all');
+
+    // Edit Order State
+    const [editingOrder, setEditingOrder] = useState<any>(null);
+    const [editFormData, setEditFormData] = useState<any>({});
 
     // Group dropdown accordion expansion state
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -758,6 +765,7 @@ export default function TripOrders() {
             };
             if (status === "Approved") {
                 payload.approved_by = user?.id;
+                payload.approved_by_name = userProfile?.full_name || (userProfile as any)?.username || user?.email || "Admin";
                 payload.approved_at = new Date().toISOString();
                 payload.rejection_reason = null;
             } else if (status === "Rejected") {
@@ -818,6 +826,37 @@ export default function TripOrders() {
         }
     });
 
+    // Update Order Mutation (for edit pencil)
+    const updateOrderMutation = useMutation({
+        mutationFn: async ({ orderId, updates }: { orderId: string, updates: any }) => {
+            const { error } = await supabase
+                .from("logistics_trip_orders" as any)
+                .update({
+                    ...updates,
+                    updated_at: new Date().toISOString()
+                })
+                .eq("id", orderId);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
+            toast({
+                title: "Order Updated",
+                description: "Trip order details have been updated successfully."
+            });
+            setEditingOrder(null);
+            setEditFormData({});
+        },
+        onError: (err: any) => {
+            toast({
+                variant: "destructive",
+                title: "Update Failed",
+                description: err.message
+            });
+        }
+    });
+
     // Filtered Orders
     const filteredOrders = useMemo(() => {
         return orders.filter((o: any) => {
@@ -869,7 +908,21 @@ export default function TripOrders() {
     // Metrics
     const pendingCount = orders.filter((o: any) => o.status === "Pending Approval").length;
     const approvedCount = orders.filter((o: any) => o.status === "Approved" || o.status === "Trip Sheet Created").length;
+    const completedCount = orders.filter((o: any) => o.status === "Completed").length;
     const totalOrderUSD = orders.reduce((sum: number, o: any) => sum + (parseFloat(o.agreed_amount_usd) || 0), 0);
+
+    // Pipeline tab filtering applied on top of existing filters
+    const pipelineFilteredOrders = useMemo(() => {
+        if (pipelineTab === 'all') return groupedOrderList;
+        return groupedOrderList.filter((group: any) => {
+            return group.items.some((o: any) => {
+                if (pipelineTab === 'pending') return o.status === 'Pending Approval';
+                if (pipelineTab === 'operations') return o.status === 'Approved' || o.status === 'Trip Sheet Created';
+                if (pipelineTab === 'completed') return o.status === 'Completed';
+                return true;
+            });
+        });
+    }, [groupedOrderList, pipelineTab]);
 
     return (
         <div className="space-y-6 pb-12">
@@ -989,6 +1042,41 @@ export default function TripOrders() {
                 </CardContent>
             </Card>
 
+            {/* Operational Pipeline Tabs */}
+            <div className="flex items-center gap-1 bg-white p-1.5 rounded-xl border border-slate-200/80 shadow-sm">
+                {[
+                    { key: 'all', label: 'All Orders', count: groupedOrderList.length, color: 'slate' },
+                    { key: 'pending', label: 'New / Pending Review', count: pendingCount, color: 'amber' },
+                    { key: 'operations', label: 'Approved & In Operations', count: approvedCount, color: 'emerald' },
+                    { key: 'completed', label: 'Completed Trips', count: completedCount, color: 'indigo' }
+                ].map(tab => (
+                    <button
+                        key={tab.key}
+                        onClick={() => setPipelineTab(tab.key as any)}
+                        className={cn(
+                            "flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 flex-1 justify-center",
+                            pipelineTab === tab.key
+                                ? `bg-${tab.color}-600 text-white shadow-md`
+                                : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                            pipelineTab === tab.key && tab.color === 'slate' && 'bg-slate-800 text-white',
+                            pipelineTab === tab.key && tab.color === 'amber' && 'bg-amber-600 text-white',
+                            pipelineTab === tab.key && tab.color === 'emerald' && 'bg-emerald-600 text-white',
+                            pipelineTab === tab.key && tab.color === 'indigo' && 'bg-indigo-600 text-white'
+                        )}
+                    >
+                        {tab.label}
+                        <span className={cn(
+                            "px-1.5 py-0.5 rounded-full text-[10px] font-black min-w-[20px]",
+                            pipelineTab === tab.key
+                                ? "bg-white/20 text-white"
+                                : "bg-slate-100 text-slate-500"
+                        )}>
+                            {tab.count}
+                        </span>
+                    </button>
+                ))}
+            </div>
+
             {/* Orders Table */}
             <Card className="border-slate-200/80 shadow-sm bg-white overflow-hidden">
                 <div className="overflow-x-auto">
@@ -1019,7 +1107,7 @@ export default function TripOrders() {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                groupedOrderList.map((group: any, gIdx: number) => {
+                                pipelineFilteredOrders.map((group: any, gIdx: number) => {
                                     const isMulti = group.items.length > 1;
                                     // If only 1 order in group, render as standard row
                                     if (!isMulti) {
@@ -1090,7 +1178,7 @@ export default function TripOrders() {
                                                             isRejected && "bg-rose-50 text-rose-700 border-rose-200"
                                                         )}
                                                     >
-                                                        {order.status}
+                                                        {isApproved && order.approved_by_name ? `Approved by ${order.approved_by_name}` : order.status}
                                                     </Badge>
                                                     {order.approved_at && (
                                                         <div className="text-[9px] text-slate-400 mt-1">
@@ -1100,6 +1188,34 @@ export default function TripOrders() {
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            disabled={isApproved}
+                                                            onClick={() => {
+                                                                setEditingOrder(order);
+                                                                setEditFormData({
+                                                                    truck_reg: order.truck_reg || '',
+                                                                    trailer_reg: order.trailer_reg || '',
+                                                                    driver_name: order.driver_name || '',
+                                                                    contact_no: order.contact_no || '',
+                                                                    destination: order.destination || '',
+                                                                    agreed_amount_usd: order.agreed_amount_usd || '',
+                                                                    agreed_client_rate: order.agreed_client_rate || '2700',
+                                                                    cargo_description: order.cargo_description || '',
+                                                                    notes: order.notes || ''
+                                                                });
+                                                            }}
+                                                            className={cn(
+                                                                "h-8 w-8 p-0 rounded-lg",
+                                                                isApproved
+                                                                    ? "text-slate-300 cursor-not-allowed opacity-30"
+                                                                    : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                                                            )}
+                                                            title={isApproved ? "Locked: Approved orders cannot be modified" : "Edit order details"}
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </Button>
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
@@ -1379,7 +1495,7 @@ export default function TripOrders() {
                                                                     isSubRejected && "bg-rose-50 text-rose-700 border-rose-200"
                                                                 )}
                                                             >
-                                                                {subOrder.status}
+                                                                {isSubApproved && subOrder.approved_by_name ? `Approved by ${subOrder.approved_by_name}` : subOrder.status}
                                                             </Badge>
                                                             {subOrder.approved_at && (
                                                                 <div className="text-[9px] text-slate-400 mt-1">
@@ -1389,6 +1505,34 @@ export default function TripOrders() {
                                                         </TableCell>
                                                         <TableCell className="text-right">
                                                             <div className="flex items-center justify-end gap-1.5">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    disabled={isSubApproved}
+                                                                    onClick={() => {
+                                                                        setEditingOrder(subOrder);
+                                                                        setEditFormData({
+                                                                            truck_reg: subOrder.truck_reg || '',
+                                                                            trailer_reg: subOrder.trailer_reg || '',
+                                                                            driver_name: subOrder.driver_name || '',
+                                                                            contact_no: subOrder.contact_no || '',
+                                                                            destination: subOrder.destination || '',
+                                                                            agreed_amount_usd: subOrder.agreed_amount_usd || '',
+                                                                            agreed_client_rate: subOrder.agreed_client_rate || '2700',
+                                                                            cargo_description: subOrder.cargo_description || '',
+                                                                            notes: subOrder.notes || ''
+                                                                        });
+                                                                    }}
+                                                                    className={cn(
+                                                                        "h-8 w-8 p-0 rounded-lg",
+                                                                        isSubApproved
+                                                                            ? "text-slate-300 cursor-not-allowed opacity-30"
+                                                                            : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                                                                    )}
+                                                                    title={isSubApproved ? "Locked: Approved orders cannot be modified" : "Edit order details"}
+                                                                >
+                                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                                </Button>
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
@@ -2162,6 +2306,22 @@ export default function TripOrders() {
                                     <span className="font-medium text-slate-700">{selectedOrderDetails.container_no || "—"}</span>
                                 </div>
                             </div>
+
+                            {selectedOrderDetails.status === "Approved" && (
+                                <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                        <span className="font-bold text-emerald-900 text-xs">
+                                            Approved by {selectedOrderDetails.approved_by_name || "Admin"}
+                                        </span>
+                                    </div>
+                                    {selectedOrderDetails.approved_at && (
+                                        <span className="text-[11px] text-emerald-700 font-medium">
+                                            {format(new Date(selectedOrderDetails.approved_at), "dd MMM yyyy, HH:mm")}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <DialogFooter>
@@ -2242,6 +2402,163 @@ export default function TripOrders() {
                             )}
                         >
                             {approveOrderMutation.isPending ? "Processing..." : `Confirm ${approvalAction}`}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* EDIT ORDER MODAL */}
+            <Dialog open={!!editingOrder} onOpenChange={(open) => { if (!open) { setEditingOrder(null); setEditFormData({}); } }}>
+                <DialogContent className="max-w-lg rounded-2xl p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Edit2 className="w-5 h-5 text-indigo-600" />
+                            Edit Order — {editingOrder?.trip_number || editingOrder?.order_number}
+                        </DialogTitle>
+                        <p className="text-xs text-slate-500">
+                            Modify order details. Changes are saved immediately upon clicking Update.
+                        </p>
+                    </DialogHeader>
+
+                    <div className="space-y-4 pt-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label className="text-[11px] font-bold text-slate-600">Truck Reg</Label>
+                                <Input
+                                    value={editFormData.truck_reg || ''}
+                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, truck_reg: e.target.value }))}
+                                    className="h-9 text-xs rounded-lg"
+                                />
+                            </div>
+                            <div>
+                                <Label className="text-[11px] font-bold text-slate-600">Trailer Reg</Label>
+                                <Input
+                                    value={editFormData.trailer_reg || ''}
+                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, trailer_reg: e.target.value }))}
+                                    className="h-9 text-xs rounded-lg"
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label className="text-[11px] font-bold text-slate-600">Driver Name</Label>
+                                <Input
+                                    value={editFormData.driver_name || ''}
+                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, driver_name: e.target.value }))}
+                                    className="h-9 text-xs rounded-lg"
+                                />
+                            </div>
+                            <div>
+                                <Label className="text-[11px] font-bold text-slate-600">Contact No</Label>
+                                <Input
+                                    value={editFormData.contact_no || ''}
+                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, contact_no: e.target.value }))}
+                                    className="h-9 text-xs rounded-lg"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <Label className="text-[11px] font-bold text-slate-600">Destination</Label>
+                            <Select
+                                value={editFormData.destination || ''}
+                                onValueChange={(val) => setEditFormData((prev: any) => ({ ...prev, destination: val }))}
+                            >
+                                <SelectTrigger className="h-9 text-xs rounded-lg">
+                                    <SelectValue placeholder="Select destination" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {STANDARD_DESTINATIONS.map(d => (
+                                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <Label className="text-[11px] font-bold text-slate-600">Agreed Amount (USD)</Label>
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    value={editFormData.agreed_amount_usd || ''}
+                                    onChange={(e) => {
+                                        const usd = e.target.value;
+                                        const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                        setEditFormData((prev: any) => ({
+                                            ...prev,
+                                            agreed_amount_usd: usd,
+                                            agreed_amount_local: String((parseFloat(usd) || 0) * rate)
+                                        }));
+                                    }}
+                                    className="h-9 text-xs rounded-lg"
+                                />
+                            </div>
+                            <div>
+                                <Label className="text-[11px] font-bold text-slate-600">Exchange Rate</Label>
+                                <Input
+                                    type="number"
+                                    value={editFormData.agreed_client_rate || ''}
+                                    onChange={(e) => {
+                                        const rate = e.target.value;
+                                        const usd = parseFloat(editFormData.agreed_amount_usd) || 0;
+                                        setEditFormData((prev: any) => ({
+                                            ...prev,
+                                            agreed_client_rate: rate,
+                                            agreed_amount_local: String(usd * (parseFloat(rate) || 0))
+                                        }));
+                                    }}
+                                    className="h-9 text-xs rounded-lg"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <Label className="text-[11px] font-bold text-slate-600">Cargo Description</Label>
+                            <Input
+                                value={editFormData.cargo_description || ''}
+                                onChange={(e) => setEditFormData((prev: any) => ({ ...prev, cargo_description: e.target.value }))}
+                                className="h-9 text-xs rounded-lg"
+                            />
+                        </div>
+                        <div>
+                            <Label className="text-[11px] font-bold text-slate-600">Notes</Label>
+                            <Textarea
+                                value={editFormData.notes || ''}
+                                onChange={(e) => setEditFormData((prev: any) => ({ ...prev, notes: e.target.value }))}
+                                className="text-xs rounded-lg min-h-[60px]"
+                                rows={2}
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex items-center gap-2 pt-4">
+                        <Button
+                            variant="outline"
+                            onClick={() => { setEditingOrder(null); setEditFormData({}); }}
+                            className="h-9 text-xs font-bold flex-1 rounded-xl"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                if (editingOrder) {
+                                    const updates: any = {};
+                                    if (editFormData.truck_reg) updates.truck_reg = editFormData.truck_reg;
+                                    if (editFormData.trailer_reg) updates.trailer_reg = editFormData.trailer_reg;
+                                    if (editFormData.driver_name) updates.driver_name = editFormData.driver_name;
+                                    if (editFormData.contact_no !== undefined) updates.contact_no = editFormData.contact_no;
+                                    if (editFormData.destination) updates.destination = editFormData.destination;
+                                    if (editFormData.agreed_amount_usd) updates.agreed_amount_usd = editFormData.agreed_amount_usd;
+                                    if (editFormData.agreed_client_rate) updates.agreed_client_rate = editFormData.agreed_client_rate;
+                                    if (editFormData.agreed_amount_local) updates.agreed_amount_local = editFormData.agreed_amount_local;
+                                    if (editFormData.cargo_description !== undefined) updates.cargo_description = editFormData.cargo_description;
+                                    if (editFormData.notes !== undefined) updates.notes = editFormData.notes;
+                                    updateOrderMutation.mutate({ orderId: editingOrder.id, updates });
+                                }
+                            }}
+                            disabled={updateOrderMutation.isPending}
+                            className="h-9 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 flex-1 rounded-xl shadow-sm gap-1.5"
+                        >
+                            <Save className="w-3.5 h-3.5" />
+                            {updateOrderMutation.isPending ? "Saving..." : "Update Order"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

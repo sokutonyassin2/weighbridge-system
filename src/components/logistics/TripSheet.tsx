@@ -467,7 +467,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
     // Summary State
     const [revenueData, setRevenueData] = useState({
-        revenue_type: 'Without Fuel' as 'With Fuel' | 'Without Fuel',
+        revenue_type: 'With Fuel' as 'With Fuel' | 'Without Fuel',
         revenue_amount: '',
         revenue_currency: 'TZS' as 'USD' | 'TZS',
         fuel_entries: [{ liters: '', price: '' }],
@@ -774,6 +774,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         extraExpensesTZS: 0,
         extraExpensesUSD: 0,
         finalNetProfitUSD: 0,
+        fuelCostUSD: 0,
+        fuelCostTZS: 0,
+        fuelLiters: 0,
+        roadExpensesUSD: 0,
+        roadExpensesTZS: 0,
         categoryTotals: {} as Record<string, { usd: number, tzs: number }>,
         extraCategoryTotals: {} as Record<string, { usd: number, tzs: number }>
     });
@@ -1007,7 +1012,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     let matchedItems: any[] = [];
                     const { data: dbMaster } = await supabase
                         .from('logistics_route_expenses_master' as any)
-                        .select('expenses')
+                        .select('expenses, fuel_liters, fuel_rate_usd, fuel_rate_tzs')
                         .ilike('destination', doc.destination.trim())
                         .maybeSingle();
 
@@ -1035,6 +1040,43 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         const countriesWithData = [...new Set(mapped.map(e => e.category))].filter(c => c !== 'Fixed');
                         if (countriesWithData.length > 0) {
                             setActiveCountries(countriesWithData as string[]);
+                        }
+                    }
+
+                    // Auto-fetch fuel from Master Route Expenses or previous trip
+                    if (!doc.fuel_liters && (!doc.fuel_entries || doc.fuel_entries.length === 0)) {
+                        if (dbMaster && dbMaster.fuel_liters) {
+                            const masterLiters = String(dbMaster.fuel_liters);
+                            const masterPrice = String(dbMaster.fuel_rate_tzs || '4347');
+                            const totalFuelAmt = (parseFloat(masterLiters) || 0) * (parseFloat(masterPrice) || 0);
+                            setRevenueData(prev => ({
+                                ...prev,
+                                revenue_type: 'With Fuel',
+                                fuel_liters: masterLiters,
+                                fuel_price: masterPrice,
+                                fuel_amount: String(totalFuelAmt),
+                                fuel_entries: [{ liters: masterLiters, price: masterPrice }]
+                            }));
+                        } else {
+                            const { data: previousTrip } = await supabase
+                                .from('logistics_trip_sheets' as any)
+                                .select('fuel_liters, fuel_price, fuel_amount, country_rates')
+                                .ilike('destination', doc.destination.trim())
+                                .not('fuel_liters', 'is', null)
+                                .order('created_at', { ascending: false })
+                                .limit(1)
+                                .maybeSingle();
+
+                            if (previousTrip && previousTrip.fuel_liters) {
+                                setRevenueData(prev => ({
+                                    ...prev,
+                                    revenue_type: 'With Fuel',
+                                    fuel_liters: String(previousTrip.fuel_liters),
+                                    fuel_price: String(previousTrip.fuel_price || prev.fuel_price || '4347'),
+                                    fuel_amount: String(previousTrip.fuel_amount || prev.fuel_amount || '0'),
+                                    fuel_entries: previousTrip.country_rates?.fuel_entries || [{ liters: String(previousTrip.fuel_liters), price: String(previousTrip.fuel_price || '4347') }]
+                                }));
+                            }
                         }
                     }
                 }
@@ -1070,7 +1112,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         });
         setRevenueData(prev => ({
             ...prev,
-            revenue_type: doc.revenue_type || 'Without Fuel',
+            revenue_type: doc.revenue_type || 'With Fuel',
             revenue_amount: (doc.revenue_amount || 0).toString(),
             revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
             fuel_liters: (doc.fuel_liters || '').toString(),
@@ -1224,6 +1266,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             extraExpensesTZS: totalExtraUSD * rate,
             extraExpensesUSD: totalExtraUSD,
             finalNetProfitUSD: expectedNetProfitUSD - totalExtraUSD,
+            fuelCostUSD: activeFuelUSD,
+            fuelCostTZS: revenueData.revenue_type === 'With Fuel' ? fuelTotalTZS : 0,
+            fuelLiters: totalFuelLiters,
+            roadExpensesUSD: totalOperationalUSD,
+            roadExpensesTZS: totalOperationalUSD * rate,
             categoryTotals: catTotals,
             extraCategoryTotals: extraCatTotals
         });
@@ -1556,7 +1603,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const revUsd = revenueData.revenue_currency === 'TZS' ? revTzs / tzR : parseFloat(revenueData.revenue_amount || '0');
 
         addSummaryLine('GROSS TRIP REVENUE', revUsd, revTzs);
-        addSummaryLine('CUMULATIVE TRIP COSTS', totals.totalExpensesUSD, totals.totalExpensesTZS, 'C0504D');
+        addSummaryLine('ROAD EXPENSES', totals.roadExpensesUSD, totals.roadExpensesTZS, 'C0504D');
+        if (revenueData.revenue_type === 'With Fuel' && totals.fuelCostUSD > 0) {
+            addSummaryLine(`FUEL COST (${totals.fuelLiters.toLocaleString()} L)`, totals.fuelCostUSD, totals.fuelCostTZS, 'ED7D31');
+        }
+        addSummaryLine('TOTAL TRIP COSTS', totals.totalExpensesUSD, totals.totalExpensesTZS, 'C0504D');
         addSummaryLine('PROJECTED NET PROFIT', totals.netProfitUSD, totals.netProfitUSD * (countryRates["TZ"] || 2700), totals.netProfitUSD < 0 ? 'C0504D' : '107C10');
 
         currRow += 2;
@@ -2515,8 +2566,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                     if (order.agreed_amount_usd) {
                                                         setRevenueData(prev => ({
                                                             ...prev,
+                                                            revenue_type: 'With Fuel',
                                                             revenue_amount: String(order.agreed_amount_usd),
                                                             revenue_currency: 'USD'
+                                                        }));
+                                                    } else {
+                                                        setRevenueData(prev => ({
+                                                            ...prev,
+                                                            revenue_type: 'With Fuel'
                                                         }));
                                                     }
 
@@ -3038,8 +3095,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             </CardHeader>
                             <CardContent className="p-8 space-y-6">
                                 <div className="space-y-4">
-                                    <div className="flex justify-between items-center text-slate-600">
-                                        <span className="text-xs font-medium">Total Operational Budget:</span>
+                                    <div className="flex justify-between items-center text-slate-500">
+                                        <span className="text-xs font-medium flex items-center gap-1.5">🛣️ Road Expenses:</span>
+                                        <span className="text-sm font-semibold">TShs {Math.round(totals.roadExpensesTZS).toLocaleString()}</span>
+                                    </div>
+                                    {revenueData.revenue_type === 'With Fuel' && totals.fuelCostUSD > 0 && (
+                                        <div className="flex justify-between items-center text-orange-600">
+                                            <span className="text-xs font-medium flex items-center gap-1.5">⛽ Fuel Cost ({totals.fuelLiters.toLocaleString()} L):</span>
+                                            <span className="text-sm font-semibold">TShs {Math.round(totals.fuelCostTZS).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between items-center text-slate-700 bg-slate-100/60 -mx-2 px-2 py-1.5 rounded-lg">
+                                        <span className="text-xs font-bold">Total Operational Budget:</span>
                                         <span className="text-sm font-bold">TShs {Math.round(totals.totalExpensesTZS).toLocaleString()}</span>
                                     </div>
                                     {totals.extraExpensesUSD > 0 && (
@@ -3619,6 +3686,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 <p className="text-[10px] text-slate-400 font-medium">
                                     Est. ${totals.totalExpensesUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })} USD
                                 </p>
+                                {revenueData.revenue_type === 'With Fuel' && totals.fuelCostUSD > 0 && (
+                                    <p className="text-[9px] text-orange-300 font-medium italic print:text-orange-600">
+                                        ⛽ incl. Fuel: TShs {Math.round(totals.fuelCostTZS).toLocaleString()} ({totals.fuelLiters.toLocaleString()} L)
+                                    </p>
+                                )}
                             </div>
                         </div>
                         {/* Extra Expenses row — only show when tripsheet is locked */}

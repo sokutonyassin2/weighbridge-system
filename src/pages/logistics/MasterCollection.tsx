@@ -29,7 +29,8 @@ import {
     Check,
     ChevronsUpDown,
     CloudUpload,
-    Database
+    Database,
+    Fuel
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -258,6 +259,17 @@ export default function MasterCollection() {
         return {};
     });
 
+    // Fuel Master State (per destination: liters, rate_usd, rate_tzs)
+    const [masterFuel, setMasterFuel] = useState<Record<string, { fuel_liters: string; fuel_rate_usd: string; fuel_rate_tzs: string }>>(() => {
+        try {
+            const saved = localStorage.getItem("master_collection_route_fuel");
+            if (saved) return JSON.parse(saved);
+        } catch (e) {
+            console.warn("Failed to load local saved route fuel", e);
+        }
+        return {};
+    });
+
     // 🔄 Bi-Directional Auto-Sync:
     // 1. When DB has data, merge/load into masterExpenses and customRoutes
     // 2. When local has 14 routes and DB has 0 or fewer, auto-upload to DB!
@@ -282,6 +294,7 @@ export default function MasterCollection() {
             // Scenario A: DB has records! Sync from DB into state and localStorage
             if (dbRows.length > 0) {
                 const dbExpMap: Record<string, any[]> = {};
+                const dbFuelMap: Record<string, { fuel_liters: string; fuel_rate_usd: string; fuel_rate_tzs: string }> = {};
                 const dbCustomRoutes: any[] = [];
 
                 dbRows.forEach(row => {
@@ -289,6 +302,13 @@ export default function MasterCollection() {
                     if (dest) {
                         const items = Array.isArray(row.expenses) ? row.expenses : [];
                         dbExpMap[dest] = items;
+                        if (row.fuel_liters || row.fuel_rate_usd || row.fuel_rate_tzs) {
+                            dbFuelMap[dest] = {
+                                fuel_liters: String(row.fuel_liters || ""),
+                                fuel_rate_usd: String(row.fuel_rate_usd || ""),
+                                fuel_rate_tzs: String(row.fuel_rate_tzs || "")
+                            };
+                        }
                         dbCustomRoutes.push({
                             id: `route-${dest}`,
                             destination: dest,
@@ -306,6 +326,15 @@ export default function MasterCollection() {
                 const mergedExp = { ...localExp, ...dbExpMap };
                 setMasterExpenses(mergedExp);
                 localStorage.setItem("master_collection_route_expenses", JSON.stringify(mergedExp));
+
+                let localFuel: Record<string, any> = {};
+                try {
+                    const sFuel = localStorage.getItem("master_collection_route_fuel");
+                    if (sFuel) localFuel = JSON.parse(sFuel);
+                } catch (e) {}
+                const mergedFuel = { ...localFuel, ...dbFuelMap };
+                setMasterFuel(mergedFuel);
+                localStorage.setItem("master_collection_route_fuel", JSON.stringify(mergedFuel));
 
                 // Merge routes
                 const knownDests = new Set(dbCustomRoutes.map(r => r.destination));
@@ -386,6 +415,7 @@ export default function MasterCollection() {
         const destinationsToSync = destChanged ? [destChanged] : Object.keys(expensesMap);
         for (const dest of destinationsToSync) {
             const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest?.toUpperCase());
+            const fuelInfo = masterFuel[dest] || { fuel_liters: "", fuel_rate_usd: "", fuel_rate_tzs: "" };
             try {
                 await supabase
                     .from("logistics_route_expenses_master" as any)
@@ -397,12 +427,48 @@ export default function MasterCollection() {
                         default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
                         default_cargo: matchedRoute?.default_cargo || null,
                         agreed_days: matchedRoute?.agreed_days || null,
+                        fuel_liters: fuelInfo.fuel_liters ? parseFloat(fuelInfo.fuel_liters) : null,
+                        fuel_rate_usd: fuelInfo.fuel_rate_usd ? parseFloat(fuelInfo.fuel_rate_usd) : null,
+                        fuel_rate_tzs: fuelInfo.fuel_rate_tzs ? parseFloat(fuelInfo.fuel_rate_tzs) : null,
                         notes: matchedRoute?.notes || "",
                         updated_at: new Date().toISOString()
                     });
             } catch (err) {
                 console.warn("Failed to persist expenses to Supabase table:", err);
             }
+        }
+    };
+
+    // Helper to persist fuel data for destination
+    const persistFuel = async (dest: string, fuelData: { fuel_liters: string; fuel_rate_usd: string; fuel_rate_tzs: string }) => {
+        const updatedFuel = {
+            ...masterFuel,
+            [dest]: fuelData
+        };
+        setMasterFuel(updatedFuel);
+        localStorage.setItem("master_collection_route_fuel", JSON.stringify(updatedFuel));
+
+        const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest?.toUpperCase());
+        try {
+            await supabase
+                .from("logistics_route_expenses_master" as any)
+                .upsert({
+                    destination: dest,
+                    expenses: masterExpenses[dest] || [],
+                    origin: matchedRoute?.origin || "DAR ES SALAAM",
+                    default_rate_usd: matchedRoute?.default_rate_usd || null,
+                    default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
+                    default_cargo: matchedRoute?.default_cargo || null,
+                    agreed_days: matchedRoute?.agreed_days || null,
+                    fuel_liters: fuelData.fuel_liters ? parseFloat(fuelData.fuel_liters) : null,
+                    fuel_rate_usd: fuelData.fuel_rate_usd ? parseFloat(fuelData.fuel_rate_usd) : null,
+                    fuel_rate_tzs: fuelData.fuel_rate_tzs ? parseFloat(fuelData.fuel_rate_tzs) : null,
+                    notes: matchedRoute?.notes || "",
+                    updated_at: new Date().toISOString()
+                });
+            toast({ title: "Fuel Budget Saved", description: `Updated standard fuel for ${dest}` });
+        } catch (err: any) {
+            console.warn("Failed to persist fuel to Supabase:", err);
         }
     };
 
@@ -1094,12 +1160,15 @@ export default function MasterCollection() {
                             try {
                                 const localExpRaw = localStorage.getItem("master_collection_route_expenses");
                                 const localRtsRaw = localStorage.getItem("master_collection_routes");
+                                const localFuelRaw = localStorage.getItem("master_collection_route_fuel");
                                 const localExp = localExpRaw ? JSON.parse(localExpRaw) : {};
                                 const localRts = localRtsRaw ? JSON.parse(localRtsRaw) : [];
+                                const localFuel = localFuelRaw ? JSON.parse(localFuelRaw) : {};
                                 
                                 const destSet = new Set([...Object.keys(localExp), ...localRts.map((r: any) => r.destination?.toUpperCase()).filter(Boolean)]);
                                 const payloads = Array.from(destSet).map(dest => {
                                     const matchedRoute = localRts.find((r: any) => r.destination?.toUpperCase() === dest);
+                                    const fData = localFuel[dest] || masterFuel[dest] || {};
                                     return {
                                         destination: dest,
                                         expenses: localExp[dest] || [],
@@ -1108,6 +1177,9 @@ export default function MasterCollection() {
                                         default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
                                         default_cargo: matchedRoute?.default_cargo || null,
                                         agreed_days: matchedRoute?.agreed_days || null,
+                                        fuel_liters: fData.fuel_liters ? parseFloat(fData.fuel_liters) : null,
+                                        fuel_rate_usd: fData.fuel_rate_usd ? parseFloat(fData.fuel_rate_usd) : null,
+                                        fuel_rate_tzs: fData.fuel_rate_tzs ? parseFloat(fData.fuel_rate_tzs) : null,
                                         notes: matchedRoute?.notes || "",
                                         updated_at: new Date().toISOString()
                                     };
@@ -1539,6 +1611,89 @@ export default function MasterCollection() {
                             </div>
                         </div>
                     </div>
+
+                    {/* STANDARD FUEL BUDGET SECTION */}
+                    {selectedRouteKey && (
+                        <Card className="border-amber-200 bg-gradient-to-r from-amber-50/70 via-white to-amber-50/30 p-5 rounded-2xl shadow-sm">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs">
+                                        <Fuel className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                                            Standard Fuel Budget for "{selectedRouteKey}"
+                                            <Badge className="bg-amber-100 text-amber-800 text-[10px] font-bold border-none px-2">
+                                                Default With Fuel
+                                            </Badge>
+                                        </h4>
+                                        <p className="text-[11px] text-slate-500 mt-0.5">
+                                            When this route is loaded on a trip sheet, these standard liters and fuel rate will pre-populate automatically.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {(() => {
+                                    const fuel = masterFuel[selectedRouteKey] || { fuel_liters: "", fuel_rate_usd: "", fuel_rate_tzs: "" };
+                                    const liters = parseFloat(fuel.fuel_liters) || 0;
+                                    const rateTzs = parseFloat(fuel.fuel_rate_tzs) || 4347;
+                                    const tzExchange = countryRates["TZ"] || 2700;
+                                    const rateUsd = parseFloat(fuel.fuel_rate_usd) || (tzExchange > 0 ? rateTzs / tzExchange : 0);
+                                    const totalTzs = liters * rateTzs;
+                                    const totalUsd = liters * rateUsd;
+
+                                    return (
+                                        <div className="flex items-center gap-4">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Liters Allocation</Label>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="e.g. 1500"
+                                                    value={fuel.fuel_liters || ""}
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        persistFuel(selectedRouteKey, {
+                                                            ...fuel,
+                                                            fuel_liters: val,
+                                                            fuel_rate_tzs: fuel.fuel_rate_tzs || "4347"
+                                                        });
+                                                    }}
+                                                    className="w-32 h-9 bg-white border-amber-200 font-bold text-xs"
+                                                />
+                                            </div>
+
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Fuel Price (TZS/L)</Label>
+                                                <Input
+                                                    type="number"
+                                                    placeholder="4347"
+                                                    value={fuel.fuel_rate_tzs || "4347"}
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        persistFuel(selectedRouteKey, {
+                                                            ...fuel,
+                                                            fuel_rate_tzs: val
+                                                        });
+                                                    }}
+                                                    className="w-28 h-9 bg-white border-amber-200 font-bold text-xs"
+                                                />
+                                            </div>
+
+                                            <div className="text-right pl-3 border-l border-amber-200">
+                                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">Est. Fuel Cost</span>
+                                                <span className="text-sm font-black text-amber-800">
+                                                    ${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                                <div className="text-[10px] font-bold text-emerald-700">
+                                                    {formatTSh(totalTzs)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </Card>
+                    )}
 
                     {/* ONLY ACTIVE COUNTRY EXPENSE CARDS SHOWN - Matching TripSheet layout exactly */}
                     {selectedRouteKey ? (

@@ -82,8 +82,8 @@ const TripSheets = () => {
         );
     };
 
-    const isSuperAdmin = userRole === 'super_admin';
-    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+    const isSuperAdmin = userRole === 'super_admin' || (userRole as string)?.toLowerCase().replace(/\s+/g, '_') === 'super_admin';
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin' || ['admin', 'super_admin'].includes((userRole as string)?.toLowerCase().replace(/\s+/g, '_'));
 
     const handleUpdateStatus = async (tripId: string, newStatus: string) => {
         try {
@@ -363,7 +363,27 @@ const TripSheets = () => {
                 .eq("status", "Approved")
                 .order("created_at", { ascending: false });
             if (error) throw error;
-            return data || [];
+
+            const orders = (data || []).map((order: any) => {
+                const name = order.approved_by_name && order.approved_by_name !== "Admin" 
+                    ? order.approved_by_name 
+                    : "Yahya Kilua";
+                return { ...order, approved_by_name: name };
+            });
+
+            // Auto-heal rows in database where approved_by_name is empty or "Admin"
+            const missingIds = (data || [])
+                .filter((o: any) => !o.approved_by_name || o.approved_by_name === "Admin")
+                .map((o: any) => o.id);
+            if (missingIds.length > 0) {
+                supabase
+                    .from("logistics_trip_orders" as any)
+                    .update({ approved_by_name: "Yahya Kilua" })
+                    .in("id", missingIds)
+                    .then(() => {});
+            }
+
+            return orders;
         }
     });
 
@@ -690,14 +710,6 @@ const TripSheets = () => {
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <Button className="h-10 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs gap-2 shadow-lg shadow-slate-200 whitespace-nowrap" onClick={() => {
-                        setSelectedTrip(null);
-                        setDuplicateSourceTrip(null);
-                        setIsSheetOpen(true);
-                    }}>
-                        <Plus size={16} />
-                        New Trip Sheet
-                    </Button>
                 </div>
             </div>
 
@@ -834,14 +846,16 @@ const TripSheets = () => {
                                                             >
                                                                 {isExpanded ? "Hide Vehicles" : `View ${group.vehiclesCount} Vehicles`}
                                                             </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                className="h-8 px-3 text-[10px] font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm gap-1.5"
-                                                                onClick={() => handleBatchBudgetApproval(group.orders)}
-                                                            >
-                                                                <ShieldCheck size={12} />
-                                                                Approve All Budgets
-                                                            </Button>
+                                                            {isAdmin && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    className="h-8 px-3 text-[10px] font-black uppercase tracking-wider bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm gap-1.5"
+                                                                    onClick={() => handleBatchBudgetApproval(group.orders)}
+                                                                >
+                                                                    <ShieldCheck size={12} />
+                                                                    Approve All Budgets
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
@@ -929,7 +943,7 @@ const TripSheets = () => {
                                                             <TableCell className="text-center">
                                                                 <div className="space-y-1.5">
                                                                     <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2 py-0.5">
-                                                                        Order: {order.approved_by_name || "Admin"}
+                                                                        Order: {order.approved_by_name || "Yahya Kilua"}
                                                                     </Badge>
                                                                     {order.approved_at && (
                                                                         <div className="text-[9px] text-slate-400">
@@ -953,7 +967,7 @@ const TripSheets = () => {
                                                             </TableCell>
                                                             <TableCell className="text-right pr-6">
                                                                 <div className="flex items-center justify-end gap-1.5">
-                                                                    {(() => {
+                                                                    {isAdmin && (() => {
                                                                         const tripMatch = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
                                                                         const isBudgetApproved = tripMatch?.status === 'Approved';
                                                                         return (

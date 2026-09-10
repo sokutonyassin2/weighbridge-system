@@ -765,7 +765,12 @@ export default function TripOrders() {
             };
             if (status === "Approved") {
                 payload.approved_by = user?.id;
-                payload.approved_by_name = userProfile?.full_name || (userProfile as any)?.username || user?.email || "Admin";
+                let approverName = userProfile?.full_name || (userProfile as any)?.username;
+                if (!approverName && user?.id) {
+                    const { data: prof } = await supabase.from('profiles').select('full_name, username').eq('id', user.id).maybeSingle();
+                    approverName = prof?.full_name || prof?.username;
+                }
+                payload.approved_by_name = approverName || user?.email || "Yahya Kilua";
                 payload.approved_at = new Date().toISOString();
                 payload.rejection_reason = null;
             } else if (status === "Rejected") {

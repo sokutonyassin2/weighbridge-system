@@ -50,7 +50,14 @@ import {
     ChevronRight,
     Layers,
     Edit2,
-    Save
+    Save,
+    Bell,
+    ThumbsUp,
+    ThumbsDown,
+    AlertCircle,
+    Sparkles,
+    Send,
+    X
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -84,7 +91,33 @@ export default function TripOrders() {
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState<string>("ALL");
     const [clientFilter, setClientFilter] = useState<string>("ALL");
-    const [pipelineTab, setPipelineTab] = useState<'all' | 'pending' | 'operations' | 'completed'>('all');
+    const [pipelineTab, setPipelineTab] = useState<'all' | 'pending' | 'operations' | 'completed' | 'nominations'>('all');
+
+    // Vehicle Nomination Modal State (Multi-vehicle selection, destination-based, persistent draft)
+    const initialNominationState = {
+        selected_vehicles: [] as Array<{ vehicle_id: string; truck_reg: string; trailer_id?: string; trailer_reg?: string }>,
+        target_destination: "LUSAKA / CHAMBISHI",
+        expected_departure_date: "",
+        cargo_type: "General Cargo",
+        logistics_notes: ""
+    };
+
+    const [isNominateOpen, setIsNominateOpen] = useState(false);
+    const [nominationForm, setNominationForm] = useState(() => {
+        try {
+            const cached = localStorage.getItem("trip_orders_nomination_draft");
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && typeof parsed === "object") {
+                    return {
+                        ...initialNominationState,
+                        ...parsed
+                    };
+                }
+            }
+        } catch (e) {}
+        return initialNominationState;
+    });
 
     // Edit Order State
     const [editingOrder, setEditingOrder] = useState<any>(null);
@@ -210,6 +243,13 @@ export default function TripOrders() {
         } catch (e) {}
     }, [vehicleAssignments]);
 
+    // Auto-save nomination draft to localStorage
+    useEffect(() => {
+        try {
+            localStorage.setItem("trip_orders_nomination_draft", JSON.stringify(nominationForm));
+        } catch (e) {}
+    }, [nominationForm]);
+
     // Clear draft helper
     const clearFormDraft = () => {
         try {
@@ -218,6 +258,13 @@ export default function TripOrders() {
         } catch (e) {}
         setFormData(initialFormState);
         setVehicleAssignments([initialVehicleItem]);
+    };
+
+    const clearNominationDraft = () => {
+        try {
+            localStorage.removeItem("trip_orders_nomination_draft");
+        } catch (e) {}
+        setNominationForm(initialNominationState);
     };
 
     const handleAddVehicleSlot = () => {
@@ -247,6 +294,22 @@ export default function TripOrders() {
                 .select("*")
                 .order("created_at", { ascending: false });
             if (error) throw error;
+            return data || [];
+        }
+    });
+
+    // Fetch Vehicle Nominations
+    const { data: nominations = [], isLoading: isLoadingNominations, refetch: refetchNominations } = useQuery({
+        queryKey: ["logistics_vehicle_nominations"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_vehicle_nominations" as any)
+                .select("*")
+                .order("created_at", { ascending: false });
+            if (error) {
+                console.warn("logistics_vehicle_nominations query error:", error);
+                return [];
+            }
             return data || [];
         }
     });
@@ -581,6 +644,52 @@ export default function TripOrders() {
         }
     };
 
+    // Submit Nomination Mutation (Supports batch multi-vehicle nominations)
+    const createNominationMutation = useMutation({
+        mutationFn: async (payloads: any[]) => {
+            const { data, error } = await supabase
+                .from("logistics_vehicle_nominations" as any)
+                .insert(payloads)
+                .select();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_vehicle_nominations"] });
+            const count = data?.length || 1;
+            toast({
+                title: "Vehicles Nominated Successfully",
+                description: `${count} vehicle(s) nominated and sent to the Garage Team for readiness inspection.`
+            });
+            setIsNominateOpen(false);
+            clearNominationDraft();
+        },
+        onError: (err: any) => {
+            toast({
+                variant: "destructive",
+                title: "Nomination Failed",
+                description: err.message
+            });
+        }
+    });
+
+    const deleteNominationMutation = useMutation({
+        mutationFn: async (nomId: string) => {
+            const { error } = await supabase
+                .from("logistics_vehicle_nominations" as any)
+                .delete()
+                .eq("id", nomId);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_vehicle_nominations"] });
+            toast({ title: "Nomination Cancelled", description: "Nomination record removed." });
+        },
+        onError: (err: any) => {
+            toast({ variant: "destructive", title: "Action Failed", description: err.message });
+        }
+    });
+
     // Submit Order Mutation (Supports batch insertions for multiple vehicles)
     const createOrderMutation = useMutation({
         mutationFn: async (payloads: any[]) => {
@@ -914,6 +1023,8 @@ export default function TripOrders() {
     const pendingCount = orders.filter((o: any) => o.status === "Pending Approval").length;
     const approvedCount = orders.filter((o: any) => o.status === "Approved" || o.status === "Trip Sheet Created").length;
     const completedCount = orders.filter((o: any) => o.status === "Completed").length;
+    const nominationsCount = (nominations || []).length;
+    const clearedNominationsCount = (nominations || []).filter((n: any) => n.garage_readiness === 'Fit' || n.status === 'Cleared').length;
     const totalOrderUSD = orders.reduce((sum: number, o: any) => sum + (parseFloat(o.agreed_amount_usd) || 0), 0);
 
     // Pipeline tab filtering applied on top of existing filters
@@ -940,12 +1051,25 @@ export default function TripOrders() {
                         </div>
                         <div>
                             <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight">Logistics Trip Orders</h1>
-                            <p className="text-xs md:text-sm text-slate-500 font-medium">Capture client orders, negotiate exchange rates, auto-generate trip IDs, and submit for Admin approval.</p>
+                            <p className="text-xs md:text-sm text-slate-500 font-medium">Nominate vehicles to the garage, review mechanical readiness, capture client orders, and manage approvals.</p>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                    <Button 
+                        variant="outline"
+                        onClick={() => setIsNominateOpen(true)}
+                        className="border-indigo-200 text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/70 font-bold text-xs uppercase tracking-wider h-11 px-4 rounded-xl shadow-xs gap-1.5"
+                    >
+                        <Bell className="w-4 h-4 text-indigo-600" />
+                        Nominate Vehicle to Garage
+                        {nominationsCount > 0 && (
+                            <Badge className="ml-1 bg-indigo-600 text-white text-[10px] px-1.5 py-0">
+                                {nominationsCount}
+                            </Badge>
+                        )}
+                    </Button>
                     <Button 
                         onClick={() => {
                             setFormData(initialFormState);
@@ -960,7 +1084,20 @@ export default function TripOrders() {
             </div>
 
             {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <Card className="border-slate-200/80 shadow-sm bg-white">
+                    <CardContent className="p-5 flex items-center justify-between">
+                        <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Garage Nominations</p>
+                            <h3 className="text-2xl font-black text-indigo-600 mt-1">{nominationsCount}</h3>
+                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">{clearedNominationsCount} Cleared / Fit</p>
+                        </div>
+                        <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 border border-indigo-100">
+                            <Sparkles className="w-6 h-6" />
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card className="border-slate-200/80 shadow-sm bg-white">
                     <CardContent className="p-5 flex items-center justify-between">
                         <div>
@@ -979,7 +1116,7 @@ export default function TripOrders() {
                         <div>
                             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Approved Orders</p>
                             <h3 className="text-2xl font-black text-emerald-600 mt-1">{approvedCount}</h3>
-                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Ready for Finance Trip Sheets</p>
+                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Ready for Operations</p>
                         </div>
                         <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600 border border-emerald-100">
                             <CheckCircle2 className="w-6 h-6" />
@@ -990,11 +1127,11 @@ export default function TripOrders() {
                 <Card className="border-slate-200/80 shadow-sm bg-white">
                     <CardContent className="p-5 flex items-center justify-between">
                         <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Contracted Revenue</p>
-                            <h3 className="text-2xl font-black text-indigo-700 mt-1">${totalOrderUSD.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
-                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Total USD across all orders</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Contracted Revenue</p>
+                            <h3 className="text-2xl font-black text-slate-800 mt-1">${totalOrderUSD.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Total across all orders</p>
                         </div>
-                        <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 border border-indigo-100">
+                        <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600 border border-emerald-100">
                             <TrendingUp className="w-6 h-6" />
                         </div>
                     </CardContent>
@@ -1048,27 +1185,30 @@ export default function TripOrders() {
             </Card>
 
             {/* Operational Pipeline Tabs */}
-            <div className="flex items-center gap-1 bg-white p-1.5 rounded-xl border border-slate-200/80 shadow-sm">
+            <div className="flex items-center gap-1 bg-white p-1.5 rounded-xl border border-slate-200/80 shadow-sm flex-wrap">
                 {[
                     { key: 'all', label: 'All Orders', count: groupedOrderList.length, color: 'slate' },
                     { key: 'pending', label: 'New / Pending Review', count: pendingCount, color: 'amber' },
                     { key: 'operations', label: 'Approved & In Operations', count: approvedCount, color: 'emerald' },
-                    { key: 'completed', label: 'Completed Trips', count: completedCount, color: 'indigo' }
+                    { key: 'completed', label: 'Completed Trips', count: completedCount, color: 'indigo' },
+                    { key: 'nominations', label: 'Vehicle Nominations', count: nominationsCount, color: 'purple' }
                 ].map(tab => (
                     <button
                         key={tab.key}
                         onClick={() => setPipelineTab(tab.key as any)}
                         className={cn(
-                            "flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 flex-1 justify-center",
+                            "flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 flex-1 justify-center min-w-[140px]",
                             pipelineTab === tab.key
                                 ? `bg-${tab.color}-600 text-white shadow-md`
                                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
                             pipelineTab === tab.key && tab.color === 'slate' && 'bg-slate-800 text-white',
                             pipelineTab === tab.key && tab.color === 'amber' && 'bg-amber-600 text-white',
                             pipelineTab === tab.key && tab.color === 'emerald' && 'bg-emerald-600 text-white',
-                            pipelineTab === tab.key && tab.color === 'indigo' && 'bg-indigo-600 text-white'
+                            pipelineTab === tab.key && tab.color === 'indigo' && 'bg-indigo-600 text-white',
+                            pipelineTab === tab.key && tab.color === 'purple' && 'bg-purple-600 text-white'
                         )}
                     >
+                        {tab.key === 'nominations' && <Bell className="w-3.5 h-3.5 mr-0.5" />}
                         {tab.label}
                         <span className={cn(
                             "px-1.5 py-0.5 rounded-full text-[10px] font-black min-w-[20px]",
@@ -1082,13 +1222,227 @@ export default function TripOrders() {
                 ))}
             </div>
 
-            {/* Orders Table */}
-            <Card className="border-slate-200/80 shadow-sm bg-white overflow-hidden">
-                <div className="overflow-x-auto">
-                    <Table>
-                        <TableHeader className="bg-slate-50/80 border-b border-slate-200">
-                            <TableRow>
-                                <TableHead className="w-12 text-center text-[11px] font-bold uppercase text-slate-500">#</TableHead>
+            {/* Conditionally Render: Nominations Table or Orders Table */}
+            {pipelineTab === 'nominations' ? (
+                <Card className="border-slate-200/80 shadow-sm bg-white overflow-hidden">
+                    <div className="p-4 bg-purple-50/50 border-b border-purple-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
+                                <Bell className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-800">Garage Vehicle Readiness Pipeline</h3>
+                                <p className="text-xs text-slate-500">Vehicles nominated by Logistics for upcoming orders awaiting or cleared by the Garage team.</p>
+                            </div>
+                        </div>
+                        <Button
+                            size="sm"
+                            onClick={() => setIsNominateOpen(true)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs gap-1.5 self-start sm:self-auto"
+                        >
+                            <Plus className="w-3.5 h-3.5" />
+                            Nominate Another Vehicle
+                        </Button>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-slate-50/80 border-b border-slate-200">
+                                <TableRow>
+                                    <TableHead className="w-12 text-center text-[11px] font-bold uppercase text-slate-500">#</TableHead>
+                                    <TableHead className="text-[11px] font-bold uppercase text-slate-500">Nominated Vehicle</TableHead>
+                                    <TableHead className="text-[11px] font-bold uppercase text-slate-500">Target Route & Cargo</TableHead>
+                                    <TableHead className="text-[11px] font-bold uppercase text-slate-500">Nominated By & Date</TableHead>
+                                    <TableHead className="text-[11px] font-bold uppercase text-slate-500 text-center">Garage Readiness</TableHead>
+                                    <TableHead className="text-[11px] font-bold uppercase text-slate-500">Garage Decision / Reason</TableHead>
+                                    <TableHead className="text-[11px] font-bold uppercase text-slate-500 text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody className="divide-y divide-slate-100">
+                                {isLoadingNominations ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="py-12 text-center text-slate-400 text-xs">
+                                            Loading vehicle nominations...
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (nominations || []).length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="py-12 text-center text-slate-400 text-xs">
+                                            No vehicle nominations found. Click "Nominate Vehicle to Garage" above to alert the workshop about upcoming orders.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    (nominations || []).map((nom: any, nIdx: number) => {
+                                        const isFit = nom.garage_readiness === 'Fit' || nom.status === 'Cleared';
+                                        const isUnfit = nom.garage_readiness === 'Unfit' || nom.status === 'Rejected';
+                                        const isConditional = nom.garage_readiness === 'Conditional' || nom.status === 'Conditional';
+                                        const isPending = !isFit && !isUnfit && !isConditional;
+
+                                        return (
+                                            <TableRow key={nom.id} className="hover:bg-slate-50/70 transition-colors">
+                                                <TableCell className="text-center text-xs font-semibold text-slate-400">
+                                                    {(nIdx + 1).toString().padStart(2, '0')}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                                        <Truck className="w-3.5 h-3.5 text-indigo-600" />
+                                                        {nom.truck_reg}
+                                                    </div>
+                                                    {nom.trailer_reg && (
+                                                        <div className="text-[11px] text-slate-500 font-medium">
+                                                            Trailer: {nom.trailer_reg}
+                                                        </div>
+                                                    )}
+                                                    {nom.driver_name && (
+                                                        <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                                            <User className="w-3 h-3" />
+                                                            {nom.driver_name}
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="font-semibold text-slate-800 text-xs">
+                                                        {nom.target_destination || "Route Unspecified"}
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500">
+                                                        {nom.cargo_type || "General Cargo"}
+                                                    </div>
+                                                    {nom.expected_departure_date && (
+                                                        <div className="text-[10px] text-indigo-600 flex items-center gap-1 mt-0.5">
+                                                            <Calendar className="w-3 h-3" />
+                                                            Target Departure: {format(new Date(nom.expected_departure_date), "dd MMM yyyy")}
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs font-semibold text-slate-700">
+                                                        {nom.nominated_by_name || "Logistics Staff"}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-400">
+                                                        {nom.created_at ? format(new Date(nom.created_at), "dd MMM yyyy, HH:mm") : "—"}
+                                                    </div>
+                                                    {nom.logistics_notes && (
+                                                        <div className="text-[10px] text-slate-500 italic mt-0.5 max-w-[200px] truncate" title={nom.logistics_notes}>
+                                                            "{nom.logistics_notes}"
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    {isFit && (
+                                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold px-2.5 py-1">
+                                                            <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+                                                            Fit for Trip
+                                                        </Badge>
+                                                    )}
+                                                    {isUnfit && (
+                                                        <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-[10px] font-bold px-2.5 py-1">
+                                                            <XCircle className="w-3 h-3 mr-1 text-rose-600" />
+                                                            Not Fit (Faults)
+                                                        </Badge>
+                                                    )}
+                                                    {isConditional && (
+                                                        <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-bold px-2.5 py-1">
+                                                            <AlertTriangle className="w-3 h-3 mr-1 text-amber-600" />
+                                                            Conditional Fit
+                                                        </Badge>
+                                                    )}
+                                                    {isPending && (
+                                                        <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] font-bold px-2.5 py-1">
+                                                            <Clock className="w-3 h-3 mr-1 text-purple-600" />
+                                                            Awaiting Garage
+                                                        </Badge>
+                                                    )}
+                                                    {nom.garage_reviewed_by_name && (
+                                                        <div className="text-[9px] text-slate-400 mt-1">
+                                                            By: {nom.garage_reviewed_by_name}
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {nom.garage_decision_notes ? (
+                                                        <div className="space-y-0.5">
+                                                            <p className="text-xs text-slate-700 font-medium leading-tight">
+                                                                {nom.garage_decision_notes}
+                                                            </p>
+                                                            {nom.estimated_readiness_date && (
+                                                                <p className="text-[10px] text-amber-700 font-semibold">
+                                                                    Est. Ready: {format(new Date(nom.estimated_readiness_date), "dd MMM yyyy")}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-400 italic">No notes logged</span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        {isFit && (
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setFormData({
+                                                                        ...initialFormState,
+                                                                        vehicle_id: nom.vehicle_id || "",
+                                                                        truck_reg: nom.truck_reg,
+                                                                        trailer_id: nom.trailer_id || "",
+                                                                        trailer_reg: nom.trailer_reg || "",
+                                                                        driver_id: nom.driver_id || "",
+                                                                        driver_name: nom.driver_name || "",
+                                                                        destination: nom.target_destination || "",
+                                                                        cargo_description: nom.cargo_type || ""
+                                                                    });
+                                                                    setVehicleAssignments([{
+                                                                        id: "veh-1",
+                                                                        vehicle_id: nom.vehicle_id || "",
+                                                                        truck_reg: nom.truck_reg,
+                                                                        trailer_id: nom.trailer_id || "",
+                                                                        trailer_reg: nom.trailer_reg || "",
+                                                                        driver_id: nom.driver_id || "",
+                                                                        driver_name: nom.driver_name || "",
+                                                                        contact_no: "",
+                                                                        license_no: "",
+                                                                        passport_no: "",
+                                                                        trip_number: "",
+                                                                        journey_type: "Go & Return (Full Cycle)"
+                                                                    }]);
+                                                                    setIsCreateOpen(true);
+                                                                }}
+                                                                className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-xs gap-1"
+                                                            >
+                                                                <Plus className="w-3 h-3" />
+                                                                Create Order
+                                                            </Button>
+                                                        )}
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                if (window.confirm(`Remove nomination for vehicle ${nom.truck_reg}?`)) {
+                                                                    deleteNominationMutation.mutate(nom.id);
+                                                                }
+                                                            }}
+                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                                            title="Cancel Nomination"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </Card>
+            ) : (
+                /* Orders Table */
+                <Card className="border-slate-200/80 shadow-sm bg-white overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-slate-50/80 border-b border-slate-200">
+                                <TableRow>
+                                    <TableHead className="w-12 text-center text-[11px] font-bold uppercase text-slate-500">#</TableHead>
                                 <TableHead className="text-[11px] font-bold uppercase text-slate-500">Trip Reference</TableHead>
                                 <TableHead className="text-[11px] font-bold uppercase text-slate-500">Client / Company</TableHead>
                                 <TableHead className="text-[11px] font-bold uppercase text-slate-500">Vehicle & Crew</TableHead>
@@ -1606,6 +1960,7 @@ export default function TripOrders() {
                     </Table>
                 </div>
             </Card>
+            )}
 
             {/* CREATE NEW ORDER MODAL */}
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -1825,6 +2180,49 @@ export default function TripOrders() {
                                                         </Command>
                                                     </PopoverContent>
                                                 </Popover>
+
+                                                {/* Garage Readiness Badge */}
+                                                {veh.vehicle_id && (() => {
+                                                    const vehNom = (nominations || []).find((n: any) => n.vehicle_id === veh.vehicle_id || n.truck_reg === veh.truck_reg);
+                                                    if (!vehNom) {
+                                                        return (
+                                                            <div className="flex items-center gap-1 text-[10px] text-slate-400 font-medium mt-1">
+                                                                <AlertCircle className="w-3 h-3 text-slate-400" />
+                                                                Not nominated to garage
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (vehNom.garage_readiness === 'Fit' || vehNom.status === 'Cleared') {
+                                                        return (
+                                                            <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-bold mt-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 w-fit">
+                                                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                                                Garage Cleared (Fit for Trip)
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (vehNom.garage_readiness === 'Unfit' || vehNom.status === 'Rejected') {
+                                                        return (
+                                                            <div className="flex items-center gap-1 text-[10px] text-rose-700 font-bold mt-1 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 w-fit" title={vehNom.garage_decision_notes || "Unfit"}>
+                                                                <XCircle className="w-3 h-3 text-rose-600" />
+                                                                Garage Warning: Vehicle Unfit!
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (vehNom.garage_readiness === 'Conditional') {
+                                                        return (
+                                                            <div className="flex items-center gap-1 text-[10px] text-amber-700 font-bold mt-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 w-fit" title={vehNom.garage_decision_notes || "Conditional"}>
+                                                                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                                                Conditional Garage Clearance
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <div className="flex items-center gap-1 text-[10px] text-purple-700 font-semibold mt-1 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 w-fit">
+                                                            <Clock className="w-3 h-3 text-purple-600" />
+                                                            Nomination Awaiting Inspection
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
 
                                             <div className="space-y-1">
@@ -2566,6 +2964,266 @@ export default function TripOrders() {
                             {updateOrderMutation.isPending ? "Saving..." : "Update Order"}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* NOMINATE VEHICLE MODAL */}
+            <Dialog open={isNominateOpen} onOpenChange={setIsNominateOpen}>
+                <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Bell className="w-5 h-5 text-purple-600" />
+                            Nominate Vehicle to Garage
+                        </DialogTitle>
+                        <p className="text-xs text-slate-500">
+                            Notify the garage team that this vehicle is targeted for an upcoming order. The workshop will perform a pre-trip readiness check and mark it as Fit, Unfit, or Conditional.
+                        </p>
+                    </DialogHeader>
+
+                    <form 
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            if (!nominationForm.selected_vehicles || nominationForm.selected_vehicles.length === 0) {
+                                toast({ variant: "destructive", title: "Vehicle(s) Required", description: "Please select at least one vehicle to nominate." });
+                                return;
+                            }
+                            if (!nominationForm.target_destination) {
+                                toast({ variant: "destructive", title: "Destination Required", description: "Please select a destination route." });
+                                return;
+                            }
+
+                            // Generate nomination records for each selected vehicle with the shared destination route
+                            const payloads = nominationForm.selected_vehicles.map(veh => ({
+                                vehicle_id: veh.vehicle_id,
+                                truck_reg: veh.truck_reg,
+                                trailer_id: veh.trailer_id || null,
+                                trailer_reg: veh.trailer_reg || null,
+                                driver_id: null,
+                                driver_name: null,
+                                target_destination: nominationForm.target_destination || null,
+                                expected_departure_date: nominationForm.expected_departure_date || null,
+                                cargo_type: nominationForm.cargo_type || null,
+                                logistics_notes: nominationForm.logistics_notes || null,
+                                nominated_by: user?.id,
+                                nominated_by_name: userProfile?.full_name || user?.email || "Logistics",
+                                status: "Pending Inspection",
+                                garage_readiness: "Pending"
+                            }));
+
+                            createNominationMutation.mutate(payloads);
+                        }}
+                        className="space-y-4 pt-2"
+                    >
+                        {/* Multi-Vehicle Selection */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs font-semibold text-slate-700">
+                                    Select Vehicles / Horses *
+                                </Label>
+                                <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                                    {nominationForm.selected_vehicles.length} vehicle(s) chosen
+                                </span>
+                            </div>
+
+                            {/* Selected Vehicle Chips */}
+                            {nominationForm.selected_vehicles.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200/80 rounded-xl min-h-[42px] items-center">
+                                    {nominationForm.selected_vehicles.map(v => (
+                                        <Badge
+                                            key={v.vehicle_id}
+                                            variant="secondary"
+                                            className="bg-white border border-indigo-200 text-indigo-900 text-xs font-bold pl-2.5 pr-1 py-1 flex items-center gap-1 shadow-2xs"
+                                        >
+                                            <Truck className="w-3.5 h-3.5 text-indigo-600 mr-0.5" />
+                                            <span>{v.truck_reg}</span>
+                                            {v.trailer_reg && <span className="text-[10px] text-slate-400 font-normal">({v.trailer_reg})</span>}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setNominationForm(prev => ({
+                                                        ...prev,
+                                                        selected_vehicles: prev.selected_vehicles.filter(sv => sv.vehicle_id !== v.vehicle_id)
+                                                    }));
+                                                }}
+                                                className="ml-1 hover:bg-rose-100 hover:text-rose-700 rounded p-0.5 text-slate-400"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </Badge>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Vehicle Selector Popover */}
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        type="button"
+                                        className="w-full h-10 justify-between bg-white border-slate-200 text-xs font-medium"
+                                    >
+                                        <span className="flex items-center gap-2 text-slate-600">
+                                            <Plus className="w-4 h-4 text-indigo-600" />
+                                            Click to add vehicles for this nomination...
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[380px] p-0 z-[9999]" align="start">
+                                    <Command>
+                                        <CommandInput placeholder="Type to search horse / truck..." className="h-8 text-xs" />
+                                        <CommandList>
+                                            <CommandEmpty className="p-2 text-xs text-center text-slate-500">No vehicle found.</CommandEmpty>
+                                            <CommandGroup className="max-h-[240px] overflow-auto">
+                                                {fleet
+                                                    .filter(f => f.asset_type === 'Truck' || f.asset_type === 'Horse')
+                                                    .map(v => {
+                                                        const isSelected = nominationForm.selected_vehicles.some(sv => sv.vehicle_id === v.id);
+                                                        return (
+                                                            <CommandItem
+                                                                key={v.id}
+                                                                value={`${v.vehicle_no} ${v.make_model || ''}`}
+                                                                onSelect={() => {
+                                                                    if (isSelected) {
+                                                                        // Deselect
+                                                                        setNominationForm(prev => ({
+                                                                            ...prev,
+                                                                            selected_vehicles: prev.selected_vehicles.filter(sv => sv.vehicle_id !== v.id)
+                                                                        }));
+                                                                    } else {
+                                                                        // Select
+                                                                        const activeCoupling = couplings.find((c: any) => c.horse_id === v.id);
+                                                                        const pairedTrailer = activeCoupling ? fleet.find(f => f.id === activeCoupling.trailer_id) : null;
+                                                                        setNominationForm(prev => ({
+                                                                            ...prev,
+                                                                            selected_vehicles: [
+                                                                                ...prev.selected_vehicles,
+                                                                                {
+                                                                                    vehicle_id: v.id,
+                                                                                    truck_reg: v.vehicle_no,
+                                                                                    trailer_id: pairedTrailer?.id,
+                                                                                    trailer_reg: pairedTrailer?.vehicle_no
+                                                                                }
+                                                                            ]
+                                                                        }));
+                                                                    }
+                                                                }}
+                                                                className="text-xs font-medium cursor-pointer flex items-center justify-between"
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <Check
+                                                                        className={cn(
+                                                                            "h-3.5 w-3.5 text-indigo-600",
+                                                                            isSelected ? "opacity-100" : "opacity-0"
+                                                                        )}
+                                                                    />
+                                                                    <span className="font-bold text-slate-800">{v.vehicle_no}</span>
+                                                                    {v.make_model && <span className="text-[11px] text-slate-400">({v.make_model})</span>}
+                                                                </div>
+                                                                {isSelected && (
+                                                                    <Badge className="text-[9px] bg-indigo-50 text-indigo-700 border-indigo-200">
+                                                                        Selected
+                                                                    </Badge>
+                                                                )}
+                                                            </CommandItem>
+                                                        );
+                                                    })
+                                                }
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                        </div>
+
+                        {/* Shared Destination & Expected Date */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-slate-700">Target Route / Destination *</Label>
+                                <Select
+                                    value={nominationForm.target_destination}
+                                    onValueChange={val => setNominationForm(prev => ({ ...prev, target_destination: val }))}
+                                >
+                                    <SelectTrigger className="h-9 text-xs bg-white">
+                                        <SelectValue placeholder="Select Destination" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {STANDARD_DESTINATIONS.map(d => (
+                                            <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-slate-700">Expected Departure Date</Label>
+                                <Input
+                                    type="date"
+                                    value={nominationForm.expected_departure_date}
+                                    onChange={e => setNominationForm(prev => ({ ...prev, expected_departure_date: e.target.value }))}
+                                    className="h-9 text-xs"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Cargo Type */}
+                        <div className="space-y-1">
+                            <Label className="text-xs font-semibold text-slate-700">Cargo Type / Planned Load</Label>
+                            <Input
+                                value={nominationForm.cargo_type}
+                                onChange={e => setNominationForm(prev => ({ ...prev, cargo_type: e.target.value }))}
+                                placeholder="e.g. Copper Cathodes, Fuel, Bagged Cement, Container..."
+                                className="h-9 text-xs"
+                            />
+                        </div>
+
+                        {/* Logistics Notes to Garage */}
+                        <div className="space-y-1">
+                            <Label className="text-xs font-semibold text-slate-700">Notes / Inspection Instructions for Garage</Label>
+                            <Textarea
+                                value={nominationForm.logistics_notes}
+                                onChange={e => setNominationForm(prev => ({ ...prev, logistics_notes: e.target.value }))}
+                                placeholder="e.g. Route has rough terrain; check tyre tread, suspensions, and brakes for all selected vehicles..."
+                                className="text-xs min-h-[70px]"
+                            />
+                        </div>
+
+                        <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 pt-2">
+                            <div>
+                                {nominationForm.selected_vehicles.length > 0 && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        onClick={clearNominationDraft}
+                                        className="h-9 text-[11px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 px-2"
+                                    >
+                                        Clear Form
+                                    </Button>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setIsNominateOpen(false)}
+                                    className="h-9 text-xs font-bold rounded-xl"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={createNominationMutation.isPending}
+                                    className="h-9 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-xs gap-1.5"
+                                >
+                                    <Send className="w-3.5 h-3.5" />
+                                    {createNominationMutation.isPending
+                                        ? "Sending to Garage..."
+                                        : `Nominate ${nominationForm.selected_vehicles.length > 0 ? `${nominationForm.selected_vehicles.length} Vehicle(s)` : 'Vehicles'}`}
+                                </Button>
+                            </div>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
         </div>

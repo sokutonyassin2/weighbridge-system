@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, CheckCircle, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus, PackageCheck, ImagePlus } from "lucide-react";
+import { Search, Wrench, Plus, Minus, AlertTriangle, FileText, CheckCircle2, CheckCircle, Clock, Filter, Truck, Link, Trash2, Loader2, Printer, XCircle, ShoppingCart, Package, History as HistoryIcon, TrendingUp, ClipboardCheck, RefreshCw, ChevronsUpDown, Check, Edit2, Lock, LayoutGrid, List, Settings, PackagePlus, PackageCheck, ImagePlus, Bell } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -150,8 +150,14 @@ const GarageDashboard = () => {
     const [selectedUsageToApprove, setSelectedUsageToApprove] = useState<any>(null);
     const [isVehiclePopoverOpen, setIsVehiclePopoverOpen] = useState(false);
     const { language, setLanguage } = useLanguage();
-    const [inventoryViewMode, setInventoryViewMode] = useState<"list" | "grid">("list");
-    const [jobViewTab, setJobViewTab] = useState<'active' | 'closed'>('active');
+    const [jobViewTab, setJobViewTab] = useState<'active' | 'closed' | 'nominations'>('active');
+    
+    // Vehicle Nomination Inspection Dialog State
+    const [selectedNomination, setSelectedNomination] = useState<any>(null);
+    const [isNominationDialogOpen, setIsNominationDialogOpen] = useState(false);
+    const [garageDecision, setGarageDecision] = useState<'Fit' | 'Unfit' | 'Conditional'>('Fit');
+    const [garageDecisionNotes, setGarageDecisionNotes] = useState('');
+    const [estimatedReadinessDate, setEstimatedReadinessDate] = useState('');
 
     const exportToExcel = () => {
         const groups: Record<string, any> = {};
@@ -481,6 +487,22 @@ const GarageDashboard = () => {
         refetchInterval: 10000 // Real-time updates for status changes
     });
 
+    // Fetch Nominated Vehicles from Logistics for Pre-Trip Inspections
+    const { data: nominations = [], isLoading: isLoadingNominations, refetch: refetchNominations } = useQuery({
+        queryKey: ["garage-vehicle-nominations"],
+        queryFn: async () => {
+            const { data, error } = await sb.from("logistics_vehicle_nominations" as any)
+                .select("*")
+                .order("created_at", { ascending: false });
+            if (error) {
+                console.warn("garage-vehicle-nominations error:", error);
+                return [];
+            }
+            return data || [];
+        },
+        refetchInterval: 8000
+    });
+
     const { data: garageArrivals, isLoading: isLoadingArrivals } = useQuery({
         queryKey: ["garage-arrivals"],
         queryFn: async () => {
@@ -585,6 +607,59 @@ const GarageDashboard = () => {
             toast({ title: "Product Deleted", description: "The item has been removed." });
         },
         onError: (err: any) => toast({ variant: "destructive", title: "Delete Failed", description: getLocalizedError(err.message, language) })
+    });
+
+    // Review Vehicle Nomination Mutation
+    const reviewNominationMutation = useMutation({
+        mutationFn: async ({
+            nominationId,
+            readiness,
+            decisionNotes,
+            readinessDate
+        }: {
+            nominationId: string;
+            readiness: 'Fit' | 'Unfit' | 'Conditional';
+            decisionNotes: string;
+            readinessDate?: string;
+        }) => {
+            const { data: { user } } = await supabase.auth.getUser();
+            const reviewerName = userProfile?.full_name || user?.email || "Garage Inspector";
+            
+            const updates: any = {
+                garage_readiness: readiness,
+                status: readiness === 'Fit' ? 'Cleared' : readiness === 'Unfit' ? 'Rejected' : 'Conditional',
+                garage_decision_notes: decisionNotes,
+                estimated_readiness_date: readinessDate || null,
+                garage_reviewed_by: user?.id || null,
+                garage_reviewed_by_name: reviewerName,
+                garage_reviewed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await sb.from("logistics_vehicle_nominations" as any)
+                .update(updates)
+                .eq("id", nominationId);
+            if (error) throw error;
+        },
+        onSuccess: (_, vars) => {
+            queryClient.invalidateQueries({ queryKey: ["garage-vehicle-nominations"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_vehicle_nominations"] });
+            toast({
+                title: vars.readiness === 'Fit' ? "Vehicle Cleared for Order" : vars.readiness === 'Unfit' ? "Vehicle Marked Unfit" : "Conditional Clearance Saved",
+                description: `Vehicle readiness updated to ${vars.readiness}. Logistics has been notified.`
+            });
+            setIsNominationDialogOpen(false);
+            setSelectedNomination(null);
+            setGarageDecisionNotes("");
+            setEstimatedReadinessDate("");
+        },
+        onError: (err: any) => {
+            toast({
+                variant: "destructive",
+                title: "Inspection Save Failed",
+                description: err.message
+            });
+        }
     });
 
     const updateQuantityMutation = useMutation({
@@ -1493,6 +1568,125 @@ const GarageDashboard = () => {
         ...(maintenanceDebt || []).map((f: any) => ({ ...f, _plate: f.job?.vehicle?.plate_number || "Carry-over" }))
     ] : [];
 
+    const nominationsPanel = (
+        <div className="space-y-4">
+            <div className="p-4 bg-purple-50/70 border border-purple-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
+                        <Bell className="w-4 h-4" />
+                    </div>
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-900">
+                            {language === 'en' ? 'Logistics Trip Nominations & Garage Clearance' : 'Magari Yaliyoteuliwa na Idhini ya Karakana'}
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                            {language === 'en' ? 'Inspect nominated vehicles and confirm whether they are Fit, Unfit (with reason), or Conditional.' : 'Kagua magari yaliyoteuliwa na uthibitishe iwapo yanafaa au yana hitilafu.'}
+                        </p>
+                    </div>
+                </div>
+                <span className="text-[11px] font-bold text-purple-700 bg-purple-100/70 px-2.5 py-1 rounded-full w-fit">
+                    {(nominations || []).length} {language === 'en' ? 'Nominated' : 'Yaliyoteuliwa'}
+                </span>
+            </div>
+
+            <Table>
+                <TableHeader>
+                    <TableRow className="bg-slate-50/50">
+                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">#</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('vehicle')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Target Route & Cargo' : 'Lengo & Mzigo'}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Nominated By' : 'Iliyoteuliwa Na'}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400 text-center">{language === 'en' ? 'Garage Readiness' : 'Hali ya Karakana'}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{language === 'en' ? 'Inspector Notes' : 'Maelezo ya Mkaguzi'}</TableHead>
+                        <TableHead className="text-right text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">{t('actions')}</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {isLoadingNominations ? (
+                        <TableRow>
+                            <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-400">
+                                {language === 'en' ? 'Loading nominations...' : 'Inapakia...'}
+                            </TableCell>
+                        </TableRow>
+                    ) : (nominations || []).length === 0 ? (
+                        <TableRow>
+                            <TableCell colSpan={7} className="h-24 text-center text-sm text-slate-400 italic">
+                                {language === 'en' ? 'No nominated vehicles from Logistics awaiting review.' : 'Hakuna magari yaliyoteuliwa na Logistics yanayosubiri ukaguzi.'}
+                            </TableCell>
+                        </TableRow>
+                    ) : (
+                        (nominations || []).map((nom: any, idx: number) => {
+                            const isFit = nom.garage_readiness === 'Fit' || nom.status === 'Cleared';
+                            const isUnfit = nom.garage_readiness === 'Unfit' || nom.status === 'Rejected';
+                            const isConditional = nom.garage_readiness === 'Conditional' || nom.status === 'Conditional';
+                            const isPending = !isFit && !isUnfit && !isConditional;
+                            return (
+                                <TableRow key={nom.id} className="hover:bg-slate-50/50">
+                                    <TableCell className="text-xs font-mono text-slate-400">{(idx + 1).toString().padStart(2, '0')}</TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col">
+                                            <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                                <Truck className="w-3.5 h-3.5 text-indigo-600" />
+                                                {nom.truck_reg}
+                                            </span>
+                                            {nom.trailer_reg && (<span className="text-[11px] text-slate-500">Trailer: {nom.trailer_reg}</span>)}
+                                            {nom.driver_name && (<span className="text-[10px] text-slate-400">Driver: {nom.driver_name}</span>)}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-slate-700 text-xs">{nom.target_destination || 'Route Unspecified'}</span>
+                                            <span className="text-[11px] text-slate-500">{nom.cargo_type || 'General Cargo'}</span>
+                                            {nom.expected_departure_date && (<span className="text-[10px] text-indigo-600">Departure: {new Date(nom.expected_departure_date).toLocaleDateString()}</span>)}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-medium text-slate-700">{nom.nominated_by_name || 'Logistics'}</span>
+                                            <span className="text-[10px] text-slate-400">{nom.created_at ? new Date(nom.created_at).toLocaleDateString() : '—'}</span>
+                                            {nom.logistics_notes && (<span className="text-[10px] text-slate-500 italic max-w-[180px] truncate" title={nom.logistics_notes}>"{nom.logistics_notes}"</span>)}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell className="text-center">
+                                        {isFit && (<Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold px-2 py-0.5"><CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />Fit for Order</Badge>)}
+                                        {isUnfit && (<Badge className="bg-rose-100 text-rose-800 border-rose-200 text-[10px] font-bold px-2 py-0.5"><XCircle className="w-3 h-3 mr-1 text-rose-600" />Unfit / Faults</Badge>)}
+                                        {isConditional && (<Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-bold px-2 py-0.5"><AlertTriangle className="w-3 h-3 mr-1 text-amber-600" />Conditional Fit</Badge>)}
+                                        {isPending && (<Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] font-bold px-2 py-0.5"><Clock className="w-3 h-3 mr-1 text-purple-600" />Pending Inspection</Badge>)}
+                                        {nom.garage_reviewed_by_name && (<div className="text-[9px] text-slate-400 mt-1">By: {nom.garage_reviewed_by_name}</div>)}
+                                    </TableCell>
+                                    <TableCell>
+                                        {nom.garage_decision_notes ? (
+                                            <div className="flex flex-col">
+                                                <span className="text-xs text-slate-700 font-medium">{nom.garage_decision_notes}</span>
+                                                {nom.estimated_readiness_date && (<span className="text-[10px] text-amber-700 font-semibold">Ready by: {new Date(nom.estimated_readiness_date).toLocaleDateString()}</span>)}
+                                            </div>
+                                        ) : (<span className="text-xs text-slate-400 italic">No notes yet</span>)}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <Button
+                                            size="sm"
+                                            onClick={() => {
+                                                setSelectedNomination(nom);
+                                                setGarageDecision(nom.garage_readiness === 'Unfit' ? 'Unfit' : nom.garage_readiness === 'Conditional' ? 'Conditional' : 'Fit');
+                                                setGarageDecisionNotes(nom.garage_decision_notes || '');
+                                                setEstimatedReadinessDate(nom.estimated_readiness_date || '');
+                                                setIsNominationDialogOpen(true);
+                                            }}
+                                            className="h-8 px-3 text-[11px] font-bold uppercase bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+                                        >
+                                            <Wrench className="w-3 h-3 mr-1" />
+                                            {isPending ? 'Inspect & Confirm' : 'Update Check'}
+                                        </Button>
+                                    </TableCell>
+                                </TableRow>
+                            );
+                        })
+                    )}
+                </TableBody>
+            </Table>
+        </div>
+    );
+
     return (
         <div className="space-y-6 p-6 animate-fade-in text-slate-900 font-dashboard">
             {/* Conditional Header: Only show for Repairs tab */}
@@ -1551,8 +1745,36 @@ const GarageDashboard = () => {
             {activeTab === 'jobs' ? (
                 <>
                     {/* TOP ROW: Metrics */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-                        {/* 1. Active Jobs */}
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+                        {/* 1. Trip Nominations from Logistics */}
+                        <Card 
+                            className={`border shadow-sm transition-all cursor-pointer hover:shadow-md ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0)
+                                ? "bg-purple-600 text-white border-purple-600 shadow-purple-100"
+                                : "bg-white text-slate-900 border-slate-100 hover:border-purple-200"
+                            }`}
+                            onClick={() => setJobViewTab('nominations')}
+                        >
+                            <CardContent className="p-4 flex flex-col justify-between h-full">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className={`text-[11px] font-bold uppercase ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "text-purple-100" : "text-slate-500"}`}>
+                                        {language === 'en' ? 'Trip Nominations' : 'Magari Yaliyoteuliwa'}
+                                    </span>
+                                    <div className={`h-6 w-6 rounded-full flex items-center justify-center ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "bg-purple-500/50" : "bg-purple-50"}`}>
+                                        <Truck className={`h-3.5 w-3.5 ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "text-white" : "text-purple-600"}`} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-bold leading-none">
+                                        {(nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length}
+                                    </div>
+                                    <p className={`text-[10px] mt-1 font-medium ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "text-purple-100/90" : "text-slate-400"}`}>
+                                        {(nominations || []).length} {language === 'en' ? 'total nominated' : 'jumla yaliyoteuliwa'}
+                                    </p>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* 2. Active Jobs */}
                         <Card className="border border-slate-100 shadow-sm bg-white hover:shadow-md transition-all">
                             <CardContent className="p-4 flex flex-col justify-between h-full">
                                 <div className="flex items-center justify-between mb-2">
@@ -1755,6 +1977,18 @@ const GarageDashboard = () => {
                                         >
                                             {language === 'en' ? 'Closed History' : 'Historia Zilizofungwa'}
                                         </button>
+                                        <button
+                                            onClick={() => setJobViewTab('nominations')}
+                                            className={`px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded transition-all flex items-center gap-1.5 ${jobViewTab === 'nominations' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            <Bell className="w-3 h-3" />
+                                            {language === 'en' ? 'Trip Nominations' : 'Magari Yaliyoteuliwa'}
+                                            {((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) && (
+                                                <Badge className="bg-purple-600 text-white text-[9px] px-1.5 py-0 h-4">
+                                                    {(nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length}
+                                                </Badge>
+                                            )}
+                                        </button>
                                     </div>
 
                                     <div className="flex w-full max-w-sm items-center">
@@ -1770,6 +2004,8 @@ const GarageDashboard = () => {
                         </CardHeader>
 
                         <CardContent>
+                            {jobViewTab === 'nominations' ? nominationsPanel : (
+                            <>
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50/50">
@@ -1975,6 +2211,8 @@ const GarageDashboard = () => {
 
                                 </TableBody>
                             </Table>
+                            </>
+                            )}
                         </CardContent>
                     </Card>
                 </>
@@ -4906,6 +5144,215 @@ const GarageDashboard = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog >
+
+            {/* Vehicle Nomination Pre-Trip Inspection Dialog */}
+            <Dialog open={isNominationDialogOpen} onOpenChange={setIsNominationDialogOpen}>
+                <DialogContent className="sm:max-w-[550px]">
+                    <DialogHeader>
+                        <div className="flex items-center gap-2 text-indigo-600 mb-1">
+                            <Wrench className="w-5 h-5" />
+                            <span className="text-xs font-bold uppercase tracking-wider">
+                                {language === 'en' ? 'Logistics Trip Nomination' : 'Uteuzi wa Safari wa Logistics'}
+                            </span>
+                        </div>
+                        <DialogTitle className="text-lg font-bold text-slate-900">
+                            {language === 'en' ? 'Pre-Trip Vehicle Inspection' : 'Ukaguzi wa Gari Kabla ya Safari'}
+                        </DialogTitle>
+                        <DialogDescription className="text-xs text-slate-500">
+                            {language === 'en'
+                                ? 'Evaluate mechanical fitness for the upcoming trip order. Your decision is visible directly to the Logistics team.'
+                                : 'Tathmini ubora wa gari kwa safari ijayo. Uamuzi wako utaonekana moja kwa moja kwa timu ya Logistics.'}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {selectedNomination && (
+                        <div className="space-y-4 py-2">
+                            {/* Vehicle & Trip Summary Card */}
+                            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                                            <Truck className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <div className="text-sm font-bold text-slate-900">{selectedNomination.truck_reg}</div>
+                                            {selectedNomination.trailer_reg && (
+                                                <div className="text-[11px] text-slate-500">Trailer: {selectedNomination.trailer_reg}</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs font-semibold text-slate-700">{selectedNomination.target_destination || "Route Unspecified"}</div>
+                                        <div className="text-[10px] text-slate-400">Cargo: {selectedNomination.cargo_type || "General"}</div>
+                                    </div>
+                                </div>
+
+                                {selectedNomination.logistics_notes && (
+                                    <div className="text-xs bg-amber-50/80 border border-amber-200/60 rounded-lg p-2 text-amber-900">
+                                        <span className="font-semibold text-amber-950">Logistics Notes: </span>
+                                        {selectedNomination.logistics_notes}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Garage Decision Selector */}
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                                    {language === 'en' ? 'Readiness Decision' : 'Uamuzi wa Utayari'} *
+                                </Label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setGarageDecision('Fit')}
+                                        className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all text-center ${
+                                            garageDecision === 'Fit'
+                                                ? 'border-emerald-500 bg-emerald-50/80 text-emerald-900 shadow-sm'
+                                                : 'border-slate-200 hover:border-slate-300 text-slate-600 bg-white'
+                                        }`}
+                                    >
+                                        <CheckCircle2 className={`w-5 h-5 mb-1 ${garageDecision === 'Fit' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                        <span className="text-xs font-bold leading-tight">
+                                            {language === 'en' ? 'Fit for Order' : 'Linafaa Safari'}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 mt-0.5">
+                                            {language === 'en' ? 'Mechanically Sound' : 'Hali Nzuri'}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setGarageDecision('Conditional')}
+                                        className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all text-center ${
+                                            garageDecision === 'Conditional'
+                                                ? 'border-amber-500 bg-amber-50/80 text-amber-900 shadow-sm'
+                                                : 'border-slate-200 hover:border-slate-300 text-slate-600 bg-white'
+                                        }`}
+                                    >
+                                        <AlertTriangle className={`w-5 h-5 mb-1 ${garageDecision === 'Conditional' ? 'text-amber-600' : 'text-slate-400'}`} />
+                                        <span className="text-xs font-bold leading-tight">
+                                            {language === 'en' ? 'Conditional' : 'Kwa Masharti'}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 mt-0.5">
+                                            {language === 'en' ? 'Minor Attention' : 'Marekebisho Madogo'}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setGarageDecision('Unfit')}
+                                        className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all text-center ${
+                                            garageDecision === 'Unfit'
+                                                ? 'border-rose-500 bg-rose-50/80 text-rose-900 shadow-sm'
+                                                : 'border-slate-200 hover:border-slate-300 text-slate-600 bg-white'
+                                        }`}
+                                    >
+                                        <XCircle className={`w-5 h-5 mb-1 ${garageDecision === 'Unfit' ? 'text-rose-600' : 'text-slate-400'}`} />
+                                        <span className="text-xs font-bold leading-tight">
+                                            {language === 'en' ? 'Not Fit / Unfit' : 'Halifai Safari'}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 mt-0.5">
+                                            {language === 'en' ? 'Repairs Required' : 'Matengenezo Lazima'}
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Notes / Faults Description */}
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                    <span>
+                                        {garageDecision === 'Fit' 
+                                            ? (language === 'en' ? 'Inspection Remarks (Optional)' : 'Maoni ya Ukaguzi (Hiari)') 
+                                            : (language === 'en' ? 'Identified Faults / Reasons (Required)' : 'Hitilafu Zilizobainika / Sababu (Lazima)')}
+                                    </span>
+                                    {garageDecision !== 'Fit' && (
+                                        <span className="text-[10px] text-rose-600 font-semibold uppercase">Required</span>
+                                    )}
+                                </Label>
+                                <Textarea
+                                    value={garageDecisionNotes}
+                                    onChange={(e) => setGarageDecisionNotes(e.target.value)}
+                                    placeholder={
+                                        garageDecision === 'Fit'
+                                            ? (language === 'en' ? 'e.g. Tyres good, brakes verified, oil levels OK.' : 'Mfano: Matairi mazuri, breki zimehakikishwa.')
+                                            : (language === 'en' ? 'e.g. Brake booster leak, clutch slipping, suspension bush worn.' : 'Mfano: Uvujaji wa breki, matatizo ya klachi au suspensheni.')
+                                    }
+                                    rows={3}
+                                    className="text-xs resize-none"
+                                />
+                            </div>
+
+                            {/* Estimated Readiness Date (If Unfit or Conditional) */}
+                            {garageDecision !== 'Fit' && (
+                                <div className="space-y-1.5 p-3 bg-slate-50 border border-slate-200/80 rounded-xl">
+                                    <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                        <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                                        {language === 'en' ? 'Estimated Date of Readiness / Repair Completion' : 'Tarehe Inayotarajiwa Kumaliza Matengenezo'}
+                                    </Label>
+                                    <Input
+                                        type="date"
+                                        value={estimatedReadinessDate}
+                                        onChange={(e) => setEstimatedReadinessDate(e.target.value)}
+                                        min={new Date().toISOString().split('T')[0]}
+                                        className="h-9 text-xs bg-white"
+                                    />
+                                    <p className="text-[10px] text-slate-500 italic">
+                                        {language === 'en' 
+                                            ? 'Informs Logistics when this truck will likely be available for re-nomination.' 
+                                            : 'Huijulisha Logistics wakati gari litakapokuwa tayari kuteuliwa tena.'}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setIsNominationDialogOpen(false);
+                                setSelectedNomination(null);
+                            }}
+                            className="text-xs"
+                        >
+                            {language === 'en' ? 'Cancel' : 'Ghairi'}
+                        </Button>
+                        <Button
+                            disabled={
+                                reviewNominationMutation.isPending || 
+                                (garageDecision !== 'Fit' && !garageDecisionNotes.trim())
+                            }
+                            onClick={() => {
+                                if (garageDecision !== 'Fit' && !garageDecisionNotes.trim()) {
+                                    toast({
+                                        variant: "destructive",
+                                        title: "Notes Required",
+                                        description: "Please specify the faults or conditions before saving."
+                                    });
+                                    return;
+                                }
+                                reviewNominationMutation.mutate({
+                                    nominationId: selectedNomination.id,
+                                    readiness: garageDecision,
+                                    decisionNotes: garageDecisionNotes,
+                                    readinessDate: estimatedReadinessDate || undefined
+                                });
+                            }}
+                            className={`text-xs font-bold ${
+                                garageDecision === 'Fit'
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                    : garageDecision === 'Conditional'
+                                    ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                                    : 'bg-rose-600 hover:bg-rose-700 text-white'
+                            }`}
+                        >
+                            {reviewNominationMutation.isPending 
+                                ? (language === 'en' ? 'Saving Decision...' : 'Inahifadhi...') 
+                                : (language === 'en' ? 'Confirm Readiness Decision' : 'Thibitisha Uamuzi')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div >
     );
 };

@@ -57,6 +57,7 @@ import {
     AlertCircle,
     Sparkles,
     Send,
+    Split,
     X
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -122,6 +123,11 @@ export default function TripOrders() {
     // Edit Order State
     const [editingOrder, setEditingOrder] = useState<any>(null);
     const [editFormData, setEditFormData] = useState<any>({});
+
+    // Split / Re-assign Order State
+    const [splittingGroup, setSplittingGroup] = useState<any>(null);
+    const [splitSelectedIds, setSplitSelectedIds] = useState<string[]>([]);
+    const [splitTargetClient, setSplitTargetClient] = useState<string>("");
 
     // Group dropdown accordion expansion state
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -971,6 +977,69 @@ export default function TripOrders() {
         }
     });
 
+    // Split / Re-assign Vehicles to New or Existing Client Order Mutation
+    const splitOrderMutation = useMutation({
+        mutationFn: async ({ 
+            orderIds, 
+            newClientName, 
+            newOrderNumber 
+        }: { 
+            orderIds: string[]; 
+            newClientName: string; 
+            newOrderNumber: string; 
+        }) => {
+            const { error: orderError } = await supabase
+                .from("logistics_trip_orders" as any)
+                .update({
+                    client_name: newClientName,
+                    order_number: newOrderNumber,
+                    updated_at: new Date().toISOString()
+                })
+                .in("id", orderIds);
+
+            if (orderError) throw orderError;
+
+            // Also check if any associated trip sheets exist for these orders, and update client_name there too
+            try {
+                // Find trip_numbers for these order IDs
+                const affectedOrders = orders.filter((o: any) => orderIds.includes(o.id));
+                const tripNumbers = affectedOrders.map((o: any) => o.trip_number).filter(Boolean);
+                if (tripNumbers.length > 0) {
+                    await supabase
+                        .from("logistics_trip_sheets" as any)
+                        .update({
+                            client_name: newClientName,
+                            updated_at: new Date().toISOString()
+                        })
+                        .in("trip_number", tripNumbers);
+                }
+            } catch (sheetSyncErr) {
+                console.warn("Could not sync client name to trip sheets:", sheetSyncErr);
+            }
+
+            return { count: orderIds.length, newOrderNumber, newClientName };
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets"] });
+            toast({
+                title: "Vehicles Reassigned & Split Successfully!",
+                description: `${data.count} vehicle(s) moved to new order ${data.newOrderNumber} under client "${data.newClientName}".`
+            });
+            setSplittingGroup(null);
+            setSplitSelectedIds([]);
+            setSplitTargetClient("");
+        },
+        onError: (err: any) => {
+            toast({
+                variant: "destructive",
+                title: "Split / Reassignment Failed",
+                description: err.message
+            });
+        }
+    });
+
     // Filtered Orders
     const filteredOrders = useMemo(() => {
         return orders.filter((o: any) => {
@@ -1085,14 +1154,27 @@ export default function TripOrders() {
 
             {/* KPI Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                <Card className="border-slate-200/80 shadow-sm bg-white">
+                <Card 
+                    onClick={() => setPipelineTab('nominations')}
+                    className="border-slate-200/80 shadow-sm bg-white cursor-pointer hover:border-indigo-400 hover:shadow-md transition-all group"
+                    title="Click to view nominated vehicles and their clearance status"
+                >
                     <CardContent className="p-5 flex items-center justify-between">
                         <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Garage Nominations</p>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-hover:text-indigo-600 transition-colors">Garage Nominations</p>
                             <h3 className="text-2xl font-black text-indigo-600 mt-1">{nominationsCount}</h3>
-                            <p className="text-[11px] text-slate-400 font-medium mt-0.5">{clearedNominationsCount} Cleared / Fit</p>
+                            <div className="flex items-center gap-1.5 mt-1">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    ✓ {clearedNominationsCount} Cleared / Fit
+                                </span>
+                                {nominationsCount - clearedNominationsCount > 0 && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                        ⏱ {nominationsCount - clearedNominationsCount} Pending
+                                    </span>
+                                )}
+                            </div>
                         </div>
-                        <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 border border-indigo-100">
+                        <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600 border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-all">
                             <Sparkles className="w-6 h-6" />
                         </div>
                     </CardContent>
@@ -1637,7 +1719,7 @@ export default function TripOrders() {
                                     }
 
                                     // Multi-vehicle group: render expandable parent header row + sub-rows
-                                    const isExpanded = expandedGroups[group.key] !== false; // default expanded
+                                    const isExpanded = Boolean(expandedGroups[group.key]); // default collapsed (closed)
                                     const totalGroupUSD = group.items.reduce((sum: number, o: any) => sum + (parseFloat(o.agreed_amount_usd) || 0), 0);
                                     const totalGroupLocal = group.items.reduce((sum: number, o: any) => sum + (parseFloat(o.agreed_amount_local) || 0), 0);
                                     const sampleOrder = group.items[0];
@@ -1766,6 +1848,24 @@ export default function TripOrders() {
                                                             </>
                                                         )}
 
+                                                        {/* Split / Re-assign Vehicles Button */}
+                                                        {group.items.length > 1 && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setSplittingGroup(group);
+                                                                    setSplitSelectedIds([]);
+                                                                    setSplitTargetClient("");
+                                                                }}
+                                                                className="h-8 px-2.5 border-indigo-200 text-indigo-600 hover:bg-indigo-50 text-[11px] font-bold rounded-lg gap-1"
+                                                                title="Split or re-assign vehicles in this order to another client"
+                                                            >
+                                                                <Split className="w-3.5 h-3.5" />
+                                                                Split Order
+                                                            </Button>
+                                                        )}
+
                                                         {isSuperAdmin && (
                                                             <Button
                                                                 variant="ghost"
@@ -1871,6 +1971,7 @@ export default function TripOrders() {
                                                                     onClick={() => {
                                                                         setEditingOrder(subOrder);
                                                                         setEditFormData({
+                                                                            client_name: subOrder.client_name || '',
                                                                             truck_reg: subOrder.truck_reg || '',
                                                                             trailer_reg: subOrder.trailer_reg || '',
                                                                             driver_name: subOrder.driver_name || '',
@@ -2824,6 +2925,22 @@ export default function TripOrders() {
                     </DialogHeader>
 
                     <div className="space-y-4 pt-3">
+                        <div>
+                            <Label className="text-[11px] font-bold text-slate-600">Client</Label>
+                            <Select
+                                value={editFormData.client_name || ''}
+                                onValueChange={(val) => setEditFormData((prev: any) => ({ ...prev, client_name: val }))}
+                            >
+                                <SelectTrigger className="h-9 text-xs rounded-lg">
+                                    <SelectValue placeholder="Select client" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {clientsList.map((c: any) => (
+                                        <SelectItem key={c.id || c.name} value={c.name}>{c.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <Label className="text-[11px] font-bold text-slate-600">Truck Reg</Label>
@@ -2944,6 +3061,7 @@ export default function TripOrders() {
                             onClick={() => {
                                 if (editingOrder) {
                                     const updates: any = {};
+                                    if (editFormData.client_name) updates.client_name = editFormData.client_name;
                                     if (editFormData.truck_reg) updates.truck_reg = editFormData.truck_reg;
                                     if (editFormData.trailer_reg) updates.trailer_reg = editFormData.trailer_reg;
                                     if (editFormData.driver_name) updates.driver_name = editFormData.driver_name;
@@ -2962,6 +3080,236 @@ export default function TripOrders() {
                         >
                             <Save className="w-3.5 h-3.5" />
                             {updateOrderMutation.isPending ? "Saving..." : "Update Order"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* SPLIT / RE-ASSIGN ORDER MODAL */}
+            <Dialog 
+                open={!!splittingGroup} 
+                onOpenChange={(open) => { 
+                    if (!open) { 
+                        setSplittingGroup(null); 
+                        setSplitSelectedIds([]); 
+                        setSplitTargetClient(""); 
+                    } 
+                }}
+            >
+                <DialogContent className="max-w-2xl rounded-2xl p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Split className="w-5 h-5 text-indigo-600" />
+                            Split Order — {splittingGroup?.order_number}
+                        </DialogTitle>
+                        <p className="text-xs text-slate-500">
+                            Move selected vehicles from current client (<strong className="text-slate-800">{splittingGroup?.client_name}</strong>) to a different client under a new sequential order reference.
+                        </p>
+                    </DialogHeader>
+
+                    <div className="space-y-4 pt-3">
+                        {/* Target Client Selection */}
+                        <div className="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100">
+                            <Label className="text-xs font-bold text-indigo-950 mb-1 block">
+                                Destination Client for Split Vehicles *
+                            </Label>
+                            <Select
+                                value={splitTargetClient}
+                                onValueChange={setSplitTargetClient}
+                            >
+                                <SelectTrigger className="h-9 text-xs bg-white rounded-lg border-indigo-200">
+                                    <SelectValue placeholder="-- Select New Client (e.g. Olympic Petroleum(T) Limited) --" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {clientsList
+                                        .filter((c: any) => c.name !== splittingGroup?.client_name)
+                                        .map((c: any) => (
+                                            <SelectItem key={c.id || c.name} value={c.name}>{c.name}</SelectItem>
+                                        ))
+                                    }
+                                </SelectContent>
+                            </Select>
+                            <p className="text-[11px] text-indigo-600 mt-1.5 font-medium">
+                                Selected vehicles will be transferred to this client with their own new Order Number (e.g. SEL-0002).
+                            </p>
+                        </div>
+
+                        {/* Vehicle Selection Table */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <Label className="text-xs font-bold text-slate-700">
+                                    Select Vehicles to Move ({splitSelectedIds.length} of {splittingGroup?.items?.length || 0} selected)
+                                </Label>
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                            if (splittingGroup?.items) {
+                                                setSplitSelectedIds(splittingGroup.items.map((it: any) => it.id));
+                                            }
+                                        }}
+                                        className="h-7 text-[11px] text-indigo-600 hover:text-indigo-800"
+                                    >
+                                        Select All
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setSplitSelectedIds([])}
+                                        className="h-7 text-[11px] text-slate-500 hover:text-slate-800"
+                                    >
+                                        Deselect All
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="border border-slate-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+                                <Table>
+                                    <TableHeader className="bg-slate-50 sticky top-0 z-10">
+                                        <TableRow>
+                                            <TableHead className="w-10 text-center">#</TableHead>
+                                            <TableHead className="text-xs font-bold">Vehicle / Plate</TableHead>
+                                            <TableHead className="text-xs font-bold">Trip #</TableHead>
+                                            <TableHead className="text-xs font-bold">Driver</TableHead>
+                                            <TableHead className="text-xs font-bold">Destination</TableHead>
+                                            <TableHead className="text-xs font-bold text-right">Amount (USD)</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {splittingGroup?.items?.map((item: any, idx: number) => {
+                                            const isChecked = splitSelectedIds.includes(item.id);
+                                            return (
+                                                <TableRow 
+                                                    key={item.id}
+                                                    onClick={() => {
+                                                        if (isChecked) {
+                                                            setSplitSelectedIds(prev => prev.filter(id => id !== item.id));
+                                                        } else {
+                                                            setSplitSelectedIds(prev => [...prev, item.id]);
+                                                        }
+                                                    }}
+                                                    className={cn(
+                                                        "cursor-pointer transition-colors text-xs",
+                                                        isChecked ? "bg-indigo-50/70 hover:bg-indigo-100/70" : "hover:bg-slate-50"
+                                                    )}
+                                                >
+                                                    <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setSplitSelectedIds(prev => [...prev, item.id]);
+                                                                } else {
+                                                                    setSplitSelectedIds(prev => prev.filter(id => id !== item.id));
+                                                                }
+                                                            }}
+                                                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-4 w-4"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="font-bold text-slate-800">
+                                                        {item.truck_reg} {item.trailer_reg && <span className="text-slate-400 font-normal text-[11px]">/ {item.trailer_reg}</span>}
+                                                    </TableCell>
+                                                    <TableCell className="font-semibold text-indigo-900">
+                                                        {item.trip_number || "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-slate-600">
+                                                        {item.driver_name || "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-slate-600">
+                                                        {item.destination || "—"}
+                                                    </TableCell>
+                                                    <TableCell className="text-right font-semibold text-slate-900">
+                                                        ${(parseFloat(item.agreed_amount_usd) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+
+                        {/* Summary preview */}
+                        {splitSelectedIds.length > 0 && splitTargetClient && (
+                            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-800 space-y-1">
+                                <div className="font-bold flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                    Split Outcome Summary:
+                                </div>
+                                <div className="pl-5 text-[11px] space-y-0.5">
+                                    <div>
+                                        • Remaining under <strong>{splittingGroup?.client_name}</strong>: <strong>{(splittingGroup?.items?.length || 0) - splitSelectedIds.length}</strong> vehicle(s) in Order <strong>{splittingGroup?.order_number}</strong>
+                                    </div>
+                                    <div>
+                                        • Moving to <strong>{splitTargetClient}</strong>: <strong>{splitSelectedIds.length}</strong> vehicle(s) under a <strong>New Sequential Order Number</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter className="flex items-center gap-2 pt-4">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setSplittingGroup(null);
+                                setSplitSelectedIds([]);
+                                setSplitTargetClient("");
+                            }}
+                            className="h-9 text-xs font-bold flex-1 rounded-xl"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                if (!splitTargetClient) {
+                                    toast({ variant: "destructive", title: "Client Required", description: "Please select a target client." });
+                                    return;
+                                }
+                                if (splitSelectedIds.length === 0) {
+                                    toast({ variant: "destructive", title: "Selection Required", description: "Please select at least one vehicle to move." });
+                                    return;
+                                }
+
+                                // Calculate next SEL-xxxx sequential order number
+                                let nextOrderSeq = 1;
+                                try {
+                                    const { data: allExistingOrders } = await supabase
+                                        .from("logistics_trip_orders" as any)
+                                        .select("order_number");
+                                    
+                                    if (allExistingOrders && allExistingOrders.length > 0) {
+                                        let maxNum = 0;
+                                        allExistingOrders.forEach((o: any) => {
+                                            const match = o.order_number?.match(/SEL-(\d+)/i);
+                                            if (match && match[1]) {
+                                                const parsed = parseInt(match[1], 10);
+                                                if (!isNaN(parsed) && parsed > maxNum) maxNum = parsed;
+                                            }
+                                        });
+                                        nextOrderSeq = maxNum > 0 ? maxNum + 1 : allExistingOrders.length + 1;
+                                    }
+                                } catch (err) {
+                                    nextOrderSeq = (orders?.length || 0) + 1;
+                                }
+
+                                const newOrderNumber = `SEL-${String(nextOrderSeq).padStart(4, '0')}`;
+
+                                splitOrderMutation.mutate({
+                                    orderIds: splitSelectedIds,
+                                    newClientName: splitTargetClient,
+                                    newOrderNumber
+                                });
+                            }}
+                            disabled={splitOrderMutation.isPending || splitSelectedIds.length === 0 || !splitTargetClient}
+                            className="h-9 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 flex-1 rounded-xl shadow-sm gap-1.5"
+                        >
+                            <Split className="w-3.5 h-3.5" />
+                            {splitOrderMutation.isPending ? "Splitting..." : `Confirm Split (${splitSelectedIds.length} Vehicles)`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

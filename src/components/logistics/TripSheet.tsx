@@ -1654,8 +1654,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         const tzR = countryRates["TZ"] || 2700;
         const zmwR = countryRates["Zambia"] || 25.5;
-        const revTzs = parseFloat(revenueData.revenue_amount || '0');
-        const revUsd = revenueData.revenue_currency === 'TZS' ? revTzs / tzR : parseFloat(revenueData.revenue_amount || '0');
+        const rawRev = parseFloat(revenueData.revenue_amount || '0');
+        const revUsd = revenueData.revenue_currency === 'TZS' ? rawRev / tzR : rawRev;
+        const revTzs = revenueData.revenue_currency === 'TZS' ? rawRev : rawRev * tzR;
 
         addSummaryLine('GROSS TRIP REVENUE', revUsd, revTzs);
         addSummaryLine('ROAD EXPENSES', totals.roadExpensesUSD, totals.roadExpensesTZS, 'C0504D');
@@ -1663,7 +1664,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             addSummaryLine(`FUEL COST (${totals.fuelLiters.toLocaleString()} L)`, totals.fuelCostUSD, totals.fuelCostTZS, 'ED7D31');
         }
         addSummaryLine('TOTAL TRIP COSTS', totals.totalExpensesUSD, totals.totalExpensesTZS, 'C0504D');
-        addSummaryLine('PROJECTED NET PROFIT', totals.netProfitUSD, totals.netProfitUSD * (countryRates["TZ"] || 2700), totals.netProfitUSD < 0 ? 'C0504D' : '107C10');
+        addSummaryLine('PROJECTED NET PROFIT', totals.netProfitUSD, totals.netProfitUSD * tzR, totals.netProfitUSD < 0 ? 'C0504D' : '107C10');
 
         currRow += 2;
 

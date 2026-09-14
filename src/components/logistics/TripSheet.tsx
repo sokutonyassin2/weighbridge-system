@@ -355,6 +355,7 @@ interface ExpenseItem {
 }
 
 export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetProps) => {
+    const queryClient = useQueryClient();
     const { toast } = useToast();
     const { userRole, user, userProfile } = useAuth();
     const isSuperAdmin = userRole === 'super_admin';
@@ -364,6 +365,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
     const [isActivating, setIsActivating] = useState(false);
     const [currentStatus, setCurrentStatus] = useState<string>('Planned');
     const [isLoading, setIsLoading] = useState(true);
+    const [currentTripId, setCurrentTripId] = useState<string | undefined>(tripId);
+    const justSavedRef = useRef(false); // Prevents auto-save from re-creating localStorage draft after DB save
+    const hasUnsavedChangesRef = useRef(false);
+
+    useEffect(() => {
+        if (tripId && tripId !== currentTripId) {
+            setCurrentTripId(tripId);
+        }
+    }, [tripId]);
     const [auditTrail, setAuditTrail] = useState<{
         created_by_name?: string;
         created_at?: string;
@@ -558,23 +568,36 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         }
     }, [tripData.invoice_no, tripData.invoice_date]);
 
-    // 💾 Auto-save to LocalStorage
+    // Track if user has modified anything
     useEffect(() => {
-        if (tripId && !isLoading) {
+        if (!isLoading && !justSavedRef.current) {
+            hasUnsavedChangesRef.current = true;
+        }
+    }, [expenses, countryRates, revenueData, tripData]);
+
+    // 💾 Auto-save to LocalStorage
+    const effectiveTripId = currentTripId || tripId;
+    useEffect(() => {
+        if (effectiveTripId && !isLoading) {
+            // Skip auto-save if we just committed to DB — prevents stale draft from overriding fresh data
+            if (justSavedRef.current) {
+                return;
+            }
             const draft = {
                 expenses,
                 countryRates,
-                revenueData
+                revenueData,
+                savedAt: Date.now()
             };
-            localStorage.setItem(`trip_draft_${tripId}`, JSON.stringify(draft));
+            localStorage.setItem(`trip_draft_${effectiveTripId}`, JSON.stringify(draft));
         }
-    }, [expenses, countryRates, revenueData, tripId, isLoading]);
+    }, [expenses, countryRates, revenueData, effectiveTripId, isLoading]);
 
 
 
     // Fetch Settlements for Audit (Superadmin only)
     useEffect(() => {
-        if (!tripId || !isSuperAdmin) return;
+        if (!effectiveTripId || !isSuperAdmin) return;
 
         const fetchSettlements = async () => {
             setAuditLoading(true);
@@ -582,7 +605,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 const { data, error } = await supabase
                     .from('logistics_trip_settlements')
                     .select('*')
-                    .eq('trip_id', tripId);
+                    .eq('trip_id', effectiveTripId);
 
                 if (error) throw error;
                 setSettlements(data || []);
@@ -594,13 +617,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         };
 
         fetchSettlements();
-    }, [tripId, isSuperAdmin]);
+    }, [effectiveTripId, isSuperAdmin]);
 
-    // ⚠️ Prevent accidental closing
+    // ⚠️ Prevent accidental closing ONLY when there are unsaved changes
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            e.preventDefault();
-            e.returnValue = '';
+            if (hasUnsavedChangesRef.current) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
         };
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -920,14 +945,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             };
                         }) as ExpenseItem[];
 
-                        // Prevent DB from overwriting LocalStorage draft if one exists
+                        // If the database has stored expenses, database is the primary source of truth!
+                        // Only fall back to draft if draft explicitly has newer timestamp than doc.updated_at
                         const savedDraft = localStorage.getItem(`trip_draft_${tripId}`);
                         let hasDraftExpenses = false;
                         if (savedDraft) {
                             try {
                                 const draft = JSON.parse(savedDraft);
-                                if (draft.expenses && draft.expenses.length > 0) {
-                                    // Ignore draft if it's just the initial default unedited state (which previously got saved by mistake on mount)
+                                const draftTime = draft.savedAt || 0;
+                                const docUpdatedTime = doc.updated_at ? new Date(doc.updated_at).getTime() : 0;
+                                
+                                // Only use draft if it was saved AFTER the last database commit
+                                if (draftTime > docUpdatedTime && draft.expenses && draft.expenses.length > 0) {
                                     const isDefaultState = draft.expenses.length === 1 && 
                                                            draft.expenses[0].item_name === "Driver Allowance" && 
                                                            (!draft.expenses[0].amount || draft.expenses[0].amount === "");
@@ -938,6 +967,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         if (draft.countryRates) setCountryRates(draft.countryRates);
                                         if (draft.revenueData) setRevenueData(draft.revenueData);
                                     }
+                                } else {
+                                    // Draft is older than or equal to database commit: clear the stale draft
+                                    localStorage.removeItem(`trip_draft_${tripId}`);
                                 }
                             } catch (e) {}
                         }
@@ -978,11 +1010,24 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
         const fetchDuplicateExpenses = async () => {
             try {
-                if (doc.id) {
+                let sourceSheetId = doc.id;
+                if (!sourceSheetId && (doc.trip_number || doc.reference_number)) {
+                    const refNum = doc.trip_number || doc.reference_number;
+                    const { data: existingSheet } = await supabase
+                        .from('logistics_trip_sheets' as any)
+                        .select('id')
+                        .eq('reference_number', refNum)
+                        .maybeSingle();
+                    if (existingSheet?.id) {
+                        sourceSheetId = existingSheet.id;
+                    }
+                }
+
+                if (sourceSheetId) {
                     const { data: expenseData } = await supabase
                         .from('logistics_trip_expenses' as any)
                         .select('*')
-                        .eq('trip_sheet_id', doc.id);
+                        .eq('trip_sheet_id', sourceSheetId);
 
                     if (expenseData && expenseData.length > 0) {
                         const docExpenses = (expenseData as any[]).map(e => {
@@ -1138,7 +1183,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
     // Form Persistence (Save to LocalStorage)
     useEffect(() => {
-        if (tripId || isLoading) return; // Don't persist if editing an existing record or loading
+        if (effectiveTripId || isLoading || justSavedRef.current) return; // Don't persist if editing an existing record or loading or just saved
         const draft = {
             tripData,
             revenueData,
@@ -1147,7 +1192,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         };
         localStorage.setItem('trip_sheet_draft', JSON.stringify(draft));
         localStorage.setItem('latest_market_rates', JSON.stringify(countryRates));
-    }, [tripData, revenueData, expenses, countryRates, tripId, isLoading]);
+    }, [tripData, revenueData, expenses, countryRates, effectiveTripId, isLoading]);
 
     // Load Persistence
     useEffect(() => {
@@ -1421,7 +1466,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 sheetPayload.created_by_name = userProfile?.full_name || user?.email;
             }
 
-            let activeSheetId = tripId;
+            let activeSheetId = currentTripId || tripId;
 
             if (!activeSheetId) {
                 // Create New Standalone Trip Sheet
@@ -1433,6 +1478,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                 if (insertError) throw insertError;
                 activeSheetId = (newSheet as any).id;
+                setCurrentTripId(activeSheetId);
             } else {
                 // Update Existing
                 const { error: updateError } = await supabase
@@ -1468,7 +1514,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     }));
 
                 if (expensesError) {
-                    if (!tripId) {
+                    if (!effectiveTripId) {
                         await supabase.from('logistics_trip_sheets' as any).delete().eq('id', activeSheetId);
                     }
                     throw expensesError;
@@ -1477,13 +1523,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
             toast({
                 title: "Trip Sheet Saved",
-                description: activeSheetId === tripId ? "Plan updated successfully." : "New standalone trip sheet created.",
+                description: activeSheetId === (currentTripId || tripId) ? "Plan updated successfully." : "New standalone trip sheet created.",
             });
 
-            // Clear draft if it was a new sheet
-            if (!tripId) {
-                localStorage.removeItem('trip_sheet_draft');
+            // Mark as saved so auto-save and reload prompt are disabled
+            justSavedRef.current = true;
+            hasUnsavedChangesRef.current = false;
+
+            // Clear draft from localStorage so committed changes are always fresh from database
+            if (activeSheetId) {
+                localStorage.removeItem(`trip_draft_${activeSheetId}`);
             }
+            localStorage.removeItem('trip_sheet_draft');
+
+            // Invalidate queries so all lists and views reflect updated values immediately
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_list"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_orders_for_trip_sheets"] });
 
             if (onSaveSuccess) onSaveSuccess(activeSheetId);
         } catch (error: any) {

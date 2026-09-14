@@ -626,7 +626,7 @@ const TripSheets = () => {
                         tripId={selectedTrip?.id} 
                         duplicateData={duplicateSourceTrip} 
                         onSaveSuccess={(sheetId) => {
-                            if (sheetId && !selectedTrip?.id) {
+                            if (sheetId) {
                                 setSelectedTrip({ id: sheetId } as any);
                             }
                             setDuplicateSourceTrip(null);
@@ -992,27 +992,33 @@ const TripSheets = () => {
                                                                         size="sm"
                                                                         className="h-8 px-3 text-[11px] font-black uppercase tracking-wider bg-slate-900 hover:bg-indigo-600 text-white rounded-lg shadow-sm gap-1.5 transition-all"
                                                                         onClick={() => {
-                                                                            setSelectedTrip(null);
-                                                                            setDuplicateSourceTrip({
-                                                                                trip_number: order.trip_number,
-                                                                                reference_number: order.trip_number,
-                                                                                vehicle_id: order.vehicle_id,
-                                                                                trailer_id: order.trailer_id,
-                                                                                driver_id: order.driver_id,
-                                                                                license_no: order.license_no,
-                                                                                passport_no: order.passport_no,
-                                                                                origin: order.origin || 'DAR ES SALAAM',
-                                                                                destination: order.destination,
-                                                                                client_name: order.client_name,
-                                                                                journey_type: order.journey_type || 'Go & Return',
-                                                                                cargo_outbound: order.cargo_description,
-                                                                                revenue_amount: orderUSD,
-                                                                                revenue_currency: 'USD',
-                                                                                revenue_type: 'With Fuel',
-                                                                                exchange_rate: orderRate,
-                                                                                agreed_days: order.agreed_days,
-                                                                                daily_fine_amount: order.daily_penalty_fine
-                                                                            });
+                                                                            const tripMatch = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
+                                                                            if (tripMatch) {
+                                                                                setDuplicateSourceTrip(null);
+                                                                                setSelectedTrip(tripMatch);
+                                                                            } else {
+                                                                                setSelectedTrip(null);
+                                                                                setDuplicateSourceTrip({
+                                                                                    trip_number: order.trip_number,
+                                                                                    reference_number: order.trip_number,
+                                                                                    vehicle_id: order.vehicle_id,
+                                                                                    trailer_id: order.trailer_id,
+                                                                                    driver_id: order.driver_id,
+                                                                                    license_no: order.license_no,
+                                                                                    passport_no: order.passport_no,
+                                                                                    origin: order.origin || 'DAR ES SALAAM',
+                                                                                    destination: order.destination,
+                                                                                    client_name: order.client_name,
+                                                                                    journey_type: order.journey_type || 'Go & Return',
+                                                                                    cargo_outbound: order.cargo_description,
+                                                                                    revenue_amount: orderUSD,
+                                                                                    revenue_currency: 'USD',
+                                                                                    revenue_type: 'With Fuel',
+                                                                                    exchange_rate: orderRate,
+                                                                                    agreed_days: order.agreed_days,
+                                                                                    daily_fine_amount: order.daily_penalty_fine
+                                                                                });
+                                                                            }
                                                                             setIsSheetOpen(true);
                                                                         }}
                                                                     >

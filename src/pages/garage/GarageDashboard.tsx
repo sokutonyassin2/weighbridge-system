@@ -1625,14 +1625,32 @@ const GarageDashboard = () => {
                                 <TableRow key={nom.id} className="hover:bg-slate-50/50">
                                     <TableCell className="text-xs font-mono text-slate-400">{(idx + 1).toString().padStart(2, '0')}</TableCell>
                                     <TableCell>
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                                                <Truck className="w-3.5 h-3.5 text-indigo-600" />
-                                                {nom.truck_reg}
-                                            </span>
-                                            {nom.trailer_reg && (<span className="text-[11px] text-slate-500">Trailer: {nom.trailer_reg}</span>)}
-                                            {nom.driver_name && (<span className="text-[10px] text-slate-400">Driver: {nom.driver_name}</span>)}
-                                        </div>
+                                        {(() => {
+                                            const activeCoupling = (couplings || []).find((c: any) => c.horse_id === nom.vehicle_id);
+                                            const liveTrailer = activeCoupling ? (vehicles || []).find((f: any) => f.id === activeCoupling.trailer_id) : null;
+                                            const resolvedTrailerReg = liveTrailer?.plate_number || liveTrailer?.vehicle_no || nom.trailer_reg;
+
+                                            return (
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                                                        <Truck className="w-3.5 h-3.5 text-indigo-600" />
+                                                        {nom.truck_reg}
+                                                    </span>
+                                                    {resolvedTrailerReg ? (
+                                                        <span className="text-[11px] text-slate-600 font-semibold flex items-center gap-1 mt-0.5">
+                                                            <span className="text-slate-400 font-normal">Trailer:</span>
+                                                            <span className="text-indigo-700 bg-indigo-50/80 px-1 rounded border border-indigo-100">{resolvedTrailerReg}</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1 mt-0.5">
+                                                            <AlertTriangle className="w-3 h-3 text-amber-500" />
+                                                            Uncoupled
+                                                        </span>
+                                                    )}
+                                                    {nom.driver_name && (<span className="text-[10px] text-slate-400">Driver: {nom.driver_name}</span>)}
+                                                </div>
+                                            );
+                                        })()}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col">

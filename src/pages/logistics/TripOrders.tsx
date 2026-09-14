@@ -1365,21 +1365,37 @@ export default function TripOrders() {
                                                     {(nIdx + 1).toString().padStart(2, '0')}
                                                 </TableCell>
                                                 <TableCell>
-                                                    <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                                                        <Truck className="w-3.5 h-3.5 text-indigo-600" />
-                                                        {nom.truck_reg}
-                                                    </div>
-                                                    {nom.trailer_reg && (
-                                                        <div className="text-[11px] text-slate-500 font-medium">
-                                                            Trailer: {nom.trailer_reg}
-                                                        </div>
-                                                    )}
-                                                    {nom.driver_name && (
-                                                        <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                                            <User className="w-3 h-3" />
-                                                            {nom.driver_name}
-                                                        </div>
-                                                    )}
+                                                    {(() => {
+                                                        const activeCoupling = couplings.find((c: any) => c.horse_id === nom.vehicle_id);
+                                                        const liveTrailer = activeCoupling ? fleet.find((f: any) => f.id === activeCoupling.trailer_id) : null;
+                                                        const resolvedTrailerReg = liveTrailer?.vehicle_no || nom.trailer_reg;
+
+                                                        return (
+                                                            <>
+                                                                <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                                                    <Truck className="w-3.5 h-3.5 text-indigo-600" />
+                                                                    {nom.truck_reg}
+                                                                </div>
+                                                                {resolvedTrailerReg ? (
+                                                                    <div className="text-[11px] text-slate-600 font-semibold flex items-center gap-1 mt-0.5">
+                                                                        <span className="text-slate-400 font-normal">Trailer:</span>
+                                                                        <span className="text-indigo-700 bg-indigo-50/80 px-1 rounded border border-indigo-100">{resolvedTrailerReg}</span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-[10px] text-amber-600 font-medium flex items-center gap-1 mt-0.5">
+                                                                        <AlertTriangle className="w-3 h-3 text-amber-500" />
+                                                                        Uncoupled
+                                                                    </div>
+                                                                )}
+                                                                {nom.driver_name && (
+                                                                    <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                                                        <User className="w-3 h-3" />
+                                                                        {nom.driver_name}
+                                                                    </div>
+                                                                )}
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="font-semibold text-slate-800 text-xs">
@@ -1461,12 +1477,17 @@ export default function TripOrders() {
                                                             <Button
                                                                 size="sm"
                                                                 onClick={() => {
+                                                                    const activeCoupling = couplings.find((c: any) => c.horse_id === nom.vehicle_id);
+                                                                    const liveTrailer = activeCoupling ? fleet.find((f: any) => f.id === activeCoupling.trailer_id) : null;
+                                                                    const resolvedTrailerId = liveTrailer?.id || nom.trailer_id || "";
+                                                                    const resolvedTrailerReg = liveTrailer?.vehicle_no || nom.trailer_reg || "";
+
                                                                     setFormData({
                                                                         ...initialFormState,
                                                                         vehicle_id: nom.vehicle_id || "",
                                                                         truck_reg: nom.truck_reg,
-                                                                        trailer_id: nom.trailer_id || "",
-                                                                        trailer_reg: nom.trailer_reg || "",
+                                                                        trailer_id: resolvedTrailerId,
+                                                                        trailer_reg: resolvedTrailerReg,
                                                                         driver_id: nom.driver_id || "",
                                                                         driver_name: nom.driver_name || "",
                                                                         destination: nom.target_destination || "",
@@ -1476,8 +1497,8 @@ export default function TripOrders() {
                                                                         id: "veh-1",
                                                                         vehicle_id: nom.vehicle_id || "",
                                                                         truck_reg: nom.truck_reg,
-                                                                        trailer_id: nom.trailer_id || "",
-                                                                        trailer_reg: nom.trailer_reg || "",
+                                                                        trailer_id: resolvedTrailerId,
+                                                                        trailer_reg: resolvedTrailerReg,
                                                                         driver_id: nom.driver_id || "",
                                                                         driver_name: nom.driver_name || "",
                                                                         contact_no: "",
@@ -3340,23 +3361,44 @@ export default function TripOrders() {
                                 return;
                             }
 
-                            // Generate nomination records for each selected vehicle with the shared destination route
-                            const payloads = nominationForm.selected_vehicles.map(veh => ({
-                                vehicle_id: veh.vehicle_id,
-                                truck_reg: veh.truck_reg,
-                                trailer_id: veh.trailer_id || null,
-                                trailer_reg: veh.trailer_reg || null,
-                                driver_id: null,
-                                driver_name: null,
-                                target_destination: nominationForm.target_destination || null,
-                                expected_departure_date: nominationForm.expected_departure_date || null,
-                                cargo_type: nominationForm.cargo_type || null,
-                                logistics_notes: nominationForm.logistics_notes || null,
-                                nominated_by: user?.id,
-                                nominated_by_name: userProfile?.full_name || user?.email || "Logistics",
-                                status: "Pending Inspection",
-                                garage_readiness: "Pending"
-                            }));
+                            // Check coupling status: re-verify each selected horse against live couplings data
+                            const uncoupledVehicles = nominationForm.selected_vehicles.filter(veh => {
+                                const liveCoupling = couplings.find((c: any) => c.horse_id === veh.vehicle_id);
+                                const liveTrailer = liveCoupling ? fleet.find(f => f.id === liveCoupling.trailer_id) : null;
+                                return !liveTrailer;
+                            });
+
+                            if (uncoupledVehicles.length > 0) {
+                                const uncoupledRegs = uncoupledVehicles.map(v => v.truck_reg).join(", ");
+                                toast({
+                                    variant: "destructive",
+                                    title: "Uncoupled Vehicle(s) Detected",
+                                    description: `The following vehicle(s) do not have a trailer coupled: ${uncoupledRegs}. Please go to Fleet Registry and couple a trailer before nominating.`
+                                });
+                                return;
+                            }
+
+                            // Re-resolve trailer data from live couplings before submitting
+                            const payloads = nominationForm.selected_vehicles.map(veh => {
+                                const liveCoupling = couplings.find((c: any) => c.horse_id === veh.vehicle_id);
+                                const liveTrailer = liveCoupling ? fleet.find(f => f.id === liveCoupling.trailer_id) : null;
+                                return {
+                                    vehicle_id: veh.vehicle_id,
+                                    truck_reg: veh.truck_reg,
+                                    trailer_id: liveTrailer?.id || veh.trailer_id || null,
+                                    trailer_reg: liveTrailer?.vehicle_no || veh.trailer_reg || null,
+                                    driver_id: null,
+                                    driver_name: null,
+                                    target_destination: nominationForm.target_destination || null,
+                                    expected_departure_date: nominationForm.expected_departure_date || null,
+                                    cargo_type: nominationForm.cargo_type || null,
+                                    logistics_notes: nominationForm.logistics_notes || null,
+                                    nominated_by: user?.id,
+                                    nominated_by_name: userProfile?.full_name || user?.email || "Logistics",
+                                    status: "Pending Inspection",
+                                    garage_readiness: "Pending"
+                                };
+                            });
 
                             createNominationMutation.mutate(payloads);
                         }}
@@ -3376,29 +3418,46 @@ export default function TripOrders() {
                             {/* Selected Vehicle Chips */}
                             {nominationForm.selected_vehicles.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 border border-slate-200/80 rounded-xl min-h-[42px] items-center">
-                                    {nominationForm.selected_vehicles.map(v => (
-                                        <Badge
-                                            key={v.vehicle_id}
-                                            variant="secondary"
-                                            className="bg-white border border-indigo-200 text-indigo-900 text-xs font-bold pl-2.5 pr-1 py-1 flex items-center gap-1 shadow-2xs"
-                                        >
-                                            <Truck className="w-3.5 h-3.5 text-indigo-600 mr-0.5" />
-                                            <span>{v.truck_reg}</span>
-                                            {v.trailer_reg && <span className="text-[10px] text-slate-400 font-normal">({v.trailer_reg})</span>}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setNominationForm(prev => ({
-                                                        ...prev,
-                                                        selected_vehicles: prev.selected_vehicles.filter(sv => sv.vehicle_id !== v.vehicle_id)
-                                                    }));
-                                                }}
-                                                className="ml-1 hover:bg-rose-100 hover:text-rose-700 rounded p-0.5 text-slate-400"
+                                    {nominationForm.selected_vehicles.map(v => {
+                                        // Live coupling check for warning display
+                                        const liveCoupling = couplings.find((c: any) => c.horse_id === v.vehicle_id);
+                                        const liveTrailer = liveCoupling ? fleet.find(f => f.id === liveCoupling.trailer_id) : null;
+                                        const isUncoupled = !liveTrailer;
+                                        return (
+                                            <Badge
+                                                key={v.vehicle_id}
+                                                variant="secondary"
+                                                className={cn(
+                                                    "text-xs font-bold pl-2.5 pr-1 py-1 flex items-center gap-1 shadow-2xs",
+                                                    isUncoupled
+                                                        ? "bg-amber-50 border border-amber-300 text-amber-900"
+                                                        : "bg-white border border-indigo-200 text-indigo-900"
+                                                )}
                                             >
-                                                <X className="w-3 h-3" />
-                                            </button>
-                                        </Badge>
-                                    ))}
+                                                <Truck className={cn("w-3.5 h-3.5 mr-0.5", isUncoupled ? "text-amber-600" : "text-indigo-600")} />
+                                                <span>{v.truck_reg}</span>
+                                                {isUncoupled ? (
+                                                    <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-0.5">
+                                                        <AlertTriangle className="w-3 h-3" /> Uncoupled
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] text-slate-400 font-normal">({liveTrailer.vehicle_no})</span>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setNominationForm(prev => ({
+                                                            ...prev,
+                                                            selected_vehicles: prev.selected_vehicles.filter(sv => sv.vehicle_id !== v.vehicle_id)
+                                                        }));
+                                                    }}
+                                                    className="ml-1 hover:bg-rose-100 hover:text-rose-700 rounded p-0.5 text-slate-400"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </Badge>
+                                        );
+                                    })}
                                 </div>
                             )}
 
@@ -3468,6 +3527,13 @@ export default function TripOrders() {
                                                                     />
                                                                     <span className="font-bold text-slate-800">{v.vehicle_no}</span>
                                                                     {v.make_model && <span className="text-[11px] text-slate-400">({v.make_model})</span>}
+                                                                    {(() => {
+                                                                        const vCoupling = couplings.find((c: any) => c.horse_id === v.id);
+                                                                        const vTrailer = vCoupling ? fleet.find(f => f.id === vCoupling.trailer_id) : null;
+                                                                        return vTrailer
+                                                                            ? <span className="text-[10px] text-emerald-600 font-medium">↔ {vTrailer.vehicle_no}</span>
+                                                                            : <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-0.5"><AlertTriangle className="w-2.5 h-2.5" /> No trailer</span>;
+                                                                    })()}
                                                                 </div>
                                                                 {isSelected && (
                                                                     <Badge className="text-[9px] bg-indigo-50 text-indigo-700 border-indigo-200">
@@ -3537,6 +3603,27 @@ export default function TripOrders() {
                             />
                         </div>
 
+                        {/* Uncoupled vehicles warning banner */}
+                        {(() => {
+                            const uncoupledInForm = nominationForm.selected_vehicles.filter(veh => {
+                                const lc = couplings.find((c: any) => c.horse_id === veh.vehicle_id);
+                                return !(lc && fleet.find(f => f.id === lc.trailer_id));
+                            });
+                            if (uncoupledInForm.length === 0) return null;
+                            return (
+                                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                                    <div>
+                                        <p className="font-bold">Coupling Required</p>
+                                        <p className="text-[11px] mt-0.5">
+                                            {uncoupledInForm.map(v => v.truck_reg).join(", ")} {uncoupledInForm.length === 1 ? "does" : "do"} not have a trailer coupled.
+                                            Please go to <strong>Fleet Registry → Couplings</strong> and attach a trailer before nominating.
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
                         <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 pt-2">
                             <div>
                                 {nominationForm.selected_vehicles.length > 0 && (
@@ -3561,7 +3648,13 @@ export default function TripOrders() {
                                 </Button>
                                 <Button
                                     type="submit"
-                                    disabled={createNominationMutation.isPending}
+                                    disabled={createNominationMutation.isPending || (() => {
+                                        // Disable submit if any selected vehicle is uncoupled
+                                        return nominationForm.selected_vehicles.some(veh => {
+                                            const lc = couplings.find((c: any) => c.horse_id === veh.vehicle_id);
+                                            return !(lc && fleet.find(f => f.id === lc.trailer_id));
+                                        });
+                                    })()}
                                     className="h-9 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-xs gap-1.5"
                                 >
                                     <Send className="w-3.5 h-3.5" />

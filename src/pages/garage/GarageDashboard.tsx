@@ -231,6 +231,7 @@ const GarageDashboard = () => {
         }
     }, [location.pathname]);
 
+    const [inventoryViewMode, setInventoryViewMode] = useState<'grid' | 'list'>('grid');
     const [isRequisitionDialogOpen, setIsRequisitionDialogOpen] = useState(false);
     const [isEditReqOpen, setIsEditReqOpen] = useState(false);
     const [editingReqItem, setEditingReqItem] = useState<{ id: string; item_name: string; quantity: number; vehicle_id?: string; requirement_category?: string } | null>(null);

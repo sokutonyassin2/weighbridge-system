@@ -198,13 +198,29 @@ const TransitDashboard = () => {
     const { data: approvedTrips = [] } = useQuery({
         queryKey: ["approved_trip_sheets"],
         queryFn: async () => {
+            // Fetch all approved trip sheets
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
                 .select("*, vehicle:vehicle_id(vehicle_no, asset_type), trailer:trailer_id(vehicle_no, trailer_number), driver:driver_id(full_name, license_no, id_number)")
                 .eq("status", "Approved")
                 .order("created_at", { ascending: false });
             if (error) console.error("Error fetching approved trips:", error);
-            return (data || []) as any[];
+
+            // Fetch all trip_numbers from the Trip Orders workflow
+            const { data: tripOrders } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("trip_number");
+            const orderTripNumbers = new Set(
+                (tripOrders || []).map((o: any) => o.trip_number).filter(Boolean)
+            );
+
+            // Only show trip sheets that originate from the Trip Orders workflow
+            // (reference_number matches a trip order's trip_number)
+            const allSheets = (data || []) as any[];
+            if (orderTripNumbers.size === 0) return allSheets; // fallback: if no orders exist yet, show all
+            return allSheets.filter((sheet: any) =>
+                sheet.reference_number && orderTripNumbers.has(sheet.reference_number)
+            );
         }
     });
 
@@ -772,24 +788,29 @@ const TransitDashboard = () => {
 
             <Dialog open={isFormOpen} onOpenChange={o => { if(!o) { setIsFormOpen(false); setEditingTrip(null); } }}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl p-0 border-none shadow-2xl">
-                    <DialogHeader className="bg-white text-slate-800 p-6 border-b border-slate-100 rounded-t-3xl">
-                        <DialogTitle className="text-xl font-bold uppercase tracking-tight">{editingTrip ? "Edit Mission Record" : "Deploy Transit Assets"}</DialogTitle>
-                        <DialogDescription className="text-slate-500 text-xs font-medium mt-1">
-                            Configure Mission Parameters & Border Logistics
+                    <DialogHeader className="bg-gradient-to-r from-[#1a3a5c] to-[#2d5a8e] text-white p-6 rounded-t-3xl">
+                        <DialogTitle className="text-lg font-bold uppercase tracking-tight">{editingTrip ? "Edit Mission Record" : "Deploy Transit Assets"}</DialogTitle>
+                        <DialogDescription className="text-white/60 text-xs font-medium mt-1">
+                            Configure routing checkpoints & border logistics for tracking
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="p-8 space-y-8 bg-white">
+                    <div className="p-6 space-y-6 bg-white">
+
+                        {/* ── STEP 1: Mission Plan Selection (only for new trips) ── */}
                         {!editingTrip && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200">
-                                <div className="space-y-3">
-                                    <Label className="text-sm font-bold text-slate-700">1. Select Approved Mission Plans</Label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50/80 p-5 rounded-2xl border border-slate-200">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">1</div>
+                                        Select Approved Mission Plans
+                                    </Label>
                                     <Popover>
                                         <PopoverTrigger asChild>
                                             <Button
                                                 variant="outline"
                                                 role="combobox"
-                                                className="w-full h-12 justify-between bg-white rounded-xl shadow-sm border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700"
+                                                className="w-full h-11 justify-between bg-white rounded-xl shadow-sm border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700"
                                             >
                                                 <span className="truncate">
                                                     {selectedSheetIds.length === 0
@@ -898,14 +919,17 @@ const TransitDashboard = () => {
                                     )}
                                 </div>
 
-                                <div className="space-y-3">
-                                    <Label className="text-sm font-semibold text-slate-700">2. Apply Route Template (Tracking Plan)</Label>
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                                        <div className="w-5 h-5 rounded-full bg-slate-500 text-white flex items-center justify-center text-[10px] font-black">2</div>
+                                        Apply Route Template
+                                    </Label>
                                     <Popover>
                                         <PopoverTrigger asChild>
                                             <Button
                                                 variant="outline"
                                                 role="combobox"
-                                                className="w-full h-12 justify-between bg-white rounded-xl shadow-sm border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700"
+                                                className="w-full h-11 justify-between bg-white rounded-xl shadow-sm border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700"
                                             >
                                                 <span>Select route template...</span>
                                                 <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
@@ -961,271 +985,317 @@ const TransitDashboard = () => {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* Row 0 - Trip Identification */}
-                            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6 mb-2">
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-600">Trip Ref / Number</Label>
-                                    <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium gap-2">
-                                        {form.trip_id || form.trip_number || "No Reference Selected"}
-                                        {(form.leg_type === "R" || (editingTrip?.leg_type === "R")) && (
-                                            <span className="ml-auto text-[9px] font-black px-2 py-1 rounded-full bg-rose-100 text-rose-600 uppercase tracking-wider">Return Leg</span>
-                                        )}
+                        {/* ── TRIP SUMMARY CARD (Read-only auto-filled info) ── */}
+                        {(form.trip_number || form.truck_no || form.client_name) && (
+                            <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white overflow-hidden">
+                                {/* Summary Header Bar */}
+                                <div className="px-5 py-3 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <FileText size={14} className="text-slate-400" />
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Mission Summary</span>
                                     </div>
+                                    {form.trip_number && (
+                                        <span className="text-xs font-black text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                                            {form.trip_number}
+                                        </span>
+                                    )}
+                                    {(form.leg_type === "R" || (editingTrip?.leg_type === "R")) && (
+                                        <span className="text-[9px] font-black px-2 py-1 rounded-full bg-rose-100 text-rose-600 uppercase tracking-wider">Return Leg</span>
+                                    )}
                                 </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs font-semibold text-slate-600">
-                                        {(form.leg_type === "R" || editingTrip?.leg_type === "R") ? "Go Invoice (Outbound)" : "Associated Invoice"}
-                                    </Label>
-                                    <div className="h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm flex items-center font-medium">
-                                        {form.invoice_no || "No Invoice Found"}
-                                    </div>
+                                {/* Summary Grid */}
+                                <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                                    {[
+                                        { label: "Client", value: form.client_name, icon: <Building2 size={12} /> },
+                                        { label: "Truck", value: form.truck_no, icon: <Truck size={12} /> },
+                                        { label: "Trailer", value: form.trailer_no, icon: <Package size={12} /> },
+                                        { label: "Driver", value: form.driver_name, icon: <User size={12} /> },
+                                        { label: "Destination", value: form.destination, icon: <MapPin size={12} /> },
+                                        { label: "Cargo", value: form.cargo, icon: <Package size={12} /> },
+                                        { label: "Journey", value: form.nature, icon: <ArrowRight size={12} /> },
+                                        { label: "Invoice", value: form.invoice_no || "—", icon: <FileText size={12} /> },
+                                    ].filter(item => item.value).map((item, i) => (
+                                        <div key={i} className="flex items-start gap-2">
+                                            <span className="text-slate-400 mt-0.5 shrink-0">{item.icon}</span>
+                                            <div className="min-w-0">
+                                                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{item.label}</div>
+                                                <div className="text-xs font-semibold text-slate-800 truncate">{item.value}</div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                                {/* Return Invoice — only shown for Return legs */}
-                                {(form.leg_type === "R" || editingTrip?.leg_type === "R") && (
-                                    <div className="md:col-span-2 space-y-3">
-                                        {/* Client Name — read-only display */}
-                                        {form.client_name && (
-                                            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg border border-indigo-100">
-                                                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-wider">Client:</span>
-                                                <span className="text-sm font-bold text-indigo-700">{form.client_name}</span>
-                                            </div>
-                                        )}
-                                        <div className="flex items-center gap-2">
-                                            <Label className="text-xs font-bold text-amber-700">Return Invoice No. *</Label>
-                                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 uppercase tracking-wider">Enter after offloading</span>
-                                        </div>
-                                        {/* Split: Invoice No | Revenue Amount */}
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {/* Left: Invoice Number */}
-                                            <div className="relative">
-                                                <Input
-                                                    placeholder="e.g. INV-2025-R001"
-                                                    className="h-12 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 font-semibold text-sm placeholder:text-amber-300 focus:border-amber-500 focus:ring-amber-200 pr-28"
-                                                    value={form.return_invoice_no || ""}
-                                                    onChange={e => setForm(f => ({ ...f, return_invoice_no: e.target.value }))}
-                                                />
-                                                {form.return_invoice_no && (
-                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">✓ SET</span>
-                                                )}
-                                            </div>
-                                            {/* Right: Revenue Amount (USD) with TZS conversion */}
-                                            <div className="space-y-0.5">
-                                                <div className="relative">
-                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400">$</span>
-                                                    <Input
-                                                        type="number"
-                                                        placeholder="0.00  (USD amount)"
-                                                        className="h-12 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 font-semibold text-sm placeholder:text-amber-300 focus:border-amber-500 focus:ring-amber-200 pl-7"
-                                                        value={form.return_revenue_amount || ""}
-                                                        onChange={e => setForm(f => ({ ...f, return_revenue_amount: e.target.value }))}
-                                                    />
-                                                </div>
-                                                {form.return_revenue_amount && parseFloat(form.return_revenue_amount) > 0 && (
-                                                    <p className="text-[10px] text-slate-500 font-medium pl-1">
-                                                        ≈ TShs {(parseFloat(form.return_revenue_amount) * 2700).toLocaleString()}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        {/* Return Invoice Date */}
-                                        <div className="space-y-1.5">
-                                            <Label className="text-xs font-semibold text-amber-700">Return Invoice Date</Label>
-                                            <Input
-                                                type="date"
-                                                onClick={(e) => (e.target as HTMLInputElement).showPicker()}
-                                                className="cursor-pointer h-10 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 font-medium text-xs"
-                                                value={form.return_invoice_date || ""}
-                                                onChange={e => setForm(f => ({ ...f, return_invoice_date: e.target.value }))}
-                                            />
-                                        </div>
-                                        <p className="text-[10px] text-amber-600 font-medium">
-                                            💡 Invoice, amount &amp; date will be saved back to the original Trip Sheet automatically.
-                                        </p>
-                                    </div>
-                                )}
                             </div>
+                        )}
 
-
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Status *</Label>
+                        {/* ── STATUS + EDITABLE OVERRIDES (compact row) ── */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-bold text-slate-700">Status *</Label>
                                 <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v as TransitStatus }))}>
-                                    <SelectTrigger className="h-11 rounded-xl border-slate-200 shadow-sm"><SelectValue /></SelectTrigger>
+                                    <SelectTrigger className="h-10 rounded-xl border-slate-200 shadow-sm text-sm font-medium"><SelectValue /></SelectTrigger>
                                     <SelectContent>{TRANSIT_STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                                 </Select>
                             </div>
-
-                            {/* Row 2 - Asset & Crew Details */}
-                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-6">Asset & Crew Details</div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Truck Reg *</Label><Input className="h-11 rounded-xl bg-slate-50 border-slate-200" value={form.truck_no} onChange={e => setForm(f => ({ ...f, truck_no: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Trailer Reg</Label><Input className="h-11 rounded-xl bg-slate-50 border-slate-200" value={form.trailer_no} onChange={e => setForm(f => ({ ...f, trailer_no: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Contact No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.contact_no} onChange={e => setForm(f => ({ ...f, contact_no: e.target.value }))} /></div>
-                            
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Driver Name *</Label><Input className="h-11 rounded-xl border-slate-200" value={form.driver_name} onChange={e => setForm(f => ({ ...f, driver_name: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">License No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.license_no} onChange={e => setForm(f => ({ ...f, license_no: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Passport No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.passport_no} onChange={e => setForm(f => ({ ...f, passport_no: e.target.value }))} /></div>
-
-                            {/* Row 3 - Cargo & Logistics */}
-                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-8">Consignment Logistics</div>
-                            <div className="space-y-2 md:col-span-3"><Label className="text-xs font-semibold text-slate-600">Cargo Description</Label><Input placeholder="e.g. Copper Cathodes" className="h-11 rounded-xl border-slate-200 bg-slate-50" value={form.cargo} onChange={e => setForm(f => ({ ...f, cargo: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">BL / Consignment No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.bl_number} onChange={e => setForm(f => ({ ...f, bl_number: e.target.value }))} /></div>
-                            <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600">Container No</Label><Input className="h-11 rounded-xl border-slate-200" value={form.container_no} onChange={e => setForm(f => ({ ...f, container_no: e.target.value }))} /></div>
-                            <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-slate-600">Delivery Destination *</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            role="combobox"
-                                            className={cn(
-                                                "w-full h-11 justify-between bg-white rounded-xl border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700 shadow-sm",
-                                                !form.destination && "text-muted-foreground"
-                                            )}
-                                        >
-                                            {form.destination || "Select destination..."}
-                                            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[300px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
-                                        <Command>
-                                            <CommandInput placeholder="Search location..." className="h-9 border-none focus:ring-0" onValueChange={v => setForm(f => ({ ...f, destination: v.toUpperCase() }))} />
-                                            <CommandList className="max-h-[250px] overflow-y-auto">
-                                                <CommandEmpty>Press enter to use "{form.destination}"</CommandEmpty>
-                                                <CommandGroup>
-                                                    {STANDARD_DESTINATIONS.map(dest => (
-                                                        <CommandItem
-                                                            key={dest}
-                                                            value={dest}
-                                                            onSelect={() => setForm(f => ({ ...f, destination: dest }))}
-                                                            className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2 font-medium"
-                                                        >
-                                                            <Check className={cn("mr-2 h-4 w-4 text-indigo-600", form.destination === dest ? "opacity-100" : "opacity-0")} />
-                                                            {dest}
-                                                        </CommandItem>
-                                                    ))}
-                                                </CommandGroup>
-                                            </CommandList>
-                                        </Command>
-                                    </PopoverContent>
-                                </Popover>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-500">Contact No</Label>
+                                <Input className="h-10 rounded-xl border-slate-200 text-sm" placeholder="Optional" value={form.contact_no} onChange={e => setForm(f => ({ ...f, contact_no: e.target.value }))} />
                             </div>
-                            {/* Row 4 - Trip Configuration */}
-                            <div className="md:col-span-3 text-sm font-bold text-slate-800 border-b pb-2 mt-4">Mission Setup</div>
-                            <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-slate-600">Nature of Trip</Label>
-                                <Select value={form.nature} onValueChange={v => setForm(f => ({ ...f, nature: v }))}>
-                                    <SelectTrigger className="h-11 rounded-xl border-slate-200 shadow-sm"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="Go Alone">Go Alone</SelectItem>
-                                        <SelectItem value="Go & Return">Go & Return</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-500">BL / Consignment</Label>
+                                <Input className="h-10 rounded-xl border-slate-200 text-sm" value={form.bl_number} onChange={e => setForm(f => ({ ...f, bl_number: e.target.value }))} />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-500">Container No</Label>
+                                <Input className="h-10 rounded-xl border-slate-200 text-sm" value={form.container_no} onChange={e => setForm(f => ({ ...f, container_no: e.target.value }))} />
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-6 gap-x-4 gap-y-6 bg-slate-50 p-6 rounded-2xl">
-                            <div className="md:col-span-6 text-sm font-bold text-indigo-700 border-b pb-2 flex justify-between">
-                                <span>Routing Checkpoints & Timeline</span>
-                            </div>
-
-                            <div className="space-y-1.5 md:col-span-2">
-                                <Label className="text-xs font-semibold text-slate-600">Arrival for Loading</Label>
-                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-amber-200 bg-amber-50/10 font-medium text-xs" value={form.arrival_loading_date} onChange={e => setForm(f => ({ ...f, arrival_loading_date: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5 md:col-span-2">
-                                <Label className="text-xs font-semibold text-slate-600">Loading Date</Label>
-                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-amber-200 bg-amber-50/10 font-medium text-xs" value={form.loading_date} onChange={e => setForm(f => ({ ...f, loading_date: e.target.value }))} />
-                            </div>
-                            <div className="space-y-1.5 md:col-span-2">
-                                <Label className="text-xs font-semibold text-slate-600">Dispatch Date</Label>
-                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-blue-200 bg-blue-50/30 font-medium text-xs" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))} />
-                            </div>
-
-                            {/* Dynamic Borders */}
-                            <div className="md:col-span-6 space-y-4 pt-4 border-t border-slate-100">
-                                <div className="flex items-center justify-between">
-                                    <Label className="text-sm font-bold text-slate-700">Routing Checkpoints & Timeline</Label>
-                                    <Button type="button" variant="outline" size="sm" className="h-8 text-[10px] font-black border-indigo-200 text-indigo-600 rounded-lg hover:bg-indigo-50" onClick={() => setForm(f => ({ ...f, borders: [...(f.borders || []), { name: "", arrival: "", crossing: "", departure: "" }] }))}>+ ADD BORDER</Button>
+                        {/* ── DESTINATION OVERRIDE (only show if not auto-filled or editing) ── */}
+                        {(!form.destination || editingTrip) && (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-bold text-slate-700">Delivery Destination *</Label>
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                role="combobox"
+                                                className={cn(
+                                                    "w-full h-10 justify-between bg-white rounded-xl border-slate-200 text-left font-medium text-slate-700 hover:bg-white hover:text-slate-700 shadow-sm text-sm",
+                                                    !form.destination && "text-muted-foreground"
+                                                )}
+                                            >
+                                                {form.destination || "Select destination..."}
+                                                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[300px] p-0 bg-white border border-slate-200 shadow-xl rounded-xl z-[9999]" align="start">
+                                            <Command>
+                                                <CommandInput placeholder="Search location..." className="h-9 border-none focus:ring-0" onValueChange={v => setForm(f => ({ ...f, destination: v.toUpperCase() }))} />
+                                                <CommandList className="max-h-[250px] overflow-y-auto">
+                                                    <CommandEmpty>Press enter to use "{form.destination}"</CommandEmpty>
+                                                    <CommandGroup>
+                                                        {STANDARD_DESTINATIONS.map(dest => (
+                                                            <CommandItem
+                                                                key={dest}
+                                                                value={dest}
+                                                                onSelect={() => setForm(f => ({ ...f, destination: dest }))}
+                                                                className="cursor-pointer hover:bg-slate-50 text-slate-700 py-2 font-medium"
+                                                            >
+                                                                <Check className={cn("mr-2 h-4 w-4 text-indigo-600", form.destination === dest ? "opacity-100" : "opacity-0")} />
+                                                                {dest}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
                                 </div>
-                                
-                                { (form.borders || []).map((border, idx) => (
-                                    <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-slate-50/50 rounded-xl border border-slate-100 relative group">
-                                        <div className="space-y-1.5">
-                                            <Label className="text-xs font-semibold text-slate-600">Border Point {idx + 1}</Label>
-                                            <Input placeholder="e.g. Tunduma" className="h-10 rounded-lg bg-white border-slate-200 text-xs" value={border.name} onChange={e => {
-                                                const val = e.target.value;
-                                                setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, name: val } : b) }));
-                                            }} />
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-500">Nature of Trip</Label>
+                                    <Select value={form.nature} onValueChange={v => setForm(f => ({ ...f, nature: v }))}>
+                                        <SelectTrigger className="h-10 rounded-xl border-slate-200 shadow-sm text-sm"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Go Alone">Go Alone</SelectItem>
+                                            <SelectItem value="Go & Return">Go & Return</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs font-semibold text-slate-500">Cargo Description</Label>
+                                    <Input placeholder="e.g. Copper Cathodes" className="h-10 rounded-xl border-slate-200 text-sm" value={form.cargo} onChange={e => setForm(f => ({ ...f, cargo: e.target.value }))} />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── RETURN LEG INVOICE (conditional) ── */}
+                        {(form.leg_type === "R" || editingTrip?.leg_type === "R") && (
+                            <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/30 p-5 space-y-4">
+                                <div className="flex items-center gap-3">
+                                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 uppercase tracking-wider">Return Leg Invoice</span>
+                                    {form.client_name && (
+                                        <span className="text-xs font-bold text-indigo-700">• {form.client_name}</span>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="relative">
+                                        <Label className="text-xs font-bold text-amber-700 mb-1.5 block">Invoice No. *</Label>
+                                        <Input
+                                            placeholder="e.g. INV-2025-R001"
+                                            className="h-10 rounded-xl border-amber-300 bg-white text-amber-900 font-semibold text-sm placeholder:text-amber-300 focus:border-amber-500"
+                                            value={form.return_invoice_no || ""}
+                                            onChange={e => setForm(f => ({ ...f, return_invoice_no: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-bold text-amber-700">Revenue (USD)</Label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-black text-slate-400">$</span>
+                                            <Input
+                                                type="number"
+                                                placeholder="0.00"
+                                                className="h-10 rounded-xl border-amber-300 bg-white text-amber-900 font-semibold text-sm pl-7"
+                                                value={form.return_revenue_amount || ""}
+                                                onChange={e => setForm(f => ({ ...f, return_revenue_amount: e.target.value }))}
+                                            />
                                         </div>
-                                        <div className="space-y-1.5">
-                                            <Label className="text-xs font-semibold text-slate-600">Arrival</Label>
-                                            <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg bg-white border-slate-200 text-xs" value={border.arrival} onChange={e => {
-                                                const val = e.target.value;
-                                                setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, arrival: val } : b) }));
-                                            }} />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <Label className="text-xs font-semibold text-indigo-600">Crossing Date</Label>
-                                            <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-indigo-100 bg-white text-xs" value={border.crossing} onChange={e => {
-                                                const val = e.target.value;
-                                                setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, crossing: val } : b) }));
-                                            }} />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <Label className="text-xs font-semibold text-slate-600">Departure</Label>
-                                            <div className="flex gap-2">
-                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg bg-white border-slate-200 text-xs" value={border.departure} onChange={e => {
+                                        {form.return_revenue_amount && parseFloat(form.return_revenue_amount) > 0 && (
+                                            <p className="text-[10px] text-slate-500 font-medium pl-1">
+                                                ≈ TShs {(parseFloat(form.return_revenue_amount) * 2700).toLocaleString()}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-bold text-amber-700">Invoice Date</Label>
+                                        <Input
+                                            type="date"
+                                            onClick={(e) => (e.target as HTMLInputElement).showPicker()}
+                                            className="cursor-pointer h-10 rounded-xl border-amber-300 bg-white text-amber-900 font-medium text-sm"
+                                            value={form.return_invoice_date || ""}
+                                            onChange={e => setForm(f => ({ ...f, return_invoice_date: e.target.value }))}
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-amber-600 font-medium">
+                                    💡 Invoice, amount &amp; date will be saved back to the original Trip Sheet automatically.
+                                </p>
+                            </div>
+                        )}
+
+                        {/* ── HIDDEN FIELDS for editingTrip to keep truck/trailer/driver editable ── */}
+                        {editingTrip && (
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 rounded-2xl border border-slate-200 bg-slate-50/50 p-5">
+                                <div className="col-span-full">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset & Crew Details</span>
+                                </div>
+                                <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Truck Reg *</Label><Input className="h-10 rounded-xl bg-white border-slate-200 text-sm" value={form.truck_no} onChange={e => setForm(f => ({ ...f, truck_no: e.target.value }))} /></div>
+                                <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Trailer Reg</Label><Input className="h-10 rounded-xl bg-white border-slate-200 text-sm" value={form.trailer_no} onChange={e => setForm(f => ({ ...f, trailer_no: e.target.value }))} /></div>
+                                <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Driver Name *</Label><Input className="h-10 rounded-xl bg-white border-slate-200 text-sm" value={form.driver_name} onChange={e => setForm(f => ({ ...f, driver_name: e.target.value }))} /></div>
+                                <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">License No</Label><Input className="h-10 rounded-xl bg-white border-slate-200 text-sm" value={form.license_no} onChange={e => setForm(f => ({ ...f, license_no: e.target.value }))} /></div>
+                                <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Passport No</Label><Input className="h-10 rounded-xl bg-white border-slate-200 text-sm" value={form.passport_no} onChange={e => setForm(f => ({ ...f, passport_no: e.target.value }))} /></div>
+                                <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Contact No</Label><Input className="h-10 rounded-xl bg-white border-slate-200 text-sm" value={form.contact_no} onChange={e => setForm(f => ({ ...f, contact_no: e.target.value }))} /></div>
+                            </div>
+                        )}
+
+                        {/* ═══════════════════════════════════════════════════════════════════
+                            ROUTING & TIMELINE — The main working area
+                        ═══════════════════════════════════════════════════════════════════ */}
+                        <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/30 to-white overflow-hidden">
+                            {/* Section Header */}
+                            <div className="px-5 py-3 bg-indigo-50/60 border-b border-indigo-100 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Globe size={14} className="text-indigo-500" />
+                                    <span className="text-xs font-black text-indigo-800 uppercase tracking-wider">Routing & Timeline</span>
+                                </div>
+                                <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] font-black border-indigo-200 text-indigo-600 rounded-lg hover:bg-indigo-50 gap-1" onClick={() => setForm(f => ({ ...f, borders: [...(f.borders || []), { name: "", arrival: "", crossing: "", departure: "" }] }))}>
+                                    <Plus size={12} /> Add Border
+                                </Button>
+                            </div>
+
+                            <div className="p-5 space-y-5">
+                                {/* Loading & Dispatch Dates */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Arrival for Loading</Label>
+                                        <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-slate-200 bg-white font-medium text-sm" value={form.arrival_loading_date} onChange={e => setForm(f => ({ ...f, arrival_loading_date: e.target.value }))} />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Loading Date</Label>
+                                        <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-slate-200 bg-white font-medium text-sm" value={form.loading_date} onChange={e => setForm(f => ({ ...f, loading_date: e.target.value }))} />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Dispatch Date</Label>
+                                        <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-blue-200 bg-blue-50/30 font-medium text-sm text-blue-900" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))} />
+                                    </div>
+                                </div>
+
+                                {/* Border Crossings */}
+                                <div className="space-y-3">
+                                    {(form.borders || []).map((border, idx) => (
+                                        <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end p-3 bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">
+                                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 text-[8px] font-black mr-1">{idx + 1}</span>
+                                                    Border Point
+                                                </Label>
+                                                <Input placeholder="e.g. Tunduma" className="h-9 rounded-lg bg-slate-50 border-slate-200 text-xs font-medium" value={border.name} onChange={e => {
+                                                    const val = e.target.value;
+                                                    setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, name: val } : b) }));
+                                                }} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Arrival</Label>
+                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-9 rounded-lg bg-white border-slate-200 text-xs" value={border.arrival} onChange={e => {
+                                                    const val = e.target.value;
+                                                    setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, arrival: val } : b) }));
+                                                }} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold text-indigo-600 uppercase">Crossing</Label>
+                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-9 rounded-lg border-indigo-100 bg-white text-xs" value={border.crossing} onChange={e => {
+                                                    const val = e.target.value;
+                                                    setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, crossing: val } : b) }));
+                                                }} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Departure</Label>
+                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-9 rounded-lg bg-white border-slate-200 text-xs" value={border.departure} onChange={e => {
                                                     const val = e.target.value;
                                                     setForm(f => ({ ...f, borders: f.borders.map((b, i) => i === idx ? { ...b, departure: val } : b) }));
                                                 }} />
-                                                <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg" onClick={() => {
-                                                    setForm(f => ({ ...f, borders: f.borders.filter((_, i) => i !== idx) }));
-                                                }}><X size={14} /></Button>
                                             </div>
+                                            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg shrink-0" onClick={() => {
+                                                setForm(f => ({ ...f, borders: f.borders.filter((_, i) => i !== idx) }));
+                                            }}><X size={14} /></Button>
                                         </div>
+                                    ))}
+
+                                    {form.borders.length === 0 && (
+                                        <div className="text-center py-8 bg-white/50 rounded-xl border border-dashed border-slate-200">
+                                            <Globe size={20} className="mx-auto text-slate-300 mb-2" />
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase">No border crossings added</p>
+                                            <p className="text-[9px] text-slate-400 mt-1">Click "Add Border" to define crossing points</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Divider */}
+                                <div className="border-t border-slate-200" />
+
+                                {/* Arrival, Offloading, Standing Charges — Clean 3-col grid */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Arrival at Site</Label>
+                                        <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-slate-200 bg-white font-medium text-sm" value={form.arrive_offloading_site_date} onChange={e => setForm(f => ({ ...f, arrive_offloading_site_date: e.target.value }))} />
                                     </div>
-                                ))}
-
-                                {form.borders.length === 0 && (
-                                    <div className="text-center py-6 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase">No intermediate borders added</p>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Offloading Complete</Label>
+                                        <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-slate-200 bg-white font-medium text-sm" value={form.offloading_date} onChange={e => setForm(f => ({ ...f, offloading_date: e.target.value }))} />
                                     </div>
-                                )}
-                            </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Standing Chg ($)</Label>
+                                        <Input type="number" className="h-10 rounded-xl border-amber-200 bg-amber-50/30 font-semibold text-amber-800 text-sm" value={form.standing_charges} onChange={e => setForm(f => ({ ...f, standing_charges: e.target.value }))} />
+                                    </div>
+                                </div>
 
-                            {/* Mission Conclusion Logistics */}
-                            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6 pt-6 border-t border-slate-200">
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Arrival at Site</Label>
-                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 bg-slate-50/50 rounded-lg border-slate-200 text-xs" value={form.arrive_offloading_site_date} onChange={e => setForm(f => ({ ...f, arrive_offloading_site_date: e.target.value }))} />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-slate-600">Offloading Completion</Label>
-                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 bg-slate-50/50 rounded-lg border-slate-200 text-xs" value={form.offloading_date} onChange={e => setForm(f => ({ ...f, offloading_date: e.target.value }))} />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label className="text-xs font-semibold text-amber-600">Standing Chg ($)</Label>
-                                    <Input type="number" className="h-10 rounded-lg border-amber-100 bg-amber-50/50 font-medium text-amber-700 text-xs" value={form.standing_charges} onChange={e => setForm(f => ({ ...f, standing_charges: e.target.value }))} />
-                                </div>
-                            </div>
-
-                            {/* Final Return to HQ - Dedicated Row */}
-                            <div className="md:col-span-3 pt-4">
-                                <div className="bg-emerald-50/20 p-4 rounded-xl border border-emerald-100/50 flex items-center justify-between gap-6">
+                                {/* Final HQ Return — Prominent standalone row */}
+                                <div className="flex items-center justify-between gap-4 bg-emerald-50/50 p-4 rounded-xl border border-emerald-200">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                        <Label className="text-xs font-semibold text-emerald-700 whitespace-nowrap">Final HQ Return</Label>
+                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        <Label className="text-xs font-bold text-emerald-800 whitespace-nowrap">Final HQ Return</Label>
                                     </div>
-                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-lg border-emerald-100 bg-white text-emerald-800 font-medium text-xs max-w-[200px]" value={form.hq_arrival_date} onChange={e => setForm(f => ({ ...f, hq_arrival_date: e.target.value }))} />
+                                    <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-emerald-200 bg-white text-emerald-800 font-semibold text-sm max-w-[220px]" value={form.hq_arrival_date} onChange={e => setForm(f => ({ ...f, hq_arrival_date: e.target.value }))} />
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <DialogFooter className="p-6 bg-slate-50 border-t gap-3">
+                    <DialogFooter className="p-5 bg-slate-50 border-t gap-3 rounded-b-3xl">
                         {!editingTrip && (
                             <Button 
                                 variant="outline" 
-                                className="border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold"
+                                className="border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold text-xs"
                                 onClick={async () => {
                                     if (!form.destination) {
                                         toast({ title: "Missing Destination", description: "Please enter a Delivery Destination in the form first.", variant: "destructive" });
@@ -1264,8 +1334,8 @@ const TransitDashboard = () => {
                                 <Save size={14} className="mr-2" /> Save as Template
                             </Button>
                         )}
-                        <Button variant="ghost" onClick={() => setIsFormOpen(false)} className="font-bold">Discard</Button>
-                        <Button className="px-10 h-12 bg-[#1a3a5c] hover:bg-black text-white font-black rounded-xl shadow-xl shadow-blue-900/20" onClick={() => saveMutation.mutate(form)}>{editingTrip ? "UPDATE ASSET DATA" : selectedSheetIds.length > 1 ? `DEPLOY ${selectedSheetIds.length} TRANSIT ASSETS` : "DEPLOY TRANSIT ASSET"}</Button>
+                        <Button variant="ghost" onClick={() => setIsFormOpen(false)} className="font-bold text-xs">Discard</Button>
+                        <Button className="px-8 h-11 bg-[#1a3a5c] hover:bg-black text-white font-black rounded-xl shadow-xl shadow-blue-900/20 text-xs" onClick={() => saveMutation.mutate(form)}>{editingTrip ? "UPDATE ASSET DATA" : selectedSheetIds.length > 1 ? `DEPLOY ${selectedSheetIds.length} TRANSIT ASSETS` : "DEPLOY TRANSIT ASSET"}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

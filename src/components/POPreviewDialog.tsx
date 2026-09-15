@@ -24,12 +24,13 @@ export function POPreviewDialog({ isOpen, onClose, supplierName, reqs }: POPrevi
     let vatTotal = 0;
 
     reqs.forEach(r => {
-        const qty = r.quantity_requested || 1;
+        const qty = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
         const unitPrice = r.unit_price || 0;
-        const lineTotal = qty * unitPrice;
-        subtotal += lineTotal;
+        const discount = (qty * unitPrice) * ((r.discount_percentage || 0) / 100);
+        const lineSubtotal = (qty * unitPrice) - discount;
+        subtotal += lineSubtotal;
         if (r.includes_vat) {
-            vatTotal += (lineTotal * 0.18);
+            vatTotal += (lineSubtotal * 0.18);
         }
     });
 
@@ -103,14 +104,15 @@ export function POPreviewDialog({ isOpen, onClose, supplierName, reqs }: POPrevi
                         </TableHeader>
                         <TableBody>
                             {reqs.map((req, idx) => {
-                                const qty = req.quantity_requested || 1;
+                                const qty = req.quantity_approved || req.management_reviewed_quantity || req.quantity_requested || 1;
                                 const price = req.unit_price || 0;
-                                const lineTotal = qty * price;
+                                const discount = (qty * price) * ((req.discount_percentage || 0) / 100);
+                                const lineTotal = (qty * price) - discount;
                                 return (
                                     <TableRow key={idx}>
                                         <TableCell className="font-medium">{req.item_name}</TableCell>
                                         <TableCell className="text-sm text-slate-600">{req.vehicle?.vehicle_no || req.vehicle?.horse_number || 'N/A'}</TableCell>
-                                        <TableCell className="text-right">{qty}</TableCell>
+                                        <TableCell className="text-right font-semibold">{qty}</TableCell>
                                         <TableCell className="text-right">{price.toLocaleString()}</TableCell>
                                         <TableCell className="text-right font-bold">{lineTotal.toLocaleString()}</TableCell>
                                     </TableRow>

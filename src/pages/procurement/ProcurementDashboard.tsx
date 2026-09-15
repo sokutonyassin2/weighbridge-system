@@ -1354,11 +1354,16 @@ const ProcurementDashboard = () => {
                                                             // Calculate Totals
                                                             let poTotal = 0;
                                                             item.reqs.forEach((r: any) => {
-                                                                const qty = r.quantity_requested || 1;
-                                                                const unitPrice = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
-                                                                const lineTotal = qty * unitPrice;
-                                                                const vat = r.includes_vat ? (lineTotal * 0.18) : 0;
-                                                                poTotal += (lineTotal + vat);
+                                                                if (r.total_price && r.total_price > 0) {
+                                                                    poTotal += Number(r.total_price);
+                                                                } else {
+                                                                    const qty = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
+                                                                    const unitPrice = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
+                                                                    const lineTotal = qty * unitPrice;
+                                                                    const discount = lineTotal * ((r.discount_percentage || 0) / 100);
+                                                                    const vat = r.includes_vat ? ((lineTotal - discount) * 0.18) : 0;
+                                                                    poTotal += (lineTotal - discount + vat);
+                                                                }
                                                             });
 
                                                             if (poTotal === 0) return null;

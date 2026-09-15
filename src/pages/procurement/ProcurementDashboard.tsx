@@ -104,7 +104,8 @@ const ProcurementDashboard = () => {
         vat_amount: 0,
         temp_price: 0,
         payment_method_id: "",
-        quantity_approving: 0
+        quantity_approving: 0,
+        pack_size: 1
     });
 
     const [batchSupplierOpen, setBatchSupplierOpen] = useState(false);
@@ -409,8 +410,9 @@ const ProcurementDashboard = () => {
     const workflowMutation = useMutation({
         mutationFn: async ({ reqId, qty, itemId, details, nextStatus }: { reqId: string, qty: number, itemId?: string, details: any, nextStatus: string }) => {
             const item = (inventory || []).find((i: any) => i.id === itemId);
-            const unitPrice = details.temp_price || item?.unit_price || 0;
-            const subtotal = unitPrice * qty;
+            const packSize = Number(details?.pack_size) > 0 ? Number(details.pack_size) : 1;
+            const purchaseQty = Math.ceil(qty / packSize);
+            const subtotal = unitPrice * purchaseQty;
             const vat = details.includes_vat ? subtotal * 0.18 : 0;
 
             // Fetch the current requisition to check original quantity
@@ -649,7 +651,7 @@ const ProcurementDashboard = () => {
         }
     });    
     const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
-    const [quickEditData, setQuickEditData] = useState({ id: "", quantity_requested: 0, unit_price: 0, quantity_approved: 0, item_name: "" });
+    const [quickEditData, setQuickEditData] = useState({ id: "", quantity_requested: 0, unit_price: 0, quantity_approved: 0, item_name: "", pack_size: 1 });
 
     const deleteRequisitionMutation = useMutation({
         mutationFn: async (id: string) => {
@@ -698,7 +700,9 @@ const ProcurementDashboard = () => {
                 
             if (fetchError) throw fetchError;
             
-            const subtotal = data.quantity_approved * data.unit_price;
+            const packSize = Number(data.pack_size) > 0 ? Number(data.pack_size) : 1;
+            const purchaseQty = Math.ceil(data.quantity_approved / packSize);
+            const subtotal = purchaseQty * data.unit_price;
             const vat = reqData?.includes_vat ? (subtotal * 0.18) : 0;
             const totalPrice = subtotal + vat;
 
@@ -1756,7 +1760,8 @@ const ProcurementDashboard = () => {
                                                                                 item_name: req.item_name,
                                                                                 quantity_requested: req.quantity_requested || 0,
                                                                                 quantity_approved: req.quantity_approved || 0,
-                                                                                unit_price: req.unit_price || 0
+                                                                                unit_price: req.unit_price || 0,
+                                                                                pack_size: req.pack_size || 1
                                                                             });
                                                                             setIsQuickEditOpen(true);
                                                                         }}
@@ -1797,7 +1802,8 @@ const ProcurementDashboard = () => {
                                                                                     vat_amount: req.vat_amount || 0,
                                                                                     temp_price: req.unit_price || (inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0,
                                                                                     payment_method_id: req.payment_details?.id || "",
-                                                                                    quantity_approving: req.quantity_requested || 0
+                                                                                    quantity_approving: req.quantity_requested || 0,
+                                                                                    pack_size: req.pack_size || 1
                                                                                 });
                                                                                 setIsApproveDialogOpen(true);
                                                                             }}
@@ -1837,7 +1843,8 @@ const ProcurementDashboard = () => {
                                                                                 vat_amount: req.vat_amount || 0,
                                                                                 temp_price: req.unit_price || 0,
                                                                                 payment_method_id: req.payment_details?.id || "",
-                                                                                quantity_approving: req.quantity_requested || 0
+                                                                                quantity_approving: req.quantity_requested || 0,
+                                                                                pack_size: req.pack_size || 1
                                                                             });
                                                                             setIsApproveDialogOpen(true);
                                                                         }}
@@ -2682,7 +2689,7 @@ const ProcurementDashboard = () => {
                                     min={1}
                                     max={selectedReq?.quantity_requested}
                                     value={approvalDetails.quantity_approving}
-                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, quantity_approving: parseInt(e.target.value) })}
+                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, quantity_approving: parseInt(e.target.value) || 0 })}
                                     className="h-10 font-bold text-blue-900 border-blue-200 bg-blue-50/20"
                                 />
                                 <p className="text-[10px] text-slate-400 italic">Requested: {selectedReq?.quantity_requested}</p>
@@ -2692,9 +2699,35 @@ const ProcurementDashboard = () => {
                                 <Input
                                     type="number"
                                     value={approvalDetails.temp_price}
-                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, temp_price: parseFloat(e.target.value) })}
+                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, temp_price: parseFloat(e.target.value) || 0 })}
                                     className="h-10 font-semibold"
                                 />
+                                <p className="text-[10px] text-slate-400 italic">{approvalDetails.pack_size > 1 ? `Price per pack/can` : `Price per unit`}</p>
+                            </div>
+                        </div>
+
+                        {/* Pack Size / Packaging support */}
+                        <div className="grid grid-cols-2 gap-4 p-3 bg-blue-50/40 rounded-lg border border-blue-100">
+                            <div className="space-y-1.5">
+                                <Label className="text-[11px] font-semibold text-blue-950 uppercase">Pack Size (Units/Pack)</Label>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    value={approvalDetails.pack_size || 1}
+                                    onChange={(e) => setApprovalDetails({ ...approvalDetails, pack_size: Math.max(1, parseInt(e.target.value) || 1) })}
+                                    className="h-9 bg-white text-xs font-semibold"
+                                    placeholder="1"
+                                />
+                                <p className="text-[10px] text-slate-500">e.g. 20 for 20L can</p>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[11px] font-semibold text-blue-950 uppercase">Packs to Buy</Label>
+                                <div className="h-9 flex items-center justify-center font-black text-sm text-indigo-800 bg-white border border-blue-200 rounded-md">
+                                    {Math.ceil(approvalDetails.quantity_approving / (approvalDetails.pack_size || 1))} {(approvalDetails.pack_size > 1) ? 'cans' : 'units'}
+                                </div>
+                                <p className="text-[10px] text-slate-500 text-center">
+                                    {approvalDetails.quantity_approving} ÷ {approvalDetails.pack_size || 1}
+                                </p>
                             </div>
                         </div>
 
@@ -2738,22 +2771,34 @@ const ProcurementDashboard = () => {
                             />
                         </div>
 
-                        <div className="border-t pt-4 space-y-2">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Subtotal:</span>
-                                <span className="font-semibold">{(approvalDetails.quantity_approving * approvalDetails.temp_price).toLocaleString()} TZS</span>
-                            </div>
-                            {approvalDetails.includes_vat && (
-                                <div className="flex justify-between text-sm text-blue-900 font-medium">
-                                    <span>VAT (18%):</span>
-                                    <span>{(approvalDetails.quantity_approving * approvalDetails.temp_price * 0.18).toLocaleString()} TZS</span>
+                        {(() => {
+                            const packSize = Math.max(1, approvalDetails.pack_size || 1);
+                            const purchaseQty = Math.ceil(approvalDetails.quantity_approving / packSize);
+                            const subtotal = purchaseQty * approvalDetails.temp_price;
+                            const vat = approvalDetails.includes_vat ? subtotal * 0.18 : 0;
+                            const total = subtotal + vat;
+
+                            return (
+                                <div className="border-t pt-4 space-y-2">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-slate-500">
+                                            Subtotal {packSize > 1 ? `(${purchaseQty} cans × ${approvalDetails.temp_price.toLocaleString()})` : `(${approvalDetails.quantity_approving} units × ${approvalDetails.temp_price.toLocaleString()})`}:
+                                        </span>
+                                        <span className="font-semibold">{subtotal.toLocaleString()} TZS</span>
+                                    </div>
+                                    {approvalDetails.includes_vat && (
+                                        <div className="flex justify-between text-sm text-blue-900 font-medium">
+                                            <span>VAT (18%):</span>
+                                            <span>{vat.toLocaleString()} TZS</span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between text-lg font-black border-t pt-2">
+                                        <span>TOTAL:</span>
+                                        <span className="text-indigo-900">{total.toLocaleString()} TZS</span>
+                                    </div>
                                 </div>
-                            )}
-                            <div className="flex justify-between text-lg font-black border-t pt-2">
-                                <span>TOTAL:</span>
-                                <span>{(approvalDetails.quantity_approving * approvalDetails.temp_price * (approvalDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS</span>
-                            </div>
-                        </div>
+                            );
+                        })()}
                     </div>
 
                     {/* Revoke Reason for Management */}
@@ -3825,29 +3870,65 @@ const ProcurementDashboard = () => {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Requested</Label>
-                            <Input
-                                type="number"
-                                value={quickEditData.quantity_requested}
-                                onChange={(e) => setQuickEditData({ ...quickEditData, quantity_requested: Number(e.target.value) })}
-                            />
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Requested</Label>
+                                <Input
+                                    type="number"
+                                    value={quickEditData.quantity_requested}
+                                    onChange={(e) => setQuickEditData({ ...quickEditData, quantity_requested: Number(e.target.value) })}
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Approved</Label>
+                                <Input
+                                    type="number"
+                                    value={quickEditData.quantity_approved}
+                                    onChange={(e) => setQuickEditData({ ...quickEditData, quantity_approved: Number(e.target.value) })}
+                                />
+                            </div>
                         </div>
-                        <div className="grid gap-2">
-                            <Label className="text-xs font-bold text-slate-600 uppercase">Quantity Approved</Label>
-                            <Input
-                                type="number"
-                                value={quickEditData.quantity_approved}
-                                onChange={(e) => setQuickEditData({ ...quickEditData, quantity_approved: Number(e.target.value) })}
-                            />
+
+                        <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                            <div className="grid gap-1.5">
+                                <Label className="text-xs font-bold text-blue-900 uppercase">Pack Size (Units/Pack)</Label>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    placeholder="1"
+                                    value={quickEditData.pack_size || 1}
+                                    onChange={(e) => setQuickEditData({ ...quickEditData, pack_size: Math.max(1, Number(e.target.value) || 1) })}
+                                    className="bg-white border-blue-200"
+                                />
+                                <span className="text-[10px] text-slate-500">e.g. 20 for 20L can</span>
+                            </div>
+                            <div className="grid gap-1.5 justify-center">
+                                <Label className="text-xs font-bold text-blue-900 uppercase">Packs to Buy</Label>
+                                <div className="h-10 flex items-center justify-center font-black text-lg text-indigo-700 bg-white border border-blue-200 rounded-md">
+                                    {Math.ceil((quickEditData.quantity_approved || 0) / (quickEditData.pack_size || 1))} {((quickEditData.pack_size || 1) > 1) ? 'cans' : 'units'}
+                                </div>
+                                <span className="text-[10px] text-slate-500 text-center">
+                                    {quickEditData.quantity_approved || 0} ÷ {quickEditData.pack_size || 1}
+                                </span>
+                            </div>
                         </div>
-                        <div className="grid gap-2">
-                            <Label className="text-xs font-bold text-slate-600 uppercase">Unit Price (TZS)</Label>
+
+                        <div className="grid gap-1.5">
+                            <Label className="text-xs font-bold text-slate-600 uppercase">
+                                Unit Price (TZS) {((quickEditData.pack_size || 1) > 1) ? '— Price Per Pack/Can' : '— Price Per Unit'}
+                            </Label>
                             <Input
                                 type="number"
                                 value={quickEditData.unit_price}
                                 onChange={(e) => setQuickEditData({ ...quickEditData, unit_price: Number(e.target.value) })}
                             />
+                        </div>
+
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex justify-between items-center">
+                            <span className="font-semibold text-slate-600">Calculated Subtotal:</span>
+                            <span className="font-black text-sm text-indigo-900">
+                                {(Math.ceil((quickEditData.quantity_approved || 0) / (quickEditData.pack_size || 1)) * (quickEditData.unit_price || 0)).toLocaleString()} TZS
+                            </span>
                         </div>
                     </div>
                     <DialogFooter>

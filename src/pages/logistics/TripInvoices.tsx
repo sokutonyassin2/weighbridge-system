@@ -9,10 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, CreditCard, Truck, RefreshCw, Pencil, Navigation, Plus, Calculator, CheckSquare, Square } from "lucide-react";
+import { Search, CreditCard, Truck, RefreshCw, Pencil, Navigation, Plus, Calculator, CheckSquare, Square, Printer } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import LogisticsInvoicePreview from "@/components/logistics/LogisticsInvoicePreview";
 
 export default function TripInvoices() {
     const [searchTerm, setSearchTerm] = useState("");
@@ -31,6 +32,9 @@ export default function TripInvoices() {
     const [selectedTripGroup, setSelectedTripGroup] = useState<string | null>(null);
     const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
     const [vehicleRevenues, setVehicleRevenues] = useState<Record<string, string>>({});
+
+    // Invoice Preview State
+    const [previewInvoice, setPreviewInvoice] = useState<any>(null);
 
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -371,6 +375,15 @@ export default function TripInvoices() {
                                                     </p>
                                                 </div>
                                             </div>
+
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="h-8 text-xs font-bold gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                                onClick={(e) => { e.stopPropagation(); setPreviewInvoice(group); }}
+                                            >
+                                                <Printer className="w-3.5 h-3.5" /> Print Invoice
+                                            </Button>
 
                                             <Badge className={cn("ml-2",
                                                 group.payment_status === 'Paid' ? "bg-emerald-500" : 
@@ -859,6 +872,20 @@ export default function TripInvoices() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* INVOICE PREVIEW DIALOG */}
+            {previewInvoice && (
+                <LogisticsInvoicePreview
+                    open={!!previewInvoice}
+                    onClose={() => setPreviewInvoice(null)}
+                    invoiceNo={previewInvoice.invoice_no}
+                    invoiceDate={previewInvoice.invoice_date}
+                    clientName={previewInvoice.client_name}
+                    currency={previewInvoice.currency}
+                    trips={previewInvoice.trips}
+                    totalRevenue={previewInvoice.total_revenue}
+                />
+            )}
         </div>
     );
 }

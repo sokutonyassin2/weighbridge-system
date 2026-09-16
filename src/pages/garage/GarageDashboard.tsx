@@ -831,20 +831,29 @@ const GarageDashboard = () => {
 
     const deleteRequisitionMutation = useMutation({
         mutationFn: async (id: string) => {
-            const { data, error } = await sb.from("garage_requisitions")
+            const isAdminOrSuper = userRole === 'admin' || userRole === 'super_admin';
+            
+            let query = sb.from("garage_requisitions")
                 .update({ is_deleted: true, deleted_at: new Date().toISOString() })
-                .eq("id", id)
-                .eq("status", "Waiting Review")
-                .select();
+                .eq("id", id);
+                
+            if (!isAdminOrSuper) {
+                query = query.eq("status", "Waiting Review");
+            } else {
+                query = query.in("status", ["Waiting Review", "Pending", "Reviewed & Pending"]);
+            }
+            
+            const { data, error } = await query.select();
                 
             if (error) throw error;
             if (!data || data.length === 0) {
-                throw new Error("Cannot delete: This requisition is no longer pending and has been picked up by Procurement.");
+                throw new Error("Cannot delete: This requisition is already processed or completed.");
             }
             return data;
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["garage-requisitions"] });
+            queryClient.invalidateQueries({ queryKey: ["procurement-requisitions"] });
             toast({ title: "Requisition Deleted", description: "The request has been removed." });
         },
         onError: (err: any) => toast({ variant: "destructive", title: "Delete Error", description: getLocalizedError(err.message, language) })
@@ -3052,18 +3061,18 @@ const GarageDashboard = () => {
                                                                     <div className="flex items-center justify-end gap-2">
                                                                         {group.category !== 'General' && (
                                                                             <>
-                                                                                {!isStorekeeper && (group.status === 'Pending' || group.status === 'Waiting Review') && (
-                                                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete entire group?")) { group.items.forEach((i: any) => deleteRequisitionMutation.mutate(i.id)); } }}><Trash2 className="w-4 h-4" /></Button>
+                                                                                {(!isStorekeeper && (group.status === 'Pending' || group.status === 'Waiting Review' || ((userRole === 'admin' || userRole === 'super_admin') && group.status === 'Reviewed & Pending'))) && (
+                                                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" title="Delete entire group" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete entire group?")) { group.items.forEach((i: any) => deleteRequisitionMutation.mutate(i.id)); } }}><Trash2 className="w-4 h-4" /></Button>
                                                                                 )}
                                                                                 <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
                                                                                     {isExpanded ? (language === 'en' ? 'Hide' : 'Ficha') : (language === 'en' ? 'View' : 'Ona')}
                                                                                 </Button>
                                                                             </>
                                                                         )}
-                                                                        {!isStorekeeper && group.category === 'General' && (group.status === 'Pending' || group.status === 'Waiting Review') && (
+                                                                        {!isStorekeeper && group.category === 'General' && (group.status === 'Pending' || group.status === 'Waiting Review' || ((userRole === 'admin' || userRole === 'super_admin') && group.status === 'Reviewed & Pending')) && (
                                                                             <>
                                                                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-700 hover:bg-slate-100" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: group.items[0].id, item_name: group.items[0].item_name, quantity: group.items[0].quantity_requested, vehicle_id: group.items[0].vehicle_id || "", requirement_category: group.category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-4 h-4" /></Button>
-                                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete?")) { deleteRequisitionMutation.mutate(group.items[0].id); } }}><Trash2 className="w-4 h-4" /></Button>
+                                                                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50" title="Delete" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete?")) { deleteRequisitionMutation.mutate(group.items[0].id); } }}><Trash2 className="w-4 h-4" /></Button>
                                                                             </>
                                                                         )}
                                                                     </div>
@@ -3091,10 +3100,10 @@ const GarageDashboard = () => {
                                                                                                 <Badge className={`text-[9px] px-1.5 py-0 ${item.status === 'Pending' || item.status === 'Waiting Review' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>{item.status === 'Pending' ? 'Waiting Review' : item.status}</Badge>
                                                                                             </td>
                                                                                             <td className="py-2 text-right">
-                                                                                                    {!isStorekeeper && (item.status === 'Pending' || item.status === 'Waiting Review') ? (
+                                                                                                    {!isStorekeeper && (item.status === 'Pending' || item.status === 'Waiting Review' || ((userRole === 'admin' || userRole === 'super_admin') && item.status === 'Reviewed & Pending')) ? (
                                                                                                     <div className="flex items-center justify-end gap-1">
                                                                                                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-indigo-500" onClick={(e) => { e.stopPropagation(); setEditingReqItem({ id: item.id, item_name: item.item_name, quantity: item.quantity_requested, vehicle_id: item.vehicle_id || "", requirement_category: item.requirement_category || 'Uncategorized' }); setIsEditReqOpen(true); }}><Edit2 className="w-3 h-3" /></Button>
-                                                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-rose-500" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete item?")) { deleteRequisitionMutation.mutate(item.id); } }}><Trash2 className="w-3 h-3" /></Button>
+                                                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-rose-500" title="Delete item" onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete item?")) { deleteRequisitionMutation.mutate(item.id); } }}><Trash2 className="w-3 h-3" /></Button>
                                                                                                     </div>
                                                                                                 ) : <Lock className="w-3 h-3 text-slate-300 ml-auto" />}
                                                                                             </td>

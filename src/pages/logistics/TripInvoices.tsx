@@ -47,6 +47,7 @@ export default function TripInvoices() {
                 .select(`
                     *,
                     vehicle:vehicle_id ( id, vehicle_no, fleet_category ),
+                    trailer:trailer_id ( id, vehicle_no, trailer_number, fleet_category ),
                     driver:driver_id ( id, full_name )
                 `)
                 .order("created_at", { ascending: false });
@@ -406,7 +407,14 @@ export default function TripInvoices() {
                                                         </div>
                                                         <div>
                                                             <div className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                                                                {sheet.vehicle?.vehicle_no}
+                                                                <span>
+                                                                    {sheet.vehicle?.vehicle_no}
+                                                                    {(sheet.trailer?.vehicle_no || sheet.trailer?.trailer_number) && (
+                                                                        <span className="text-slate-400 font-normal ml-1">
+                                                                            / {sheet.trailer?.vehicle_no || sheet.trailer?.trailer_number}
+                                                                        </span>
+                                                                    )}
+                                                                </span>
                                                                 {sheet.reference_number && (
                                                                     <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
                                                                         {sheet.reference_number}
@@ -472,7 +480,14 @@ export default function TripInvoices() {
                                                 <Badge variant="outline" className="mb-2 bg-white text-[10px] tracking-widest">{sheet.sheet_number}</Badge>
                                                 <div className="flex items-center gap-2 font-bold text-slate-900 mt-1">
                                                     <Truck className="w-4 h-4 text-primary" />
-                                                    {sheet.vehicle?.vehicle_no}
+                                                    <span>
+                                                        {sheet.vehicle?.vehicle_no}
+                                                        {(sheet.trailer?.vehicle_no || sheet.trailer?.trailer_number) && (
+                                                            <span className="text-slate-400 font-normal ml-1">
+                                                                / {sheet.trailer?.vehicle_no || sheet.trailer?.trailer_number}
+                                                            </span>
+                                                        )}
+                                                    </span>
                                                 </div>
                                                 <div className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1.5">
                                                     <Navigation className="w-3 h-3" />

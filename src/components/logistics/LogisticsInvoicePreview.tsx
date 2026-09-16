@@ -7,7 +7,9 @@ import { format } from "date-fns";
 interface InvoiceTrip {
   id: string;
   vehicle?: { vehicle_no?: string; fleet_category?: string } | null;
+  trailer?: { vehicle_no?: string; trailer_number?: string; fleet_category?: string } | null;
   trailer_id?: string;
+  trailer_reg?: string;
   reference_number?: string;
   origin?: string;
   destination?: string;
@@ -209,7 +211,9 @@ export default function LogisticsInvoicePreview({
                     const tonnage = parseFloat(String(trip.tonnage || 0));
                     const ratePerTon = parseFloat(String(trip.rate_per_ton || 0));
                     const routeStr = `${trip.origin || ""} - ${trip.destination || ""}`.toUpperCase();
-                    const vehicleNo = trip.vehicle?.vehicle_no || "—";
+                    const truckPlate = trip.vehicle?.vehicle_no || "";
+                    const trailerPlate = trip.trailer?.vehicle_no || trip.trailer?.trailer_number || trip.trailer_reg || "";
+                    const truckTrailerDisplay = [truckPlate, trailerPlate].filter(Boolean).join(" / ") || "—";
                     const cargoType = isReturn
                       ? (trip.return_cargo || trip.cargo_outbound || "—")
                       : (trip.cargo_outbound || "—");
@@ -217,7 +221,7 @@ export default function LogisticsInvoicePreview({
                     return (
                       <tr key={trip.id + (isReturn ? "-ret" : "")}>
                         <td className="col-sn">{idx + 1}</td>
-                        <td className="col-truck">{vehicleNo}</td>
+                        <td className="col-truck">{truckTrailerDisplay}</td>
                         <td className="col-route">{routeStr}</td>
                         <td className="col-trip">{trip.reference_number || "—"}</td>
                         <td className="col-cargo">{cargoType.toUpperCase()}</td>

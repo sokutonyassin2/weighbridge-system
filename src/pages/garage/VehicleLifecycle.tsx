@@ -11,6 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Activity, Search, TrendingUp, AlertTriangle, Clock, Wrench, Package, Calendar, ChevronsUpDown, ArrowRight, DollarSign, Gauge, Truck, Check, X, Tag, Download, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
+import WorkshopDirectorsReport from "./WorkshopDirectorsReport";
+import { BarChart3 } from "lucide-react";
 
 interface VehicleLifecycleProps {
   language: "en" | "sw";
@@ -19,6 +21,7 @@ interface VehicleLifecycleProps {
 
 export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLifecycleProps) {
   // Support Multi-Vehicle selection
+  const [activeTab, setActiveTab] = useState<"lifecycle" | "directors_report">("lifecycle");
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
   const [vehicleSearchOpen, setVehicleSearchOpen] = useState(false);
   const [vehicleSearchTerm, setVehicleSearchTerm] = useState("");
@@ -341,19 +344,45 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
             <Activity className="w-6 h-6 text-indigo-600" />
-            {language === 'en' ? 'Vehicle Lifecycle Analytics' : 'Uchambuzi wa Maisha ya Gari'}
+            {language === 'en' ? 'Fleet Analytics & Workshop Operations' : 'Uchambuzi wa Magari & Karakana'}
           </h1>
           <p className="text-[11px] text-slate-500 font-bold uppercase tracking-[0.1em]">
-            {language === 'en' ? 'Track recurring issues and part lifespans across single or multiple fleet units' : 'Fuatilia matatizo ya mara kwa mara na maisha ya vipuri'}
+            {language === 'en' ? 'Real-time vehicle lifecycle metrics, recurring fault tracking & executive workshop reporting' : 'Vipimo vya maisha ya gari, matatizo yanayojirudia na ripoti kuu ya karakana'}
           </p>
+        </div>
+
+        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg border border-slate-200">
+          <Button
+            type="button"
+            variant={activeTab === 'lifecycle' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('lifecycle')}
+            className={activeTab === 'lifecycle' ? 'bg-white text-indigo-700 shadow-sm hover:bg-white font-bold text-xs h-8' : 'text-slate-600 hover:text-slate-900 font-semibold text-xs h-8'}
+          >
+            <Activity className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+            {language === 'en' ? 'Lifecycle & Parts Lifespan' : 'Maisha ya Magari & Vipuri'}
+          </Button>
+          <Button
+            type="button"
+            variant={activeTab === 'directors_report' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('directors_report')}
+            className={activeTab === 'directors_report' ? 'bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 font-bold text-xs h-8' : 'text-slate-600 hover:text-slate-900 font-semibold text-xs h-8'}
+          >
+            <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
+            {language === 'en' ? "Workshop Director's Report" : 'Ripoti ya Wakurugenzi'}
+          </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {activeTab === 'directors_report' ? (
+        <WorkshopDirectorsReport language={language} vehicles={vehicles} />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-4">
           <Card className="border-none shadow-md bg-white">
             <CardHeader className="pb-3 border-b bg-slate-50/50 flex flex-row items-center justify-between">
@@ -719,6 +748,7 @@ export default function VehicleLifecycle({ language, vehicles = [] }: VehicleLif
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -230,7 +230,7 @@ const TripSheets = () => {
         }
     };
 
-    // ──── BUDGET APPROVAL: Creates trip sheet (Approved) + logistics_trips entry for tracking ────
+    // ──── SUBMIT FOR APPROVAL: Creates trip sheet (Planned) + logistics_trips entry for tracking & Boss Approval ────
     const handleBudgetApproval = async (order: any) => {
         try {
             const est = getVehicleEstimatedExpenses(order);
@@ -241,24 +241,15 @@ const TripSheets = () => {
             // Check if trip sheet already exists for this trip_number
             const existingSheet = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
             if (existingSheet) {
-                // If it exists but not approved, approve it
-                if (existingSheet.status !== 'Approved') {
-                    const { error: updateErr } = await supabase
-                        .from('logistics_trip_sheets' as any)
-                        .update({
-                            status: 'Approved',
-                            approved_by: user?.id,
-                            approved_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', existingSheet.id);
-                    if (updateErr) throw updateErr;
+                if (existingSheet.status === 'Approved' || existingSheet.status === 'Active') {
+                    toast({ title: "Already Approved", description: `Trip ${order.trip_number} is already approved.` });
+                    return;
                 } else {
-                    toast({ title: "Already Approved", description: `Budget for ${order.trip_number} is already approved.` });
+                    toast({ title: "Already Submitted", description: `Trip ${order.trip_number} is already submitted for Boss Approval.` });
                     return;
                 }
             } else {
-                // Create a new trip sheet with status Approved
+                // Create a new trip sheet with status Planned (waiting for Boss approval)
                 const { error: createErr } = await supabase
                     .from('logistics_trip_sheets' as any)
                     .insert({
@@ -277,9 +268,7 @@ const TripSheets = () => {
                         exchange_rate: orderRate,
                         agreed_days: order.agreed_days || null,
                         daily_fine_amount: order.daily_penalty_fine || null,
-                        status: 'Approved',
-                        approved_by: user?.id,
-                        approved_at: new Date().toISOString(),
+                        status: 'Pending_Approval',
                         created_by: user?.id
                     });
                 if (createErr) throw createErr;
@@ -307,22 +296,22 @@ const TripSheets = () => {
             }
 
             toast({
-                title: "Budget Approved ✓",
-                description: `Trip ${order.trip_number} budget approved & registered for tracking.`,
+                title: "Submitted for Approval ✓",
+                description: `Trip ${order.trip_number} submitted to Trip Fund Approvals for Executive review.`,
             });
             refetch();
             refetchApprovedOrders();
         } catch (error: any) {
             toast({
                 variant: "destructive",
-                title: "Budget Approval Failed",
+                title: "Submission Failed",
                 description: error.message
             });
         }
     };
 
     const handleBatchBudgetApproval = async (orders: any[]) => {
-        if (!window.confirm(`Approve budgets for all ${orders.length} vehicles in this batch? This will create trip sheets and register them for tracking.`)) return;
+        if (!window.confirm(`Submit all ${orders.length} vehicles in this batch for Boss / Fund Approval?`)) return;
         for (const order of orders) {
             await handleBudgetApproval(order);
         }
@@ -642,16 +631,6 @@ const TripSheets = () => {
         <div className="p-4 md:p-6 space-y-6 animate-fade-in max-w-[1700px] mx-auto">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 items-end bg-white/50 p-3 px-5 rounded-2xl border border-slate-100 shadow-sm">
                 <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-slate-900 text-white rounded-lg">
-                            <Folders size={14} />
-                        </div>
-                        <div>
-                             <h1 className="text-[13px] font-bold tracking-tight text-slate-900 uppercase">Transit Financials</h1>
-                             <p className="text-[8px] text-slate-500 font-bold uppercase tracking-[0.2em] opacity-60">Terminal Logistics Control</p>
-                        </div>
-                    </div>
-                    
                     {/* Tab Navigation */}
                     <div className="flex items-center gap-1.5 mt-4 bg-slate-100/90 p-1 rounded-xl w-fit">
                         <Button 
@@ -853,7 +832,7 @@ const TripSheets = () => {
                                                                     onClick={() => handleBatchBudgetApproval(group.orders)}
                                                                 >
                                                                     <ShieldCheck size={12} />
-                                                                    Approve All Budgets
+                                                                    Submit for Approval
                                                                 </Button>
                                                             )}
                                                         </div>
@@ -952,14 +931,20 @@ const TripSheets = () => {
                                                                     )}
                                                                     {(() => {
                                                                         const tripMatch = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
-                                                                        const budgetStatus = tripMatch?.status === 'Approved' ? 'Budget Approved' : tripMatch ? 'Sheet Draft' : 'Sheet Pending';
+                                                                        const budgetStatus = tripMatch?.status === 'Approved' ? 'Budget Approved'
+                                                                            : tripMatch?.status === 'Pending_Approval' ? 'Awaiting Boss Approval'
+                                                                            : tripMatch?.status === 'Active' ? 'Trip Active'
+                                                                            : tripMatch ? 'Sheet Draft' : 'Sheet Pending';
                                                                         const isApproved = budgetStatus === 'Budget Approved';
+                                                                        const isSubmitted = budgetStatus === 'Awaiting Boss Approval';
                                                                         return (
                                                                             <Badge className={cn(
                                                                                 "text-[9px] font-bold px-2 py-0.5 border",
-                                                                                isApproved ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-slate-50 text-slate-500 border-slate-200"
+                                                                                isApproved ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                                                                : isSubmitted ? "bg-amber-50 text-amber-700 border-amber-200"
+                                                                                : "bg-slate-50 text-slate-500 border-slate-200"
                                                                             )}>
-                                                                                {isApproved ? '✓ ' : '○ '}{budgetStatus}
+                                                                                {isApproved ? '✓ ' : isSubmitted ? '⏳ ' : '○ '}{budgetStatus}
                                                                             </Badge>
                                                                         );
                                                                     })()}
@@ -969,7 +954,7 @@ const TripSheets = () => {
                                                                 <div className="flex items-center justify-end gap-1.5">
                                                                     {isAdmin && (() => {
                                                                         const tripMatch = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
-                                                                        const isBudgetApproved = tripMatch?.status === 'Approved';
+                                                                        const isBudgetApproved = tripMatch?.status === 'Approved' || tripMatch?.status === 'Pending_Approval' || tripMatch?.status === 'Active';
                                                                         return (
                                                                             <Button
                                                                                 size="sm"
@@ -981,10 +966,10 @@ const TripSheets = () => {
                                                                                         : "bg-emerald-600 hover:bg-emerald-700 text-white"
                                                                                 )}
                                                                                 onClick={() => !isBudgetApproved && handleBudgetApproval(order)}
-                                                                                title={isBudgetApproved ? "Budget already approved" : "Approve budget & register for tracking"}
+                                                                                title={isBudgetApproved ? "Already submitted for approval" : "Submit trip budget for approval"}
                                                                             >
                                                                                 <ShieldCheck size={11} />
-                                                                                {isBudgetApproved ? "Approved" : "Approve Budget"}
+                                                                                {isBudgetApproved ? "Submitted" : "Submit for Approval"}
                                                                             </Button>
                                                                         );
                                                                     })()}
@@ -1023,7 +1008,7 @@ const TripSheets = () => {
                                                                         }}
                                                                     >
                                                                         <Send size={11} />
-                                                                        Review & Activate
+                                                                        Review
                                                                     </Button>
                                                                 </div>
                                                             </TableCell>

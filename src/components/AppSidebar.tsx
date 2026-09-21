@@ -3,7 +3,7 @@ import {
   FileText, TrendingUp, AlertTriangle, Printer, UserCheck, Shield,
   CreditCard, TimerOff, DollarSign, List, LayoutGrid, Wrench, Package,
   History, Calendar, Send, CheckCircle, FileBarChart, Trash2, Banknote, BookOpen, TrendingDown,
-  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye, ClipboardList, Layers
+  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye, ClipboardList, Layers, ShieldCheck
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +52,7 @@ const weighbridgeItems = [
 
 const logisticsItems = [
   { title: "Overview", url: "/logistics", icon: LayoutGrid, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
+  { title: "Trip Fund Approvals", url: "/logistics/fund-approvals", icon: ShieldCheck, roles: ["admin", "super_admin"] },
   { title: "Trip Orders", url: "/logistics/orders", icon: ClipboardList, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Compliance Center", url: "/logistics/compliance", icon: Shield, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "procurement_officer"] },
   { title: "Fleet Registry", url: "/logistics/fleet", icon: Truck, roles: ["logistics_admin", "logistics_manager", "admin", "super_admin", "garage_manager"] },

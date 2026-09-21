@@ -55,6 +55,7 @@ import ReplacedVehicleParts from "./pages/procurement/ReplacedVehicleParts";
 import GuardianEye from "./pages/GuardianEye";
 import TripOrders from "./pages/logistics/TripOrders";
 import TripSheets from "./pages/logistics/TripSheets";
+import TripFundApprovals from "./pages/logistics/TripFundApprovals";
 import MasterCollection from "./pages/logistics/MasterCollection";
 import KoridorAccount from "./pages/finance/KoridorAccount";
 import AccountsReceivable from "./pages/finance/AccountsReceivable";
@@ -520,6 +521,16 @@ const App = () => {
                 <ProtectedRoute>
                   <Layout>
                     <TripManagement />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/logistics/fund-approvals"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                  <Layout>
+                    <TripFundApprovals />
                   </Layout>
                 </ProtectedRoute>
               }

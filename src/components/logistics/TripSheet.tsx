@@ -3831,19 +3831,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         Download Excel
                     </Button>
 
-
-                    {/* Superadmin: Approve Budget (only visible when status is Planned) */}
-                    {isSuperAdmin && tripId && currentStatus === 'Planned' && (
-                        <Button
-                            size="lg"
-                            className="font-black bg-blue-600 hover:bg-blue-700 text-white px-10 h-12 rounded-xl shadow-xl active:scale-95 transition-all w-full md:w-auto"
-                            onClick={handleApprove}
-                            disabled={isApproving}
-                        >
-                            <ShieldCheck size={20} className="mr-2" />
-                            {isApproving ? "Approving..." : "Approve Budget"}
-                        </Button>
-                    )}
+                    {/* Budget approval is now exclusively handled by Executive/Boss in Trip Fund Approvals */}
 
                     {/* Manager: Activate Trip (only visible when status is Approved) */}
                     {isManager && tripId && currentStatus === 'Approved' && (

@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import {
     Plus, Search, Truck, Globe, Printer, Eye, FileText,
     RefreshCw, BarChart3, CalendarDays, MapPin, AlertTriangle,
-    CheckCircle2, X, Edit2, ChevronDown, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw,
+    CheckCircle2, X, Edit2, ChevronDown, ChevronRight, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw,
     Building2, ChevronsUpDown, Check, Trash2
 } from "lucide-react";
 
@@ -136,6 +136,17 @@ const TransitDashboard = () => {
     const [form, setForm] = useState(emptyForm());
     const [selectedSheetIds, setSelectedSheetIds] = useState<string[]>([]);
     const [expandedClients, setExpandedClients] = useState<string[]>([]);
+    const [collapsedRoutes, setCollapsedRoutes] = useState<Record<string, boolean>>({});
+    const [collapsedClients, setCollapsedClients] = useState<Record<string, boolean>>({});
+
+    const toggleRouteCollapse = (key: string) => {
+        setCollapsedRoutes(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const toggleClientCollapse = (key: string) => {
+        setCollapsedClients(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
     const [yearFilter, setYearFilter] = useState("All");
     const [activeTab, setActiveTab] = useState<"ALL" | "OUTBOUND" | "BACKLOAD" | "TANKERS" | "ARCHIVE">("ALL");
 
@@ -200,29 +211,13 @@ const TransitDashboard = () => {
     const { data: approvedTrips = [] } = useQuery({
         queryKey: ["approved_trip_sheets"],
         queryFn: async () => {
-            // Fetch all approved trip sheets
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
                 .select("*, vehicle:vehicle_id(vehicle_no, asset_type), trailer:trailer_id(vehicle_no, trailer_number), driver:driver_id(full_name, license_no, id_number)")
                 .eq("status", "Approved")
                 .order("created_at", { ascending: false });
             if (error) console.error("Error fetching approved trips:", error);
-
-            // Fetch all trip_numbers from the Trip Orders workflow
-            const { data: tripOrders } = await supabase
-                .from("logistics_trip_orders" as any)
-                .select("trip_number");
-            const orderTripNumbers = new Set(
-                (tripOrders || []).map((o: any) => o.trip_number).filter(Boolean)
-            );
-
-            // Only show trip sheets that originate from the Trip Orders workflow
-            // (reference_number matches a trip order's trip_number)
-            const allSheets = (data || []) as any[];
-            if (orderTripNumbers.size === 0) return allSheets; // fallback: if no orders exist yet, show all
-            return allSheets.filter((sheet: any) =>
-                sheet.reference_number && orderTripNumbers.has(sheet.reference_number)
-            );
+            return (data || []) as any[];
         }
     });
 
@@ -259,6 +254,13 @@ const TransitDashboard = () => {
     });
 
     // ─── Logic ───────────────────────────────────────────────────────────────
+    const isTankerTrip = (item: any) => {
+        if (!item) return false;
+        if (item.is_tanker) return true;
+        const n = (item.nature || item.journey_type || "").toLowerCase();
+        return n.includes("alone") || n.includes("only") || n.includes("empty") || n.includes("tanker");
+    };
+
     const generateTripId = (truckNo: string, legType: "G" | "R"): string => {
         const CODE = "2025";
         const cleanTruck = truckNo.replace(/\s*[A-Z]+$/, "").trim();
@@ -494,31 +496,31 @@ const TransitDashboard = () => {
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden ring-1 ring-slate-100">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-[11px] border-collapse min-w-[2400px]">
-                        <thead>
-                            <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] border-b border-t border-slate-200">
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 w-12">SN</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Trip Number</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Client Identity</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Registration</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Transit Status</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Destination</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Arr. Loading</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Loading Dt</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 bg-blue-50 text-blue-700">DISPATCHED</th>
+                <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-260px)] min-h-[420px] relative">
+                    <table className="w-full text-[11px] border-separate border-spacing-0 min-w-[2400px]">
+                        <thead className="sticky top-0 z-30 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+                            <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]">
+                                <th className="sticky left-0 top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-12 min-w-[48px] max-w-[48px]">SN</th>
+                                <th className="sticky left-[48px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[140px] min-w-[140px] max-w-[140px]">Trip Number</th>
+                                <th className="sticky left-[188px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[180px] min-w-[180px] max-w-[180px]">Client Identity</th>
+                                <th className="sticky left-[368px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[120px] min-w-[120px] max-w-[120px]">Registration</th>
+                                <th className="sticky left-[488px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[110px] min-w-[110px] max-w-[110px]">Transit Status</th>
+                                <th className="sticky left-[598px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r-2 border-slate-300 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] w-[130px] min-w-[130px] max-w-[130px]">Destination</th>
+                                <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200">Arr. Loading</th>
+                                <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200">Loading Dt</th>
+                                <th className="sticky top-0 z-30 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 bg-blue-50 text-blue-700">DISPATCHED</th>
                                 {Array.from({ length: Math.max(3, ...trips.map(t => (t.borders_data || []).length)) }).map((_, i) => (
                                     <Fragment key={i}>
-                                        <th className={`px-3 py-3 text-left font-semibold border-r border-slate-200 ${i === 0 ? 'bg-indigo-50 text-indigo-700' : i === 1 ? 'bg-violet-50 text-violet-700' : i === 2 ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-700'}`}>Border {i + 1} (Logistics)</th>
-                                        <th className={`px-2 py-3 text-center font-semibold border-r border-slate-200 ${i === 0 ? 'bg-indigo-50 text-indigo-700' : i === 1 ? 'bg-violet-50 text-violet-700' : i === 2 ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-700'}`}>B{i + 1} Days</th>
+                                        <th className={`sticky top-0 z-30 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 ${i === 0 ? 'bg-indigo-50 text-indigo-700' : i === 1 ? 'bg-violet-50 text-violet-700' : i === 2 ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-700'}`}>Border {i + 1} (Logistics)</th>
+                                        <th className={`sticky top-0 z-30 px-2 py-3 text-center font-semibold border-b border-r border-slate-200 ${i === 0 ? 'bg-indigo-50 text-indigo-700' : i === 1 ? 'bg-violet-50 text-violet-700' : i === 2 ? 'bg-fuchsia-50 text-fuchsia-700' : 'bg-slate-50 text-slate-700'}`}>B{i + 1} Days</th>
                                     </Fragment>
                                 ))}
-                                <th className="px-3 py-3 text-right font-semibold border-r border-slate-200">Standing $</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200">Arrived Site</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 bg-emerald-50 text-emerald-700 whitespace-nowrap">OFFLOADED</th>
-                                <th className="px-3 py-3 text-left font-semibold border-r border-slate-200 bg-emerald-50 text-emerald-700">HQ Arrival</th>
-                                <th className="px-3 py-3 text-center font-semibold border-r border-slate-200">Total Cycle</th>
-                                <th className="px-3 py-3 text-center font-semibold">Manage</th>
+                                <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-right font-semibold border-b border-r border-slate-200">Standing $</th>
+                                <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200">Arrived Site</th>
+                                <th className="sticky top-0 z-30 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 bg-emerald-50 text-emerald-700 whitespace-nowrap">OFFLOADED</th>
+                                <th className="sticky top-0 z-30 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 bg-emerald-50 text-emerald-700">HQ Arrival</th>
+                                <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-center font-semibold border-b border-r border-slate-200">Total Cycle</th>
+                                <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-center font-semibold border-b border-slate-200">Manage</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -529,42 +531,73 @@ const TransitDashboard = () => {
                             ) : filtered.length === 0 ? (
                                 <tr><td colSpan={30} className="text-center py-24 text-slate-400 text-sm">No active transit assets found</td></tr>
                             ) : (
-                                Object.entries(groupedByClient).map(([clientName, clientGroup]: [string, any]) => (
-                                    <Fragment key={clientName}>
-                                        {/* ── Client Header ────────────────────────────────── */}
-                                        <tr className="bg-slate-100 text-slate-800 font-bold uppercase text-[11px] sticky left-0 group">
-                                            <td colSpan={30} className="px-4 py-2 border-b border-slate-200 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)]">
-                                                <div className="flex items-center gap-3">
-                                                    <Folders size={16} className="text-slate-400" />
-                                                    <span className="text-slate-500 tracking-wider">CLIENT:</span>
-                                                    <span className="text-slate-800 text-sm">{clientName}</span>
-                                                    <Badge className="ml-4 bg-white text-slate-600 border-slate-200 text-[10px] font-semibold tracking-wider hover:bg-white">{Object.keys(clientGroup.routes).length} ROUTES ACTIVE</Badge>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        
-                                        {Object.entries(clientGroup.routes).map(([destName, routeGroup]: [string, any]) => (
-                                            <Fragment key={`${clientName}-${destName}`}>
-                                                {/* ── Route Header ────────────────────────────────── */}
-                                                <tr className="bg-white text-slate-600 font-semibold uppercase text-[10px] sticky left-0 group">
-                                                    <td colSpan={30} className="px-6 py-1.5 border-b border-slate-100">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded border border-slate-200">
-                                                                <MapPin size={12} className="text-slate-400" />
-                                                                <span className="text-slate-500">ROUTE DESTINATION:</span>
-                                                                <span className="text-slate-800 font-bold">{destName}</span>
-                                                            </div>
-                                                            <div className="text-[9px] text-slate-400">
-                                                                {routeGroup.trips.length} ASSETS ON THIS PATH
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                </tr>
+                                Object.entries(groupedByClient).map(([clientName, clientGroup]: [string, any]) => {
+                                    const isClientCollapsed = !!collapsedClients[clientName];
+                                    return (
+                                        <Fragment key={clientName}>
+                                            {/* ── Client Header ────────────────────────────────── */}
+                                            <tr 
+                                                className="bg-slate-100 hover:bg-slate-200/70 text-slate-800 font-bold uppercase text-[11px] group cursor-pointer select-none transition-colors"
+                                                onClick={() => toggleClientCollapse(clientName)}
+                                            >
+                                                <td colSpan={30} className="px-4 py-2 border-b border-slate-200 shadow-[inset_0_-1px_0_rgba(0,0,0,0.05)] sticky left-0 bg-slate-100 z-20">
+                                                    <div className="sticky left-4 flex items-center gap-3 w-fit">
+                                                        {isClientCollapsed ? (
+                                                            <ChevronRight size={15} className="text-slate-500 shrink-0" />
+                                                        ) : (
+                                                            <ChevronDown size={15} className="text-slate-500 shrink-0" />
+                                                        )}
+                                                        <Folders size={16} className="text-slate-400 shrink-0" />
+                                                        <span className="text-slate-500 tracking-wider">CLIENT:</span>
+                                                        <span className="text-slate-800 text-sm font-black">{clientName}</span>
+                                                        <Badge className="ml-3 bg-white text-slate-600 border-slate-200 text-[10px] font-semibold tracking-wider hover:bg-white">
+                                                            {Object.keys(clientGroup.routes).length} ROUTES ACTIVE
+                                                        </Badge>
+                                                        {isClientCollapsed && (
+                                                            <span className="text-[9px] font-bold text-slate-400 bg-white/80 px-2 py-0.5 rounded border border-slate-200">
+                                                                COLLAPSED
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            
+                                            {!isClientCollapsed && Object.entries(clientGroup.routes).map(([destName, routeGroup]: [string, any]) => {
+                                                const routeKey = `${clientName}-${destName}`;
+                                                const isRouteCollapsed = !!collapsedRoutes[routeKey];
+                                                return (
+                                                    <Fragment key={routeKey}>
+                                                        {/* ── Route Header ────────────────────────────────── */}
+                                                        <tr 
+                                                            className="bg-slate-50/80 hover:bg-slate-100 text-slate-600 font-semibold uppercase text-[10px] group cursor-pointer select-none transition-colors border-b border-slate-100"
+                                                            onClick={() => toggleRouteCollapse(routeKey)}
+                                                        >
+                                                            <td colSpan={30} className="px-6 py-1.5 border-b border-slate-100 sticky left-0 bg-slate-50 z-20">
+                                                                <div className="sticky left-6 flex items-center gap-3 w-fit">
+                                                                    <div className="flex items-center gap-2 bg-white px-2.5 py-1 rounded border border-slate-200 shadow-sm hover:border-indigo-300 transition-colors">
+                                                                        {isRouteCollapsed ? (
+                                                                            <ChevronRight size={13} className="text-indigo-600 shrink-0" />
+                                                                        ) : (
+                                                                            <ChevronDown size={13} className="text-indigo-600 shrink-0" />
+                                                                        )}
+                                                                        <MapPin size={12} className="text-slate-400 shrink-0" />
+                                                                        <span className="text-slate-500 font-bold">ROUTE DESTINATION:</span>
+                                                                        <span className="text-slate-800 font-black">{destName}</span>
+                                                                        <Badge className="ml-1 bg-indigo-50 text-indigo-700 border-indigo-100 text-[9px] font-bold">
+                                                                            {routeGroup.trips.length} ASSETS
+                                                                        </Badge>
+                                                                    </div>
+                                                                    <span className="text-[9px] font-bold text-slate-400">
+                                                                        {isRouteCollapsed ? "Click to expand" : "Click to collapse"}
+                                                                    </span>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
 
-                                                {routeGroup.trips.map((t: any, idx: number) => (
+                                                        {!isRouteCollapsed && routeGroup.trips.map((t: any, idx: number) => (
                                                     <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors group">
-                                                        <td className="px-3 py-3 text-slate-400 font-medium text-center border-r border-slate-50 group-hover:text-slate-600 transition-colors">{(idx + 1).toString().padStart(2, '0')}</td>
-                                                        <td className="px-3 py-3 font-semibold text-slate-700 whitespace-nowrap border-r border-slate-50">
+                                                        <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 text-slate-400 font-medium text-center border-r border-slate-100 w-12 min-w-[48px] max-w-[48px] group-hover:text-slate-600">{(idx + 1).toString().padStart(2, '0')}</td>
+                                                        <td className="sticky left-[48px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-semibold text-slate-700 whitespace-nowrap border-r border-slate-100 w-[140px] min-w-[140px] max-w-[140px]">
                                                             {t.trip_id}
                                                             <div className="flex flex-wrap gap-1 mt-1">
                                                                 <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${t.leg_type === "G" ? "bg-blue-50 text-blue-600 border border-blue-100" : "bg-rose-50 text-rose-600 border border-rose-100"}`}>
@@ -577,19 +610,32 @@ const TransitDashboard = () => {
                                                                 )}
                                                             </div>
                                                         </td>
-                                                        <td className="px-3 py-3 font-medium text-slate-700 border-r border-slate-50">{t.client_name || "—"}</td>
-                                                        <td className="px-3 py-3 font-semibold text-slate-700 border-r border-slate-50 cursor-pointer hover:bg-slate-50 hover:text-indigo-600 transition-colors group/cell" onClick={() => setSelectedTripDetails(t)}>
+                                                        <td className="sticky left-[188px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-medium text-slate-700 border-r border-slate-100 w-[180px] min-w-[180px] max-w-[180px] truncate" title={t.client_name}>{t.client_name || "—"}</td>
+                                                        <td className="sticky left-[368px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-semibold text-slate-700 border-r border-slate-100 w-[120px] min-w-[120px] max-w-[120px] cursor-pointer hover:bg-slate-50 hover:text-indigo-600 group/cell" onClick={() => setSelectedTripDetails(t)}>
                                                             <div className="flex items-center justify-between">
                                                                 <span>{t.truck_no}</span>
                                                                 <Eye size={14} className="opacity-0 group-hover/cell:opacity-100 text-indigo-500 ml-2" />
                                                             </div>
                                                         </td>
-                                                        <td className="px-3 py-3 border-r border-slate-50">
+                                                        <td className="sticky left-[488px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 border-r border-slate-100 w-[110px] min-w-[110px] max-w-[110px]">
                                                             <Badge className={`text-[10px] font-semibold px-2 py-0.5 border shadow-none ${statusColor[t.status as TransitStatus] || "bg-slate-100 text-slate-600"}`}>
                                                                 {t.status}
                                                             </Badge>
+                                                            {t.status === "In Transit" && isTankerTrip(t) && (
+                                                                t.departure_from_site_date ? (
+                                                                    <div className="flex items-center gap-1.5 mt-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[9px] font-black w-fit shadow-[0_0_8px_rgba(245,158,11,0.25)]">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_6px_#f59e0b] animate-pulse" />
+                                                                        Returning
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center gap-1.5 mt-1.5 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-black w-fit shadow-[0_0_8px_rgba(16,185,129,0.25)]">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] animate-pulse" />
+                                                                        Going
+                                                                    </div>
+                                                                )
+                                                            )}
                                                         </td>
-                                                        <td className="px-3 py-3 text-slate-700 font-medium border-r border-slate-50">{t.destination}</td>
+                                                        <td className="sticky left-[598px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 text-slate-700 font-medium border-r-2 border-slate-300 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] w-[130px] min-w-[130px] max-w-[130px]">{t.destination}</td>
                                                         <td className="px-3 py-3 text-slate-400 border-r border-slate-50 bg-slate-50/20">{fmt(t.arrival_loading_date)}</td>
                                                         <td className="px-3 py-3 text-slate-400 border-r border-slate-50 bg-slate-50/20">{fmt(t.loading_date)}</td>
                                                         <td className="px-3 py-3 text-blue-700 font-medium border-r border-blue-50 bg-blue-50/30">
@@ -781,11 +827,13 @@ const TransitDashboard = () => {
                                                             </div>
                                                         </td>
                                                     </tr>
-                                                ))}
-                                            </Fragment>
-                                        ))}
-                                    </Fragment>
-                                ))
+                                                 ))}
+                                                    </Fragment>
+                                                );
+                                            })}
+                                        </Fragment>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
@@ -834,29 +882,13 @@ const TransitDashboard = () => {
                                                 <CommandInput placeholder="Search trip, client or destination..." className="h-9 border-none focus:ring-0" />
                                                 <CommandList className="max-h-[350px] overflow-y-auto">
                                                     <CommandEmpty>No approved mission plans found.</CommandEmpty>
-                                                    {Array.from(new Set(approvedTrips.map(t => t.client_name))).sort().map(clientName => (
-                                                        <div key={clientName} className="border-b border-slate-100 last:border-0">
-                                                            <div 
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setExpandedClients(prev => 
-                                                                        prev.includes(clientName) 
-                                                                            ? prev.filter(c => c !== clientName) 
-                                                                            : [...prev, clientName]
-                                                                    );
-                                                                }}
-                                                                className="px-3 py-2 bg-slate-50/80 font-bold text-xs text-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
-                                                            >
-                                                                <span>{clientName || "Unknown Client"}</span>
-                                                                <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", expandedClients.includes(clientName) && "rotate-180")} />
-                                                            </div>
-                                                            {expandedClients.includes(clientName) && (
-                                                                <CommandGroup>
-                                                                    {approvedTrips.filter(t => t.client_name === clientName).map((x: any) => (
-                                                                        <CommandItem
-                                                                            key={x.id}
-                                                                            value={`${x.reference_number} ${x.client_name} ${x.destination || ''}`}
-                                                                            onSelect={() => {
+                                                    {Array.from(new Set(approvedTrips.map(t => t.client_name || "General Client"))).sort().map(clientName => (
+                                                        <CommandGroup key={clientName} heading={clientName}>
+                                                            {approvedTrips.filter(t => (t.client_name || "General Client") === clientName).map((x: any) => (
+                                                                <CommandItem
+                                                                    key={x.id}
+                                                                    value={`${x.reference_number} ${x.client_name} ${x.destination || ''} ${x.vehicle?.vehicle_no || ''}`}
+                                                                    onSelect={() => {
                                                                                 setSelectedSheetIds(prev => {
                                                                                     const newIds = prev.includes(x.id)
                                                                                         ? prev.filter(id => id !== x.id)
@@ -895,8 +927,6 @@ const TransitDashboard = () => {
                                                                         </CommandItem>
                                                                     ))}
                                                                 </CommandGroup>
-                                                            )}
-                                                        </div>
                                                     ))}
                                                 </CommandList>
                                             </Command>
@@ -1286,7 +1316,7 @@ const TransitDashboard = () => {
                                 </div>
 
                                 {/* ═══ RETURN JOURNEY SECTION (for Go Alone / Tankers) ═══ */}
-                                {form.offloading_date && (form.nature === "Go Alone" || editingTrip?.nature === "Go Alone") && (
+                                {form.offloading_date && (isTankerTrip(form) || isTankerTrip(editingTrip)) && (
                                     <>
                                         {/* Departure from Site */}
                                         <div className="border-t-2 border-dashed border-orange-300 pt-4 mt-2" />

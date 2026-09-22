@@ -42,10 +42,14 @@ import {
     Sparkles,
     Check,
     X,
-    Filter
+    Filter,
+    Download,
+    FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import ExcelJS from "exceljs";
+import { saveAs } from "file-saver";
 
 export default function TripFundApprovals() {
     const { user, userRole, userProfile } = useAuth();
@@ -53,11 +57,12 @@ export default function TripFundApprovals() {
     const queryClient = useQueryClient();
 
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedTab, setSelectedTab] = useState<"pending" | "approved" | "all">("pending");
+    const [selectedTab, setSelectedTab] = useState<"pending" | "approved" | "completed" | "all">("pending");
     const [selectedTripDetails, setSelectedTripDetails] = useState<any | null>(null);
     const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
     const [tripToApprove, setTripToApprove] = useState<any | null>(null);
     const [approvalNote, setApprovalNote] = useState("");
+    const [isExportingExcel, setIsExportingExcel] = useState(false);
 
     // 1. Fetch Trip Sheets with Expenses and Linked Resources
     const {
@@ -95,6 +100,41 @@ export default function TripFundApprovals() {
         }
     });
 
+    // Fetch Trip Orders to resolve truck_reg, trailer_reg, driver_name by trip_number
+    const { data: tripOrders = [] } = useQuery({
+        queryKey: ["trip_orders_for_approvals_lookup"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("trip_number, truck_reg, trailer_reg, driver_name, contact_no");
+            if (error) return [];
+            return data || [];
+        }
+    });
+
+    // Fetch fleet and drivers tables directly as fallback for when FK joins return null
+    const { data: fleetList = [] } = useQuery({
+        queryKey: ["fleet_lookup_for_approvals"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_fleet" as any)
+                .select("id, vehicle_no, trailer_number");
+            if (error) return [];
+            return data || [];
+        }
+    });
+
+    const { data: driversList = [] } = useQuery({
+        queryKey: ["drivers_lookup_for_approvals"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_drivers" as any)
+                .select("id, full_name, phone_number, assigned_vehicle_id");
+            if (error) return [];
+            return data || [];
+        }
+    });
+
     // 2. Fetch Live Transit Trip Tracking Entries to merge live checkpoints
     const { data: transitTrips = [] } = useQuery({
         queryKey: ["executive_transit_tracking_data"],
@@ -124,8 +164,39 @@ export default function TripFundApprovals() {
 
     // Merge each trip sheet with its live tracking data (by truck_no or reference_number)
     const enrichedTrips = tripSheets.map((sheet: any) => {
-        const truckNo = sheet.vehicle?.vehicle_no?.trim()?.toUpperCase() || "";
         const refNo = sheet.reference_number?.trim()?.toUpperCase() || "";
+
+        // Fallback resolution from trip orders if direct FKs are empty
+        // Match by exact trip_number, or by truck_reg prefix from the reference (e.g. "T 985")
+        const matchedOrder = tripOrders.find((o: any) => {
+            const oTrip = o.trip_number?.trim()?.toUpperCase() || "";
+            if (oTrip && refNo && (oTrip === refNo || oTrip.includes(refNo) || refNo.includes(oTrip))) return true;
+            // Also try matching by truck_reg prefix in the reference number
+            const oTruck = o.truck_reg?.trim()?.toUpperCase() || "";
+            if (oTruck && refNo && refNo.includes(oTruck.replace(/\s+/g, " ").split("/")[0])) return true;
+            return false;
+        });
+
+        // Direct fleet/driver lookup by UUID when FK join returns null
+        const fleetMatch = (!sheet.vehicle?.vehicle_no && sheet.vehicle_id)
+            ? fleetList.find((f: any) => f.id === sheet.vehicle_id)
+            : null;
+        const trailerMatch = (!sheet.trailer?.vehicle_no && sheet.trailer_id)
+            ? fleetList.find((f: any) => f.id === sheet.trailer_id)
+            : null;
+        const driverMatch = (!sheet.driver?.full_name && sheet.driver_id)
+            ? driversList.find((d: any) => d.id === sheet.driver_id)
+            : null;
+
+        const effectiveVehicleId = sheet.vehicle_id || fleetMatch?.id;
+        const assignedDriverMatch = !sheet.driver?.full_name && !driverMatch && effectiveVehicleId
+            ? driversList.find((d: any) => d.assigned_vehicle_id === effectiveVehicleId)
+            : null;
+
+        const truckPlate = sheet.vehicle?.vehicle_no || fleetMatch?.vehicle_no || matchedOrder?.truck_reg || "T --- ---";
+        const trailerPlate = sheet.trailer?.vehicle_no || sheet.trailer?.trailer_number || trailerMatch?.vehicle_no || trailerMatch?.trailer_number || matchedOrder?.trailer_reg || "---";
+
+        const truckNo = (truckPlate !== "T --- ---" ? truckPlate : sheet.vehicle?.vehicle_no?.trim()?.toUpperCase()) || "";
 
         const matchedTransit = transitTrips.find((t: any) => {
             const tTruck = t.truck_no?.trim()?.toUpperCase() || "";
@@ -135,6 +206,24 @@ export default function TripFundApprovals() {
                 (tId && refNo && (tId === refNo || tId.includes(refNo)))
             );
         });
+
+        const driverName = 
+            sheet.driver?.full_name || 
+            driverMatch?.full_name || 
+            assignedDriverMatch?.full_name || 
+            sheet.driver_name ||
+            matchedOrder?.driver_name || 
+            matchedTransit?.driver_name ||
+            "Unassigned Driver";
+
+        const driverPhone = 
+            sheet.driver?.phone_number || 
+            driverMatch?.phone_number || 
+            assignedDriverMatch?.phone_number || 
+            sheet.driver_phone ||
+            matchedOrder?.contact_no || 
+            matchedTransit?.driver_phone ||
+            "";
 
         // Determine live tracking milestone
         let currentMilestone = "Not Dispatched";
@@ -177,6 +266,10 @@ export default function TripFundApprovals() {
 
         return {
             ...sheet,
+            truckPlate,
+            trailerPlate,
+            driverName,
+            driverPhone,
             tracking: matchedTransit || null,
             currentMilestone,
             milestoneTime,
@@ -192,9 +285,9 @@ export default function TripFundApprovals() {
     const filteredTrips = enrichedTrips.filter((t: any) => {
         const matchesSearch =
             (t.reference_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (t.vehicle?.vehicle_no || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (t.trailer?.vehicle_no || t.trailer?.trailer_number || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (t.driver?.full_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (t.truckPlate || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (t.trailerPlate || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (t.driverName || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
             (t.destination || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
             (t.client_name || "").toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -206,7 +299,10 @@ export default function TripFundApprovals() {
             return isPending;
         }
         if (selectedTab === "approved") {
-            return t.status === "Approved" || t.status === "Active" || t.status === "Completed";
+            return t.status === "Approved" || t.status === "Active";
+        }
+        if (selectedTab === "completed") {
+            return t.status === "Completed";
         }
         return true;
     });
@@ -214,7 +310,8 @@ export default function TripFundApprovals() {
     // Counts for tabs
     const isPendingStatus = (s: string) => s === "Planned" || s === "Pending_Approval" || s === "Awaiting_Approval" || s === "Submitted" || s === "Draft";
     const pendingCount = enrichedTrips.filter((t: any) => isPendingStatus(t.status)).length;
-    const approvedCount = enrichedTrips.filter((t: any) => t.status === "Approved" || t.status === "Active" || t.status === "Completed").length;
+    const approvedCount = enrichedTrips.filter((t: any) => t.status === "Approved" || t.status === "Active").length;
+    const completedCount = enrichedTrips.filter((t: any) => t.status === "Completed").length;
 
     // Total pending fund amount requested
     const pendingFundsTZS = enrichedTrips
@@ -230,18 +327,36 @@ export default function TripFundApprovals() {
         mutationFn: async ({ tripId, note }: { tripId: string; note: string }) => {
             const approverName = userProfile?.full_name || user?.email || "Executive Leadership";
 
-            // Update trip sheet to Approved
-            const { error: sheetErr } = await supabase
+            // First try updating with all approval fields
+            const updatePayload: Record<string, any> = {
+                status: "Approved",
+                approved_by: user?.id,
+                approved_by_name: approverName,
+                approved_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            // Try with approval_notes
+            let { error: sheetErr } = await supabase
                 .from("logistics_trip_sheets" as any)
                 .update({
-                    status: "Approved",
-                    approved_by: user?.id,
-                    approved_by_name: approverName,
-                    approved_at: new Date().toISOString(),
-                    approval_notes: note || null,
-                    updated_at: new Date().toISOString()
+                    ...updatePayload,
+                    approval_notes: note || null
                 })
                 .eq("id", tripId);
+
+            // If approval_notes column doesn't exist in the database table, fallback gracefully
+            if (sheetErr && sheetErr.message?.includes("approval_notes")) {
+                const fallbackPayload: Record<string, any> = { ...updatePayload };
+                if (note?.trim()) {
+                    fallbackPayload.notes = note.trim();
+                }
+                const res = await supabase
+                    .from("logistics_trip_sheets" as any)
+                    .update(fallbackPayload)
+                    .eq("id", tripId);
+                sheetErr = res.error;
+            }
 
             if (sheetErr) throw sheetErr;
 
@@ -293,6 +408,166 @@ export default function TripFundApprovals() {
         setIsApproveDialogOpen(true);
     };
 
+    const [downloadingTripId, setDownloadingTripId] = useState<string | null>(null);
+
+    const handleExportExcel = async (trip: any, explicitExpenses?: any[]) => {
+        if (!trip) return;
+        setDownloadingTripId(trip.id);
+        setIsExportingExcel(true);
+        try {
+            let expenses = explicitExpenses;
+            if (!expenses) {
+                const { data, error } = await supabase
+                    .from("logistics_trip_expenses" as any)
+                    .select("*")
+                    .eq("trip_sheet_id", trip.id);
+                if (error) throw error;
+                expenses = data || [];
+            }
+            const workbook = new ExcelJS.Workbook();
+            workbook.creator = "Logistics Executive Hub";
+            workbook.lastModifiedBy = userProfile?.full_name || "Executive";
+            workbook.created = new Date();
+
+            const sheet = workbook.addWorksheet("Trip Budget Sheet", {
+                pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1 }
+            });
+
+            // Set column widths
+            sheet.columns = [
+                { width: 30 }, // Item Description
+                { width: 16 }, // Category / Country
+                { width: 16 }, // Nature
+                { width: 16 }, // Original Amount
+                { width: 12 }, // Currency
+                { width: 22 }  // TZS Amount
+            ];
+
+            // Styles
+            const headerFill: ExcelJS.Fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "1E293B" }
+            };
+            const headerFont = { bold: true, color: { argb: "FFFFFF" }, size: 10 };
+            const titleFont = { bold: true, color: { argb: "1E293B" }, size: 14 };
+            const subTitleFont = { bold: true, color: { argb: "475569" }, size: 10 };
+            const borderThin: Partial<ExcelJS.Borders> = {
+                top: { style: "thin", color: { argb: "CBD5E1" } },
+                bottom: { style: "thin", color: { argb: "CBD5E1" } },
+                left: { style: "thin", color: { argb: "CBD5E1" } },
+                right: { style: "thin", color: { argb: "CBD5E1" } }
+            };
+
+            // Title block
+            const r1 = sheet.addRow(["PRO-FORMA TRIP BUDGET & FUND REQUEST"]);
+            r1.getCell(1).font = titleFont;
+            sheet.mergeCells("A1:F1");
+
+            const r2 = sheet.addRow([`Reference: ${trip.reference_number || "N/A"} | Client: ${trip.client_name || "N/A"}`]);
+            r2.getCell(1).font = subTitleFont;
+            sheet.mergeCells("A2:F2");
+
+            sheet.addRow([]);
+
+            // Trip Details Table
+            const d1 = sheet.addRow(["Truck Plate:", trip.truckPlate || "N/A", "Trailer:", trip.trailerPlate || "---"]);
+            const d2 = sheet.addRow(["Driver:", trip.driverName || "Unassigned", "Phone:", trip.driverPhone || "---"]);
+            const d3 = sheet.addRow(["Route Origin:", trip.origin || "DAR ES SALAAM", "Destination:", trip.destination || "N/A"]);
+            const d4 = sheet.addRow(["Status:", trip.status || "Planned", "Date:", format(new Date(trip.created_at || new Date()), "dd MMM yyyy")]);
+
+            [d1, d2, d3, d4].forEach(row => {
+                row.getCell(1).font = { bold: true, size: 9 };
+                row.getCell(3).font = { bold: true, size: 9 };
+            });
+
+            sheet.addRow([]);
+
+            // Expense Table Header
+            const hRow = sheet.addRow(["Expense Item", "Country / Section", "Nature", "Original Amount", "Currency", "TZS Equivalent"]);
+            hRow.eachCell((cell) => {
+                cell.fill = headerFill;
+                cell.font = headerFont;
+                cell.alignment = { vertical: "middle", horizontal: "center" };
+            });
+
+            const tzRate = trip.exchange_rate || 2700;
+
+            if (expenses.length === 0) {
+                const emptyRow = sheet.addRow(["No itemized expenses found", "", "", "", "", ""]);
+                sheet.mergeCells(`A${emptyRow.number}:F${emptyRow.number}`);
+            } else {
+                expenses.forEach((item) => {
+                    const amt = parseFloat(item.amount) || 0;
+                    let tzsVal = amt;
+                    if (item.currency === "USD") {
+                        tzsVal = amt * tzRate;
+                    } else if (item.currency === "ZMW") {
+                        tzsVal = amt * 100;
+                    } else if (item.currency === "RWF") {
+                        tzsVal = amt * 2;
+                    } else if (item.currency === "BIF") {
+                        tzsVal = amt * 1;
+                    }
+
+                    const row = sheet.addRow([
+                        item.item_name || "Item",
+                        item.category || "General",
+                        item.nature || "Go & Return",
+                        amt,
+                        item.currency || "TZS",
+                        Math.round(tzsVal)
+                    ]);
+
+                    row.getCell(4).numFmt = "#,##0.00";
+                    row.getCell(6).numFmt = "#,##0";
+                    row.eachCell((cell) => {
+                        cell.border = borderThin;
+                    });
+                });
+            }
+
+            sheet.addRow([]);
+
+            // Total Row
+            const totRow = sheet.addRow([
+                "TOTAL FUNDS REQUESTED",
+                "",
+                "",
+                `$${trip.totalExpensesUSD?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || 0} USD`,
+                "TZS TOTAL:",
+                Math.round(trip.totalExpensesTZS || 0)
+            ]);
+            totRow.eachCell((cell) => {
+                cell.font = { bold: true, size: 10 };
+            });
+            totRow.getCell(6).numFmt = '#,##0 "TSHS"';
+            totRow.getCell(6).fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "ECFDF5" }
+            };
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const safeRef = (trip.reference_number || "Trip").replace(/[^a-zA-Z0-9_-]/g, "_");
+            saveAs(new Blob([buffer]), `Trip_Budget_${safeRef}.xlsx`);
+            toast({
+                title: "Excel Downloaded ✓",
+                description: `Exported budget for ${trip.reference_number || "trip"}.`
+            });
+        } catch (err: any) {
+            console.error("Excel export error:", err);
+            toast({
+                variant: "destructive",
+                title: "Export Failed",
+                description: err.message || "Failed to generate Excel file."
+            });
+        } finally {
+            setIsExportingExcel(false);
+            setDownloadingTripId(null);
+        }
+    };
+
     return (
         <div className="p-3 sm:p-6 lg:p-8 space-y-5 max-w-7xl mx-auto animate-in fade-in duration-300">
             {/* 👑 EXECUTIVE HEADER */}
@@ -330,27 +605,23 @@ export default function TripFundApprovals() {
                 </div>
 
                 {/* KPI CARDS INSIDE HEADER */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-6 pt-5 border-t border-white/10">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-5 border-t border-white/10">
                     <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 border border-white/10">
                         <p className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">Awaiting Release</p>
                         <p className="text-xl sm:text-2xl font-black text-white mt-0.5">{pendingCount}</p>
                         <p className="text-[10px] text-slate-400">Trips pending decision</p>
                     </div>
 
-                    <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 border border-white/10 col-span-1">
-                        <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider">Pending Release (TZS)</p>
-                        <p className="text-base sm:text-xl font-black text-emerald-400 mt-0.5 truncate">
-                            TShs {Math.round(pendingFundsTZS).toLocaleString()}
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                            ≈ ${Math.round(pendingFundsUSD).toLocaleString()} USD
-                        </p>
-                    </div>
-
-                    <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 border border-white/10 col-span-2 sm:col-span-1">
+                    <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 border border-white/10">
                         <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">Approved / Dispatched</p>
                         <p className="text-xl sm:text-2xl font-black text-white mt-0.5">{approvedCount}</p>
                         <p className="text-[10px] text-slate-400">Active journey & transit</p>
+                    </div>
+
+                    <div className="bg-white/5 backdrop-blur-md rounded-xl p-3 border border-white/10">
+                        <p className="text-[10px] font-bold text-teal-300 uppercase tracking-wider">Completed Trips</p>
+                        <p className="text-xl sm:text-2xl font-black text-white mt-0.5">{completedCount}</p>
+                        <p className="text-[10px] text-slate-400">Arrived & settled</p>
                     </div>
                 </div>
             </div>
@@ -358,7 +629,7 @@ export default function TripFundApprovals() {
             {/* CONTROLS: SEARCH & TABS */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 {/* Responsive Tabs */}
-                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
                     <button
                         onClick={() => setSelectedTab("pending")}
                         className={cn(
@@ -388,6 +659,21 @@ export default function TripFundApprovals() {
                         <span>Approved & Released</span>
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                             {approvedCount}
+                        </Badge>
+                    </button>
+
+                    <button
+                        onClick={() => setSelectedTab("completed")}
+                        className={cn(
+                            "flex-1 sm:flex-none px-3 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
+                            selectedTab === "completed"
+                                ? "bg-white text-indigo-900 shadow-sm"
+                                : "text-slate-600 hover:text-slate-900"
+                        )}
+                    >
+                        <span>Completed Trips</span>
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-teal-100 text-teal-800 border-teal-200">
+                            {completedCount}
                         </Badge>
                     </button>
 
@@ -441,11 +727,11 @@ export default function TripFundApprovals() {
             ) : (
                 <div className="grid grid-cols-1 gap-4">
                     {filteredTrips.map((trip: any) => {
-                        const isPending = trip.status === "Planned";
-                        const truckPlate = trip.vehicle?.vehicle_no || "T --- ---";
-                        const trailerPlate = trip.trailer?.vehicle_no || trip.trailer?.trailer_number || "---";
-                        const driverName = trip.driver?.full_name || "Unassigned Driver";
-                        const driverPhone = trip.driver?.phone_number || "";
+                        const isPending = isPendingStatus(trip.status);
+                        const truckPlate = trip.truckPlate || "T --- ---";
+                        const trailerPlate = trip.trailerPlate || "---";
+                        const driverName = trip.driverName || "Unassigned Driver";
+                        const driverPhone = trip.driverPhone || "";
 
                         return (
                             <Card
@@ -601,6 +887,22 @@ export default function TripFundApprovals() {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
+                                                    onClick={() => handleExportExcel(trip)}
+                                                    disabled={isExportingExcel && downloadingTripId === trip.id}
+                                                    className="h-9 px-2.5 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100 hover:text-emerald-800 border-emerald-200 gap-1.5 shadow-sm"
+                                                    title="Download Excel budget breakdown"
+                                                >
+                                                    {isExportingExcel && downloadingTripId === trip.id ? (
+                                                        <Loader2 size={13} className="animate-spin text-emerald-600" />
+                                                    ) : (
+                                                        <FileSpreadsheet size={13} className="text-emerald-600" />
+                                                    )}
+                                                    <span className="hidden sm:inline text-[11px]">Excel</span>
+                                                </Button>
+
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
                                                     onClick={() => setSelectedTripDetails(trip)}
                                                     className="h-9 px-3 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 border-slate-200 gap-1.5 flex-1 sm:flex-none"
                                                     title="View full item-by-item expense breakdown"
@@ -654,7 +956,7 @@ export default function TripFundApprovals() {
                                 </div>
                                 <SheetTitle className="text-lg font-black text-slate-900 flex items-center gap-2 mt-1">
                                     <Truck size={18} className="text-indigo-600" />
-                                    {selectedTripDetails.vehicle?.vehicle_no || "Vehicle Details"}
+                                    {selectedTripDetails.truckPlate || selectedTripDetails.vehicle?.vehicle_no || "Vehicle Details"}
                                 </SheetTitle>
                                 <p className="text-xs text-slate-500">
                                     Route: {selectedTripDetails.origin} → {selectedTripDetails.destination}
@@ -724,20 +1026,40 @@ export default function TripFundApprovals() {
                                 )}
                             </div>
 
-                            {/* 1-Click Approve in drawer */}
-                            {selectedTripDetails.status === "Planned" && (
-                                <div className="pt-4 border-t">
+                            {/* Drawer Action Buttons: Download Excel + 1-Click Approve */}
+                            <div className="pt-4 border-t flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => handleExportExcel(selectedTripDetails, tripExpenses)}
+                                    disabled={isExportingExcel || isLoadingExpenses}
+                                    className="h-11 px-4 border-slate-300 text-slate-700 hover:bg-slate-100 font-bold rounded-xl text-xs gap-2 shrink-0 shadow-sm"
+                                    title="Download Itemized Excel Budget"
+                                >
+                                    {isExportingExcel ? (
+                                        <Loader2 size={16} className="animate-spin text-emerald-600" />
+                                    ) : (
+                                        <FileSpreadsheet size={16} className="text-emerald-600" />
+                                    )}
+                                    <span className="hidden sm:inline">Excel</span>
+                                </Button>
+
+                                {isPendingStatus(selectedTripDetails.status) ? (
                                     <Button
                                         onClick={() => {
                                             handleOpenApproveDialog(selectedTripDetails);
                                         }}
-                                        className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs uppercase tracking-wider gap-2 shadow-lg shadow-emerald-600/20"
+                                        className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs uppercase tracking-wider gap-2 shadow-lg shadow-emerald-600/20"
                                     >
                                         <CheckCircle2 size={16} />
                                         <span>Approve & Release Funds</span>
                                     </Button>
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="flex-1 flex items-center justify-center gap-1.5 h-11 text-xs font-bold text-emerald-700 bg-emerald-50 rounded-xl border border-emerald-200">
+                                        <ShieldCheck size={16} />
+                                        <span>Funds Approved</span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
                 </SheetContent>
@@ -758,7 +1080,7 @@ export default function TripFundApprovals() {
                             <span className="font-bold text-slate-800">
                                 {tripToApprove?.reference_number}
                             </span>{" "}
-                            ({tripToApprove?.vehicle?.vehicle_no}).
+                            ({tripToApprove?.truckPlate || tripToApprove?.vehicle?.vehicle_no || "---"}).
                         </DialogDescription>
                     </DialogHeader>
 
@@ -771,7 +1093,7 @@ export default function TripFundApprovals() {
                             <div className="flex justify-between">
                                 <span className="text-slate-500">Driver:</span>
                                 <span className="font-bold text-slate-800">
-                                    {tripToApprove.driver?.full_name || "Unassigned"}
+                                    {tripToApprove.driverName || tripToApprove.driver?.full_name || "Unassigned"}
                                 </span>
                             </div>
                             <div className="flex justify-between pt-2 border-t border-slate-200">

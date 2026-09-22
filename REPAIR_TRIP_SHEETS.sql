@@ -33,9 +33,11 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
 
--- 3. Ensure the Penalty columns are still there too
+-- 3. Ensure the Penalty and Approval columns are still there too
 ALTER TABLE public.logistics_trip_sheets ADD COLUMN IF NOT EXISTS agreed_days INTEGER DEFAULT NULL;
 ALTER TABLE public.logistics_trip_sheets ADD COLUMN IF NOT EXISTS daily_fine_amount NUMERIC(15,2) DEFAULT 0;
+ALTER TABLE public.logistics_trip_sheets ADD COLUMN IF NOT EXISTS approval_notes TEXT DEFAULT NULL;
+ALTER TABLE public.logistics_trip_sheets ADD COLUMN IF NOT EXISTS approved_by_name TEXT DEFAULT NULL;
 
 -- 4. HARD RELOAD the API Schema Cache immediately
 NOTIFY pgrst, 'reload schema';

@@ -108,6 +108,8 @@ const emptyForm = () => ({
     standing_charges: "",
     arrive_offloading_site_date: "",
     offloading_date: "",
+    departure_from_site_date: "",
+    return_borders: [] as { name: string; arrival: string; crossing: string; departure: string }[],
     selected_vehicle_id: "",
     leg_type: "G" as "G" | "R",
     source_sheet_id: "",
@@ -296,6 +298,8 @@ const TransitDashboard = () => {
             standing_charges: Number(data.standing_charges) || 0,
             arrive_offloading_site_date: data.arrive_offloading_site_date || null,
             offloading_date: data.offloading_date || null,
+            departure_from_site_date: data.departure_from_site_date || null,
+            return_borders_data: data.return_borders || [],
             leg_type: data.leg_type,
             nature: (tripSheet?.journey_type || data.nature) || null,
             trip_sheet_id: (tripSheet?.id || data.source_sheet_id) || null,
@@ -761,6 +765,8 @@ const TransitDashboard = () => {
                                                                         selected_vehicle_id: "", 
                                                                         standing_charges: t.standing_charges?.toString() || "",
                                                                         borders,
+                                                                        return_borders: (t.return_borders_data || []).map((b: any) => ({ name: b.name || "", arrival: b.arrival || "", crossing: b.crossing || "", departure: b.departure || "" })),
+                                                                        departure_from_site_date: t.departure_from_site_date || "",
                                                                         hq_arrival_date: t.hq_arrival_date || "",
                                                                         return_invoice_no: recoveredReturnInvoiceNo || "",
                                                                         return_revenue_amount: t.return_revenue_amount?.toString() || "",
@@ -1279,6 +1285,95 @@ const TransitDashboard = () => {
                                     </div>
                                 </div>
 
+                                {/* ═══ RETURN JOURNEY SECTION (for Go Alone / Tankers) ═══ */}
+                                {form.offloading_date && (form.nature === "Go Alone" || editingTrip?.nature === "Go Alone") && (
+                                    <>
+                                        {/* Departure from Site */}
+                                        <div className="border-t-2 border-dashed border-orange-300 pt-4 mt-2" />
+                                        <div className="rounded-2xl border-2 border-orange-200 bg-gradient-to-br from-orange-50/40 to-amber-50/20 overflow-hidden">
+                                            <div className="px-5 py-3 bg-orange-100/60 border-b border-orange-200 flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <RefreshCcw size={14} className="text-orange-600" />
+                                                    <span className="text-xs font-black text-orange-800 uppercase tracking-wider">Return Journey Checkpoints</span>
+                                                </div>
+                                                <Button type="button" variant="outline" size="sm" className="h-7 text-[10px] font-black border-orange-200 text-orange-600 rounded-lg hover:bg-orange-50 gap-1" onClick={() => setForm(f => ({ ...f, return_borders: [...(f.return_borders || []), { name: "", arrival: "", crossing: "", departure: "" }] }))}>
+                                                    <Plus size={12} /> Add Return Border
+                                                </Button>
+                                            </div>
+
+                                            <div className="p-5 space-y-4">
+                                                {/* Departure from site date */}
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="space-y-1.5">
+                                                        <Label className="text-[10px] font-bold text-orange-700 uppercase tracking-wider">Departure from Site</Label>
+                                                        <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-10 rounded-xl border-orange-200 bg-orange-50/30 font-medium text-sm text-orange-900" value={form.departure_from_site_date} onChange={e => setForm(f => ({ ...f, departure_from_site_date: e.target.value }))} />
+                                                    </div>
+                                                </div>
+
+                                                {/* Auto-populate button */}
+                                                {(form.return_borders || []).length === 0 && (form.borders || []).length > 0 && (
+                                                    <div className="text-center py-4 bg-white/50 rounded-xl border border-dashed border-orange-200">
+                                                        <RefreshCcw size={18} className="mx-auto text-orange-300 mb-2" />
+                                                        <p className="text-[10px] font-bold text-orange-500 uppercase mb-2">No return checkpoints added</p>
+                                                        <Button type="button" variant="outline" size="sm" className="text-[10px] font-black border-orange-200 text-orange-600 rounded-lg hover:bg-orange-50 gap-1" onClick={() => {
+                                                            const reversed = [...(form.borders || [])].reverse().map(b => ({ name: b.name || "", arrival: "", crossing: "", departure: "" }));
+                                                            setForm(f => ({ ...f, return_borders: reversed }));
+                                                        }}>
+                                                            <RefreshCcw size={12} /> Auto-fill from Outbound (Reversed)
+                                                        </Button>
+                                                    </div>
+                                                )}
+
+                                                {/* Return border crossings */}
+                                                <div className="space-y-3">
+                                                    {(form.return_borders || []).map((border, idx) => (
+                                                        <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end p-3 bg-white rounded-xl border border-orange-100 shadow-sm hover:shadow-md transition-shadow">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">
+                                                                    <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-100 text-orange-700 text-[8px] font-black mr-1">{idx + 1}</span>
+                                                                    Border Point
+                                                                </Label>
+                                                                <Input placeholder="e.g. Sakania" className="h-9 rounded-lg bg-slate-50 border-slate-200 text-xs font-medium" value={border.name} onChange={e => {
+                                                                    const val = e.target.value;
+                                                                    setForm(f => ({ ...f, return_borders: f.return_borders.map((b, i) => i === idx ? { ...b, name: val } : b) }));
+                                                                }} />
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Arrival</Label>
+                                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-9 rounded-lg bg-white border-slate-200 text-xs" value={border.arrival} onChange={e => {
+                                                                    const val = e.target.value;
+                                                                    setForm(f => ({ ...f, return_borders: f.return_borders.map((b, i) => i === idx ? { ...b, arrival: val } : b) }));
+                                                                }} />
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-bold text-orange-600 uppercase">Crossing</Label>
+                                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-9 rounded-lg border-orange-100 bg-white text-xs" value={border.crossing} onChange={e => {
+                                                                    const val = e.target.value;
+                                                                    setForm(f => ({ ...f, return_borders: f.return_borders.map((b, i) => i === idx ? { ...b, crossing: val } : b) }));
+                                                                }} />
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Departure</Label>
+                                                                <Input type="date" onClick={(e) => (e.target as HTMLInputElement).showPicker()} className="cursor-pointer h-9 rounded-lg bg-white border-slate-200 text-xs" value={border.departure} onChange={e => {
+                                                                    const val = e.target.value;
+                                                                    setForm(f => ({ ...f, return_borders: f.return_borders.map((b, i) => i === idx ? { ...b, departure: val } : b) }));
+                                                                }} />
+                                                            </div>
+                                                            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg shrink-0" onClick={() => {
+                                                                setForm(f => ({ ...f, return_borders: f.return_borders.filter((_, i) => i !== idx) }));
+                                                            }}><X size={14} /></Button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                <p className="text-[10px] text-orange-600 font-medium">
+                                                    🔄 Return journey checkpoints track the vehicle's movement back from the offloading site.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+
                                 {/* Final HQ Return — Prominent standalone row */}
                                 <div className="flex items-center justify-between gap-4 bg-emerald-50/50 p-4 rounded-xl border border-emerald-200">
                                     <div className="flex items-center gap-3">
@@ -1419,6 +1514,14 @@ const TransitDashboard = () => {
                                             })),
                                             { label: "Offloading Site", date: selectedTripDetails.arrive_offloading_site_date, color: "orange" },
                                             { label: "Final Offload", date: selectedTripDetails.offloading_date, color: "emerald" },
+                                            ...(selectedTripDetails.departure_from_site_date ? [{ label: "Departure from Site", date: selectedTripDetails.departure_from_site_date, color: "orange" }] : []),
+                                            ...(selectedTripDetails.return_borders_data || []).map((b: any) => ({
+                                                label: `↩ ${b.name || "Return Border"}`,
+                                                date: b.arrival,
+                                                crossing: b.crossing,
+                                                dep: b.departure,
+                                                color: "orange"
+                                            })),
                                             { label: "Final HQ Arrival", date: selectedTripDetails.hq_arrival_date, color: "emerald" },
                                         ].filter(x => x.date).map((item, i) => (
                                             <div key={i} className="flex gap-4 relative">

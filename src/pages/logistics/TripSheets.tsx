@@ -238,6 +238,38 @@ const TripSheets = () => {
             const orderRate = parseFloat(order.agreed_client_rate) || 2700;
             const orderLocal = parseFloat(order.agreed_amount_local) || (orderUSD * orderRate);
 
+            // Resolve vehicle_id, trailer_id, driver_id from order strings if IDs are missing
+            let resolvedVehicleId = order.vehicle_id || null;
+            let resolvedTrailerId = order.trailer_id || null;
+            let resolvedDriverId = order.driver_id || null;
+
+            if (!resolvedVehicleId && order.truck_reg) {
+                const { data: vData } = await supabase
+                    .from('logistics_fleet' as any)
+                    .select('id')
+                    .ilike('vehicle_no', order.truck_reg.trim())
+                    .maybeSingle();
+                if (vData?.id) resolvedVehicleId = vData.id;
+            }
+
+            if (!resolvedTrailerId && order.trailer_reg) {
+                const { data: trData } = await supabase
+                    .from('logistics_fleet' as any)
+                    .select('id')
+                    .ilike('vehicle_no', order.trailer_reg.trim())
+                    .maybeSingle();
+                if (trData?.id) resolvedTrailerId = trData.id;
+            }
+
+            if (!resolvedDriverId && order.driver_name) {
+                const { data: dData } = await supabase
+                    .from('logistics_drivers' as any)
+                    .select('id')
+                    .ilike('full_name', order.driver_name.trim())
+                    .maybeSingle();
+                if (dData?.id) resolvedDriverId = dData.id;
+            }
+
             // Check if trip sheet already exists for this trip_number
             const existingSheet = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
             if (existingSheet) {
@@ -254,9 +286,9 @@ const TripSheets = () => {
                     .from('logistics_trip_sheets' as any)
                     .insert({
                         reference_number: order.trip_number,
-                        vehicle_id: order.vehicle_id || null,
-                        trailer_id: order.trailer_id || null,
-                        driver_id: order.driver_id || null,
+                        vehicle_id: resolvedVehicleId,
+                        trailer_id: resolvedTrailerId,
+                        driver_id: resolvedDriverId,
                         origin: order.origin || 'DAR ES SALAAM',
                         destination: order.destination,
                         client_name: order.client_name,

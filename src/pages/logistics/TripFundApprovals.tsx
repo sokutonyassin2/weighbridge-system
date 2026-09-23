@@ -380,12 +380,20 @@ export default function TripFundApprovals() {
                         created_by: user?.id
                     });
                 }
+
+                // Also update the corresponding logistics_trip_orders record so it moves into operations
+                await supabase
+                    .from("logistics_trip_orders" as any)
+                    .update({ status: "Active", updated_at: new Date().toISOString() })
+                    .eq("trip_number", tripObj.reference_number);
             }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["executive_trip_fund_approvals"] });
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_list"] });
             queryClient.invalidateQueries({ queryKey: ["approved_trip_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_orders_for_trip_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["trip_orders"] });
             toast({
                 title: "Funds Approved & Released ✓",
                 description: "The trip budget is approved. Finance and Logistics have been updated."

@@ -149,7 +149,8 @@ const ProcurementDashboard = () => {
         po_number: "",
         includes_vat: false,
         payment_method_id: "",
-        discount_percentage: 0
+        discount_percentage: 0,
+        advance_payment: 0
     });
     const [batchItemPrices, setBatchItemPrices] = useState<Record<string, number>>({});
     const [batchItemQuantities, setBatchItemQuantities] = useState<Record<string, number>>({});
@@ -542,6 +543,7 @@ const ProcurementDashboard = () => {
                     includes_vat: sharedDetails.includes_vat,
                     vat_amount: vat,
                     discount_percentage: sharedDetails.discount_percentage || 0,
+                    advance_payment: Number(sharedDetails.advance_payment) || 0,
                     payment_details: allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null,
                     quantity_approved: qty
                 };
@@ -1961,7 +1963,8 @@ const ProcurementDashboard = () => {
                                                     po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
                                                     includes_vat: false,
                                                     payment_method_id: "",
-                                                    discount_percentage: 0
+                                                    discount_percentage: 0,
+                                                    advance_payment: 0
                                                 });
                                                 setBatchItemPrices(initialPrices);
                                                 setBatchItemQuantities(initialQuantities);
@@ -2564,6 +2567,41 @@ const ProcurementDashboard = () => {
                                 <span>
                                     {((batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
                                 </span>
+                            </div>
+
+                            {/* Advance Payment Section */}
+                            <div className="mt-3 pt-3 border-t border-dashed border-slate-300 space-y-2 bg-slate-50 p-3 rounded-lg">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <Label className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
+                                            Advance Payment (Optional)
+                                        </Label>
+                                        <p className="text-[11px] text-slate-500">Leave at 0 for 100% full payment</p>
+                                    </div>
+                                    <div className="relative w-48">
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            max={((batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1))}
+                                            placeholder="0"
+                                            className="font-bold text-right pr-12 h-9 bg-white"
+                                            value={batchSharedDetails.advance_payment || ""}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value) || 0;
+                                                setBatchSharedDetails({ ...batchSharedDetails, advance_payment: Math.max(0, val) });
+                                            }}
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">TZS</span>
+                                    </div>
+                                </div>
+                                {batchSharedDetails.advance_payment > 0 && (
+                                    <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs">
+                                        <span className="font-semibold text-slate-600">Remaining Balance on Arrival:</span>
+                                        <span className="font-bold text-amber-600 text-sm">
+                                            {Math.max(0, (((batchQuoteReqs.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1)) - batchSharedDetails.advance_payment)).toLocaleString()} TZS
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

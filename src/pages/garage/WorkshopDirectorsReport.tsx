@@ -61,20 +61,18 @@ export default function WorkshopDirectorsReport({ language, vehicles = [] }: Wor
       const { data, error } = await (supabase as any)
         .from("garage_job_cards")
         .select(`
-          id, job_number, status, priority, opened_at, closed_at, vehicle_id, odometer_at_fault, notes,
-          vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model),
-          fault_list:garage_job_faults(
-            id, status, mechanic_notes, created_at,
-            fault_type:garage_fault_types(fault_name, category)
-          )
+          *, 
+          vehicle:logistics_fleet(id, vehicle_no, horse_number, trailer_number, asset_type, make_model), 
+          fault_list:garage_job_faults(id, fault_type_id, status, mechanic_notes, mechanic_id, fault_type:garage_fault_types(fault_name, category))
         `)
         .eq("is_deleted", false)
         .order("opened_at", { ascending: false });
 
       if (error) {
-        console.warn("Error loading jobs for director report:", error);
+        console.error("❌ DIRECTOR REPORT - Error loading jobs:", error);
         return [];
       }
+      console.log("✅ DIRECTOR REPORT - Jobs loaded:", data?.length, data);
       return data || [];
     }
   });
@@ -83,15 +81,16 @@ export default function WorkshopDirectorsReport({ language, vehicles = [] }: Wor
   const { data: requisitions = [], isLoading: isLoadingReqs } = useQuery({
     queryKey: ["directors-report-requisitions"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("garage_requisitions")
         .select("id, vehicle_id, item_name, quantity_requested, unit_price, status, created_at, is_deleted")
         .eq("is_deleted", false);
 
       if (error) {
-        console.warn("Error loading reqs for director report:", error);
+        console.error("❌ DIRECTOR REPORT - Error loading requisitions:", error);
         return [];
       }
+      console.log("✅ DIRECTOR REPORT - Requisitions loaded:", data?.length);
       return data || [];
     }
   });

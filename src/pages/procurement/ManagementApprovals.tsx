@@ -234,7 +234,8 @@ const ManagementApprovals = () => {
                     unit_price: price,
                     quantity_approved: qty, // Note: we are updating quantity_approved
                     vat_amount: vat,
-                    total_price: total
+                    total_price: total,
+                    advance_payment: Number(sharedDetails.advance_payment ?? req.advance_payment ?? 0)
                 }).eq("id", req.id);
 
                 if (error) throw error;
@@ -314,6 +315,11 @@ const ManagementApprovals = () => {
                     finalUpdate.quantity_approved = qty;
                     finalUpdate.vat_amount = vat;
                     finalUpdate.total_price = total;
+                    if (sharedDetails?.advance_payment !== undefined) {
+                        finalUpdate.advance_payment = Number(sharedDetails.advance_payment);
+                    } else if (req.advance_payment !== undefined) {
+                        finalUpdate.advance_payment = Number(req.advance_payment);
+                    }
                 }
 
                 const { error: reqError } = await sb.from("garage_requisitions").update(finalUpdate).eq("id", req.id);

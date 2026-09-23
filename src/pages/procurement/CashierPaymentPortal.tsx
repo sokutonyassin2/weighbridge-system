@@ -143,7 +143,7 @@ const CashierPaymentPortal = () => {
                     approved_by_profile:profiles!approved_by(full_name),
                     procurement_approved_by_profile:profiles!procurement_approved_by(full_name)
                 `)
-                .eq("status", "Approved")
+                .in("status", ["Approved", "Partially Paid"])
                 .eq("is_deleted", false)
                 .order("status_updated_at", { ascending: true });
 
@@ -326,9 +326,30 @@ const CashierPaymentPortal = () => {
                 receiptUrl = urlData?.publicUrl || null;
             }
 
+            // Check if this batch is paying an advance payment
+            const isAdvancePayment = reqs.some(r => Number(r.advance_payment) > 0 && r.status !== 'Partially Paid' && (Number(r.amount_paid) || 0) === 0);
+
             for (const item of reqs) {
+                const itemAdvance = Number(item.advance_payment) || 0;
+                const itemTotal = Number(item.total_price) || 0;
+                const currentPaid = Number(item.amount_paid) || 0;
+
+                let nextStatus = 'Paid';
+                let nextAmountPaid = itemTotal;
+
+                if (isAdvancePayment && itemAdvance > 0) {
+                    // First payment is the advance
+                    nextStatus = 'Partially Paid';
+                    nextAmountPaid = itemAdvance;
+                } else {
+                    // Paying balance or full amount
+                    nextStatus = 'Paid';
+                    nextAmountPaid = itemTotal;
+                }
+
                 const updateData: any = {
-                    status: 'Paid',
+                    status: nextStatus,
+                    amount_paid: nextAmountPaid,
                     payment_reference: reference,
                     status_updated_at: new Date().toISOString()
                 };
@@ -344,15 +365,18 @@ const CashierPaymentPortal = () => {
                 if (error) throw error;
             }
         },
-        onSuccess: () => {
+        onSuccess: (data, variables) => {
+            const wasAdvance = variables.reqs.some((r: any) => Number(r.advance_payment) > 0 && r.status !== 'Partially Paid' && (Number(r.amount_paid) || 0) === 0);
             queryClient.invalidateQueries({ queryKey: ["cashier-authorized-items"] });
             queryClient.invalidateQueries({ queryKey: ["cashier-waiting-arrival"] });
             setIsPaymentDialogOpen(false);
             setPaymentRef("");
             setReceiptFile(null);
             toast({
-                title: "Payment Confirmed",
-                description: "Purchase Order marked as paid.",
+                title: wasAdvance ? "Advance Payment Confirmed" : "Payment Confirmed",
+                description: wasAdvance 
+                    ? "Advance payment recorded. The PO will remain in Cashier Hub awaiting remaining balance." 
+                    : "Purchase Order marked as fully paid.",
                 variant: "default"
             });
         },
@@ -506,8 +530,13 @@ const CashierPaymentPortal = () => {
             let poTotal = 0;
             reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
             const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
-            const isExpanded = expandedGroups[key];
-            
+            const isPartiallyPaid = reqs.some((r: any) => r.status === 'Partially Paid');
+            const totalAdvance = reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
+            const totalPaid = reqs.reduce((sum: number, r: any) => sum + (Number(r.amount_paid) || 0), 0);
+            const remainingBalance = Math.max(0, poTotal - totalPaid);
+            const isAdvanceDue = totalAdvance > 0 && !isPartiallyPaid && totalPaid === 0;
+            const currentPayable = isAdvanceDue ? totalAdvance : (isPartiallyPaid ? remainingBalance : poTotal);
+
             return (
                 <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
                     <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(key)}>
@@ -520,9 +549,19 @@ const CashierPaymentPortal = () => {
                                     <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
                                         PO #: {poNumber}
                                     </Badge>
-                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-[10px]">
-                                        Approved for Payment
-                                    </Badge>
+                                    {isPartiallyPaid ? (
+                                        <Badge className="bg-amber-100 text-amber-800 border-amber-300 uppercase text-[10px] font-bold">
+                                            Advance Paid — Waiting for Balance
+                                        </Badge>
+                                    ) : totalAdvance > 0 ? (
+                                        <Badge className="bg-blue-100 text-blue-800 border-blue-300 uppercase text-[10px] font-bold">
+                                            Advance Due First
+                                        </Badge>
+                                    ) : (
+                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-[10px]">
+                                            Approved for Payment
+                                        </Badge>
+                                    )}
                                 </div>
                                 <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
                                     <Building2 className="w-5 h-5 text-slate-400" />
@@ -530,15 +569,25 @@ const CashierPaymentPortal = () => {
                                 </CardTitle>
                                 <p className="text-sm text-slate-500 font-medium">{formatDate(firstReq.created_at)}</p>
                             </div>
-                            <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto text-left md:text-right">
+                            <div className="flex flex-col items-start md:items-end gap-1.5 w-full md:w-auto text-left md:text-right">
                                 <div className="text-2xl font-black text-emerald-600">
-                                    {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                    {currentPayable.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
                                 </div>
-                                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">Total Payable Amount</div>
+                                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                                    {isAdvanceDue ? "Advance Amount Due" : (isPartiallyPaid ? "Remaining Balance Due" : "Total Payable Amount")}
+                                </div>
+                                {totalAdvance > 0 && (
+                                    <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                                        <span>PO Total: <strong className="text-slate-700">{poTotal.toLocaleString()} TZS</strong></span>
+                                        {isPartiallyPaid && (
+                                            <span className="text-emerald-600 font-semibold">(Advance Paid: {totalPaid.toLocaleString()} TZS)</span>
+                                        )}
+                                    </div>
+                                )}
                                 <Button 
                                     variant="outline" 
                                     size="sm" 
-                                    className="h-7 text-xs border-slate-200" 
+                                    className="h-7 text-xs border-slate-200 mt-1" 
                                     onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
                                 >
                                     <Printer className="w-3 h-3 mr-1" /> Print PO
@@ -648,14 +697,14 @@ const CashierPaymentPortal = () => {
                             </Button>
                         )}
                         <Button
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md uppercase text-xs font-bold px-6 ml-auto"
+                            className={`${isAdvanceDue ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white shadow-md uppercase text-xs font-bold px-6 ml-auto`}
                             onClick={() => {
                                 setSelectedPOReqs(reqs);
                                 setIsPaymentDialogOpen(true);
                             }}
                         >
                             <DollarSign className="w-4 h-4 mr-2" />
-                            Disburse PO Batch
+                            {isAdvanceDue ? "Disburse Advance" : (isPartiallyPaid ? "Disburse Remaining Balance" : "Disburse PO Batch")}
                         </Button>
                     </CardFooter>
                 </Card>
@@ -1360,25 +1409,48 @@ const CashierPaymentPortal = () => {
             {/* Payment Confirmation Dialog */}
             <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
                 <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto overflow-x-hidden p-0 bg-slate-50 border-0">
-                    <div className="p-6 bg-white border-b sticky top-0 z-10 shadow-sm">
-                        <DialogHeader>
-                            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
-                                <Receipt className="w-6 h-6 text-emerald-600" />
-                                Confirm Disbursement
-                            </DialogTitle>
-                        </DialogHeader>
-                        <div className="mt-4 flex justify-between items-center">
-                            <div>
-                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Total Amount</p>
-                                <p className="text-3xl font-black text-emerald-600">
-                                    {selectedPOReqs.reduce((acc, curr) => acc + (curr.total_price || 0), 0).toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
-                                </p>
-                            </div>
-                            <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-xs px-3 py-1">
-                                {selectedPOReqs.length} Items
-                            </Badge>
-                        </div>
-                    </div>
+                    {(() => {
+                        const poTotal = selectedPOReqs.reduce((acc, curr) => acc + (curr.total_price || 0), 0);
+                        const isPartiallyPaid = selectedPOReqs.some((r: any) => r.status === 'Partially Paid');
+                        const totalAdvance = selectedPOReqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
+                        const totalPaid = selectedPOReqs.reduce((sum: number, r: any) => sum + (Number(r.amount_paid) || 0), 0);
+                        const remainingBalance = Math.max(0, poTotal - totalPaid);
+                        const isAdvanceDue = totalAdvance > 0 && !isPartiallyPaid && totalPaid === 0;
+                        const payableNow = isAdvanceDue ? totalAdvance : (isPartiallyPaid ? remainingBalance : poTotal);
+
+                        return (
+                            <>
+                                <div className="p-6 bg-white border-b sticky top-0 z-10 shadow-sm">
+                                    <DialogHeader>
+                                        <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
+                                            <Receipt className="w-6 h-6 text-emerald-600" />
+                                            {isAdvanceDue ? "Confirm Advance Payment" : (isPartiallyPaid ? "Confirm Remaining Balance Payment" : "Confirm Disbursement")}
+                                        </DialogTitle>
+                                    </DialogHeader>
+                                    <div className="mt-4 flex justify-between items-center">
+                                        <div>
+                                            <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">
+                                                {isAdvanceDue ? "Advance Amount Due" : (isPartiallyPaid ? "Remaining Balance Due" : "Total Amount")}
+                                            </p>
+                                            <p className="text-3xl font-black text-emerald-600">
+                                                {payableNow.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                            </p>
+                                            {totalAdvance > 0 && (
+                                                <p className="text-xs text-slate-500 mt-1">
+                                                    Full PO Total: <strong>{poTotal.toLocaleString()} TZS</strong>
+                                                    {isPartiallyPaid && ` (Advance already paid: ${totalPaid.toLocaleString()} TZS)`}
+                                                    {isAdvanceDue && ` (Balance of ${remainingBalance.toLocaleString()} TZS due later)`}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-xs px-3 py-1">
+                                            {selectedPOReqs.length} Items
+                                        </Badge>
+                                    </div>
+                                </div>
+                            </>
+                        );
+                    })()}
 
                     <div className="p-6 space-y-6">
                         <div className="p-4 bg-white rounded-lg border border-slate-200 space-y-3">
@@ -1476,21 +1548,31 @@ const CashierPaymentPortal = () => {
                         </div>
                     </div>
 
-                    <div className="flex justify-between items-center bg-white p-4 border-t sticky bottom-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-                        <Button variant="outline" onClick={() => { setIsPaymentDialogOpen(false); setReceiptFile(null); }}>Cancel</Button>
-                        <Button
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase shadow-lg shadow-emerald-200 px-8"
-                            disabled={!paymentRef || paymentMutation.isPending}
-                            onClick={() => paymentMutation.mutate({
-                                reqs: selectedPOReqs,
-                                reference: paymentRef,
-                                file: receiptFile
-                            })}
-                        >
-                            {paymentMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
-                            Confirm Disbursement
-                        </Button>
-                    </div>
+                    {(() => {
+                        const poTotal = selectedPOReqs.reduce((acc, curr) => acc + (curr.total_price || 0), 0);
+                        const isPartiallyPaid = selectedPOReqs.some((r: any) => r.status === 'Partially Paid');
+                        const totalAdvance = selectedPOReqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
+                        const totalPaid = selectedPOReqs.reduce((sum: number, r: any) => sum + (Number(r.amount_paid) || 0), 0);
+                        const isAdvanceDue = totalAdvance > 0 && !isPartiallyPaid && totalPaid === 0;
+
+                        return (
+                            <div className="flex justify-between items-center bg-white p-4 border-t sticky bottom-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                                <Button variant="outline" onClick={() => { setIsPaymentDialogOpen(false); setReceiptFile(null); }}>Cancel</Button>
+                                <Button
+                                    className={`${isAdvanceDue ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white font-bold uppercase shadow-lg px-8`}
+                                    disabled={!paymentRef || paymentMutation.isPending}
+                                    onClick={() => paymentMutation.mutate({
+                                        reqs: selectedPOReqs,
+                                        reference: paymentRef,
+                                        file: receiptFile
+                                    })}
+                                >
+                                    {paymentMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
+                                    {isAdvanceDue ? "Confirm Advance Payment" : (isPartiallyPaid ? "Confirm Balance Payment" : "Confirm Disbursement")}
+                                </Button>
+                            </div>
+                        );
+                    })()}
                 </DialogContent>
             </Dialog>
 

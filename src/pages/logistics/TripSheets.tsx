@@ -428,8 +428,21 @@ const TripSheets = () => {
         );
     };
 
+    // Filter approved orders: exclude any whose trip sheet has already been approved/active by Executive/Fund Approvals
+    const activeOrApprovedTripSheetNumbers = new Set(
+        (tripSheets || [])
+            .filter((s: any) => s.status === 'Approved' || s.status === 'Active')
+            .map((s: any) => s.reference_number?.trim()?.toUpperCase())
+            .filter(Boolean)
+    );
+
+    const pendingConfirmationOrders = approvedOrders.filter((order: any) => {
+        const tripNum = (order.trip_number || '').trim().toUpperCase();
+        return !activeOrApprovedTripSheetNumbers.has(tripNum);
+    });
+
     // Filter approved orders by search
-    const filteredApprovedOrders = approvedOrders.filter((order: any) =>
+    const filteredApprovedOrders = pendingConfirmationOrders.filter((order: any) =>
         (order.trip_number || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (order.order_number || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (order.truck_reg || '')?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -678,12 +691,12 @@ const TripSheets = () => {
                         >
                             <Sparkles size={12} className={activeTab === 'approved_orders' ? "text-amber-300" : "text-indigo-500"} />
                             Approved Orders
-                            {approvedOrders.length > 0 && (
+                            {pendingConfirmationOrders.length > 0 && (
                                 <Badge className={cn(
                                     "ml-1 text-[9px] font-black px-1.5 py-0 h-4 border-none",
                                     activeTab === 'approved_orders' ? "bg-white text-indigo-900" : "bg-indigo-100 text-indigo-800"
                                 )}>
-                                    {approvedOrders.length}
+                                    {pendingConfirmationOrders.length}
                                 </Badge>
                             )}
                         </Button>
@@ -744,7 +757,7 @@ const TripSheets = () => {
                             </div>
                         </div>
                         <Badge className="bg-indigo-600 text-white font-bold text-xs px-3 py-1">
-                            {approvedOrders.length} Approved Vehicles
+                            {pendingConfirmationOrders.length} Approved Vehicles
                         </Badge>
                     </div>
 

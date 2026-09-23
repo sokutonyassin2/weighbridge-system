@@ -536,6 +536,7 @@ const CashierPaymentPortal = () => {
             const remainingBalance = Math.max(0, poTotal - totalPaid);
             const isAdvanceDue = totalAdvance > 0 && !isPartiallyPaid && totalPaid === 0;
             const currentPayable = isAdvanceDue ? totalAdvance : (isPartiallyPaid ? remainingBalance : poTotal);
+            const isExpanded = !!expandedGroups[key];
 
             return (
                 <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">

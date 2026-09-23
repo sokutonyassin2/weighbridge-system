@@ -31,7 +31,8 @@ const ManagementApprovals = () => {
         po_number: "",
         includes_vat: false,
         payment_method_id: "",
-        discount_percentage: 0
+        discount_percentage: 0,
+        advance_payment: 0
     });
     const [batchItemPrices, setBatchItemPrices] = useState<Record<string, number>>({});
     const [batchItemQuantities, setBatchItemQuantities] = useState<Record<string, number>>({});
@@ -544,6 +545,9 @@ const ManagementApprovals = () => {
                     reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
                     const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
                     
+                    const totalAdvance = reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
+                    const remainingBalance = Math.max(0, poTotal - totalAdvance);
+
                     return (
                         <AccordionItem key={key} value={key} className="overflow-hidden border border-slate-200 rounded-lg shadow-sm bg-white">
                             <AccordionTrigger className="hover:no-underline bg-slate-50/50 px-6 py-4 data-[state=open]:border-b">
@@ -560,6 +564,11 @@ const ManagementApprovals = () => {
                                             <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
                                                 Awaiting Approval
                                             </Badge>
+                                            {totalAdvance > 0 && (
+                                                <Badge className="bg-blue-50 text-blue-800 border-blue-200 uppercase text-[10px] font-bold">
+                                                    Advance: {totalAdvance.toLocaleString()} TZS
+                                                </Badge>
+                                            )}
                                             <span className="text-xs text-slate-500 font-medium ml-2">Latest: {formatDate(firstReq.created_at)}</span>
                                         </div>
                                     </div>
@@ -567,7 +576,13 @@ const ManagementApprovals = () => {
                                         <div className="text-lg font-black text-indigo-900">
                                             {poTotal.toLocaleString()} <span className="text-[10px] text-slate-500 font-medium">TZS</span>
                                         </div>
-                                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">{reqs.length} Items Pending</div>
+                                        {totalAdvance > 0 ? (
+                                            <div className="text-[11px] text-slate-500 font-semibold mt-0.5">
+                                                Adv: <strong className="text-blue-700">{totalAdvance.toLocaleString()}</strong> | Bal: <strong className="text-amber-700">{remainingBalance.toLocaleString()}</strong>
+                                            </div>
+                                        ) : (
+                                            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">{reqs.length} Items Pending</div>
+                                        )}
                                     </div>
                                 </div>
                             </AccordionTrigger>
@@ -651,7 +666,8 @@ const ManagementApprovals = () => {
                                             po_number: firstReq.po_number || "",
                                             includes_vat: firstReq.includes_vat || false,
                                             payment_method_id: matchedPaymentMethodId,
-                                            discount_percentage: firstReq.discount_percentage || 0
+                                            discount_percentage: firstReq.discount_percentage || 0,
+                                            advance_payment: Number(firstReq.advance_payment) || 0
                                         });
                                         
                                         const initialPrices: Record<string, number> = {};
@@ -905,6 +921,41 @@ const ManagementApprovals = () => {
                                 <span>
                                     {((selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1)).toLocaleString()} TZS
                                 </span>
+                            </div>
+
+                            {/* Advance Payment Section */}
+                            <div className="mt-3 pt-3 border-t border-dashed border-slate-300 space-y-2 bg-slate-50 p-3 rounded-lg">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div>
+                                        <Label className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
+                                            Advance Payment (Optional)
+                                        </Label>
+                                        <p className="text-[11px] text-slate-500">Leave at 0 for 100% full payment</p>
+                                    </div>
+                                    <div className="relative w-48">
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            max={((selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1))}
+                                            placeholder="0"
+                                            className="font-bold text-right pr-12 h-9 bg-white"
+                                            value={batchSharedDetails.advance_payment || ""}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value) || 0;
+                                                setBatchSharedDetails({ ...batchSharedDetails, advance_payment: Math.max(0, val) });
+                                            }}
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">TZS</span>
+                                    </div>
+                                </div>
+                                {batchSharedDetails.advance_payment > 0 && (
+                                    <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs">
+                                        <span className="font-semibold text-slate-600">Remaining Balance on Arrival:</span>
+                                        <span className="font-bold text-amber-600 text-sm">
+                                            {Math.max(0, (((selectedPOItems.reduce((sum, req) => sum + ((batchItemPrices[req.id] || 0) * (batchItemQuantities[req.id] || 0)), 0) * (1 - (batchSharedDetails.discount_percentage / 100))) * (batchSharedDetails.includes_vat ? 1.18 : 1)) - batchSharedDetails.advance_payment)).toLocaleString()} TZS
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

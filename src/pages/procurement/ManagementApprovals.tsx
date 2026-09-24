@@ -217,6 +217,43 @@ const ManagementApprovals = () => {
         mutationFn: async ({ reqs, sharedDetails, itemPrices, itemQuantities }: any) => {
             const paymentDetails = allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null;
             
+            // Calculate total batch price for proportional advance distribution
+            const totalBatchPrice = reqs.reduce((sum: number, r: any) => {
+                const price = itemPrices[r.id] || 0;
+                const qty = itemQuantities[r.id] || 0;
+                const subtotal = price * qty;
+                const discount = subtotal * ((sharedDetails.discount_percentage || 0) / 100);
+                const discountedSubtotal = subtotal - discount;
+                const vat = sharedDetails.includes_vat ? (discountedSubtotal * 0.18) : 0;
+                return sum + (discountedSubtotal + vat);
+            }, 0);
+
+            const totalAdv = Number(sharedDetails.advance_payment ?? 0);
+            // Pre-calculate advances to avoid rounding errors
+            const advanceAllocations: Record<string, number> = {};
+            if (totalAdv > 0) {
+                let allocatedSum = 0;
+                const itemTotals = reqs.map((req: any) => {
+                    const price = itemPrices[req.id] || 0;
+                    const qty = itemQuantities[req.id] || 0;
+                    const subtotal = price * qty;
+                    const discount = subtotal * ((sharedDetails.discount_percentage || 0) / 100);
+                    const discountedSubtotal = subtotal - discount;
+                    const vat = sharedDetails.includes_vat ? (discountedSubtotal * 0.18) : 0;
+                    return discountedSubtotal + vat;
+                });
+                for (let i = 0; i < reqs.length; i++) {
+                    const ratio = totalBatchPrice > 0 ? (itemTotals[i] / totalBatchPrice) : (1 / reqs.length);
+                    if (i === reqs.length - 1) {
+                        advanceAllocations[reqs[i].id] = totalAdv - allocatedSum;
+                    } else {
+                        const amt = Math.round(totalAdv * ratio);
+                        advanceAllocations[reqs[i].id] = amt;
+                        allocatedSum += amt;
+                    }
+                }
+            }
+
             for (const req of reqs) {
                 const price = itemPrices[req.id] || 0;
                 const qty = itemQuantities[req.id] || 0;
@@ -233,10 +270,10 @@ const ManagementApprovals = () => {
                     payment_details: paymentDetails,
                     discount_percentage: sharedDetails.discount_percentage || 0,
                     unit_price: price,
-                    quantity_approved: qty, // Note: we are updating quantity_approved
+                    quantity_approved: qty,
                     vat_amount: vat,
                     total_price: total,
-                    advance_payment: Number(sharedDetails.advance_payment ?? req.advance_payment ?? 0)
+                    advance_payment: advanceAllocations[req.id] || 0
                 }).eq("id", req.id);
 
                 if (error) throw error;
@@ -290,6 +327,43 @@ const ManagementApprovals = () => {
             const paymentDetails = sharedDetails?.payment_method_id ? 
                 (allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null) : null;
 
+            // Calculate total batch price for proportional advance distribution
+            const totalBatchPrice = reqs.reduce((sum: number, r: any) => {
+                const price = itemPrices?.[r.id] ?? r.unit_price ?? 0;
+                const qty = itemQuantities?.[r.id] ?? r.quantity_approved ?? r.quantity_requested ?? 0;
+                const subtotal = price * qty;
+                const discountPercentage = sharedDetails?.discount_percentage ?? r.discount_percentage ?? 0;
+                const discountedSubtotal = subtotal - (subtotal * (discountPercentage / 100));
+                const vat = (sharedDetails?.includes_vat ?? r.includes_vat) ? (discountedSubtotal * 0.18) : 0;
+                return sum + (discountedSubtotal + vat);
+            }, 0);
+
+            // Pre-calculate advance allocations to avoid rounding errors
+            const totalAdv = sharedDetails?.advance_payment !== undefined ? Number(sharedDetails.advance_payment) : reqs.reduce((s: number, r: any) => s + (Number(r.advance_payment) || 0), 0);
+            const advanceAllocations: Record<string, number> = {};
+            if (totalAdv > 0 && nextStatus === 'Approved') {
+                let allocatedSum = 0;
+                const itemTotals = reqs.map((r: any) => {
+                    const p = itemPrices?.[r.id] ?? r.unit_price ?? 0;
+                    const q = itemQuantities?.[r.id] ?? r.quantity_approved ?? r.quantity_requested ?? 0;
+                    const sub = p * q;
+                    const dp = sharedDetails?.discount_percentage ?? r.discount_percentage ?? 0;
+                    const ds = sub - (sub * (dp / 100));
+                    const v = (sharedDetails?.includes_vat ?? r.includes_vat) ? (ds * 0.18) : 0;
+                    return ds + v;
+                });
+                for (let i = 0; i < reqs.length; i++) {
+                    const ratio = totalBatchPrice > 0 ? (itemTotals[i] / totalBatchPrice) : (1 / reqs.length);
+                    if (i === reqs.length - 1) {
+                        advanceAllocations[reqs[i].id] = totalAdv - allocatedSum;
+                    } else {
+                        const amt = Math.round(totalAdv * ratio);
+                        advanceAllocations[reqs[i].id] = amt;
+                        allocatedSum += amt;
+                    }
+                }
+            }
+
             for (const req of reqs) {
                 const price = itemPrices?.[req.id] ?? req.unit_price;
                 const qty = itemQuantities?.[req.id] ?? req.quantity_approved;
@@ -316,11 +390,7 @@ const ManagementApprovals = () => {
                     finalUpdate.quantity_approved = qty;
                     finalUpdate.vat_amount = vat;
                     finalUpdate.total_price = total;
-                    if (sharedDetails?.advance_payment !== undefined) {
-                        finalUpdate.advance_payment = Number(sharedDetails.advance_payment);
-                    } else if (req.advance_payment !== undefined) {
-                        finalUpdate.advance_payment = Number(req.advance_payment);
-                    }
+                    finalUpdate.advance_payment = advanceAllocations[req.id] || 0;
                 }
 
                 const { error: reqError } = await sb.from("garage_requisitions").update(finalUpdate).eq("id", req.id);
@@ -667,7 +737,7 @@ const ManagementApprovals = () => {
                                             includes_vat: firstReq.includes_vat || false,
                                             payment_method_id: matchedPaymentMethodId,
                                             discount_percentage: firstReq.discount_percentage || 0,
-                                            advance_payment: Number(firstReq.advance_payment) || 0
+                                            advance_payment: reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0)
                                         });
                                         
                                         const initialPrices: Record<string, number> = {};

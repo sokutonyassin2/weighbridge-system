@@ -526,6 +526,43 @@ const ProcurementDashboard = () => {
     // Batch Quote Mutation
     const batchWorkflowMutation = useMutation({
         mutationFn: async ({ reqs, sharedDetails, itemPrices, itemQuantities, isUpdateOnly }: { reqs: any[], sharedDetails: any, itemPrices: Record<string, number>, itemQuantities: Record<string, number>, isUpdateOnly?: boolean }) => {
+            // Calculate total batch price
+            const totalBatchPrice = reqs.reduce((sum, r) => {
+                const q = itemQuantities[r.id] || r.quantity_requested || 0;
+                const p = itemPrices[r.id] || 0;
+                const sub = p * q;
+                const disc = sub * ((sharedDetails.discount_percentage || 0) / 100);
+                const discSub = sub - disc;
+                const v = sharedDetails.includes_vat ? discSub * 0.18 : 0;
+                return sum + (discSub + v);
+            }, 0);
+
+            // Pre-calculate advance allocations to avoid rounding errors
+            const totalAdv = Number(sharedDetails.advance_payment) || 0;
+            const advanceAllocations: Record<string, number> = {};
+            if (totalAdv > 0) {
+                let allocatedSum = 0;
+                const itemTotals = reqs.map(r => {
+                    const q = itemQuantities[r.id] || r.quantity_requested || 0;
+                    const p = itemPrices[r.id] || 0;
+                    const sub = p * q;
+                    const disc = sub * ((sharedDetails.discount_percentage || 0) / 100);
+                    const discSub = sub - disc;
+                    const v = sharedDetails.includes_vat ? discSub * 0.18 : 0;
+                    return discSub + v;
+                });
+                for (let i = 0; i < reqs.length; i++) {
+                    const ratio = totalBatchPrice > 0 ? (itemTotals[i] / totalBatchPrice) : (1 / reqs.length);
+                    if (i === reqs.length - 1) {
+                        advanceAllocations[reqs[i].id] = totalAdv - allocatedSum;
+                    } else {
+                        const amt = Math.round(totalAdv * ratio);
+                        advanceAllocations[reqs[i].id] = amt;
+                        allocatedSum += amt;
+                    }
+                }
+            }
+
             const updates = reqs.map(req => {
                 const qty = itemQuantities[req.id] || req.quantity_requested || 0;
                 const unitPrice = itemPrices[req.id] || 0;
@@ -533,17 +570,18 @@ const ProcurementDashboard = () => {
                 const discount = subtotal * ((sharedDetails.discount_percentage || 0) / 100);
                 const discountedSubtotal = subtotal - discount;
                 const vat = sharedDetails.includes_vat ? discountedSubtotal * 0.18 : 0;
+                const itemTotalPrice = discountedSubtotal + vat;
                 
                 const updateObj: any = {
                     id: req.id,
                     unit_price: unitPrice,
-                    total_price: discountedSubtotal + vat,
+                    total_price: itemTotalPrice,
                     supplier_id: sharedDetails.supplier_id || null,
                     po_number: sharedDetails.po_number || null,
                     includes_vat: sharedDetails.includes_vat,
                     vat_amount: vat,
                     discount_percentage: sharedDetails.discount_percentage || 0,
-                    advance_payment: Number(sharedDetails.advance_payment) || 0,
+                    advance_payment: advanceAllocations[req.id] || 0,
                     payment_details: allPaymentMethods?.find((m: any) => m.id === sharedDetails.payment_method_id) || null,
                     quantity_approved: qty
                 };

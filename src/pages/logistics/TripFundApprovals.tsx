@@ -47,7 +47,7 @@ import {
     FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 
@@ -63,6 +63,7 @@ export default function TripFundApprovals() {
     const [tripToApprove, setTripToApprove] = useState<any | null>(null);
     const [approvalNote, setApprovalNote] = useState("");
     const [isExportingExcel, setIsExportingExcel] = useState(false);
+    const [locationTrackingTrip, setLocationTrackingTrip] = useState<any | null>(null);
 
     // 1. Fetch Trip Sheets with Expenses and Linked Resources
     const {
@@ -148,6 +149,19 @@ export default function TripFundApprovals() {
         }
     });
 
+    // Fetch Live Location Checkpoint Updates
+    const { data: locationUpdates = [] } = useQuery({
+        queryKey: ["trip_location_updates"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("trip_location_updates" as any)
+                .select("*")
+                .order("created_at", { ascending: false });
+            if (error) return [];
+            return (data || []) as any[];
+        }
+    });
+
     // 3. Fetch detailed expenses for the active sheet modal preview
     const { data: tripExpenses = [], isLoading: isLoadingExpenses } = useQuery({
         queryKey: ["executive_trip_expenses", selectedTripDetails?.id],
@@ -230,7 +244,16 @@ export default function TripFundApprovals() {
         let milestoneTime = "";
         let transitStatus = matchedTransit?.status || "Planned";
 
-        if (matchedTransit) {
+        // Live location checkpoint updates from transit tracking
+        const tripLocationUpdates = matchedTransit?.id 
+            ? locationUpdates.filter((u: any) => u.trip_id === matchedTransit.id) 
+            : [];
+        const latestLocationUpdate = tripLocationUpdates.length > 0 ? tripLocationUpdates[0] : null;
+
+        if (latestLocationUpdate) {
+            currentMilestone = latestLocationUpdate.location + (latestLocationUpdate.reason ? ` (${latestLocationUpdate.reason})` : "");
+            milestoneTime = latestLocationUpdate.created_at;
+        } else if (matchedTransit) {
             if (matchedTransit.status === "Completed") {
                 currentMilestone = "Trip Completed / HQ Arrived";
                 milestoneTime = matchedTransit.hq_arrival_date;
@@ -273,6 +296,8 @@ export default function TripFundApprovals() {
             tracking: matchedTransit || null,
             currentMilestone,
             milestoneTime,
+            latestLocationUpdate,
+            locationUpdates: tripLocationUpdates,
             transitStatus,
             totalExpensesTZS,
             totalExpensesUSD,
@@ -841,30 +866,45 @@ export default function TripFundApprovals() {
                                             </div>
 
                                             {/* LIVE TRACKING BANNER */}
-                                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between gap-2 mt-2">
+                                            <div 
+                                                onClick={() => setLocationTrackingTrip(trip)}
+                                                className="bg-slate-50 hover:bg-sky-50/60 border border-slate-200/80 hover:border-sky-300 rounded-xl p-2.5 flex items-center justify-between gap-2 mt-2 cursor-pointer transition-all group/tracking shadow-sm"
+                                                title="Click to view full live location history"
+                                            >
                                                 <div className="flex items-center gap-2 min-w-0">
-                                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                                    <div className={cn(
+                                                        "w-2 h-2 rounded-full shrink-0",
+                                                        trip.latestLocationUpdate ? "bg-sky-500 animate-pulse shadow-[0_0_6px_#0ea5e9]" : "bg-emerald-500 animate-pulse"
+                                                    )} />
                                                     <div className="truncate">
-                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1.5">
-                                                            Live Tracking:
+                                                        <span className="text-[10px] font-bold text-slate-400 group-hover/tracking:text-sky-600 uppercase tracking-wider mr-1.5 transition-colors">
+                                                            {trip.latestLocationUpdate ? "Live Checkpoint:" : "Live Tracking:"}
                                                         </span>
-                                                        <span className="text-xs font-bold text-slate-800">
+                                                        <span className="text-xs font-bold text-slate-800 group-hover/tracking:text-sky-950 transition-colors">
                                                             {trip.currentMilestone}
                                                         </span>
                                                         {trip.milestoneTime && (
-                                                            <span className="text-[10px] text-slate-500 ml-1.5 font-normal hidden sm:inline">
-                                                                ({format(new Date(trip.milestoneTime), "dd MMM HH:mm")})
+                                                            <span className="text-[10px] text-slate-500 group-hover/tracking:text-sky-700 ml-1.5 font-normal hidden sm:inline">
+                                                                ({formatDistanceToNow(new Date(trip.milestoneTime), { addSuffix: true })})
                                                             </span>
                                                         )}
                                                     </div>
                                                 </div>
 
-                                                <Badge
-                                                    variant="outline"
-                                                    className="text-[9px] font-bold px-1.5 py-0 h-4 uppercase shrink-0 border-slate-300 text-slate-600 bg-white"
-                                                >
-                                                    {trip.transitStatus}
-                                                </Badge>
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {trip.locationUpdates && trip.locationUpdates.length > 0 && (
+                                                        <span className="text-[9px] font-bold text-sky-700 bg-sky-100/80 border border-sky-200 px-1.5 py-0.5 rounded-full">
+                                                            {trip.locationUpdates.length} updates
+                                                        </span>
+                                                    )}
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="text-[9px] font-bold px-1.5 py-0 h-4 uppercase border-slate-300 text-slate-600 bg-white group-hover/tracking:border-sky-300"
+                                                    >
+                                                        {trip.transitStatus}
+                                                    </Badge>
+                                                    <Eye size={12} className="text-slate-400 group-hover/tracking:text-sky-600 transition-colors ml-0.5" />
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1158,6 +1198,143 @@ export default function TripFundApprovals() {
                             <span>Confirm & Release</span>
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* LIVE TRACKING & CHECKPOINTS TIMELINE MODAL */}
+            <Dialog open={!!locationTrackingTrip} onOpenChange={(o) => !o && setLocationTrackingTrip(null)}>
+                <DialogContent className="max-w-md p-6 rounded-2xl bg-white border border-slate-200 shadow-2xl">
+                    {locationTrackingTrip && (
+                        <>
+                            <DialogHeader>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse shadow-[0_0_8px_#0ea5e9]" />
+                                    <span className="text-[10px] font-black uppercase text-sky-600 tracking-widest">
+                                        Executive Live Vehicle Tracker
+                                    </span>
+                                </div>
+                                <DialogTitle className="text-lg font-black text-slate-900 flex items-center justify-between">
+                                    <span>{locationTrackingTrip.truckPlate || "Truck"}</span>
+                                    <Badge className="bg-sky-100 text-sky-800 border-sky-200 text-[10px] font-bold">
+                                        {locationTrackingTrip.transitStatus}
+                                    </Badge>
+                                </DialogTitle>
+                                <DialogDescription className="text-xs text-slate-500">
+                                    {locationTrackingTrip.client_name ? `${locationTrackingTrip.client_name} • ` : ""}
+                                    {locationTrackingTrip.origin || "Origin"} → {locationTrackingTrip.destination || "Destination"}
+                                    {locationTrackingTrip.reference_number && ` (Ref: ${locationTrackingTrip.reference_number})`}
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            {/* Current Real-time Location Card */}
+                            <div className="bg-gradient-to-br from-sky-50 to-blue-50/50 rounded-xl p-4 border border-sky-200/80 my-2 shadow-sm">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-sky-600 uppercase tracking-wider flex items-center gap-1.5">
+                                        <MapPin size={13} className="text-sky-500" />
+                                        Current Live Position
+                                    </span>
+                                    {locationTrackingTrip.milestoneTime && (
+                                        <span className="text-[10px] font-bold text-sky-600 bg-white/80 px-2 py-0.5 rounded-full border border-sky-200">
+                                            {formatDistanceToNow(new Date(locationTrackingTrip.milestoneTime), { addSuffix: true })}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-base font-black text-slate-900 mt-1.5">
+                                    {locationTrackingTrip.latestLocationUpdate 
+                                        ? locationTrackingTrip.latestLocationUpdate.location 
+                                        : locationTrackingTrip.currentMilestone}
+                                </div>
+                                {locationTrackingTrip.latestLocationUpdate?.reason && (
+                                    <div className="text-xs text-sky-800 font-medium mt-1 bg-white/60 p-2 rounded-lg border border-sky-100 italic">
+                                        "{locationTrackingTrip.latestLocationUpdate.reason}"
+                                    </div>
+                                )}
+                                {locationTrackingTrip.driverName && (
+                                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-2 pt-2 border-t border-sky-200/40">
+                                        <User size={11} className="text-slate-400" />
+                                        <span>Driver: <strong className="text-slate-700">{locationTrackingTrip.driverName}</strong></span>
+                                        {locationTrackingTrip.driverPhone && (
+                                            <span className="text-slate-400">({locationTrackingTrip.driverPhone})</span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Checkpoint Movement Timeline */}
+                            <div className="mt-3">
+                                <h4 className="text-[11px] font-bold uppercase text-slate-500 tracking-wider mb-3 flex items-center gap-1.5">
+                                    <Clock size={13} />
+                                    Location Checkpoint History ({(locationTrackingTrip.locationUpdates || []).length})
+                                </h4>
+
+                                {(locationTrackingTrip.locationUpdates || []).length === 0 ? (
+                                    <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                        <MapPin size={24} className="mx-auto text-slate-300 mb-1.5" />
+                                        <p className="text-xs text-slate-600 font-bold">No custom checkpoints logged yet</p>
+                                        <p className="text-[10px] text-slate-400 mt-0.5 max-w-[240px] mx-auto">
+                                            Updates saved by the transit & logistics team will automatically appear here in real time.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="max-h-[220px] overflow-y-auto pr-1 space-y-0">
+                                        {locationTrackingTrip.locationUpdates.map((update: any, idx: number) => {
+                                            const isLatest = idx === 0;
+                                            return (
+                                                <div key={update.id} className="flex gap-3 relative">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className={cn(
+                                                            "w-2.5 h-2.5 rounded-full z-10 shrink-0 mt-0.5",
+                                                            isLatest 
+                                                                ? "bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.5)] ring-2 ring-sky-200" 
+                                                                : "bg-slate-300"
+                                                        )} />
+                                                        {idx < locationTrackingTrip.locationUpdates.length - 1 && (
+                                                            <div className="w-0.5 flex-1 bg-slate-200 min-h-[24px]" />
+                                                        )}
+                                                    </div>
+                                                    <div className="pb-3 flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <span className={cn(
+                                                                "text-xs font-black",
+                                                                isLatest ? "text-sky-900" : "text-slate-700"
+                                                            )}>
+                                                                {update.location}
+                                                            </span>
+                                                            <span className={cn(
+                                                                "text-[9px] font-bold whitespace-nowrap shrink-0",
+                                                                isLatest ? "text-sky-600" : "text-slate-400"
+                                                            )}>
+                                                                {formatDistanceToNow(new Date(update.created_at), { addSuffix: true })}
+                                                            </span>
+                                                        </div>
+                                                        {update.reason && (
+                                                            <p className="text-[11px] text-slate-500 font-medium italic mt-0.5">
+                                                                {update.reason}
+                                                            </p>
+                                                        )}
+                                                        <span className="text-[9px] text-slate-400 font-mono block mt-0.5">
+                                                            {format(new Date(update.created_at), "dd MMM yyyy, HH:mm")}
+                                                            {update.updated_by && ` • by ${update.updated_by}`}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            <DialogFooter className="pt-3 border-t border-slate-100 mt-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setLocationTrackingTrip(null)}
+                                    className="w-full h-9 rounded-xl text-xs font-semibold"
+                                >
+                                    Close
+                                </Button>
+                            </DialogFooter>
+                        </>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

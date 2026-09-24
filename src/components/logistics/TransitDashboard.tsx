@@ -16,10 +16,10 @@ import {
     Plus, Search, Truck, Globe, Printer, Eye, FileText,
     RefreshCw, BarChart3, CalendarDays, MapPin, AlertTriangle,
     CheckCircle2, X, Edit2, ChevronDown, ChevronRight, Folders, ArrowRight, Save, FileUp, User, Package, Phone, RefreshCcw,
-    Building2, ChevronsUpDown, Check, Trash2
+    Building2, ChevronsUpDown, Check, Trash2, Clock, Navigation
 } from "lucide-react";
 
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, formatDistanceToNow } from "date-fns";
 import { useNavigate } from "react-router-dom";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -138,6 +138,9 @@ const TransitDashboard = () => {
     const [expandedClients, setExpandedClients] = useState<string[]>([]);
     const [collapsedRoutes, setCollapsedRoutes] = useState<Record<string, boolean>>({});
     const [collapsedClients, setCollapsedClients] = useState<Record<string, boolean>>({});
+    const [locationUpdateTrip, setLocationUpdateTrip] = useState<any>(null);
+    const [locationInput, setLocationInput] = useState("");
+    const [reasonInput, setReasonInput] = useState("");
 
     const toggleRouteCollapse = (key: string) => {
         setCollapsedRoutes(prev => ({ ...prev, [key]: !prev[key] }));
@@ -387,6 +390,48 @@ const TransitDashboard = () => {
         onSuccess: () => { qc.invalidateQueries({ queryKey: ["transit_trips"] }); toast({ title: "Deleted" }); }
     });
 
+    // ─── Location Updates ──────────────────────────────────────────────────────
+    const { data: locationUpdates = [] } = useQuery({
+        queryKey: ["trip_location_updates"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("trip_location_updates" as any)
+                .select("*")
+                .order("created_at", { ascending: false });
+            if (error) {
+                console.warn("Location updates table may not exist yet:", error.message);
+                return [];
+            }
+            return (data || []) as any[];
+        }
+    });
+
+    const getLatestLocation = (tripId: string) => {
+        return locationUpdates.find((u: any) => u.trip_id === tripId);
+    };
+
+    const getTripLocationHistory = (tripId: string) => {
+        return locationUpdates.filter((u: any) => u.trip_id === tripId);
+    };
+
+    const locationMutation = useMutation({
+        mutationFn: async ({ tripId, location, reason }: { tripId: string; location: string; reason?: string }) => {
+            const { error } = await supabase
+                .from("trip_location_updates" as any)
+                .insert([{ trip_id: tripId, location, reason: reason || null }]);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ["trip_location_updates"] });
+            setLocationInput("");
+            setReasonInput("");
+            toast({ title: "📍 Location Updated", description: "Vehicle location has been recorded." });
+        },
+        onError: (error: any) => {
+            toast({ title: "Error", description: error.message, variant: "destructive" });
+        }
+    });
+
     // ─── Grouped & Filtered trips ──────────────────────────────────────────────
     const filtered = trips.filter((t: any) => {
         const matchesSearch = !search || 
@@ -502,10 +547,9 @@ const TransitDashboard = () => {
                             <tr className="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]">
                                 <th className="sticky left-0 top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-12 min-w-[48px] max-w-[48px]">SN</th>
                                 <th className="sticky left-[48px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[140px] min-w-[140px] max-w-[140px]">Trip Number</th>
-                                <th className="sticky left-[188px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[180px] min-w-[180px] max-w-[180px]">Client Identity</th>
-                                <th className="sticky left-[368px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[120px] min-w-[120px] max-w-[120px]">Registration</th>
-                                <th className="sticky left-[488px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[110px] min-w-[110px] max-w-[110px]">Transit Status</th>
-                                <th className="sticky left-[598px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r-2 border-slate-300 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] w-[130px] min-w-[130px] max-w-[130px]">Destination</th>
+                                <th className="sticky left-[188px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[130px] min-w-[130px] max-w-[130px]">Registration</th>
+                                <th className="sticky left-[318px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 w-[120px] min-w-[120px] max-w-[120px]">Transit Status</th>
+                                <th className="sticky left-[438px] top-0 z-40 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r-2 border-slate-300 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] w-[140px] min-w-[140px] max-w-[140px]">Destination</th>
                                 <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200">Arr. Loading</th>
                                 <th className="sticky top-0 z-30 bg-slate-50 px-3 py-3 text-left font-semibold border-b border-r border-slate-200">Loading Dt</th>
                                 <th className="sticky top-0 z-30 px-3 py-3 text-left font-semibold border-b border-r border-slate-200 bg-blue-50 text-blue-700">DISPATCHED</th>
@@ -610,14 +654,13 @@ const TransitDashboard = () => {
                                                                 )}
                                                             </div>
                                                         </td>
-                                                        <td className="sticky left-[188px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-medium text-slate-700 border-r border-slate-100 w-[180px] min-w-[180px] max-w-[180px] truncate" title={t.client_name}>{t.client_name || "—"}</td>
-                                                        <td className="sticky left-[368px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-semibold text-slate-700 border-r border-slate-100 w-[120px] min-w-[120px] max-w-[120px] cursor-pointer hover:bg-slate-50 hover:text-indigo-600 group/cell" onClick={() => setSelectedTripDetails(t)}>
+                                                        <td className="sticky left-[188px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-semibold text-slate-700 border-r border-slate-100 w-[130px] min-w-[130px] max-w-[130px] cursor-pointer hover:bg-slate-50 hover:text-indigo-600 group/cell" onClick={() => setSelectedTripDetails(t)}>
                                                             <div className="flex items-center justify-between">
                                                                 <span>{t.truck_no}</span>
                                                                 <Eye size={14} className="opacity-0 group-hover/cell:opacity-100 text-indigo-500 ml-2" />
                                                             </div>
                                                         </td>
-                                                        <td className="sticky left-[488px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 border-r border-slate-100 w-[110px] min-w-[110px] max-w-[110px]">
+                                                        <td className="sticky left-[318px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 border-r border-slate-100 w-[120px] min-w-[120px] max-w-[120px]">
                                                             <Badge className={`text-[10px] font-semibold px-2 py-0.5 border shadow-none ${statusColor[t.status as TransitStatus] || "bg-slate-100 text-slate-600"}`}>
                                                                 {t.status}
                                                             </Badge>
@@ -634,8 +677,30 @@ const TransitDashboard = () => {
                                                                     </div>
                                                                 )
                                                             )}
+                                                            {/* Current Location Indicator */}
+                                                            {(() => {
+                                                                const latestLoc = getLatestLocation(t.id);
+                                                                return latestLoc ? (
+                                                                    <div
+                                                                        className="flex items-center gap-1 mt-1.5 px-1.5 py-0.5 rounded bg-sky-50 border border-sky-200 text-sky-700 text-[8px] font-bold cursor-pointer hover:bg-sky-100 transition-colors w-fit max-w-full group/loc"
+                                                                        onClick={(e) => { e.stopPropagation(); setLocationUpdateTrip(t); setLocationInput(""); setReasonInput(""); }}
+                                                                        title={`📍 ${latestLoc.location}${latestLoc.reason ? '\nReason: ' + latestLoc.reason : ''}\nUpdated: ${format(new Date(latestLoc.created_at), "dd MMM yy HH:mm")}`}
+                                                                    >
+                                                                        <Navigation size={8} className="shrink-0 text-sky-500" />
+                                                                        <span className="truncate max-w-[70px]">{latestLoc.location}</span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div
+                                                                        className="flex items-center gap-1 mt-1.5 px-1.5 py-0.5 rounded bg-slate-50 border border-dashed border-slate-200 text-slate-400 text-[8px] font-medium cursor-pointer hover:bg-slate-100 hover:text-slate-600 hover:border-slate-300 transition-colors w-fit"
+                                                                        onClick={(e) => { e.stopPropagation(); setLocationUpdateTrip(t); setLocationInput(""); setReasonInput(""); }}
+                                                                    >
+                                                                        <MapPin size={8} />
+                                                                        <span>Set location</span>
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </td>
-                                                        <td className="sticky left-[598px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 text-slate-700 font-medium border-r-2 border-slate-300 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] w-[130px] min-w-[130px] max-w-[130px]">{t.destination}</td>
+                                                        <td className="sticky left-[438px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 text-slate-700 font-medium border-r-2 border-slate-300 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.12)] w-[140px] min-w-[140px] max-w-[140px]">{t.destination}</td>
                                                         <td className="px-3 py-3 text-slate-400 border-r border-slate-50 bg-slate-50/20">{fmt(t.arrival_loading_date)}</td>
                                                         <td className="px-3 py-3 text-slate-400 border-r border-slate-50 bg-slate-50/20">{fmt(t.loading_date)}</td>
                                                         <td className="px-3 py-3 text-blue-700 font-medium border-r border-blue-50 bg-blue-50/30">
@@ -1462,6 +1527,117 @@ const TransitDashboard = () => {
                         <Button variant="ghost" onClick={() => setIsFormOpen(false)} className="font-bold text-xs">Discard</Button>
                         <Button className="px-8 h-11 bg-[#1a3a5c] hover:bg-black text-white font-black rounded-xl shadow-xl shadow-blue-900/20 text-xs" onClick={() => saveMutation.mutate(form)}>{editingTrip ? "UPDATE ASSET DATA" : selectedSheetIds.length > 1 ? `DEPLOY ${selectedSheetIds.length} TRANSIT ASSETS` : "DEPLOY TRANSIT ASSET"}</Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ── Location Update Dialog ───────────────────────────────────── */}
+            <Dialog open={!!locationUpdateTrip} onOpenChange={o => { if (!o) setLocationUpdateTrip(null); }}>
+                <DialogContent className="sm:max-w-[520px] p-0 rounded-2xl overflow-hidden border-0 shadow-2xl">
+                    {locationUpdateTrip && (() => {
+                        const history = getTripLocationHistory(locationUpdateTrip.id);
+                        return (
+                            <>
+                                {/* Header */}
+                                <div className="bg-gradient-to-r from-sky-600 to-indigo-600 text-white p-5 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -mr-8 -mt-8" />
+                                    <DialogHeader>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <Navigation size={16} className="text-sky-200" />
+                                            <DialogTitle className="text-lg font-black text-white">Location Update</DialogTitle>
+                                        </div>
+                                        <DialogDescription className="text-sky-200 text-xs font-medium">
+                                            {locationUpdateTrip.truck_no} — {locationUpdateTrip.trip_id}
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="flex gap-3 mt-3 pt-3 border-t border-white/15">
+                                        <Badge className="bg-white/20 border-none text-[10px] font-bold">{locationUpdateTrip.status}</Badge>
+                                        <span className="text-[10px] font-bold text-sky-200">{locationUpdateTrip.destination}</span>
+                                    </div>
+                                </div>
+
+                                {/* Update Form */}
+                                <div className="p-5 space-y-4 border-b border-slate-100">
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Where is this vehicle right now?</Label>
+                                        <Input
+                                            placeholder="e.g. Dodoma, Morogoro, Kapiri Mposhi, Border Crossing..."
+                                            className="h-11 rounded-xl border-slate-200 bg-slate-50 font-medium text-sm focus:bg-white"
+                                            value={locationInput}
+                                            onChange={e => setLocationInput(e.target.value)}
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Reason <span className="text-slate-300 font-medium">(Optional)</span></Label>
+                                        <Input
+                                            placeholder="e.g. Fueling stop, Customs clearance, Breakdown, Resting..."
+                                            className="h-10 rounded-xl border-slate-200 bg-slate-50 text-xs font-medium focus:bg-white"
+                                            value={reasonInput}
+                                            onChange={e => setReasonInput(e.target.value)}
+                                        />
+                                    </div>
+                                    <Button
+                                        className="w-full h-10 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs gap-2 shadow-lg shadow-sky-200"
+                                        disabled={!locationInput.trim() || locationMutation.isPending}
+                                        onClick={() => {
+                                            locationMutation.mutate({
+                                                tripId: locationUpdateTrip.id,
+                                                location: locationInput.trim(),
+                                                reason: reasonInput.trim() || undefined
+                                            });
+                                        }}
+                                    >
+                                        <Navigation size={14} />
+                                        {locationMutation.isPending ? "Saving..." : "Update Location"}
+                                    </Button>
+                                </div>
+
+                                {/* Location History Timeline */}
+                                <div className="p-5 max-h-[300px] overflow-y-auto">
+                                    <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 flex items-center gap-2">
+                                        <Clock size={12} />
+                                        Location History ({history.length})
+                                    </h4>
+                                    {history.length === 0 ? (
+                                        <div className="text-center py-8">
+                                            <MapPin size={24} className="mx-auto text-slate-200 mb-2" />
+                                            <p className="text-[11px] text-slate-400 font-medium">No location updates yet</p>
+                                            <p className="text-[10px] text-slate-300 mt-1">Add the first location above</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-0">
+                                            {history.map((update: any, i: number) => (
+                                                <div key={update.id} className="flex gap-3 relative">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className={`w-2.5 h-2.5 rounded-full z-10 shrink-0 mt-0.5 ${i === 0 ? 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.4)]' : 'bg-slate-300'}`} />
+                                                        {i < history.length - 1 && <div className="w-0.5 flex-1 bg-slate-200" />}
+                                                    </div>
+                                                    <div className="pb-4 flex-1 min-w-0">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className={`text-xs font-black ${i === 0 ? 'text-sky-700' : 'text-slate-600'}`}>
+                                                                {update.location}
+                                                            </div>
+                                                            <span className={`text-[9px] font-bold whitespace-nowrap shrink-0 ${i === 0 ? 'text-sky-500' : 'text-slate-400'}`}>
+                                                                {formatDistanceToNow(new Date(update.created_at), { addSuffix: true })}
+                                                            </span>
+                                                        </div>
+                                                        {update.reason && (
+                                                            <div className="text-[10px] text-slate-400 font-medium mt-0.5 italic">
+                                                                {update.reason}
+                                                            </div>
+                                                        )}
+                                                        <div className="text-[9px] text-slate-300 font-medium mt-0.5">
+                                                            {format(new Date(update.created_at), "dd MMM yyyy, HH:mm")}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        );
+                    })()}
                 </DialogContent>
             </Dialog>
 

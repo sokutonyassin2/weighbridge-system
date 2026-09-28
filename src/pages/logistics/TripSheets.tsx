@@ -29,11 +29,9 @@ import {
     Plus,
     Truck,
     AlertTriangle,
-    Copy,
     ShieldCheck,
     Zap,
     Clock,
-    Trash2,
     Folders,
     ChevronLeft,
     User,
@@ -47,7 +45,9 @@ import {
     Building2,
     TrendingUp,
     Sparkles,
-    Send
+    Send,
+    Calendar,
+    Edit2
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { TripSheet } from "@/components/logistics/TripSheet";
@@ -74,6 +74,12 @@ const TripSheets = () => {
     const [selectedTrip, setSelectedTrip] = useState<any>(null);
     const [isSheetOpen, setIsSheetOpen] = useState(false);
     const [duplicateSourceTrip, setDuplicateSourceTrip] = useState<any>(null);
+    const [editRefDialog, setEditRefDialog] = useState<{ open: boolean; trip: any; newRef: string }>({
+        open: false,
+        trip: null,
+        newRef: ''
+    });
+    const [isUpdatingRef, setIsUpdatingRef] = useState(false);
     const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
 
     const toggleGroup = (key: string) => {
@@ -151,6 +157,58 @@ const TripSheets = () => {
                 description: error.message,
                 variant: "destructive",
             });
+        }
+    };
+
+    const handleUpdateTripReference = async () => {
+        const { trip, newRef } = editRefDialog;
+        const trimmedRef = newRef.trim();
+        if (!trip || !trimmedRef) {
+            toast({
+                variant: "destructive",
+                title: "Reference Required",
+                description: "Please enter a valid trip sheet reference number."
+            });
+            return;
+        }
+
+        setIsUpdatingRef(true);
+        try {
+            const oldRef = trip.reference_number;
+            const { error } = await supabase
+                .from('logistics_trip_sheets' as any)
+                .update({
+                    reference_number: trimmedRef,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', trip.id);
+
+            if (error) throw error;
+
+            // Also keep logistics_trips table in sync if matching trip_number exists
+            if (oldRef) {
+                await supabase
+                    .from('logistics_trips' as any)
+                    .update({ trip_number: trimmedRef })
+                    .eq('trip_number', oldRef);
+            }
+
+            toast({
+                title: "Reference Number Updated ✓",
+                description: `Trip reference switched to "${trimmedRef}". Approved Orders filter updated automatically.`
+            });
+
+            setEditRefDialog({ open: false, trip: null, newRef: '' });
+            refetch();
+            refetchApprovedOrders();
+        } catch (err: any) {
+            toast({
+                variant: "destructive",
+                title: "Update Failed",
+                description: err.message
+            });
+        } finally {
+            setIsUpdatingRef(false);
         }
     };
 
@@ -1276,8 +1334,30 @@ const TripSheets = () => {
                                                                                                 {trip.driver?.full_name || "AWAITING DRIVER"}
                                                                                             </div>
                                                                                             <div className="h-1 w-1 rounded-full bg-slate-200" />
-                                                                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.1em]">
-                                                                                                Ref: {trip.reference_number}
+                                                                                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-bold uppercase tracking-[0.1em] bg-slate-50 border border-slate-200/80 px-2 py-0.5 rounded-md">
+                                                                                                <span>Ref: {trip.reference_number || 'N/A'}</span>
+                                                                                                {isAdmin && (
+                                                                                                    <button
+                                                                                                        type="button"
+                                                                                                        title="Switch / Edit Reference Number"
+                                                                                                        className="text-slate-400 hover:text-indigo-600 transition-colors p-0.5 rounded hover:bg-white"
+                                                                                                        onClick={(e) => {
+                                                                                                            e.stopPropagation();
+                                                                                                            setEditRefDialog({
+                                                                                                                open: true,
+                                                                                                                trip,
+                                                                                                                newRef: trip.reference_number || ''
+                                                                                                            });
+                                                                                                        }}
+                                                                                                    >
+                                                                                                        <Edit2 size={11} />
+                                                                                                    </button>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <div className="h-1 w-1 rounded-full bg-slate-200" />
+                                                                                            <div className="flex items-center gap-1 text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                                                                                                <Calendar size={10} className="text-slate-400" />
+                                                                                                {trip.created_at ? new Date(trip.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
                                                                                             </div>
                                                                                             {trip.invoice_no && (
                                                                                                 <>
@@ -1374,35 +1454,6 @@ const TripSheets = () => {
                                                                                     )}
 
                                                                                     <div className="flex items-center gap-2 w-full sm:w-auto">
-                                                                                        <Button
-                                                                                            variant="ghost"
-                                                                                            size="icon"
-                                                                                            className="h-9 w-9 rounded-xl border border-slate-200 hover:bg-white hover:text-indigo-600 shadow-sm"
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                setDuplicateSourceTrip(trip);
-                                                                                                setSelectedTrip(null);
-                                                                                                setIsSheetOpen(true);
-                                                                                            }}
-                                                                                            title="Duplicate"
-                                                                                        >
-                                                                                            <Copy size={16} />
-                                                                                        </Button>
-
-                                                                                        {trip.status === 'Planned' && (
-                                                                                            <Button
-                                                                                                variant="ghost"
-                                                                                                size="icon"
-                                                                                                className="h-9 w-9 rounded-xl border border-rose-100 shadow-sm transition-all text-rose-500 hover:bg-rose-500 hover:text-white border-rose-200"
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    handleDeleteTrip(trip.id);
-                                                                                                }}
-                                                                                                title="Delete Draft Trip"
-                                                                                            >
-                                                                                                <Trash2 size={16} />
-                                                                                            </Button>
-                                                                                        )}
 
                                                                                         <Button
                                                                                             variant="outline"
@@ -1437,6 +1488,85 @@ const TripSheets = () => {
                     </Table>
                 </div>
             </Card>
+
+            {/* ✏️ Switch / Edit Trip Reference Number Dialog */}
+            <Dialog 
+                open={editRefDialog.open} 
+                onOpenChange={(open) => {
+                    if (!isUpdatingRef) {
+                        setEditRefDialog(prev => ({ ...prev, open }));
+                    }
+                }}
+            >
+                <DialogContent className="max-w-md bg-white border-none shadow-2xl rounded-2xl p-0 overflow-hidden">
+                    <div className="bg-slate-900 p-5 text-white">
+                        <DialogHeader>
+                            <DialogTitle className="text-base font-bold flex items-center gap-2.5">
+                                <div className="p-2 bg-indigo-600 rounded-lg">
+                                    <Edit2 size={16} className="text-white" />
+                                </div>
+                                Switch Trip Reference Number
+                            </DialogTitle>
+                            <p className="text-slate-400 text-xs mt-1">
+                                Vehicle: <span className="text-white font-bold">{editRefDialog.trip?.vehicle?.vehicle_no || editRefDialog.trip?.truck_reg || 'N/A'}</span>
+                            </p>
+                        </DialogHeader>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                        <div className="space-y-1.5">
+                            <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                Current Reference
+                            </Label>
+                            <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs font-mono font-bold text-slate-700">
+                                {editRefDialog.trip?.reference_number || "None"}
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                New Reference Number
+                            </Label>
+                            <Input
+                                autoFocus
+                                placeholder="e.g. T 985/2025/T121"
+                                value={editRefDialog.newRef}
+                                onChange={(e) => setEditRefDialog(prev => ({ ...prev, newRef: e.target.value }))}
+                                className="h-10 text-xs font-semibold"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleUpdateTripReference();
+                                    }
+                                }}
+                            />
+                            <p className="text-[11px] text-slate-400">
+                                Enter the exact trip number from the approved order (e.g. <span className="font-mono font-semibold text-slate-600">T 985/2025/T121</span>). This links them and clears it from the Approved Orders tab.
+                            </p>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={isUpdatingRef}
+                            onClick={() => setEditRefDialog({ open: false, trip: null, newRef: '' })}
+                            className="text-xs font-semibold"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            disabled={isUpdatingRef || !editRefDialog.newRef.trim()}
+                            onClick={handleUpdateTripReference}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md"
+                        >
+                            {isUpdatingRef ? "Updating..." : "Save Reference"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* 🧾 Professional Batch Invoicing Dashboard */}
             <Dialog open={batchDialog.open} onOpenChange={(open) => setBatchDialog(prev => ({ ...prev, open }))}>

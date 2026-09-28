@@ -120,6 +120,17 @@ export default function TripOrders() {
         return initialNominationState;
     });
 
+    // Edit Nomination State
+    const [editingNomination, setEditingNomination] = useState<any>(null);
+    const [editNominationForm, setEditNominationForm] = useState<any>({
+        driver_id: "",
+        driver_name: "",
+        target_destination: "",
+        expected_departure_date: "",
+        cargo_type: "",
+        logistics_notes: ""
+    });
+
     // Edit Order State
     const [editingOrder, setEditingOrder] = useState<any>(null);
     const [editFormData, setEditFormData] = useState<any>({});
@@ -693,6 +704,24 @@ export default function TripOrders() {
         },
         onError: (err: any) => {
             toast({ variant: "destructive", title: "Action Failed", description: err.message });
+        }
+    });
+
+    const updateNominationMutation = useMutation({
+        mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
+            const { error } = await supabase
+                .from("logistics_vehicle_nominations" as any)
+                .update(updates)
+                .eq("id", id);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics_vehicle_nominations"] });
+            toast({ title: "Nomination Updated", description: "Nomination details and driver assignment saved." });
+            setEditingNomination(null);
+        },
+        onError: (err: any) => {
+            toast({ variant: "destructive", title: "Update Failed", description: err.message });
         }
     });
 
@@ -1387,12 +1416,18 @@ export default function TripOrders() {
                                                                         Uncoupled
                                                                     </div>
                                                                 )}
-                                                                {nom.driver_name && (
-                                                                    <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                                                        <User className="w-3 h-3" />
-                                                                        {nom.driver_name}
-                                                                    </div>
-                                                                )}
+                                                                {nom.driver_name && (() => {
+                                                                    const matchedDriver = drivers.find((d: any) => d.id === nom.driver_id || d.full_name === nom.driver_name);
+                                                                    const details = extractDriverDetails(matchedDriver);
+                                                                    const phone = details.phone || nom.contact_no || "";
+                                                                    return (
+                                                                        <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1 mt-0.5">
+                                                                            <User className="w-3 h-3 text-indigo-500" />
+                                                                            <span className="font-semibold text-slate-700">{nom.driver_name}</span>
+                                                                            {phone && <span className="text-slate-400 font-normal">({phone})</span>}
+                                                                        </div>
+                                                                    );
+                                                                })()}
                                                             </>
                                                         );
                                                     })()}
@@ -1473,6 +1508,26 @@ export default function TripOrders() {
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                setEditingNomination(nom);
+                                                                setEditNominationForm({
+                                                                    driver_id: nom.driver_id || "",
+                                                                    driver_name: nom.driver_name || "",
+                                                                    target_destination: nom.target_destination || "",
+                                                                    expected_departure_date: nom.expected_departure_date || "",
+                                                                    cargo_type: nom.cargo_type || "",
+                                                                    logistics_notes: nom.logistics_notes || ""
+                                                                });
+                                                            }}
+                                                            className="h-8 w-8 p-0 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                                                            title="Edit Nomination & Assign Driver"
+                                                        >
+                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                        </Button>
+
                                                         {isFit && (
                                                             <Button
                                                                 size="sm"
@@ -3665,6 +3720,238 @@ export default function TripOrders() {
                             </div>
                         </DialogFooter>
                     </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* EDIT NOMINATION & ASSIGN DRIVER MODAL */}
+            <Dialog open={!!editingNomination} onOpenChange={open => !open && setEditingNomination(null)}>
+                <DialogContent className="max-w-lg rounded-2xl p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Edit2 className="w-5 h-5 text-indigo-600" />
+                            Edit Nomination & Assign Driver
+                        </DialogTitle>
+                        <p className="text-xs text-slate-500">
+                            Update nomination details or assign a driver for vehicle <strong className="text-slate-800">{editingNomination?.truck_reg}</strong>.
+                        </p>
+                    </DialogHeader>
+
+                    {editingNomination && (
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                updateNominationMutation.mutate({
+                                    id: editingNomination.id,
+                                    updates: {
+                                        driver_id: editNominationForm.driver_id || null,
+                                        driver_name: editNominationForm.driver_name || null,
+                                        target_destination: editNominationForm.target_destination || null,
+                                        expected_departure_date: editNominationForm.expected_departure_date || null,
+                                        cargo_type: editNominationForm.cargo_type || null,
+                                        logistics_notes: editNominationForm.logistics_notes || null
+                                    }
+                                });
+                            }}
+                            className="space-y-4 pt-2"
+                        >
+                            {/* Vehicle & Trailer Read-only Info Banner */}
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Truck className="w-4 h-4 text-indigo-600" />
+                                    <div>
+                                        <span className="font-bold text-slate-800">{editingNomination.truck_reg}</span>
+                                        {editingNomination.trailer_reg && (
+                                            <span className="text-slate-500 ml-1.5 font-normal">
+                                                (Trailer: <strong className="text-slate-700">{editingNomination.trailer_reg}</strong>)
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <Badge className="text-[10px] bg-white text-slate-600 border-slate-200 shadow-none">
+                                    {editingNomination.garage_readiness || editingNomination.status || "Pending"}
+                                </Badge>
+                            </div>
+
+                            {/* Driver Assignment with Phone Number & Duplicate Prevention */}
+                            <div className="space-y-1.5">
+                                <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                                    <span>Assign Driver</span>
+                                    {editNominationForm.driver_name && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditNominationForm((prev: any) => ({ ...prev, driver_id: "", driver_name: "" }))}
+                                            className="text-[10px] text-rose-600 hover:underline font-bold"
+                                        >
+                                            Clear Driver
+                                        </button>
+                                    )}
+                                </Label>
+
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            type="button"
+                                            className={cn(
+                                                "w-full h-10 justify-between bg-white border-slate-200 text-xs font-semibold",
+                                                !editNominationForm.driver_name && "text-slate-400 font-normal"
+                                            )}
+                                        >
+                                            <span className="truncate flex items-center gap-1.5">
+                                                <User className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                                {editNominationForm.driver_name ? (() => {
+                                                    const selDriver = drivers.find((d: any) => d.id === editNominationForm.driver_id || d.full_name === editNominationForm.driver_name);
+                                                    const details = extractDriverDetails(selDriver);
+                                                    return (
+                                                        <span>
+                                                            <strong>{editNominationForm.driver_name}</strong>
+                                                            {details.phone && <span className="text-slate-500 ml-1">({details.phone})</span>}
+                                                        </span>
+                                                    );
+                                                })() : "Search / Select Driver (Shows Phone Number)..."}
+                                            </span>
+                                            <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[380px] p-0 z-[9999]" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search driver by name or phone..." className="h-8 text-xs" />
+                                            <CommandList>
+                                                <CommandEmpty className="p-2 text-xs text-center text-slate-500">No driver found.</CommandEmpty>
+                                                <CommandGroup className="max-h-[240px] overflow-auto">
+                                                    {drivers.map((d: any) => {
+                                                        const details = extractDriverDetails(d);
+                                                        const isSelected = editNominationForm.driver_id === d.id || editNominationForm.driver_name === d.full_name;
+
+                                                        // Check if driver is already assigned to ANOTHER active nomination
+                                                        const busyNomination = (nominations || []).find((n: any) => 
+                                                            n.id !== editingNomination.id && 
+                                                            (n.driver_id === d.id || (n.driver_name && n.driver_name.toLowerCase() === d.full_name.toLowerCase())) &&
+                                                            n.status !== 'Cancelled' && n.status !== 'Completed'
+                                                        );
+
+                                                        const isBusy = !!busyNomination;
+
+                                                        return (
+                                                            <CommandItem
+                                                                key={d.id}
+                                                                value={`${d.full_name} ${details.phone || ''} ${d.license_no || ''}`}
+                                                                disabled={isBusy}
+                                                                onSelect={() => {
+                                                                    if (isBusy) return;
+                                                                    setEditNominationForm((prev: any) => ({
+                                                                        ...prev,
+                                                                        driver_id: d.id,
+                                                                        driver_name: d.full_name
+                                                                    }));
+                                                                }}
+                                                                className={cn(
+                                                                    "text-xs font-medium cursor-pointer flex items-center justify-between p-2",
+                                                                    isBusy && "opacity-50 cursor-not-allowed bg-slate-50"
+                                                                )}
+                                                            >
+                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                    <Check className={cn("h-3.5 w-3.5 text-indigo-600 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                                                    <div className="flex flex-col min-w-0">
+                                                                        <span className="font-semibold text-slate-800 truncate">{d.full_name}</span>
+                                                                        <span className="text-[10px] text-slate-400 font-mono">
+                                                                            {details.phone ? `📞 ${details.phone}` : "No phone registered"}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {isBusy ? (
+                                                                    <Badge variant="outline" className="text-[9px] text-amber-700 bg-amber-50 border-amber-200 shrink-0 ml-2">
+                                                                        Busy ({(busyNomination as any)?.truck_reg || 'Another Truck'})
+                                                                    </Badge>
+                                                                ) : isSelected ? (
+                                                                    <Badge className="text-[9px] bg-indigo-50 text-indigo-700 border-indigo-200 shrink-0 ml-2">
+                                                                        Selected
+                                                                    </Badge>
+                                                                ) : null}
+                                                            </CommandItem>
+                                                        );
+                                                    })}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+
+                            {/* Destination & Departure Date */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <Label className="text-xs font-semibold text-slate-700">Target Destination</Label>
+                                    <Select
+                                        value={editNominationForm.target_destination}
+                                        onValueChange={val => setEditNominationForm((prev: any) => ({ ...prev, target_destination: val }))}
+                                    >
+                                        <SelectTrigger className="h-9 text-xs bg-white">
+                                            <SelectValue placeholder="Select Destination" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {STANDARD_DESTINATIONS.map(dest => (
+                                                <SelectItem key={dest} value={dest} className="text-xs">{dest}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label className="text-xs font-semibold text-slate-700">Target Departure Date</Label>
+                                    <Input
+                                        type="date"
+                                        value={editNominationForm.expected_departure_date}
+                                        onChange={e => setEditNominationForm((prev: any) => ({ ...prev, expected_departure_date: e.target.value }))}
+                                        className="h-9 text-xs"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Cargo Type */}
+                            <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-slate-700">Cargo Type</Label>
+                                <Input
+                                    value={editNominationForm.cargo_type}
+                                    onChange={e => setEditNominationForm((prev: any) => ({ ...prev, cargo_type: e.target.value }))}
+                                    placeholder="e.g. Copper Cathodes, Fuel, Bagged Cement..."
+                                    className="h-9 text-xs"
+                                />
+                            </div>
+
+                            {/* Logistics Notes */}
+                            <div className="space-y-1">
+                                <Label className="text-xs font-semibold text-slate-700">Logistics Notes</Label>
+                                <Textarea
+                                    value={editNominationForm.logistics_notes}
+                                    onChange={e => setEditNominationForm((prev: any) => ({ ...prev, logistics_notes: e.target.value }))}
+                                    placeholder="Add inspection or route notes..."
+                                    className="text-xs min-h-[60px]"
+                                />
+                            </div>
+
+                            <DialogFooter className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setEditingNomination(null)}
+                                    className="h-9 text-xs font-semibold rounded-xl"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={updateNominationMutation.isPending}
+                                    className="h-9 px-4 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs gap-1.5"
+                                >
+                                    <Save className="w-3.5 h-3.5" />
+                                    {updateNominationMutation.isPending ? "Saving..." : "Save Changes"}
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>

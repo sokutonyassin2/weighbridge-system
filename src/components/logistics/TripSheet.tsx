@@ -2531,7 +2531,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             )}
 
             {/* 🕰 Audit Trail Header */}
-            <div className="grid grid-grid-cols-1 md:grid-cols-3 gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 border-dashed mb-4">
+            <div className="grid grid-grid-cols-1 md:grid-cols-4 gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200 border-dashed mb-4">
                 <div className="flex flex-col">
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Prepared By</span>
                     <span className="text-[11px] font-medium text-slate-700">
@@ -2541,6 +2541,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 on {new Date(auditTrail.created_at || new Date()).toLocaleDateString()}
                             </span>
                         )}
+                    </span>
+                </div>
+                <div className="flex flex-col border-l border-slate-200 pl-4">
+                    <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Order Date</span>
+                    <span className="text-[11px] font-bold text-indigo-700">
+                        {auditTrail.created_at
+                            ? new Date(auditTrail.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                 </div>
                 {auditTrail.approved_by_name && (

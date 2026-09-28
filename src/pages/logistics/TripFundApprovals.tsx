@@ -457,136 +457,569 @@ export default function TripFundApprovals() {
                 if (error) throw error;
                 expenses = data || [];
             }
+
             const workbook = new ExcelJS.Workbook();
-            workbook.creator = "Logistics Executive Hub";
-            workbook.lastModifiedBy = userProfile?.full_name || "Executive";
-            workbook.created = new Date();
+            const sheet = workbook.addWorksheet('Trip Budget');
 
-            const sheet = workbook.addWorksheet("Trip Budget Sheet", {
-                pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1 }
-            });
+            // Styles matching TripSheet.tsx exactly
+            const titleStyle: Partial<ExcelJS.Style> = {
+                font: { bold: true, size: 16, color: { argb: '000000' } },
+                fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC000' } }, // Gold/Amber
+                alignment: { horizontal: 'center', vertical: 'middle' }
+            };
 
-            // Set column widths
-            sheet.columns = [
-                { width: 30 }, // Item Description
-                { width: 16 }, // Category / Country
-                { width: 16 }, // Nature
-                { width: 16 }, // Original Amount
-                { width: 12 }, // Currency
-                { width: 22 }  // TZS Amount
+            const headerStyle: Partial<ExcelJS.Style> = {
+                font: { bold: true, color: { argb: '000000' } },
+                fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'E2E8F0' } },
+                border: {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                }
+            };
+
+            const subtotalStyle: Partial<ExcelJS.Style> = {
+                font: { bold: true },
+                fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F1F5F9' } }
+            };
+
+            const borderStyle: Partial<ExcelJS.Borders> = {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+            };
+
+            // Column widths
+            sheet.getColumn(1).width = 30; // Item Description
+            sheet.getColumn(2).width = 20; // Nature
+            sheet.getColumn(3).width = 20; // TZS Amount
+            sheet.getColumn(4).width = 15; // USD Equivalent
+            sheet.getColumn(5).width = 20; // Other Currency (ZMW/RWF/BIF)
+
+            // 1. Title
+            sheet.mergeCells('A1:E2');
+            const titleCell = sheet.getCell('A1');
+            titleCell.value = 'TRIP BUDGET & CLEARANCE SHEET';
+            titleCell.style = titleStyle;
+
+            let currRow = 4;
+
+            // Extract country rates and active countries
+            const countryRates: Record<string, number> = trip.country_rates && typeof trip.country_rates === 'object'
+                ? trip.country_rates
+                : { TZ: trip.exchange_rate || 2700, Zambia: 25.5, DRC: 1.0, Rwanda: 2.0, Burundi: 1.0 };
+            
+            const tzR = countryRates["TZ"] || trip.exchange_rate || 2700;
+            const zmwR = countryRates["Zambia"] || 25.5;
+
+            const activeCountries: string[] = Array.isArray(trip.active_countries) && trip.active_countries.length > 0
+                ? trip.active_countries
+                : ['TZ', 'Zambia', 'DRC', 'Rwanda', 'Burundi', 'Fixed'];
+
+            // 2. Trip Details Headers
+            const addProjectInfo = (label: string, value: string) => {
+                const rowIdx = currRow++;
+                const row = sheet.getRow(rowIdx);
+                row.getCell(1).value = label;
+                row.getCell(1).font = { bold: true };
+                row.getCell(1).border = borderStyle;
+                row.getCell(2).value = value;
+                row.getCell(2).border = borderStyle;
+                row.getCell(3).border = borderStyle;
+                row.getCell(4).border = borderStyle;
+                row.getCell(5).border = borderStyle;
+                sheet.mergeCells(`B${rowIdx}:E${rowIdx}`);
+            };
+
+            addProjectInfo('Trip Reference:', trip.reference_number || 'STANDALONE-BUDGET');
+            addProjectInfo('Date Generated:', format(new Date(), "dd/MM/yyyy"));
+            addProjectInfo('Vehicle (Horse):', trip.truckPlate || 'Pending');
+            addProjectInfo('Linked Trailer:', trip.trailerPlate || 'None Coupled');
+            addProjectInfo('Driver:', trip.driverName || 'Pending');
+            addProjectInfo('Route / Destination:', `${trip.origin || 'DAR ES SALAAM'} → ${trip.destination || 'Not Specified'}`);
+            addProjectInfo(
+                'Exchange Rates:',
+                `1 USD = ${tzR} TZS${activeCountries.includes('Zambia') ? ` | 1 USD = ${countryRates["Zambia"] || 25.5} ZMW` : ''}${activeCountries.includes('DRC') ? ` | 1 USD = ${countryRates["DRC"] || 1.0} DRC Rate` : ''}${activeCountries.includes('Rwanda') ? ` | 1 USD = ${countryRates["Rwanda"] || 2} RWF` : ''}${activeCountries.includes('Burundi') ? ` | 1 USD = ${countryRates["Burundi"] || 1} BIF` : ''}`
+            );
+
+            currRow += 2;
+
+            // 3. Financial Summary
+            sheet.mergeCells(`A${currRow}:E${currRow}`);
+            sheet.getRow(currRow).getCell(1).value = 'FINANCIAL SUMMARY';
+            sheet.getRow(currRow).getCell(1).font = { bold: true, size: 12 };
+            sheet.getRow(currRow).getCell(1).alignment = { horizontal: 'center' };
+            currRow++;
+
+            const addSummaryLine = (label: string, usd: number, tzs: number, color?: string) => {
+                const rowIdx = currRow++;
+                const row = sheet.getRow(rowIdx);
+                row.getCell(1).value = label;
+                row.getCell(3).value = tzs;
+                row.getCell(3).numFmt = '#,##0 "TSHS"';
+                row.getCell(3).font = { bold: true };
+                
+                row.getCell(4).value = usd;
+                row.getCell(4).numFmt = '"$"#,##0.00';
+                
+                row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 5) c.border = borderStyle;
+                });
+                
+                if (color) row.getCell(1).font = { bold: true, color: { argb: color } };
+                sheet.mergeCells(`A${rowIdx}:B${rowIdx}`);
+            };
+
+            const rawRev = parseFloat(trip.revenue_amount || '0');
+            const revUsd = trip.revenue_currency === 'TZS' ? rawRev / tzR : rawRev;
+            const revTzs = trip.revenue_currency === 'TZS' ? rawRev : rawRev * tzR;
+
+            // Compute expenses totals by category
+            const budgetedExpenses = expenses.filter((e: any) => !e.is_extra);
+            const extraExpensesArr = expenses.filter((e: any) => e.is_extra);
+
+            const buildCatTotals = (list: any[]) => {
+                const acc: Record<string, { usd: number; tzs: number }> = {};
+                list.forEach((e: any) => {
+                    const cat = e.category || 'TZ';
+                    if (!acc[cat]) acc[cat] = { usd: 0, tzs: 0 };
+                    const amt = parseFloat(e.amount) || 0;
+                    const effCurr = (cat === 'DRC') ? 'USD' : (e.currency || 'TZS');
+                    let u = 0;
+                    let t = 0;
+                    if (effCurr === 'USD') {
+                        u = amt;
+                        t = amt * tzR;
+                    } else if (effCurr === 'TZS' || cat === 'TZ' || cat === 'Fixed') {
+                        t = amt;
+                        u = amt / tzR;
+                    } else {
+                        const localRate = cat === 'Zambia' ? (countryRates['Zambia'] || 140) : (countryRates[cat] || 1);
+                        t = amt * localRate;
+                        u = t / tzR;
+                    }
+                    acc[cat].usd += u;
+                    acc[cat].tzs += t;
+                });
+                return acc;
+            };
+
+            const categoryTotals = buildCatTotals(budgetedExpenses);
+            const extraCategoryTotals = buildCatTotals(extraExpensesArr);
+
+            const totalOperationalUSD = Object.values(categoryTotals).reduce((sum, c) => sum + c.usd, 0);
+            const totalOperationalTZS = totalOperationalUSD * tzR;
+
+            const fuelEntries = trip.country_rates?.fuel_entries || (trip.fuel_liters && trip.fuel_price ? [{ liters: trip.fuel_liters, price: trip.fuel_price }] : []);
+            const fuelLiters = trip.fuelLiters || (parseFloat(trip.fuel_liters) || 0);
+            const fuelCostUSD = parseFloat(trip.fuel_amount) || (fuelEntries.reduce((s: number, e: any) => s + ((parseFloat(e.liters) || 0) * (parseFloat(e.price) || 0)), 0) / tzR);
+            const fuelCostTZS = fuelCostUSD * tzR;
+
+            const isWithFuel = trip.revenue_type === 'With Fuel';
+            const activeFuelUSD = isWithFuel ? fuelCostUSD : 0;
+            const activeFuelTZS = isWithFuel ? fuelCostTZS : 0;
+
+            const totalTripCostsUSD = totalOperationalUSD + activeFuelUSD;
+            const totalTripCostsTZS = totalOperationalTZS + activeFuelTZS;
+            const netProfitUSD = revUsd - totalTripCostsUSD;
+
+            addSummaryLine('GROSS TRIP REVENUE', revUsd, revTzs);
+            addSummaryLine('ROAD EXPENSES', totalOperationalUSD, totalOperationalTZS, 'C0504D');
+            if (isWithFuel && fuelCostUSD > 0) {
+                addSummaryLine(`FUEL COST (${fuelLiters.toLocaleString()} L)`, fuelCostUSD, fuelCostTZS, 'ED7D31');
+            }
+            addSummaryLine('TOTAL TRIP COSTS', totalTripCostsUSD, totalTripCostsTZS, 'C0504D');
+            addSummaryLine('PROJECTED NET PROFIT', netProfitUSD, netProfitUSD * tzR, netProfitUSD < 0 ? 'C0504D' : '107C10');
+
+            currRow += 2;
+
+            // 4. Detailed Expenses Breakdown
+            const categories = [
+                { id: 'TZ', label: 'TANZANIA OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${tzR} TZS` },
+                { id: 'Zambia', label: 'ZAMBIA OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${zmwR} ZMW` },
+                { id: 'DRC', label: 'DR CONGO OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${tzR} TZS` },
+                { id: 'Rwanda', label: 'RWANDA OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["Rwanda"] || 2} RWF` },
+                { id: 'Burundi', label: 'BURUNDI OPERATIONS', rateLabel: `Exchange Rate: 1 USD = ${countryRates["Burundi"] || 1} BIF` },
+                { id: 'Fixed', label: 'FIXED EXPENSES & OVERHEAD', rateLabel: '' }
             ];
 
-            // Styles
-            const headerFill: ExcelJS.Fill = {
-                type: "pattern",
-                pattern: "solid",
-                fgColor: { argb: "1E293B" }
-            };
-            const headerFont = { bold: true, color: { argb: "FFFFFF" }, size: 10 };
-            const titleFont = { bold: true, color: { argb: "1E293B" }, size: 14 };
-            const subTitleFont = { bold: true, color: { argb: "475569" }, size: 10 };
-            const borderThin: Partial<ExcelJS.Borders> = {
-                top: { style: "thin", color: { argb: "CBD5E1" } },
-                bottom: { style: "thin", color: { argb: "CBD5E1" } },
-                left: { style: "thin", color: { argb: "CBD5E1" } },
-                right: { style: "thin", color: { argb: "CBD5E1" } }
-            };
+            categories.forEach(cat => {
+                const catExpenses = expenses.filter((e: any) => e.category === cat.id && !e.is_extra);
+                if (catExpenses.length === 0 && !activeCountries.includes(cat.id)) return;
 
-            // Title block
-            const r1 = sheet.addRow(["PRO-FORMA TRIP BUDGET & FUND REQUEST"]);
-            r1.getCell(1).font = titleFont;
-            sheet.mergeCells("A1:F1");
+                const sectionHeaderIdx = currRow++;
+                const sectionHeader = sheet.getRow(sectionHeaderIdx);
+                sectionHeader.getCell(1).value = cat.label;
+                sectionHeader.getCell(1).style = headerStyle;
+                sheet.mergeCells(`A${sectionHeaderIdx}:E${sectionHeaderIdx}`);
 
-            const r2 = sheet.addRow([`Reference: ${trip.reference_number || "N/A"} | Client: ${trip.client_name || "N/A"}`]);
-            r2.getCell(1).font = subTitleFont;
-            sheet.mergeCells("A2:F2");
+                if ((cat as any).rateLabel && cat.id !== 'Fixed') {
+                    const rateRowIdx = currRow++;
+                    const rateRow = sheet.getRow(rateRowIdx);
+                    rateRow.getCell(1).value = (cat as any).rateLabel;
+                    rateRow.getCell(1).font = { italic: true, size: 9, color: { argb: '6B7280' } };
+                    sheet.mergeCells(`A${rateRowIdx}:E${rateRowIdx}`);
+                }
 
-            sheet.addRow([]);
+                const tableHeader = sheet.getRow(currRow++);
+                tableHeader.getCell(1).value = 'Item Description';
+                tableHeader.getCell(2).value = 'Nature';
+                tableHeader.getCell(3).value = 'Amount (USD)';
+                tableHeader.getCell(3).alignment = { horizontal: 'right' };
+                
+                let tzsCol = 4;
+                if (cat.id === 'Zambia') {
+                    tableHeader.getCell(4).value = 'Amount (ZMW)';
+                    tableHeader.getCell(4).alignment = { horizontal: 'right' };
+                    tzsCol = 5;
+                } else if (cat.id === 'Rwanda') {
+                    tableHeader.getCell(4).value = 'Amount (RWF)';
+                    tableHeader.getCell(4).alignment = { horizontal: 'right' };
+                    tzsCol = 5;
+                } else if (cat.id === 'Burundi') {
+                    tableHeader.getCell(4).value = 'Amount (BIF)';
+                    tableHeader.getCell(4).alignment = { horizontal: 'right' };
+                    tzsCol = 5;
+                }
+                
+                tableHeader.getCell(tzsCol).value = 'Amount (TZS)';
+                tableHeader.getCell(tzsCol).alignment = { horizontal: 'right' };
+                
+                tableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    const limit = ['Zambia', 'Rwanda', 'Burundi'].includes(cat.id) ? 5 : 4;
+                    if (colNumber <= limit) {
+                        c.font = { bold: true };
+                        c.border = borderStyle;
+                        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } };
+                    }
+                });
 
-            // Trip Details Table
-            const d1 = sheet.addRow(["Truck Plate:", trip.truckPlate || "N/A", "Trailer:", trip.trailerPlate || "---"]);
-            const d2 = sheet.addRow(["Driver:", trip.driverName || "Unassigned", "Phone:", trip.driverPhone || "---"]);
-            const d3 = sheet.addRow(["Route Origin:", trip.origin || "DAR ES SALAAM", "Destination:", trip.destination || "N/A"]);
-            const d4 = sheet.addRow(["Status:", trip.status || "Planned", "Date:", format(new Date(trip.created_at || new Date()), "dd MMM yyyy")]);
+                catExpenses.forEach((exp: any) => {
+                    const rowIdx = currRow++;
+                    const row = sheet.getRow(rowIdx);
+                    
+                    const amt = parseFloat(exp.amount) || 0;
+                    let amtUsd = 0;
+                    let amtTzs = 0;
+                    let amtLocal = 0;
 
-            [d1, d2, d3, d4].forEach(row => {
-                row.getCell(1).font = { bold: true, size: 9 };
-                row.getCell(3).font = { bold: true, size: 9 };
-            });
+                    const effectiveCurrency = (cat.id === 'DRC') ? 'USD' : (exp.currency || 'TZS');
 
-            sheet.addRow([]);
-
-            // Expense Table Header
-            const hRow = sheet.addRow(["Expense Item", "Country / Section", "Nature", "Original Amount", "Currency", "TZS Equivalent"]);
-            hRow.eachCell((cell) => {
-                cell.fill = headerFill;
-                cell.font = headerFont;
-                cell.alignment = { vertical: "middle", horizontal: "center" };
-            });
-
-            const tzRate = trip.exchange_rate || 2700;
-
-            if (expenses.length === 0) {
-                const emptyRow = sheet.addRow(["No itemized expenses found", "", "", "", "", ""]);
-                sheet.mergeCells(`A${emptyRow.number}:F${emptyRow.number}`);
-            } else {
-                expenses.forEach((item) => {
-                    const amt = parseFloat(item.amount) || 0;
-                    let tzsVal = amt;
-                    if (item.currency === "USD") {
-                        tzsVal = amt * tzRate;
-                    } else if (item.currency === "ZMW") {
-                        tzsVal = amt * 100;
-                    } else if (item.currency === "RWF") {
-                        tzsVal = amt * 2;
-                    } else if (item.currency === "BIF") {
-                        tzsVal = amt * 1;
+                    if (effectiveCurrency === 'USD') {
+                        amtUsd = amt;
+                        amtTzs = amt * tzR;
+                        if (cat.id === 'Zambia') amtLocal = amtTzs / (countryRates["Zambia"] || 140);
+                        else if (cat.id === 'Rwanda') amtLocal = amtTzs / (countryRates["Rwanda"] || 2);
+                        else if (cat.id === 'Burundi') amtLocal = amtTzs / (countryRates["Burundi"] || 1);
+                    } else {
+                        if (cat.id === 'TZ' || cat.id === 'Fixed') {
+                            amtTzs = amt;
+                            amtUsd = amt / tzR;
+                        } else if (cat.id === 'Zambia') {
+                            amtLocal = amt;
+                            amtTzs = amt * (countryRates["Zambia"] || 140);
+                            amtUsd = amtTzs / tzR;
+                        } else if (cat.id === 'DRC') {
+                            amtUsd = amt;
+                            amtTzs = amt * tzR;
+                        } else if (cat.id === 'Rwanda') {
+                            amtLocal = amt;
+                            amtTzs = amt * (countryRates["Rwanda"] || 2);
+                            amtUsd = amtTzs / tzR;
+                        } else if (cat.id === 'Burundi') {
+                            amtLocal = amt;
+                            amtTzs = amt * (countryRates["Burundi"] || 1);
+                            amtUsd = amtTzs / tzR;
+                        }
                     }
 
-                    const row = sheet.addRow([
-                        item.item_name || "Item",
-                        item.category || "General",
-                        item.nature || "Go & Return",
-                        amt,
-                        item.currency || "TZS",
-                        Math.round(tzsVal)
-                    ]);
+                    row.getCell(1).value = exp.item_name;
+                    row.getCell(2).value = exp.nature || 'General';
+                    
+                    row.getCell(3).value = amtUsd;
+                    row.getCell(3).numFmt = '"$"#,##0.00';
+                    
+                    if (cat.id === 'Zambia') {
+                        row.getCell(4).value = Math.round(amtLocal);
+                        row.getCell(4).numFmt = '#,##0 "K"';
+                    } else if (cat.id === 'Rwanda') {
+                        row.getCell(4).value = Math.round(amtLocal);
+                        row.getCell(4).numFmt = '#,##0 "RWF"';
+                    } else if (cat.id === 'Burundi') {
+                        row.getCell(4).value = Math.round(amtLocal);
+                        row.getCell(4).numFmt = '#,##0 "BIF"';
+                    }
 
-                    row.getCell(4).numFmt = "#,##0.00";
-                    row.getCell(6).numFmt = "#,##0";
-                    row.eachCell((cell) => {
-                        cell.border = borderThin;
+                    row.getCell(tzsCol).value = Math.round(amtTzs);
+                    row.getCell(tzsCol).numFmt = '#,##0';
+                    
+                    row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                        const limit = ['Zambia', 'Rwanda', 'Burundi'].includes(cat.id) ? 5 : 4;
+                        if (colNumber <= limit) c.border = borderStyle;
                     });
+                });
+
+                const subTotalRowIdx = currRow++;
+                const subTotalRow = sheet.getRow(subTotalRowIdx);
+                subTotalRow.getCell(1).value = `SUBTOTAL ${cat.label}`;
+                subTotalRow.getCell(1).style = subtotalStyle;
+                
+                subTotalRow.getCell(3).value = categoryTotals[cat.id]?.usd || 0;
+                subTotalRow.getCell(3).numFmt = '"$"#,##0.00';
+                
+                if (cat.id === 'Zambia') {
+                    subTotalRow.getCell(4).value = Math.round((categoryTotals[cat.id]?.usd || 0) * (countryRates["Zambia"] || 100));
+                    subTotalRow.getCell(4).numFmt = '#,##0 "K"';
+                } else if (cat.id === 'Rwanda') {
+                    subTotalRow.getCell(4).value = Math.round((categoryTotals[cat.id]?.usd || 0) * (countryRates["Rwanda"] || 2));
+                    subTotalRow.getCell(4).numFmt = '#,##0 "RWF"';
+                } else if (cat.id === 'Burundi') {
+                    subTotalRow.getCell(4).value = Math.round((categoryTotals[cat.id]?.usd || 0) * (countryRates["Burundi"] || 1));
+                    subTotalRow.getCell(4).numFmt = '#,##0 "BIF"';
+                }
+                
+                subTotalRow.getCell(tzsCol).value = categoryTotals[cat.id]?.tzs || 0;
+                subTotalRow.getCell(tzsCol).numFmt = '#,##0';
+                
+                sheet.mergeCells(`A${subTotalRowIdx}:B${subTotalRowIdx}`);
+
+                subTotalRow.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    const limit = ['Zambia', 'Rwanda', 'Burundi'].includes(cat.id) ? 5 : 4;
+                    if (colNumber <= limit) {
+                        c.font = { bold: true };
+                        c.border = borderStyle;
+                    }
+                });
+
+                currRow += 1;
+            });
+
+            // 4.1 UNBUDGETED / EXTRA EXPENSES
+            if (extraExpensesArr.length > 0) {
+                currRow++;
+                const extraHeaderIdx = currRow++;
+                const extraHeader = sheet.getRow(extraHeaderIdx);
+                extraHeader.getCell(1).value = 'UNBUDGETED / EXTRA EXPENSES';
+                extraHeader.getCell(1).style = { ...headerStyle, font: { bold: true, color: { argb: 'FFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'DC2626' } } };
+                sheet.mergeCells(`A${extraHeaderIdx}:E${extraHeaderIdx}`);
+
+                const tableHeader = sheet.getRow(currRow++);
+                tableHeader.getCell(1).value = 'Item Description';
+                tableHeader.getCell(2).value = 'Location / Country';
+                tableHeader.getCell(3).value = 'Amount (USD)';
+                tableHeader.getCell(3).alignment = { horizontal: 'right' };
+                tableHeader.getCell(4).value = 'Amount (TZS)';
+                tableHeader.getCell(4).alignment = { horizontal: 'right' };
+
+                tableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 4) {
+                        c.font = { bold: true };
+                        c.border = borderStyle;
+                        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEE2E2' } };
+                    }
+                });
+
+                extraExpensesArr.forEach((exp: any) => {
+                    const rowIdx = currRow++;
+                    const row = sheet.getRow(rowIdx);
+                    
+                    const amt = parseFloat(exp.amount) || 0;
+                    let amtUsd = 0;
+                    let amtTzs = 0;
+
+                    const effectiveCurrency = (exp.category === 'DRC') ? 'USD' : (exp.currency || 'TZS');
+
+                    if (effectiveCurrency === 'USD') {
+                        amtUsd = amt;
+                        amtTzs = amt * tzR;
+                    } else if (effectiveCurrency === 'TZS' || exp.category === 'TZ') {
+                        amtTzs = amt;
+                        amtUsd = amt / tzR;
+                    } else {
+                        let localRate = 1;
+                        if (exp.category === 'Zambia') localRate = countryRates["Zambia"] || 140;
+                        else if (exp.category === 'Rwanda') localRate = countryRates["Rwanda"] || 2;
+                        else if (exp.category === 'Burundi') localRate = countryRates["Burundi"] || 1;
+                        
+                        amtTzs = amt * localRate;
+                        amtUsd = amtTzs / tzR;
+                    }
+
+                    row.getCell(1).value = exp.item_name;
+                    row.getCell(2).value = exp.category === 'TZ' ? 'Tanzania' : exp.category;
+                    
+                    row.getCell(3).value = amtUsd;
+                    row.getCell(3).numFmt = '"$"#,##0.00';
+                    
+                    row.getCell(4).value = Math.round(amtTzs);
+                    row.getCell(4).numFmt = '#,##0';
+                    
+                    row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                        if (colNumber <= 4) c.border = borderStyle;
+                    });
+                });
+
+                const totalExtraUSD = Object.values(extraCategoryTotals).reduce((sum, c) => sum + c.usd, 0);
+                const totalExtraTZS = totalExtraUSD * tzR;
+
+                const subTotalRowIdx = currRow++;
+                const subTotalRow = sheet.getRow(subTotalRowIdx);
+                subTotalRow.getCell(1).value = `SUBTOTAL EXTRA EXPENSES`;
+                subTotalRow.getCell(1).style = { ...subtotalStyle, font: { bold: true, color: { argb: '991B1B' } } };
+                
+                subTotalRow.getCell(3).value = totalExtraUSD;
+                subTotalRow.getCell(3).numFmt = '"$"#,##0.00';
+                
+                subTotalRow.getCell(4).value = totalExtraTZS;
+                subTotalRow.getCell(4).numFmt = '#,##0';
+
+                sheet.mergeCells(`A${subTotalRowIdx}:B${subTotalRowIdx}`);
+
+                subTotalRow.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 4) c.border = borderStyle;
                 });
             }
 
-            sheet.addRow([]);
+            currRow += 2;
 
-            // Total Row
-            const totRow = sheet.addRow([
-                "TOTAL FUNDS REQUESTED",
-                "",
-                "",
-                `$${trip.totalExpensesUSD?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || 0} USD`,
-                "TZS TOTAL:",
-                Math.round(trip.totalExpensesTZS || 0)
-            ]);
-            totRow.eachCell((cell) => {
-                cell.font = { bold: true, size: 10 };
-            });
-            totRow.getCell(6).numFmt = '#,##0 "TSHS"';
-            totRow.getCell(6).fill = {
-                type: "pattern",
-                pattern: "solid",
-                fgColor: { argb: "ECFDF5" }
+            // 4.5 Fuel Allocation Section
+            if (isWithFuel || fuelEntries.length > 0) {
+                const fuelHeaderIdx = currRow++;
+                const fuelHeader = sheet.getRow(fuelHeaderIdx);
+                fuelHeader.getCell(1).value = 'FUEL ALLOCATION';
+                fuelHeader.getCell(1).style = headerStyle;
+                sheet.mergeCells(`A${fuelHeaderIdx}:E${fuelHeaderIdx}`);
+
+                const fuelTableHeader = sheet.getRow(currRow++);
+                fuelTableHeader.getCell(1).value = 'Station / Description';
+                fuelTableHeader.getCell(2).value = 'Liters';
+                fuelTableHeader.getCell(3).value = 'Price (TShs)';
+                fuelTableHeader.getCell(3).alignment = { horizontal: 'right' };
+                fuelTableHeader.getCell(4).value = 'Amount (USD)';
+                fuelTableHeader.getCell(4).alignment = { horizontal: 'right' };
+                fuelTableHeader.getCell(5).value = 'Amount (TZS)';
+                fuelTableHeader.getCell(5).alignment = { horizontal: 'right' };
+
+                fuelTableHeader.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 5) {
+                        c.font = { bold: true };
+                        c.border = borderStyle;
+                        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F8FAFC' } };
+                    }
+                });
+
+                const activeFuelEntries = fuelEntries.length > 0 ? fuelEntries : [{ liters: fuelLiters, price: trip.fuel_price || 0 }];
+                let grandLiters = 0;
+                let grandTZS = 0;
+
+                activeFuelEntries.forEach((entry: any, idx: number) => {
+                    const rowIdx = currRow++;
+                    const row = sheet.getRow(rowIdx);
+                    const liters = parseFloat(entry.liters) || 0;
+                    const price = parseFloat(entry.price) || 0;
+                    const tzs = liters * price;
+                    const usd = tzs / tzR;
+
+                    grandLiters += liters;
+                    grandTZS += tzs;
+
+                    row.getCell(1).value = entry.station || (idx === 0 ? 'Primary Fuel Station' : `Fuel Station ${idx + 1}`);
+                    row.getCell(2).value = liters;
+                    row.getCell(3).value = price;
+                    
+                    row.getCell(4).value = usd;
+                    row.getCell(4).numFmt = '"$"#,##0.00';
+                    
+                    row.getCell(5).value = tzs;
+                    row.getCell(5).numFmt = '#,##0';
+
+                    row.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                        if (colNumber <= 5) c.border = borderStyle;
+                    });
+                });
+
+                const fuelSubTotalRowIdx = currRow++;
+                const fuelSubTotalRow = sheet.getRow(fuelSubTotalRowIdx);
+                fuelSubTotalRow.getCell(1).value = 'SUBTOTAL FUEL ALLOCATION';
+                fuelSubTotalRow.getCell(1).style = subtotalStyle;
+                
+                fuelSubTotalRow.getCell(2).value = grandLiters;
+                fuelSubTotalRow.getCell(2).font = { bold: true };
+                fuelSubTotalRow.getCell(2).border = borderStyle;
+                
+                fuelSubTotalRow.getCell(3).border = borderStyle;
+                
+                fuelSubTotalRow.getCell(4).value = grandTZS / tzR;
+                fuelSubTotalRow.getCell(4).numFmt = '"$"#,##0.00';
+                
+                fuelSubTotalRow.getCell(5).value = grandTZS;
+                fuelSubTotalRow.getCell(5).numFmt = '#,##0';
+                
+                sheet.mergeCells(`A${fuelSubTotalRowIdx}:A${fuelSubTotalRowIdx}`);
+
+                fuelSubTotalRow.eachCell({ includeEmpty: true }, (c, colNumber) => {
+                    if (colNumber <= 5) {
+                        if (colNumber !== 2) c.font = { bold: true };
+                        c.border = borderStyle;
+                    }
+                });
+
+                currRow += 2;
+            }
+
+            // 5. Signature Section
+            const addSignatureTable = (title: string, name: string, pos: string) => {
+                const headRow = sheet.getRow(currRow++);
+                headRow.getCell(1).value = title.toUpperCase();
+                headRow.getCell(2).value = 'POSITION';
+                headRow.getCell(3).value = 'SIGNATURE & DATE';
+                headRow.eachCell(c => {
+                    c.style = titleStyle;
+                    c.border = borderStyle;
+                    c.font = { bold: true, size: 10 };
+                });
+                sheet.mergeCells(`C${currRow - 1}:E${currRow - 1}`);
+
+                const dataRow = sheet.getRow(currRow++);
+                dataRow.height = 40;
+                dataRow.getCell(1).value = name;
+                dataRow.getCell(2).value = pos;
+                dataRow.eachCell(c => {
+                    c.alignment = { vertical: 'middle' };
+                    c.border = borderStyle;
+                });
+                sheet.mergeCells(`C${currRow - 1}:E${currRow - 1}`);
+                currRow++;
             };
 
-            const buffer = await workbook.xlsx.writeBuffer();
-            const safeRef = (trip.reference_number || "Trip").replace(/[^a-zA-Z0-9_-]/g, "_");
-            saveAs(new Blob([buffer]), `Trip_Budget_${safeRef}.xlsx`);
+            sheet.getColumn(4).width = 25;
+
+            addSignatureTable('Prepared By', trip.created_by_name || 'KONYA PAUL', 'Fleet Manager');
+            addSignatureTable('First Approved By', 'YAHYA KILUA', 'Operations Manager');
+            addSignatureTable('Final Approved By', 'SOOD M. SOOD', 'Managing Director');
+
+            // 6. Lock the sheet (Read-only protection)
+            sheet.protect('qoder123', {
+                formatColumns: true,
+                formatRows: true,
+                formatCells: true,
+                selectLockedCells: true,
+                selectUnlockedCells: true,
+                insertColumns: false,
+                insertRows: false,
+                deleteColumns: false,
+                deleteRows: false
+            });
+
+            const workbookBuffer = await workbook.xlsx.writeBuffer();
+            const tripRef = trip.reference_number || 'Trip';
+            const routeSlug = trip.destination ? `_${trip.destination.replace(/[^a-zA-Z0-9]/g, '-')}` : '';
+            saveAs(new Blob([workbookBuffer]), `${tripRef}${routeSlug}.xlsx`);
             toast({
                 title: "Excel Downloaded ✓",
-                description: `Exported budget for ${trip.reference_number || "trip"}.`
+                description: `Exported official Trip Budget & Clearance Sheet for ${trip.reference_number || "trip"}.`
             });
         } catch (err: any) {
             console.error("Excel export error:", err);

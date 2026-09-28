@@ -90,14 +90,14 @@ const systemItems = [
 const financeItems = [
   { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Invoices", url: "/logistics/invoices", icon: CreditCard, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["finance", "audit_clerk", "super_admin", "admin"] },
+  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["super_admin"] },
   { title: "Logistics P&L", url: "/finance-dashboard", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
   { title: "Accounts Receivable", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
   { title: "Payroll Management", url: "/finance/payroll", icon: Users, roles: ["finance", "admin", "super_admin"] },
   { title: "Company Expenses", url: "/finance/expenses", icon: Banknote, roles: ["finance", "admin", "super_admin"] },
   { title: "Asset Depreciation", url: "/finance/assets", icon: TrendingDown, roles: ["finance", "admin", "super_admin"] },
   { title: "General Ledger", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
-  { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
+  { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["super_admin"] },
 ];
 
 const getCurrentShift = () => {

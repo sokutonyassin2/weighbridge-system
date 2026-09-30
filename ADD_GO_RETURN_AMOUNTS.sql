@@ -40,6 +40,39 @@ BEGIN
     ) THEN
         ALTER TABLE public.logistics_trip_orders ADD COLUMN return_amount_local NUMERIC(15, 2) DEFAULT 0;
     END IF;
+
+    -- Go & Return Calculation Modes and details (trip / tonne / distance)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'go_calc_mode') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN go_calc_mode VARCHAR(20) DEFAULT 'trip';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'go_rate_per_unit') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN go_rate_per_unit NUMERIC(15, 2);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'go_tonnes') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN go_tonnes NUMERIC(15, 2);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'go_distance_km') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN go_distance_km NUMERIC(15, 2);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'return_calc_mode') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN return_calc_mode VARCHAR(20) DEFAULT 'trip';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'return_rate_per_unit') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN return_rate_per_unit NUMERIC(15, 2);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'return_tonnes') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN return_tonnes NUMERIC(15, 2);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logistics_trip_orders' AND column_name = 'return_distance_km') THEN
+        ALTER TABLE public.logistics_trip_orders ADD COLUMN return_distance_km NUMERIC(15, 2);
+    END IF;
 END $$;
 
 -- Backfill: For existing records, set go_amount_usd = agreed_amount_usd (they were all "going" amounts)

@@ -58,7 +58,10 @@ import {
     Sparkles,
     Send,
     Split,
-    X
+    X,
+    Calculator,
+    Weight,
+    Ruler
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -216,6 +219,17 @@ export default function TripOrders() {
         return_amount_usd?: string; // Return leg amount (non-tankers only)
         load_quantity?: string; // Amount to be loaded (litres / kg)
         rate_per_thousand?: string; // Rate per 1000
+        // Calculation mode fields for non-tanker Go & Return legs
+        go_calc_mode?: string;      // 'per_trip' | 'per_tonne' | 'per_km'
+        go_rate_per_tonne?: string;
+        go_tonnage?: string;
+        go_rate_per_km?: string;
+        go_distance_km?: string;
+        return_calc_mode?: string;   // 'per_trip' | 'per_tonne' | 'per_km'
+        return_rate_per_tonne?: string;
+        return_tonnage?: string;
+        return_rate_per_km?: string;
+        return_distance_km?: string;
     }
 
     const initialVehicleItem: VehicleAssignment = {
@@ -235,7 +249,17 @@ export default function TripOrders() {
         agreed_amount_usd: "",
         return_amount_usd: "",
         load_quantity: "",
-        rate_per_thousand: ""
+        rate_per_thousand: "",
+        go_calc_mode: "per_trip",
+        go_rate_per_tonne: "",
+        go_tonnage: "",
+        go_rate_per_km: "",
+        go_distance_km: "",
+        return_calc_mode: "per_trip",
+        return_rate_per_tonne: "",
+        return_tonnage: "",
+        return_rate_per_km: "",
+        return_distance_km: ""
     };
 
     const [vehicleAssignments, setVehicleAssignments] = useState<VehicleAssignment[]>(() => {
@@ -670,6 +694,35 @@ export default function TripOrders() {
                     }
                 }
 
+                // Auto-calculate Going amount for non-tanker calc modes
+                if (["go_calc_mode", "go_rate_per_tonne", "go_tonnage", "go_rate_per_km", "go_distance_km"].includes(field as string)) {
+                    const mode = currentSlot.go_calc_mode || "per_trip";
+                    if (mode === "per_tonne") {
+                        const r = parseFloat(currentSlot.go_rate_per_tonne || "0") || 0;
+                        const t = parseFloat(currentSlot.go_tonnage || "0") || 0;
+                        if (r > 0 && t > 0) currentSlot.agreed_amount_usd = (r * t).toFixed(2);
+                    } else if (mode === "per_km") {
+                        const r = parseFloat(currentSlot.go_rate_per_km || "0") || 0;
+                        const d = parseFloat(currentSlot.go_distance_km || "0") || 0;
+                        if (r > 0 && d > 0) currentSlot.agreed_amount_usd = (r * d).toFixed(2);
+                    }
+                    // per_trip: user types the amount directly, no auto-calc
+                }
+
+                // Auto-calculate Return amount for non-tanker calc modes
+                if (["return_calc_mode", "return_rate_per_tonne", "return_tonnage", "return_rate_per_km", "return_distance_km"].includes(field as string)) {
+                    const mode = currentSlot.return_calc_mode || "per_trip";
+                    if (mode === "per_tonne") {
+                        const r = parseFloat(currentSlot.return_rate_per_tonne || "0") || 0;
+                        const t = parseFloat(currentSlot.return_tonnage || "0") || 0;
+                        if (r > 0 && t > 0) currentSlot.return_amount_usd = (r * t).toFixed(2);
+                    } else if (mode === "per_km") {
+                        const r = parseFloat(currentSlot.return_rate_per_km || "0") || 0;
+                        const d = parseFloat(currentSlot.return_distance_km || "0") || 0;
+                        if (r > 0 && d > 0) currentSlot.return_amount_usd = (r * d).toFixed(2);
+                    }
+                }
+
                 copy[index] = currentSlot;
             }
             return copy;
@@ -899,6 +952,17 @@ export default function TripOrders() {
                 go_amount_local: goLocal,
                 return_amount_usd: returnUSD,
                 return_amount_local: returnLocal,
+                // Calc mode metadata for Go & Return legs
+                go_calc_mode: v.go_calc_mode || 'per_trip',
+                go_rate_per_tonne: parseFloat(v.go_rate_per_tonne || '0') || null,
+                go_tonnage: parseFloat(v.go_tonnage || '0') || null,
+                go_rate_per_km: parseFloat(v.go_rate_per_km || '0') || null,
+                go_distance_km: parseFloat(v.go_distance_km || '0') || null,
+                return_calc_mode: v.return_calc_mode || 'per_trip',
+                return_rate_per_tonne: parseFloat(v.return_rate_per_tonne || '0') || null,
+                return_tonnage: parseFloat(v.return_tonnage || '0') || null,
+                return_rate_per_km: parseFloat(v.return_rate_per_km || '0') || null,
+                return_distance_km: parseFloat(v.return_distance_km || '0') || null,
                 currency: "USD",
                 vehicle_id: v.vehicle_id || null,
                 truck_reg: v.truck_reg,
@@ -1789,7 +1853,18 @@ export default function TripOrders() {
                                                                             agreed_amount_usd: order.agreed_amount_usd || '',
                                                                             agreed_client_rate: order.agreed_client_rate || '2700',
                                                                             cargo_description: order.cargo_description || '',
-                                                                            notes: order.notes || ''
+                                                                            notes: order.notes || '',
+                                                                            // Calc mode metadata
+                                                                            go_calc_mode: order.go_calc_mode || 'per_trip',
+                                                                            go_rate_per_tonne: order.go_rate_per_tonne ? String(order.go_rate_per_tonne) : '',
+                                                                            go_tonnage: order.go_tonnage ? String(order.go_tonnage) : '',
+                                                                            go_rate_per_km: order.go_rate_per_km ? String(order.go_rate_per_km) : '',
+                                                                            go_distance_km: order.go_distance_km ? String(order.go_distance_km) : '',
+                                                                            return_calc_mode: order.return_calc_mode || 'per_trip',
+                                                                            return_rate_per_tonne: order.return_rate_per_tonne ? String(order.return_rate_per_tonne) : '',
+                                                                            return_tonnage: order.return_tonnage ? String(order.return_tonnage) : '',
+                                                                            return_rate_per_km: order.return_rate_per_km ? String(order.return_rate_per_km) : '',
+                                                                            return_distance_km: order.return_distance_km ? String(order.return_distance_km) : ''
                                                                         });
                                                                     }}
                                                                     className={cn(
@@ -2144,7 +2219,15 @@ export default function TripOrders() {
                                                                             agreed_amount_usd: subOrder.agreed_amount_usd || '',
                                                                             agreed_client_rate: subOrder.agreed_client_rate || '2700',
                                                                             cargo_description: subOrder.cargo_description || '',
-                                                                            notes: subOrder.notes || ''
+                                                                            notes: subOrder.notes || '',
+                                                                            go_calc_mode: (subOrder.go_calc_mode as 'trip' | 'tonne' | 'distance') || 'trip',
+                                                                            go_rate_per_unit: subOrder.go_rate_per_unit ? String(subOrder.go_rate_per_unit) : '',
+                                                                            go_tonnes: subOrder.go_tonnes ? String(subOrder.go_tonnes) : '',
+                                                                            go_distance_km: subOrder.go_distance_km ? String(subOrder.go_distance_km) : '',
+                                                                            return_calc_mode: (subOrder.return_calc_mode as 'trip' | 'tonne' | 'distance') || 'trip',
+                                                                            return_rate_per_unit: subOrder.return_rate_per_unit ? String(subOrder.return_rate_per_unit) : '',
+                                                                            return_tonnes: subOrder.return_tonnes ? String(subOrder.return_tonnes) : '',
+                                                                            return_distance_km: subOrder.return_distance_km ? String(subOrder.return_distance_km) : ''
                                                                         });
                                                                     }}
                                                                     className={cn(
@@ -2667,56 +2750,264 @@ export default function TripOrders() {
                                                 </div>
                                             ) : (
                                                 <div className="space-y-3">
-                                                    {/* Going Amount Row */}
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
-                                                                <ArrowRight className="w-3 h-3 text-indigo-500" />
-                                                                Going Amount ($ USD) *
-                                                            </Label>
-                                                            <Input
-                                                                type="number"
-                                                                step="0.01"
-                                                                placeholder="e.g. 3500.00"
-                                                                value={veh.agreed_amount_usd || ""}
-                                                                onChange={e => updateVehicleSlotField(vIdx, "agreed_amount_usd", e.target.value)}
-                                                                className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
-                                                            />
+                                                    {/* ── GOING LEG ── */}
+                                                    <div className="p-2.5 rounded-lg bg-indigo-50/40 border border-indigo-100/60 space-y-2">
+                                                        <div className="flex items-center gap-1.5 mb-1">
+                                                            <ArrowRight className="w-3 h-3 text-indigo-500" />
+                                                            <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide">Going Leg</span>
                                                         </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
-                                                            <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
-                                                                <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
-                                                                <span className="font-mono text-emerald-700">
-                                                                    {(((parseFloat(veh.agreed_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
-                                                                </span>
+                                                        {/* Calc Mode Selector */}
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                    <Calculator className="w-3 h-3 text-indigo-400" />
+                                                                    Calculation Mode
+                                                                </Label>
+                                                                <Select
+                                                                    value={veh.go_calc_mode || "per_trip"}
+                                                                    onValueChange={val => updateVehicleSlotField(vIdx, "go_calc_mode", val)}
+                                                                >
+                                                                    <SelectTrigger className="h-8 text-[11px] bg-white border-indigo-200 rounded-lg font-semibold">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="per_trip">Per Trip (Fixed)</SelectItem>
+                                                                        <SelectItem value="per_tonne">Per Tonne</SelectItem>
+                                                                        <SelectItem value="per_km">Per Distance (KM)</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+
+                                                            {/* Per Trip: just the amount field */}
+                                                            {(veh.go_calc_mode || "per_trip") === "per_trip" && (
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-[10px] font-semibold text-slate-600">Going Amount ($ USD) *</Label>
+                                                                    <Input
+                                                                        type="number"
+                                                                        step="0.01"
+                                                                        placeholder="e.g. 3500.00"
+                                                                        value={veh.agreed_amount_usd || ""}
+                                                                        onChange={e => updateVehicleSlotField(vIdx, "agreed_amount_usd", e.target.value)}
+                                                                        className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
+                                                                    />
+                                                                </div>
+                                                            )}
+
+                                                            {/* Per Tonne: rate + tonnage */}
+                                                            {veh.go_calc_mode === "per_tonne" && (
+                                                                <>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                            <Weight className="w-3 h-3 text-indigo-400" />
+                                                                            Rate per Tonne ($)
+                                                                        </Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 50.00"
+                                                                            value={veh.go_rate_per_tonne || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "go_rate_per_tonne", e.target.value)}
+                                                                            className="h-8 bg-white border-indigo-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600">Tonnage (Tonnes)</Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 30"
+                                                                            value={veh.go_tonnage || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "go_tonnage", e.target.value)}
+                                                                            className="h-8 bg-white border-indigo-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                </>
+                                                            )}
+
+                                                            {/* Per KM: rate + distance */}
+                                                            {veh.go_calc_mode === "per_km" && (
+                                                                <>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                            <Ruler className="w-3 h-3 text-indigo-400" />
+                                                                            Rate per KM ($)
+                                                                        </Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 2.50"
+                                                                            value={veh.go_rate_per_km || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "go_rate_per_km", e.target.value)}
+                                                                            className="h-8 bg-white border-indigo-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600">Total Distance (KM)</Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 1200"
+                                                                            value={veh.go_distance_km || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "go_distance_km", e.target.value)}
+                                                                            className="h-8 bg-white border-indigo-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Computed Going Amount + Local Equivalent */}
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-semibold text-emerald-700">
+                                                                    {(veh.go_calc_mode || "per_trip") !== "per_trip" ? "= Calculated" : ""} Going ($ USD)
+                                                                </Label>
+                                                                <div className="h-8 px-2.5 bg-emerald-50/60 border border-emerald-200 rounded-md flex items-center justify-between text-xs font-black text-emerald-900">
+                                                                    <span className="text-[10px] text-emerald-500">$</span>
+                                                                    <span className="font-mono">
+                                                                        {(parseFloat(veh.agreed_amount_usd || "0") || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-semibold text-slate-600">Equivalent (TSh)</Label>
+                                                                <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                                    <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
+                                                                    <span className="font-mono text-emerald-700">
+                                                                        {(((parseFloat(veh.agreed_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                                    </span>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    {/* Return Amount Row */}
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                        <div className="space-y-1">
-                                                            <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
-                                                                <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
-                                                                Return Amount ($ USD)
-                                                            </Label>
-                                                            <Input
-                                                                type="number"
-                                                                step="0.01"
-                                                                placeholder="e.g. 1500.00"
-                                                                value={veh.return_amount_usd || ""}
-                                                                onChange={e => updateVehicleSlotField(vIdx, "return_amount_usd", e.target.value)}
-                                                                className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
-                                                            />
+                                                    {/* ── RETURN LEG ── */}
+                                                    <div className="p-2.5 rounded-lg bg-amber-50/40 border border-amber-100/60 space-y-2">
+                                                        <div className="flex items-center gap-1.5 mb-1">
+                                                            <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
+                                                            <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">Return Leg</span>
                                                         </div>
-                                                        <div className="space-y-1">
-                                                            <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
-                                                            <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
-                                                                <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
-                                                                <span className="font-mono text-amber-700">
-                                                                    {(((parseFloat(veh.return_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
-                                                                </span>
+                                                        {/* Calc Mode Selector */}
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                    <Calculator className="w-3 h-3 text-amber-400" />
+                                                                    Calculation Mode
+                                                                </Label>
+                                                                <Select
+                                                                    value={veh.return_calc_mode || "per_trip"}
+                                                                    onValueChange={val => updateVehicleSlotField(vIdx, "return_calc_mode", val)}
+                                                                >
+                                                                    <SelectTrigger className="h-8 text-[11px] bg-white border-amber-200 rounded-lg font-semibold">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="per_trip">Per Trip (Fixed)</SelectItem>
+                                                                        <SelectItem value="per_tonne">Per Tonne</SelectItem>
+                                                                        <SelectItem value="per_km">Per Distance (KM)</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+
+                                                            {/* Per Trip: just the amount field */}
+                                                            {(veh.return_calc_mode || "per_trip") === "per_trip" && (
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-[10px] font-semibold text-slate-600">Return Amount ($ USD)</Label>
+                                                                    <Input
+                                                                        type="number"
+                                                                        step="0.01"
+                                                                        placeholder="e.g. 1500.00"
+                                                                        value={veh.return_amount_usd || ""}
+                                                                        onChange={e => updateVehicleSlotField(vIdx, "return_amount_usd", e.target.value)}
+                                                                        className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                                                    />
+                                                                </div>
+                                                            )}
+
+                                                            {/* Per Tonne: rate + tonnage */}
+                                                            {veh.return_calc_mode === "per_tonne" && (
+                                                                <>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                            <Weight className="w-3 h-3 text-amber-400" />
+                                                                            Rate per Tonne ($)
+                                                                        </Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 40.00"
+                                                                            value={veh.return_rate_per_tonne || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "return_rate_per_tonne", e.target.value)}
+                                                                            className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600">Tonnage (Tonnes)</Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 25"
+                                                                            value={veh.return_tonnage || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "return_tonnage", e.target.value)}
+                                                                            className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                </>
+                                                            )}
+
+                                                            {/* Per KM: rate + distance */}
+                                                            {veh.return_calc_mode === "per_km" && (
+                                                                <>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                            <Ruler className="w-3 h-3 text-amber-400" />
+                                                                            Rate per KM ($)
+                                                                        </Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 2.00"
+                                                                            value={veh.return_rate_per_km || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "return_rate_per_km", e.target.value)}
+                                                                            className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-[10px] font-semibold text-slate-600">Total Distance (KM)</Label>
+                                                                        <Input
+                                                                            type="number"
+                                                                            step="any"
+                                                                            placeholder="e.g. 1200"
+                                                                            value={veh.return_distance_km || ""}
+                                                                            onChange={e => updateVehicleSlotField(vIdx, "return_distance_km", e.target.value)}
+                                                                            className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                                                        />
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Computed Return Amount + Local Equivalent */}
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-semibold text-amber-700">
+                                                                    {(veh.return_calc_mode || "per_trip") !== "per_trip" ? "= Calculated" : ""} Return ($ USD)
+                                                                </Label>
+                                                                <div className="h-8 px-2.5 bg-amber-50/60 border border-amber-200 rounded-md flex items-center justify-between text-xs font-black text-amber-900">
+                                                                    <span className="text-[10px] text-amber-500">$</span>
+                                                                    <span className="font-mono">
+                                                                        {(parseFloat(veh.return_amount_usd || "0") || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <Label className="text-[10px] font-semibold text-slate-600">Equivalent (TSh)</Label>
+                                                                <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                                    <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
+                                                                    <span className="font-mono text-amber-700">
+                                                                        {(((parseFloat(veh.return_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                                    </span>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -3300,79 +3591,408 @@ export default function TripOrders() {
                                 </span>
                             </div>
 
-                            {/* Going Amount Row */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
-                                        <ArrowRight className="w-3 h-3 text-indigo-500" />
-                                        Going Amount ($ USD) *
+                            {/* Going Commercial Calculation Mode */}
+                            <div className="space-y-2 p-2.5 rounded-lg bg-indigo-50/40 border border-indigo-100">
+                                <div className="flex items-center justify-between">
+                                    <Label className="text-[10px] font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1">
+                                        <ArrowRight className="w-3 h-3 text-indigo-600" /> Going Fee Calculation
                                     </Label>
-                                    <Input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="e.g. 3500.00"
-                                        value={editFormData.go_amount_usd || ''}
-                                        onChange={(e) => {
-                                            const goUsd = e.target.value;
-                                            const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
-                                            const totalUsd = (parseFloat(goUsd) || 0) + retUsd;
-                                            const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
-                                            setEditFormData((prev: any) => ({
-                                                ...prev,
-                                                go_amount_usd: goUsd,
-                                                agreed_amount_usd: String(totalUsd),
-                                                agreed_amount_local: String(totalUsd * rate)
-                                            }));
-                                        }}
-                                        className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
-                                    <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
-                                        <span className="text-[10px] text-slate-400">@ {editFormData.agreed_client_rate || "2700"}</span>
-                                        <span className="font-mono text-emerald-700">
-                                            {(((parseFloat(editFormData.go_amount_usd || "0") || 0) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
-                                        </span>
+                                    <div className="flex items-center gap-1 bg-white p-0.5 rounded-md border border-indigo-200">
+                                        {(['trip', 'tonne', 'distance'] as const).map((mode) => (
+                                            <button
+                                                key={mode}
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditFormData((prev: any) => {
+                                                        const rate = parseFloat(prev.go_rate_per_unit) || 0;
+                                                        const tonnes = parseFloat(prev.go_tonnes) || 0;
+                                                        const dist = parseFloat(prev.go_distance_km) || 0;
+                                                        let newAmount = prev.go_amount_usd;
+                                                        if (mode === 'tonne') {
+                                                            newAmount = rate > 0 && tonnes > 0 ? String(rate * tonnes) : '';
+                                                        } else if (mode === 'distance') {
+                                                            newAmount = rate > 0 && dist > 0 ? String(rate * dist) : '';
+                                                        }
+                                                        const retUsd = parseFloat(prev.return_amount_usd) || 0;
+                                                        const totalUsd = (parseFloat(newAmount) || 0) + retUsd;
+                                                        const clRate = parseFloat(prev.agreed_client_rate) || 2700;
+                                                        return {
+                                                            ...prev,
+                                                            go_calc_mode: mode,
+                                                            go_amount_usd: newAmount,
+                                                            agreed_amount_usd: String(totalUsd),
+                                                            agreed_amount_local: String(totalUsd * clRate)
+                                                        };
+                                                    });
+                                                }}
+                                                className={cn(
+                                                    "px-2 py-0.5 text-[9px] font-bold rounded capitalize transition-all",
+                                                    (editFormData.go_calc_mode || 'trip') === mode
+                                                        ? "bg-indigo-600 text-white shadow-xs"
+                                                        : "text-slate-600 hover:text-indigo-600 hover:bg-indigo-50"
+                                                )}
+                                            >
+                                                Per {mode === 'trip' ? 'Trip' : mode === 'tonne' ? 'Tonne' : 'Distance (KM)'}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Return Amount Row — hidden for tankers */}
-                            {!editFormData.is_tanker && (
-                                <div className="grid grid-cols-2 gap-3">
+                                {editFormData.go_calc_mode === 'tonne' && (
+                                    <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <div className="space-y-0.5">
+                                            <Label className="text-[9px] font-semibold text-slate-600">Rate per Tonne ($ USD) *</Label>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="e.g. 50.00"
+                                                value={editFormData.go_rate_per_unit || ''}
+                                                onChange={(e) => {
+                                                    const rate = e.target.value;
+                                                    const tonnes = parseFloat(editFormData.go_tonnes) || 0;
+                                                    const totalGo = (parseFloat(rate) || 0) * tonnes;
+                                                    const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                                    const total = totalGo + retUsd;
+                                                    const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                    setEditFormData((prev: any) => ({
+                                                        ...prev,
+                                                        go_rate_per_unit: rate,
+                                                        go_amount_usd: totalGo > 0 ? String(totalGo) : '',
+                                                        agreed_amount_usd: String(total),
+                                                        agreed_amount_local: String(total * clRate)
+                                                    }));
+                                                }}
+                                                className="h-7 text-xs bg-white border-slate-200"
+                                            />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <Label className="text-[9px] font-semibold text-slate-600">Tonnes Carried *</Label>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="e.g. 30"
+                                                value={editFormData.go_tonnes || ''}
+                                                onChange={(e) => {
+                                                    const tonnes = e.target.value;
+                                                    const rate = parseFloat(editFormData.go_rate_per_unit) || 0;
+                                                    const totalGo = rate * (parseFloat(tonnes) || 0);
+                                                    const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                                    const total = totalGo + retUsd;
+                                                    const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                    setEditFormData((prev: any) => ({
+                                                        ...prev,
+                                                        go_tonnes: tonnes,
+                                                        go_amount_usd: totalGo > 0 ? String(totalGo) : '',
+                                                        agreed_amount_usd: String(total),
+                                                        agreed_amount_local: String(total * clRate)
+                                                    }));
+                                                }}
+                                                className="h-7 text-xs bg-white border-slate-200"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {editFormData.go_calc_mode === 'distance' && (
+                                    <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <div className="space-y-0.5">
+                                            <Label className="text-[9px] font-semibold text-slate-600">Rate per KM ($ USD) *</Label>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                placeholder="e.g. 2.50"
+                                                value={editFormData.go_rate_per_unit || ''}
+                                                onChange={(e) => {
+                                                    const rate = e.target.value;
+                                                    const km = parseFloat(editFormData.go_distance_km) || 0;
+                                                    const totalGo = (parseFloat(rate) || 0) * km;
+                                                    const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                                    const total = totalGo + retUsd;
+                                                    const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                    setEditFormData((prev: any) => ({
+                                                        ...prev,
+                                                        go_rate_per_unit: rate,
+                                                        go_amount_usd: totalGo > 0 ? String(totalGo) : '',
+                                                        agreed_amount_usd: String(total),
+                                                        agreed_amount_local: String(total * clRate)
+                                                    }));
+                                                }}
+                                                className="h-7 text-xs bg-white border-slate-200"
+                                            />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <Label className="text-[9px] font-semibold text-slate-600">Distance (KM) *</Label>
+                                            <Input
+                                                type="number"
+                                                step="0.1"
+                                                placeholder="e.g. 1200"
+                                                value={editFormData.go_distance_km || ''}
+                                                onChange={(e) => {
+                                                    const km = e.target.value;
+                                                    const rate = parseFloat(editFormData.go_rate_per_unit) || 0;
+                                                    const totalGo = rate * (parseFloat(km) || 0);
+                                                    const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                                    const total = totalGo + retUsd;
+                                                    const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                    setEditFormData((prev: any) => ({
+                                                        ...prev,
+                                                        go_distance_km: km,
+                                                        go_amount_usd: totalGo > 0 ? String(totalGo) : '',
+                                                        agreed_amount_usd: String(total),
+                                                        agreed_amount_local: String(total * clRate)
+                                                    }));
+                                                }}
+                                                className="h-7 text-xs bg-white border-slate-200"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-2 gap-3 pt-1">
                                     <div className="space-y-1">
-                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
-                                            <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
-                                            Return Amount ($ USD)
+                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center justify-between">
+                                            <span>Going Fee ($ USD) *</span>
+                                            {editFormData.go_calc_mode !== 'trip' && (
+                                                <span className="text-[9px] text-indigo-600 font-mono font-bold">Auto-calculated</span>
+                                            )}
                                         </Label>
                                         <Input
                                             type="number"
                                             step="0.01"
-                                            placeholder="e.g. 1500.00"
-                                            value={editFormData.return_amount_usd || ''}
+                                            readOnly={editFormData.go_calc_mode !== 'trip'}
+                                            placeholder="e.g. 3500.00"
+                                            value={editFormData.go_amount_usd || ''}
                                             onChange={(e) => {
-                                                const retUsd = e.target.value;
-                                                const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
-                                                const totalUsd = goUsd + (parseFloat(retUsd) || 0);
+                                                const goUsd = e.target.value;
+                                                const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                                const totalUsd = (parseFloat(goUsd) || 0) + retUsd;
                                                 const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
                                                 setEditFormData((prev: any) => ({
                                                     ...prev,
-                                                    return_amount_usd: retUsd,
+                                                    go_amount_usd: goUsd,
                                                     agreed_amount_usd: String(totalUsd),
                                                     agreed_amount_local: String(totalUsd * rate)
                                                 }));
                                             }}
-                                            className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                            className={cn(
+                                                "h-8 text-xs font-bold text-slate-900",
+                                                editFormData.go_calc_mode !== 'trip' ? "bg-indigo-50/60 border-indigo-200" : "bg-white border-slate-200"
+                                            )}
                                         />
                                     </div>
                                     <div className="space-y-1">
-                                        <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
+                                        <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local (TSh)</Label>
                                         <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
                                             <span className="text-[10px] text-slate-400">@ {editFormData.agreed_client_rate || "2700"}</span>
-                                            <span className="font-mono text-amber-700">
-                                                {(((parseFloat(editFormData.return_amount_usd || "0") || 0) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                            <span className="font-mono text-emerald-700">
+                                                {(((parseFloat(editFormData.go_amount_usd || "0") || 0) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
                                             </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Return Commercial Calculation Mode — hidden for tankers */}
+                            {!editFormData.is_tanker && (
+                                <div className="space-y-2 p-2.5 rounded-lg bg-amber-50/40 border border-amber-100">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
+                                            <ArrowRight className="w-3 h-3 text-amber-600 rotate-180" /> Return Fee Calculation
+                                        </Label>
+                                        <div className="flex items-center gap-1 bg-white p-0.5 rounded-md border border-amber-200">
+                                            {(['trip', 'tonne', 'distance'] as const).map((mode) => (
+                                                <button
+                                                    key={mode}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditFormData((prev: any) => {
+                                                            const rate = parseFloat(prev.return_rate_per_unit) || 0;
+                                                            const tonnes = parseFloat(prev.return_tonnes) || 0;
+                                                            const dist = parseFloat(prev.return_distance_km) || 0;
+                                                            let newAmount = prev.return_amount_usd;
+                                                            if (mode === 'tonne') {
+                                                                newAmount = rate > 0 && tonnes > 0 ? String(rate * tonnes) : '';
+                                                            } else if (mode === 'distance') {
+                                                                newAmount = rate > 0 && dist > 0 ? String(rate * dist) : '';
+                                                            }
+                                                            const goUsd = parseFloat(prev.go_amount_usd) || 0;
+                                                            const totalUsd = goUsd + (parseFloat(newAmount) || 0);
+                                                            const clRate = parseFloat(prev.agreed_client_rate) || 2700;
+                                                            return {
+                                                                ...prev,
+                                                                return_calc_mode: mode,
+                                                                return_amount_usd: newAmount,
+                                                                agreed_amount_usd: String(totalUsd),
+                                                                agreed_amount_local: String(totalUsd * clRate)
+                                                            };
+                                                        });
+                                                    }}
+                                                    className={cn(
+                                                        "px-2 py-0.5 text-[9px] font-bold rounded capitalize transition-all",
+                                                        (editFormData.return_calc_mode || 'trip') === mode
+                                                            ? "bg-amber-600 text-white shadow-xs"
+                                                            : "text-slate-600 hover:text-amber-600 hover:bg-amber-50"
+                                                    )}
+                                                >
+                                                    Per {mode === 'trip' ? 'Trip' : mode === 'tonne' ? 'Tonne' : 'Distance (KM)'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {editFormData.return_calc_mode === 'tonne' && (
+                                        <div className="grid grid-cols-2 gap-2 pt-1">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[9px] font-semibold text-slate-600">Rate per Tonne ($ USD) *</Label>
+                                                <Input
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="e.g. 50.00"
+                                                    value={editFormData.return_rate_per_unit || ''}
+                                                    onChange={(e) => {
+                                                        const rate = e.target.value;
+                                                        const tonnes = parseFloat(editFormData.return_tonnes) || 0;
+                                                        const totalRet = (parseFloat(rate) || 0) * tonnes;
+                                                        const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                                        const total = goUsd + totalRet;
+                                                        const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                        setEditFormData((prev: any) => ({
+                                                            ...prev,
+                                                            return_rate_per_unit: rate,
+                                                            return_amount_usd: totalRet > 0 ? String(totalRet) : '',
+                                                            agreed_amount_usd: String(total),
+                                                            agreed_amount_local: String(total * clRate)
+                                                        }));
+                                                    }}
+                                                    className="h-7 text-xs bg-white border-slate-200"
+                                                />
+                                            </div>
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[9px] font-semibold text-slate-600">Tonnes Carried *</Label>
+                                                <Input
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="e.g. 30"
+                                                    value={editFormData.return_tonnes || ''}
+                                                    onChange={(e) => {
+                                                        const tonnes = e.target.value;
+                                                        const rate = parseFloat(editFormData.return_rate_per_unit) || 0;
+                                                        const totalRet = rate * (parseFloat(tonnes) || 0);
+                                                        const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                                        const total = goUsd + totalRet;
+                                                        const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                        setEditFormData((prev: any) => ({
+                                                            ...prev,
+                                                            return_tonnes: tonnes,
+                                                            return_amount_usd: totalRet > 0 ? String(totalRet) : '',
+                                                            agreed_amount_usd: String(total),
+                                                            agreed_amount_local: String(total * clRate)
+                                                        }));
+                                                    }}
+                                                    className="h-7 text-xs bg-white border-slate-200"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {editFormData.return_calc_mode === 'distance' && (
+                                        <div className="grid grid-cols-2 gap-2 pt-1">
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[9px] font-semibold text-slate-600">Rate per KM ($ USD) *</Label>
+                                                <Input
+                                                    type="number"
+                                                    step="0.01"
+                                                    placeholder="e.g. 2.50"
+                                                    value={editFormData.return_rate_per_unit || ''}
+                                                    onChange={(e) => {
+                                                        const rate = e.target.value;
+                                                        const km = parseFloat(editFormData.return_distance_km) || 0;
+                                                        const totalRet = (parseFloat(rate) || 0) * km;
+                                                        const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                                        const total = goUsd + totalRet;
+                                                        const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                        setEditFormData((prev: any) => ({
+                                                            ...prev,
+                                                            return_rate_per_unit: rate,
+                                                            return_amount_usd: totalRet > 0 ? String(totalRet) : '',
+                                                            agreed_amount_usd: String(total),
+                                                            agreed_amount_local: String(total * clRate)
+                                                        }));
+                                                    }}
+                                                    className="h-7 text-xs bg-white border-slate-200"
+                                                />
+                                            </div>
+                                            <div className="space-y-0.5">
+                                                <Label className="text-[9px] font-semibold text-slate-600">Distance (KM) *</Label>
+                                                <Input
+                                                    type="number"
+                                                    step="0.1"
+                                                    placeholder="e.g. 1200"
+                                                    value={editFormData.return_distance_km || ''}
+                                                    onChange={(e) => {
+                                                        const km = e.target.value;
+                                                        const rate = parseFloat(editFormData.return_rate_per_unit) || 0;
+                                                        const totalRet = rate * (parseFloat(km) || 0);
+                                                        const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                                        const total = goUsd + totalRet;
+                                                        const clRate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                        setEditFormData((prev: any) => ({
+                                                            ...prev,
+                                                            return_distance_km: km,
+                                                            return_amount_usd: totalRet > 0 ? String(totalRet) : '',
+                                                            agreed_amount_usd: String(total),
+                                                            agreed_amount_local: String(total * clRate)
+                                                        }));
+                                                    }}
+                                                    className="h-7 text-xs bg-white border-slate-200"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-2 gap-3 pt-1">
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-semibold text-slate-600 flex items-center justify-between">
+                                                <span className="flex items-center gap-1">
+                                                    <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
+                                                    Return Fee ($ USD)
+                                                </span>
+                                                {editFormData.return_calc_mode !== 'trip' && (
+                                                    <span className="text-[9px] text-amber-600 font-mono font-bold">Auto-calculated</span>
+                                                )}
+                                            </Label>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                readOnly={editFormData.return_calc_mode !== 'trip'}
+                                                placeholder="e.g. 1500.00"
+                                                value={editFormData.return_amount_usd || ''}
+                                                onChange={(e) => {
+                                                    const retUsd = e.target.value;
+                                                    const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                                    const totalUsd = goUsd + (parseFloat(retUsd) || 0);
+                                                    const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                    setEditFormData((prev: any) => ({
+                                                        ...prev,
+                                                        return_amount_usd: retUsd,
+                                                        agreed_amount_usd: String(totalUsd),
+                                                        agreed_amount_local: String(totalUsd * rate)
+                                                    }));
+                                                }}
+                                                className={cn(
+                                                    "h-8 text-xs font-bold text-slate-900",
+                                                    editFormData.return_calc_mode !== 'trip' ? "bg-amber-50/60 border-amber-200" : "bg-white border-amber-200"
+                                                )}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local (TSh)</Label>
+                                            <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                <span className="text-[10px] text-slate-400">@ {editFormData.agreed_client_rate || "2700"}</span>
+                                                <span className="font-mono text-amber-700">
+                                                    {(((parseFloat(editFormData.return_amount_usd || "0") || 0) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -3446,6 +4066,14 @@ export default function TripOrders() {
                                     updates.agreed_amount_usd = totalUsd;
                                     updates.agreed_client_rate = rate;
                                     updates.agreed_amount_local = totalUsd * rate;
+                                    updates.go_calc_mode = editFormData.go_calc_mode || 'trip';
+                                    updates.go_rate_per_unit = editFormData.go_rate_per_unit ? parseFloat(editFormData.go_rate_per_unit) : null;
+                                    updates.go_tonnes = editFormData.go_tonnes ? parseFloat(editFormData.go_tonnes) : null;
+                                    updates.go_distance_km = editFormData.go_distance_km ? parseFloat(editFormData.go_distance_km) : null;
+                                    updates.return_calc_mode = editFormData.return_calc_mode || 'trip';
+                                    updates.return_rate_per_unit = editFormData.return_rate_per_unit ? parseFloat(editFormData.return_rate_per_unit) : null;
+                                    updates.return_tonnes = editFormData.return_tonnes ? parseFloat(editFormData.return_tonnes) : null;
+                                    updates.return_distance_km = editFormData.return_distance_km ? parseFloat(editFormData.return_distance_km) : null;
                                     if (editFormData.cargo_description !== undefined) updates.cargo_description = editFormData.cargo_description;
                                     if (editFormData.notes !== undefined) updates.notes = editFormData.notes;
                                     updateOrderMutation.mutate({ orderId: editingOrder.id, updates });

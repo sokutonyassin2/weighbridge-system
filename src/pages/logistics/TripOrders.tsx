@@ -213,6 +213,7 @@ export default function TripOrders() {
         journey_type: string;
         is_tanker?: boolean;
         agreed_amount_usd?: string;
+        return_amount_usd?: string; // Return leg amount (non-tankers only)
         load_quantity?: string; // Amount to be loaded (litres / kg)
         rate_per_thousand?: string; // Rate per 1000
     }
@@ -232,6 +233,7 @@ export default function TripOrders() {
         journey_type: "Go & Return (Full Cycle)",
         is_tanker: false,
         agreed_amount_usd: "",
+        return_amount_usd: "",
         load_quantity: "",
         rate_per_thousand: ""
     };
@@ -311,6 +313,21 @@ export default function TripOrders() {
                 .select("*")
                 .order("created_at", { ascending: false });
             if (error) throw error;
+            return data || [];
+        }
+    });
+
+    // Fetch Trip Sheets to check if trips are approved in Finance
+    const { data: tripSheetsList = [] } = useQuery({
+        queryKey: ["logistics_trip_sheets_for_orders"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_trip_sheets" as any)
+                .select("id, reference_number, status, revenue_amount, exchange_rate");
+            if (error) {
+                console.warn("logistics_trip_sheets fetch error:", error);
+                return [];
+            }
             return data || [];
         }
     });
@@ -443,8 +460,9 @@ export default function TripOrders() {
     // Auto-calculate order total USD across all vehicle assignments inside modal
     const formAccumulatedUSD = useMemo(() => {
         return vehicleAssignments.reduce((sum, v) => {
-            const usd = parseFloat(v.agreed_amount_usd || "") || 0;
-            return sum + usd;
+            const goUsd = parseFloat(v.agreed_amount_usd || "") || 0;
+            const returnUsd = v.is_tanker ? 0 : (parseFloat(v.return_amount_usd || "") || 0);
+            return sum + goUsd + returnUsd;
         }, 0);
     }, [vehicleAssignments]);
 
@@ -863,8 +881,12 @@ export default function TripOrders() {
 
         // Create an order record for each assigned vehicle so each can follow its individual trip lifecycle
         const payloads = validVehicles.map((v, i) => {
-            const vehicleUSD = parseFloat(v.agreed_amount_usd || formData.agreed_amount_usd) || 0;
+            const goUSD = parseFloat(v.agreed_amount_usd || formData.agreed_amount_usd) || 0;
+            const returnUSD = v.is_tanker ? 0 : (parseFloat(v.return_amount_usd || "") || 0);
+            const vehicleUSD = goUSD + returnUSD;
             const vehicleLocal = vehicleUSD * clientRate;
+            const goLocal = goUSD * clientRate;
+            const returnLocal = returnUSD * clientRate;
 
             return {
                 order_number: formattedOrderNumber,
@@ -873,6 +895,10 @@ export default function TripOrders() {
                 agreed_amount_usd: vehicleUSD,
                 agreed_client_rate: clientRate,
                 agreed_amount_local: vehicleLocal,
+                go_amount_usd: goUSD,
+                go_amount_local: goLocal,
+                return_amount_usd: returnUSD,
+                return_amount_local: returnLocal,
                 currency: "USD",
                 vehicle_id: v.vehicle_id || null,
                 truck_reg: v.truck_reg,
@@ -986,13 +1012,38 @@ export default function TripOrders() {
                 })
                 .eq("id", orderId);
             if (error) throw error;
+
+            // Also check if any associated trip sheet exists for this order's trip_number, and cascade the updated total
+            try {
+                const targetOrder = orders.find((o: any) => o.id === orderId);
+                const tripNum = targetOrder?.trip_number;
+                if (tripNum && updates.agreed_amount_usd !== undefined) {
+                    const totalUSD = parseFloat(updates.agreed_amount_usd) || 0;
+                    const exRate = parseFloat(updates.agreed_client_rate) || 2700;
+                    await supabase
+                        .from("logistics_trip_sheets" as any)
+                        .update({
+                            revenue_amount: totalUSD,
+                            exchange_rate: exRate,
+                            client_name: updates.client_name || targetOrder.client_name,
+                            destination: updates.destination || targetOrder.destination,
+                            cargo_outbound: updates.cargo_description !== undefined ? updates.cargo_description : targetOrder.cargo_description,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq("reference_number", tripNum);
+                }
+            } catch (sheetSyncErr) {
+                console.warn("Could not sync order updates to trip sheet:", sheetSyncErr);
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
             queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_for_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_list"] });
             toast({
                 title: "Order Updated",
-                description: "Trip order details have been updated successfully."
+                description: "Trip order details and connected trip sheet have been updated successfully."
             });
             setEditingOrder(null);
             setEditFormData({});
@@ -1705,34 +1756,54 @@ export default function TripOrders() {
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            disabled={isApproved}
-                                                            onClick={() => {
-                                                                setEditingOrder(order);
-                                                                setEditFormData({
-                                                                    truck_reg: order.truck_reg || '',
-                                                                    trailer_reg: order.trailer_reg || '',
-                                                                    driver_name: order.driver_name || '',
-                                                                    contact_no: order.contact_no || '',
-                                                                    destination: order.destination || '',
-                                                                    agreed_amount_usd: order.agreed_amount_usd || '',
-                                                                    agreed_client_rate: order.agreed_client_rate || '2700',
-                                                                    cargo_description: order.cargo_description || '',
-                                                                    notes: order.notes || ''
-                                                                });
-                                                            }}
-                                                            className={cn(
-                                                                "h-8 w-8 p-0 rounded-lg",
-                                                                isApproved
-                                                                    ? "text-slate-300 cursor-not-allowed opacity-30"
-                                                                    : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
-                                                            )}
-                                                            title={isApproved ? "Locked: Approved orders cannot be modified" : "Edit order details"}
-                                                        >
-                                                            <Edit2 className="w-3.5 h-3.5" />
-                                                        </Button>
+                                                        {(() => {
+                                                            const linkedSheet = tripSheetsList.find((s: any) => s.reference_number === order.trip_number);
+                                                            const isSheetApproved = linkedSheet && (linkedSheet.status === 'Approved' || linkedSheet.status === 'Active');
+                                                            const isLockedFromEdit = isSheetApproved;
+
+                                                            return (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    disabled={isLockedFromEdit}
+                                                                    onClick={() => {
+                                                                        const rawGoUsd = order.go_amount_usd !== null && order.go_amount_usd !== undefined && order.go_amount_usd !== '' 
+                                                                            ? String(order.go_amount_usd) 
+                                                                            : (order.agreed_amount_usd ? String(order.agreed_amount_usd) : '');
+                                                                        const rawReturnUsd = order.return_amount_usd !== null && order.return_amount_usd !== undefined 
+                                                                            ? String(order.return_amount_usd) 
+                                                                            : '';
+                                                                        setEditingOrder(order);
+                                                                        setEditFormData({
+                                                                            client_name: order.client_name || '',
+                                                                            truck_reg: order.truck_reg || '',
+                                                                            trailer_reg: order.trailer_reg || '',
+                                                                            driver_name: order.driver_name || '',
+                                                                            contact_no: order.contact_no || '',
+                                                                            license_no: order.license_no || '',
+                                                                            passport_no: order.passport_no || '',
+                                                                            destination: order.destination || '',
+                                                                            is_tanker: order.is_tanker || false,
+                                                                            go_amount_usd: rawGoUsd,
+                                                                            return_amount_usd: rawReturnUsd,
+                                                                            agreed_amount_usd: order.agreed_amount_usd || '',
+                                                                            agreed_client_rate: order.agreed_client_rate || '2700',
+                                                                            cargo_description: order.cargo_description || '',
+                                                                            notes: order.notes || ''
+                                                                        });
+                                                                    }}
+                                                                    className={cn(
+                                                                        "h-8 w-8 p-0 rounded-lg",
+                                                                        isLockedFromEdit
+                                                                            ? "text-slate-300 cursor-not-allowed opacity-30"
+                                                                            : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                                                                    )}
+                                                                    title={isLockedFromEdit ? "Locked: Trip Sheet has been approved in Finance" : "Edit order details"}
+                                                                >
+                                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                                </Button>
+                                                            );
+                                                        })()}
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
@@ -2040,11 +2111,23 @@ export default function TripOrders() {
                                                         </TableCell>
                                                         <TableCell className="text-right">
                                                             <div className="flex items-center justify-end gap-1.5">
+                                                        {(() => {
+                                                            const linkedSheet = tripSheetsList.find((s: any) => s.reference_number === subOrder.trip_number);
+                                                            const isSheetApproved = linkedSheet && (linkedSheet.status === 'Approved' || linkedSheet.status === 'Active');
+                                                            const isLockedFromEdit = isSheetApproved;
+
+                                                            return (
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
-                                                                    disabled={isSubApproved}
+                                                                    disabled={isLockedFromEdit}
                                                                     onClick={() => {
+                                                                        const rawGoUsd = subOrder.go_amount_usd !== null && subOrder.go_amount_usd !== undefined && subOrder.go_amount_usd !== '' 
+                                                                            ? String(subOrder.go_amount_usd) 
+                                                                            : (subOrder.agreed_amount_usd ? String(subOrder.agreed_amount_usd) : '');
+                                                                        const rawReturnUsd = subOrder.return_amount_usd !== null && subOrder.return_amount_usd !== undefined 
+                                                                            ? String(subOrder.return_amount_usd) 
+                                                                            : '';
                                                                         setEditingOrder(subOrder);
                                                                         setEditFormData({
                                                                             client_name: subOrder.client_name || '',
@@ -2052,7 +2135,12 @@ export default function TripOrders() {
                                                                             trailer_reg: subOrder.trailer_reg || '',
                                                                             driver_name: subOrder.driver_name || '',
                                                                             contact_no: subOrder.contact_no || '',
+                                                                            license_no: subOrder.license_no || '',
+                                                                            passport_no: subOrder.passport_no || '',
                                                                             destination: subOrder.destination || '',
+                                                                            is_tanker: subOrder.is_tanker || false,
+                                                                            go_amount_usd: rawGoUsd,
+                                                                            return_amount_usd: rawReturnUsd,
                                                                             agreed_amount_usd: subOrder.agreed_amount_usd || '',
                                                                             agreed_client_rate: subOrder.agreed_client_rate || '2700',
                                                                             cargo_description: subOrder.cargo_description || '',
@@ -2061,14 +2149,16 @@ export default function TripOrders() {
                                                                     }}
                                                                     className={cn(
                                                                         "h-8 w-8 p-0 rounded-lg",
-                                                                        isSubApproved
+                                                                        isLockedFromEdit
                                                                             ? "text-slate-300 cursor-not-allowed opacity-30"
                                                                             : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
                                                                     )}
-                                                                    title={isSubApproved ? "Locked: Approved orders cannot be modified" : "Edit order details"}
+                                                                    title={isLockedFromEdit ? "Locked: Trip Sheet has been approved in Finance" : "Edit order details"}
                                                                 >
                                                                     <Edit2 className="w-3.5 h-3.5" />
                                                                 </Button>
+                                                            );
+                                                        })()}
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="sm"
@@ -2576,26 +2666,80 @@ export default function TripOrders() {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    <div className="space-y-1">
-                                                        <Label className="text-[10px] font-semibold text-slate-600">Vehicle Agreed Amount ($ USD) *</Label>
-                                                        <Input
-                                                            type="number"
-                                                            step="0.01"
-                                                            placeholder="e.g. 3500.00"
-                                                            value={veh.agreed_amount_usd || ""}
-                                                            onChange={e => updateVehicleSlotField(vIdx, "agreed_amount_usd", e.target.value)}
-                                                            className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
-                                                        />
+                                                <div className="space-y-3">
+                                                    {/* Going Amount Row */}
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                <ArrowRight className="w-3 h-3 text-indigo-500" />
+                                                                Going Amount ($ USD) *
+                                                            </Label>
+                                                            <Input
+                                                                type="number"
+                                                                step="0.01"
+                                                                placeholder="e.g. 3500.00"
+                                                                value={veh.agreed_amount_usd || ""}
+                                                                onChange={e => updateVehicleSlotField(vIdx, "agreed_amount_usd", e.target.value)}
+                                                                className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
+                                                            <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                                <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
+                                                                <span className="font-mono text-emerald-700">
+                                                                    {(((parseFloat(veh.agreed_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                                </span>
+                                                            </div>
+                                                        </div>
                                                     </div>
 
-                                                    <div className="space-y-1">
-                                                        <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
-                                                        <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
-                                                            <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
-                                                            <span className="font-mono text-emerald-700">
-                                                                {(((parseFloat(veh.agreed_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
-                                                            </span>
+                                                    {/* Return Amount Row */}
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
+                                                                Return Amount ($ USD)
+                                                            </Label>
+                                                            <Input
+                                                                type="number"
+                                                                step="0.01"
+                                                                placeholder="e.g. 1500.00"
+                                                                value={veh.return_amount_usd || ""}
+                                                                onChange={e => updateVehicleSlotField(vIdx, "return_amount_usd", e.target.value)}
+                                                                className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                                            />
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
+                                                            <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                                                <span className="text-[10px] text-slate-400">@ {formData.agreed_client_rate || "2700"}</span>
+                                                                <span className="font-mono text-amber-700">
+                                                                    {(((parseFloat(veh.return_amount_usd || "0") || 0) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Total Row (Go + Return) */}
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide">Total (Go + Return) USD</Label>
+                                                            <div className="h-8 px-2.5 bg-indigo-50/70 border border-indigo-200 rounded-md flex items-center justify-between text-xs font-black text-indigo-900">
+                                                                <span className="text-[10px] text-indigo-500">$</span>
+                                                                <span className="font-mono">
+                                                                    {(((parseFloat(veh.agreed_amount_usd || "0") || 0) + (parseFloat(veh.return_amount_usd || "0") || 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide">Total Equivalent (TSh)</Label>
+                                                            <div className="h-8 px-2.5 bg-emerald-50/70 border border-emerald-200 rounded-md flex items-center justify-between text-xs font-black text-emerald-900">
+                                                                <span className="text-[10px] text-emerald-500">@ {formData.agreed_client_rate || "2700"}</span>
+                                                                <span className="font-mono">
+                                                                    {((((parseFloat(veh.agreed_amount_usd || "0") || 0) + (parseFloat(veh.return_amount_usd || "0") || 0)) * (parseFloat(formData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2987,133 +3131,277 @@ export default function TripOrders() {
                 </DialogContent>
             </Dialog>
 
-            {/* EDIT ORDER MODAL */}
+            {/* EDIT ORDER MODAL — Full form mirroring creation layout */}
             <Dialog open={!!editingOrder} onOpenChange={(open) => { if (!open) { setEditingOrder(null); setEditFormData({}); } }}>
-                <DialogContent className="max-w-lg rounded-2xl p-6">
-                    <DialogHeader>
-                        <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                            <Edit2 className="w-5 h-5 text-indigo-600" />
-                            Edit Order — {editingOrder?.trip_number || editingOrder?.order_number}
-                        </DialogTitle>
-                        <p className="text-xs text-slate-500">
-                            Modify order details. Changes are saved immediately upon clicking Update.
-                        </p>
-                    </DialogHeader>
+                <DialogContent className="max-w-2xl rounded-2xl p-0 max-h-[90vh] overflow-y-auto">
+                    {/* Header */}
+                    <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm px-6 pt-5 pb-3 border-b border-slate-100">
+                        <DialogHeader>
+                            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <Edit2 className="w-5 h-5 text-indigo-600" />
+                                Edit Order — {editingOrder?.trip_number || editingOrder?.order_number}
+                            </DialogTitle>
+                            <p className="text-xs text-slate-500">
+                                Modify order details. Changes are saved immediately upon clicking Update.
+                            </p>
+                        </DialogHeader>
+                    </div>
 
-                    <div className="space-y-4 pt-3">
-                        <div>
-                            <Label className="text-[11px] font-bold text-slate-600">Client</Label>
-                            <Select
-                                value={editFormData.client_name || ''}
-                                onValueChange={(val) => setEditFormData((prev: any) => ({ ...prev, client_name: val }))}
-                            >
-                                <SelectTrigger className="h-9 text-xs rounded-lg">
-                                    <SelectValue placeholder="Select client" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {clientsList.map((c: any) => (
-                                        <SelectItem key={c.id || c.name} value={c.name}>{c.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <Label className="text-[11px] font-bold text-slate-600">Truck Reg</Label>
-                                <Input
-                                    value={editFormData.truck_reg || ''}
-                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, truck_reg: e.target.value }))}
-                                    className="h-9 text-xs rounded-lg"
-                                />
+                    <div className="px-6 pb-6 space-y-5">
+                        {/* Section 1: Vehicle & Trip Info */}
+                        <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Vehicle (Horse) *</Label>
+                                    <Input
+                                        value={editFormData.truck_reg || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, truck_reg: e.target.value }))}
+                                        className="h-9 text-xs rounded-lg font-bold"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Trip Reference Number</Label>
+                                    <div className="h-9 px-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center">
+                                        <span className="text-xs font-bold text-indigo-800">{editingOrder?.trip_number || editingOrder?.order_number || '—'}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Linked Trailer</Label>
+                                    <Input
+                                        value={editFormData.trailer_reg || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, trailer_reg: e.target.value }))}
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <Label className="text-[11px] font-bold text-slate-600">Trailer Reg</Label>
-                                <Input
-                                    value={editFormData.trailer_reg || ''}
-                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, trailer_reg: e.target.value }))}
-                                    className="h-9 text-xs rounded-lg"
-                                />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <Label className="text-[11px] font-bold text-slate-600">Driver Name</Label>
-                                <Input
-                                    value={editFormData.driver_name || ''}
-                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, driver_name: e.target.value }))}
-                                    className="h-9 text-xs rounded-lg"
-                                />
-                            </div>
-                            <div>
-                                <Label className="text-[11px] font-bold text-slate-600">Contact No</Label>
-                                <Input
-                                    value={editFormData.contact_no || ''}
-                                    onChange={(e) => setEditFormData((prev: any) => ({ ...prev, contact_no: e.target.value }))}
-                                    className="h-9 text-xs rounded-lg"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <Label className="text-[11px] font-bold text-slate-600">Destination</Label>
-                            <Select
-                                value={editFormData.destination || ''}
-                                onValueChange={(val) => setEditFormData((prev: any) => ({ ...prev, destination: val }))}
-                            >
-                                <SelectTrigger className="h-9 text-xs rounded-lg">
-                                    <SelectValue placeholder="Select destination" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {STANDARD_DESTINATIONS.map(d => (
-                                        <SelectItem key={d} value={d}>{d}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <Label className="text-[11px] font-bold text-slate-600">Agreed Amount (USD)</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    value={editFormData.agreed_amount_usd || ''}
-                                    onChange={(e) => {
-                                        const usd = e.target.value;
-                                        const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
-                                        setEditFormData((prev: any) => ({
-                                            ...prev,
-                                            agreed_amount_usd: usd,
-                                            agreed_amount_local: String((parseFloat(usd) || 0) * rate)
-                                        }));
-                                    }}
-                                    className="h-9 text-xs rounded-lg"
-                                />
-                            </div>
-                            <div>
-                                <Label className="text-[11px] font-bold text-slate-600">Exchange Rate</Label>
-                                <Input
-                                    type="number"
-                                    value={editFormData.agreed_client_rate || ''}
-                                    onChange={(e) => {
-                                        const rate = e.target.value;
-                                        const usd = parseFloat(editFormData.agreed_amount_usd) || 0;
-                                        setEditFormData((prev: any) => ({
-                                            ...prev,
-                                            agreed_client_rate: rate,
-                                            agreed_amount_local: String(usd * (parseFloat(rate) || 0))
-                                        }));
-                                    }}
-                                    className="h-9 text-xs rounded-lg"
-                                />
+                            <div className="grid grid-cols-4 gap-3">
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Driver Name *</Label>
+                                    <Input
+                                        value={editFormData.driver_name || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, driver_name: e.target.value }))}
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Contact No</Label>
+                                    <Input
+                                        value={editFormData.contact_no || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, contact_no: e.target.value }))}
+                                        placeholder="e.g. +255..."
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">License No</Label>
+                                    <Input
+                                        value={editFormData.license_no || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, license_no: e.target.value }))}
+                                        placeholder="License #"
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Passport No</Label>
+                                    <Input
+                                        value={editFormData.passport_no || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, passport_no: e.target.value }))}
+                                        placeholder="Passport #"
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div>
-                            <Label className="text-[11px] font-bold text-slate-600">Cargo Description</Label>
-                            <Input
-                                value={editFormData.cargo_description || ''}
-                                onChange={(e) => setEditFormData((prev: any) => ({ ...prev, cargo_description: e.target.value }))}
-                                className="h-9 text-xs rounded-lg"
-                            />
+
+                        {/* Section 2: Client & Commercial Agreement */}
+                        <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 space-y-3">
+                            <div className="flex items-center gap-1.5 mb-1">
+                                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                                <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">Client & Commercial Agreement</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Client</Label>
+                                    <Select
+                                        value={editFormData.client_name || ''}
+                                        onValueChange={(val) => setEditFormData((prev: any) => ({ ...prev, client_name: val }))}
+                                    >
+                                        <SelectTrigger className="h-9 text-xs rounded-lg">
+                                            <SelectValue placeholder="Select client" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {clientsList.map((c: any) => (
+                                                <SelectItem key={c.id || c.name} value={c.name}>{c.name}</SelectItem>
+                                            ))}
+                                            {editFormData.client_name && !clientsList.some((c: any) => c.name === editFormData.client_name) && (
+                                                <SelectItem value={editFormData.client_name}>{editFormData.client_name}</SelectItem>
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Destination</Label>
+                                    <Select
+                                        value={editFormData.destination || ''}
+                                        onValueChange={(val) => setEditFormData((prev: any) => ({ ...prev, destination: val }))}
+                                    >
+                                        <SelectTrigger className="h-9 text-xs rounded-lg">
+                                            <SelectValue placeholder="Select destination" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {STANDARD_DESTINATIONS.map(d => (
+                                                <SelectItem key={d} value={d}>{d}</SelectItem>
+                                            ))}
+                                            {editFormData.destination && !STANDARD_DESTINATIONS.includes(editFormData.destination) && (
+                                                <SelectItem value={editFormData.destination}>{editFormData.destination}</SelectItem>
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Exchange Rate</Label>
+                                    <Input
+                                        type="number"
+                                        value={editFormData.agreed_client_rate || ''}
+                                        onChange={(e) => {
+                                            const rate = e.target.value;
+                                            const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                            const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                            const totalUsd = goUsd + retUsd;
+                                            setEditFormData((prev: any) => ({
+                                                ...prev,
+                                                agreed_client_rate: rate,
+                                                agreed_amount_usd: String(totalUsd || prev.agreed_amount_usd || ''),
+                                                agreed_amount_local: String(totalUsd * (parseFloat(rate) || 0))
+                                            }));
+                                        }}
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Cargo Description</Label>
+                                    <Input
+                                        value={editFormData.cargo_description || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, cargo_description: e.target.value }))}
+                                        className="h-9 text-xs rounded-lg"
+                                    />
+                                </div>
+                            </div>
                         </div>
+
+                        {/* Section 3: Vehicle Commercial Agreement (Go / Return) */}
+                        <div className="p-4 rounded-xl bg-slate-50/70 border border-slate-200/80 space-y-3">
+                            <div className="flex items-center gap-1.5 mb-1">
+                                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
+                                    Vehicle Commercial Agreement {editFormData.is_tanker ? "(Tanker — Go Only)" : "(Cargo / Flat Rate)"}
+                                </span>
+                            </div>
+
+                            {/* Going Amount Row */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                        <ArrowRight className="w-3 h-3 text-indigo-500" />
+                                        Going Amount ($ USD) *
+                                    </Label>
+                                    <Input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="e.g. 3500.00"
+                                        value={editFormData.go_amount_usd || ''}
+                                        onChange={(e) => {
+                                            const goUsd = e.target.value;
+                                            const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                            const totalUsd = (parseFloat(goUsd) || 0) + retUsd;
+                                            const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                            setEditFormData((prev: any) => ({
+                                                ...prev,
+                                                go_amount_usd: goUsd,
+                                                agreed_amount_usd: String(totalUsd),
+                                                agreed_amount_local: String(totalUsd * rate)
+                                            }));
+                                        }}
+                                        className="h-8 bg-white border-slate-200 text-xs font-bold text-slate-900"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
+                                    <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                        <span className="text-[10px] text-slate-400">@ {editFormData.agreed_client_rate || "2700"}</span>
+                                        <span className="font-mono text-emerald-700">
+                                            {(((parseFloat(editFormData.go_amount_usd || "0") || 0) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Return Amount Row — hidden for tankers */}
+                            {!editFormData.is_tanker && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                            <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
+                                            Return Amount ($ USD)
+                                        </Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="e.g. 1500.00"
+                                            value={editFormData.return_amount_usd || ''}
+                                            onChange={(e) => {
+                                                const retUsd = e.target.value;
+                                                const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                                const totalUsd = goUsd + (parseFloat(retUsd) || 0);
+                                                const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
+                                                setEditFormData((prev: any) => ({
+                                                    ...prev,
+                                                    return_amount_usd: retUsd,
+                                                    agreed_amount_usd: String(totalUsd),
+                                                    agreed_amount_local: String(totalUsd * rate)
+                                                }));
+                                            }}
+                                            className="h-8 bg-white border-amber-200 text-xs font-bold text-slate-900"
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-semibold text-slate-600">Equivalent in Local Currency (TSh)</Label>
+                                        <div className="h-8 px-2.5 bg-slate-100/90 border border-slate-200 rounded-md flex items-center justify-between text-xs font-bold text-slate-800">
+                                            <span className="text-[10px] text-slate-400">@ {editFormData.agreed_client_rate || "2700"}</span>
+                                            <span className="font-mono text-amber-700">
+                                                {(((parseFloat(editFormData.return_amount_usd || "0") || 0) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Total Row (Go + Return) */}
+                            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
+                                <div className="space-y-1">
+                                    <Label className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide">Total (Go + Return) USD</Label>
+                                    <div className="h-8 px-2.5 bg-indigo-50/70 border border-indigo-200 rounded-md flex items-center justify-between text-xs font-black text-indigo-900">
+                                        <span className="text-[10px] text-indigo-500">$</span>
+                                        <span className="font-mono">
+                                            {(((parseFloat(editFormData.go_amount_usd || "0") || 0) + (parseFloat(editFormData.return_amount_usd || "0") || 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <Label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide">Total Equivalent (TSh)</Label>
+                                    <div className="h-8 px-2.5 bg-emerald-50/70 border border-emerald-200 rounded-md flex items-center justify-between text-xs font-black text-emerald-900">
+                                        <span className="text-[10px] text-emerald-500">@ {editFormData.agreed_client_rate || "2700"}</span>
+                                        <span className="font-mono">
+                                            {((((parseFloat(editFormData.go_amount_usd || "0") || 0) + (parseFloat(editFormData.return_amount_usd || "0") || 0)) * (parseFloat(editFormData.agreed_client_rate) || 0))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} TSh
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Section 4: Notes */}
                         <div>
                             <Label className="text-[11px] font-bold text-slate-600">Notes</Label>
                             <Textarea
@@ -3125,7 +3413,8 @@ export default function TripOrders() {
                         </div>
                     </div>
 
-                    <DialogFooter className="flex items-center gap-2 pt-4">
+                    {/* Footer */}
+                    <div className="sticky bottom-0 bg-white/95 backdrop-blur-sm px-6 py-4 border-t border-slate-100 flex items-center gap-3">
                         <Button
                             variant="outline"
                             onClick={() => { setEditingOrder(null); setEditFormData({}); }}
@@ -3136,16 +3425,27 @@ export default function TripOrders() {
                         <Button
                             onClick={() => {
                                 if (editingOrder) {
+                                    const goUsd = parseFloat(editFormData.go_amount_usd) || 0;
+                                    const retUsd = parseFloat(editFormData.return_amount_usd) || 0;
+                                    const totalUsd = goUsd + retUsd;
+                                    const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
+
                                     const updates: any = {};
                                     if (editFormData.client_name) updates.client_name = editFormData.client_name;
                                     if (editFormData.truck_reg) updates.truck_reg = editFormData.truck_reg;
                                     if (editFormData.trailer_reg) updates.trailer_reg = editFormData.trailer_reg;
                                     if (editFormData.driver_name) updates.driver_name = editFormData.driver_name;
                                     if (editFormData.contact_no !== undefined) updates.contact_no = editFormData.contact_no;
+                                    if (editFormData.license_no !== undefined) updates.license_no = editFormData.license_no;
+                                    if (editFormData.passport_no !== undefined) updates.passport_no = editFormData.passport_no;
                                     if (editFormData.destination) updates.destination = editFormData.destination;
-                                    if (editFormData.agreed_amount_usd) updates.agreed_amount_usd = editFormData.agreed_amount_usd;
-                                    if (editFormData.agreed_client_rate) updates.agreed_client_rate = editFormData.agreed_client_rate;
-                                    if (editFormData.agreed_amount_local) updates.agreed_amount_local = editFormData.agreed_amount_local;
+                                    updates.go_amount_usd = goUsd;
+                                    updates.go_amount_local = goUsd * rate;
+                                    updates.return_amount_usd = retUsd;
+                                    updates.return_amount_local = retUsd * rate;
+                                    updates.agreed_amount_usd = totalUsd;
+                                    updates.agreed_client_rate = rate;
+                                    updates.agreed_amount_local = totalUsd * rate;
                                     if (editFormData.cargo_description !== undefined) updates.cargo_description = editFormData.cargo_description;
                                     if (editFormData.notes !== undefined) updates.notes = editFormData.notes;
                                     updateOrderMutation.mutate({ orderId: editingOrder.id, updates });
@@ -3157,7 +3457,7 @@ export default function TripOrders() {
                             <Save className="w-3.5 h-3.5" />
                             {updateOrderMutation.isPending ? "Saving..." : "Update Order"}
                         </Button>
-                    </DialogFooter>
+                    </div>
                 </DialogContent>
             </Dialog>
 

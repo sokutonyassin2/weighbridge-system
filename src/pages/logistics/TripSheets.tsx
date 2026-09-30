@@ -1000,11 +1000,20 @@ const TripSheets = () => {
                                                             <TableCell className="text-right">
                                                                 {(() => {
                                                                     const est = getVehicleEstimatedExpenses(order);
+                                                                    const rawGoUsd = order.go_amount_usd !== null && order.go_amount_usd !== undefined && order.go_amount_usd !== ''
+                                                                        ? parseFloat(order.go_amount_usd) || 0
+                                                                        : orderUSD;
+                                                                    const rawRetUsd = parseFloat(order.return_amount_usd) || 0;
                                                                     return (
                                                                         <div className="space-y-0.5">
                                                                             <div className="font-black text-slate-900 text-xs">
                                                                                 ${orderUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                                                                             </div>
+                                                                            {rawRetUsd > 0 && (
+                                                                                <div className="text-[9px] font-semibold text-slate-500">
+                                                                                    Go: ${rawGoUsd.toLocaleString(undefined, { minimumFractionDigits: 2 })} | Ret: ${rawRetUsd.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                                                </div>
+                                                                            )}
                                                                             <div className="text-[10px] font-bold text-emerald-700">
                                                                                 {formatTSh(orderLocal)}
                                                                             </div>
@@ -1102,6 +1111,8 @@ const TripSheets = () => {
                                                                                     revenue_amount: orderUSD,
                                                                                     revenue_currency: 'USD',
                                                                                     revenue_type: 'With Fuel',
+                                                                                    go_amount_usd: order.go_amount_usd !== null && order.go_amount_usd !== undefined && order.go_amount_usd !== '' ? String(order.go_amount_usd) : String(orderUSD),
+                                                                                    return_amount_usd: order.return_amount_usd !== null && order.return_amount_usd !== undefined ? String(order.return_amount_usd) : '',
                                                                                     exchange_rate: orderRate,
                                                                                     agreed_days: order.agreed_days,
                                                                                     daily_fine_amount: order.daily_penalty_fine

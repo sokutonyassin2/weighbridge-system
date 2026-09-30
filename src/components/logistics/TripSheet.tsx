@@ -480,6 +480,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         revenue_type: 'With Fuel' as 'With Fuel' | 'Without Fuel',
         revenue_amount: '',
         revenue_currency: 'TZS' as 'USD' | 'TZS',
+        go_amount_usd: '',
+        return_amount_usd: '',
         fuel_entries: [{ liters: '', price: '' }],
         fuel_liters: '',
         fuel_price: '',
@@ -899,11 +901,35 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         return_payment_status: doc.return_payment_status || "Pending"
                     });
 
+                    let linkedGoUsd = '';
+                    let linkedReturnUsd = '';
+                    if (doc.reference_number) {
+                        try {
+                            const { data: matchedOrder } = await supabase
+                                .from('logistics_trip_orders' as any)
+                                .select('go_amount_usd, return_amount_usd, agreed_amount_usd')
+                                .eq('trip_number', doc.reference_number)
+                                .maybeSingle();
+                            if (matchedOrder) {
+                                linkedGoUsd = matchedOrder.go_amount_usd !== null && matchedOrder.go_amount_usd !== undefined && matchedOrder.go_amount_usd !== ''
+                                    ? String(matchedOrder.go_amount_usd)
+                                    : (matchedOrder.agreed_amount_usd ? String(matchedOrder.agreed_amount_usd) : '');
+                                linkedReturnUsd = matchedOrder.return_amount_usd !== null && matchedOrder.return_amount_usd !== undefined
+                                    ? String(matchedOrder.return_amount_usd)
+                                    : '';
+                            }
+                        } catch (e) {
+                            console.warn("Could not query matched order for go/return amounts:", e);
+                        }
+                    }
+
                     setRevenueData(prev => ({
                         ...prev,
                         revenue_type: doc.revenue_type || 'Without Fuel',
                         revenue_amount: (doc.revenue_amount || 0).toString(),
                         revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
+                        go_amount_usd: linkedGoUsd,
+                        return_amount_usd: linkedReturnUsd,
                         fuel_liters: (doc.fuel_liters || '').toString(),
                         fuel_price: (doc.fuel_price || '').toString(),
                         fuel_amount: (doc.fuel_amount || 0).toString(),
@@ -1160,6 +1186,8 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             revenue_type: doc.revenue_type || 'With Fuel',
             revenue_amount: (doc.revenue_amount || 0).toString(),
             revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
+            go_amount_usd: doc.go_amount_usd ? String(doc.go_amount_usd) : '',
+            return_amount_usd: doc.return_amount_usd ? String(doc.return_amount_usd) : '',
             fuel_liters: (doc.fuel_liters || '').toString(),
             fuel_price: (doc.fuel_price || '').toString(),
             fuel_amount: (doc.fuel_amount || 0).toString(),
@@ -1659,6 +1687,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const revTzs = revenueData.revenue_currency === 'TZS' ? rawRev : rawRev * tzR;
 
         addSummaryLine('GROSS TRIP REVENUE', revUsd, revTzs);
+        const retUsdExcel = parseFloat(revenueData.return_amount_usd || '0');
+        const goUsdExcel = parseFloat(revenueData.go_amount_usd || '0') || (revUsd - retUsdExcel);
+        if (retUsdExcel > 0) {
+            addSummaryLine('  ↳ Outbound (Going Leg)', goUsdExcel, goUsdExcel * tzR, '4F46E5');
+            addSummaryLine('  ↳ Inbound (Return Leg)', retUsdExcel, retUsdExcel * tzR, 'D97706');
+        }
         addSummaryLine('ROAD EXPENSES', totals.roadExpensesUSD, totals.roadExpensesTZS, 'C0504D');
         if (revenueData.revenue_type === 'With Fuel' && totals.fuelCostUSD > 0) {
             addSummaryLine(`FUEL COST (${totals.fuelLiters.toLocaleString()} L)`, totals.fuelCostUSD, totals.fuelCostTZS, 'ED7D31');
@@ -2392,6 +2426,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     <div className="text-right">
                         <div className="text-xl font-black">{tripData.vehicle_id ? (fleet.find(f => f.id === tripData.vehicle_id)?.vehicle_no) : 'N/A'}</div>
                         <p className="text-xs uppercase tracking-widest">{tripData.destination || 'Unplanned Route'}</p>
+                        {parseFloat(revenueData.return_amount_usd || '0') > 0 ? (
+                            <p className="text-[10px] font-bold text-slate-700 mt-0.5">
+                                Revenue: ${Number(revenueData.revenue_amount || 0).toLocaleString()} (Go: ${parseFloat(revenueData.go_amount_usd || revenueData.revenue_amount || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })} | Ret: ${parseFloat(revenueData.return_amount_usd || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })})
+                            </p>
+                        ) : revenueData.revenue_amount ? (
+                            <p className="text-[10px] font-bold text-slate-700 mt-0.5">
+                                Revenue: ${Number(revenueData.revenue_amount || 0).toLocaleString()} USD
+                            </p>
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -2493,6 +2536,12 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             {revenueData.revenue_amount ? Number(revenueData.revenue_amount).toLocaleString() : '0'}
                         </div>
                     </div>
+                    {parseFloat(revenueData.return_amount_usd || '0') > 0 && (
+                        <div className="flex items-center justify-between text-[9px] font-semibold text-slate-300 mt-1 px-1 bg-slate-800/60 rounded py-0.5 border border-slate-700/50">
+                            <span>Go: ${parseFloat(revenueData.go_amount_usd || revenueData.revenue_amount || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            <span className="text-amber-400 font-bold">Return: ${parseFloat(revenueData.return_amount_usd || '0').toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        </div>
+                    )}
                     <p className="text-[9px] font-medium text-slate-500 mt-1.5 text-right">
                         {revenueData.revenue_currency === 'TZS' 
                             ? `Approx $${((parseFloat(revenueData.revenue_amount) || 0) / (countryRates["TZ"] || 2700)).toLocaleString()} USD`
@@ -2628,11 +2677,15 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                     }));
 
                                                     if (order.agreed_amount_usd) {
+                                                        const goUsd = order.go_amount_usd !== null && order.go_amount_usd !== undefined && order.go_amount_usd !== '' ? String(order.go_amount_usd) : String(order.agreed_amount_usd);
+                                                        const retUsd = order.return_amount_usd !== null && order.return_amount_usd !== undefined ? String(order.return_amount_usd) : '';
                                                         setRevenueData(prev => ({
                                                             ...prev,
                                                             revenue_type: 'With Fuel',
                                                             revenue_amount: String(order.agreed_amount_usd),
-                                                            revenue_currency: 'USD'
+                                                            revenue_currency: 'USD',
+                                                            go_amount_usd: goUsd,
+                                                            return_amount_usd: retUsd
                                                         }));
                                                     } else {
                                                         setRevenueData(prev => ({

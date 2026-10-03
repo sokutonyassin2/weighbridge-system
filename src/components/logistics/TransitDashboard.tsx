@@ -274,7 +274,10 @@ const TransitDashboard = () => {
     const buildPayload = (data: any, tripSheet?: any) => {
         const src = tripSheet || data;
         const truckNo = tripSheet ? (tripSheet.vehicle?.vehicle_no || "") : (fleet.find((f: any) => f.id === data.selected_vehicle_id)?.vehicle_no || data.truck_no);
-        const tripId = tripSheet ? generateTripId(truckNo, data.leg_type) : (data.trip_id || generateTripId(truckNo, data.leg_type));
+        // Use reference_number from trip sheet as trip_id when available, otherwise keep existing trip_id
+        const tripId = tripSheet
+            ? (tripSheet.reference_number || generateTripId(truckNo, data.leg_type))
+            : (data.trip_id || data.reference_number || generateTripId(truckNo, data.leg_type));
 
         return {
             client_name: (tripSheet?.client_name || data.client_name) || null,
@@ -437,6 +440,7 @@ const TransitDashboard = () => {
         const matchesSearch = !search || 
             (t.truck_no?.toLowerCase().includes(search.toLowerCase()) ||
              t.trip_id?.toLowerCase().includes(search.toLowerCase()) ||
+             t.reference_number?.toLowerCase().includes(search.toLowerCase()) ||
              t.driver_name?.toLowerCase().includes(search.toLowerCase()) ||
              t.destination?.toLowerCase().includes(search.toLowerCase()) ||
              t.client_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -642,7 +646,7 @@ const TransitDashboard = () => {
                                                     <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors group">
                                                         <td className="sticky left-0 z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 text-slate-400 font-medium text-center border-r border-slate-100 w-12 min-w-[48px] max-w-[48px] group-hover:text-slate-600">{(idx + 1).toString().padStart(2, '0')}</td>
                                                         <td className="sticky left-[48px] z-20 bg-white group-hover:bg-slate-50 transition-colors px-3 py-3 font-semibold text-slate-700 whitespace-nowrap border-r border-slate-100 w-[140px] min-w-[140px] max-w-[140px]">
-                                                            {t.trip_id}
+                                                            {t.reference_number || t.trip_id}
                                                             <div className="flex flex-wrap gap-1 mt-1">
                                                                 <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${t.leg_type === "G" ? "bg-blue-50 text-blue-600 border border-blue-100" : "bg-rose-50 text-rose-600 border border-rose-100"}`}>
                                                                     {t.is_tanker ? "TKR" : t.leg_type === "G" ? "OUT" : "RTN"}
@@ -746,22 +750,28 @@ const TransitDashboard = () => {
                                                                         {computeLiveCycle(t)} <span className="text-[9px] text-slate-400 font-medium uppercase">Days</span>
                                                                     </span>
                                                                 )}
-                                                                {t.leg_type === "R" && trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G')) && (
+                                                                {t.leg_type === "R" && (() => {
+                                                                    const goingLeg = trips.find(x => x.trip_sheet_id && x.trip_sheet_id === t.trip_sheet_id && x.leg_type === "G" && x.id !== t.id);
+                                                                    return goingLeg ? (
                                                                     <div className="flex flex-col items-center p-1.5 bg-emerald-50 rounded-lg border border-emerald-100 shadow-sm">
                                                                         <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Round Trip Total</span>
                                                                         <span className="text-sm font-black text-emerald-700 tabular-nums">
-                                                                            {(computeLiveCycle(t) || 0) + (computeLiveCycle(trips.find(x => x.trip_id === t.trip_id.replace('/R', '/G'))) || 0)} <span className="text-[9px] uppercase">DYS</span>
+                                                                            {(computeLiveCycle(t) || 0) + (computeLiveCycle(goingLeg) || 0)} <span className="text-[9px] uppercase">DYS</span>
                                                                         </span>
                                                                     </div>
-                                                                )}
-                                                                {t.leg_type === "G" && trips.find(x => x.trip_id === t.trip_id.replace('/G', '/R')) && (
+                                                                    ) : null;
+                                                                })()}
+                                                                {t.leg_type === "G" && (() => {
+                                                                    const returnLeg = trips.find(x => x.trip_sheet_id && x.trip_sheet_id === t.trip_sheet_id && x.leg_type === "R" && x.id !== t.id);
+                                                                    return returnLeg ? (
                                                                     <div className="flex flex-col items-center p-1.5 bg-emerald-50 rounded-lg border border-emerald-100 shadow-sm">
                                                                         <span className="text-[8px] font-black text-emerald-600 uppercase tracking-tighter">Round Trip Total</span>
                                                                         <span className="text-sm font-black text-emerald-700 tabular-nums">
-                                                                            {(computeLiveCycle(t) || 0) + (computeLiveCycle(trips.find(x => x.trip_id === t.trip_id.replace('/G', '/R'))) || 0)} <span className="text-[9px] uppercase">DYS</span>
+                                                                            {(computeLiveCycle(t) || 0) + (computeLiveCycle(returnLeg) || 0)} <span className="text-[9px] uppercase">DYS</span>
                                                                         </span>
                                                                     </div>
-                                                                )}
+                                                                    ) : null;
+                                                                })()}
                                                             </div>
                                                         </td>
                                                         <td className="px-3 py-3 text-center">
@@ -770,7 +780,8 @@ const TransitDashboard = () => {
                                                                     <Button variant="outline" size="icon" title="Initiate Return Leg" className="h-8 w-8 rounded-lg border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100" onClick={() => {
                                                                         if(confirm(`Initiate Return Leg for ${t.truck_no}? This will reverse the route and set destination to Dar Es Salaam.`)) {
                                                                             const isTanker = t.is_tanker || (t.trip_id && t.trip_id.includes('/T'));
-                                                                            const returnTripId = isTanker ? t.trip_id : t.trip_id.replace('/G', '/R');
+                                                                            // Keep the same reference_number for the return leg so round-trip matching works via trip_sheet_id
+                                                                            const returnTripId = t.reference_number || (isTanker ? t.trip_id : t.trip_id.replace('/G', '/R'));
                                                                             
                                                                             // Reverse borders
                                                                             const reversedBorders = (t.borders_data || []).map((b: any) => ({
@@ -838,7 +849,7 @@ const TransitDashboard = () => {
                                                                     let recoveredReturnInvoiceNo = t.return_invoice_no;
                                                                     
                                                                     if (t.leg_type === "R") {
-                                                                        let gLeg = trips.find((x: any) => x.trip_id === t.trip_id.replace('/R', '/G'));
+                                                                        let gLeg = trips.find((x: any) => x.trip_sheet_id && x.trip_sheet_id === t.trip_sheet_id && x.leg_type === "G" && x.id !== t.id);
                                                                         if (!gLeg) {
                                                                             // Fallback: Find the most recent Go leg for the same truck
                                                                             gLeg = trips.find((x: any) => x.leg_type === "G" && x.truck_no === t.truck_no);
@@ -1546,7 +1557,7 @@ const TransitDashboard = () => {
                                             <DialogTitle className="text-lg font-black text-white">Location Update</DialogTitle>
                                         </div>
                                         <DialogDescription className="text-sky-200 text-xs font-medium">
-                                            {locationUpdateTrip.truck_no} — {locationUpdateTrip.trip_id}
+                                            {locationUpdateTrip.truck_no} — {locationUpdateTrip.reference_number || locationUpdateTrip.trip_id}
                                         </DialogDescription>
                                     </DialogHeader>
                                     <div className="flex gap-3 mt-3 pt-3 border-t border-white/15">
@@ -1653,7 +1664,7 @@ const TransitDashboard = () => {
                                         <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{selectedTripDetails.nature} / {selectedTripDetails.leg_type === "G" ? "OUTBOUND" : "RETURN"}</span>
                                     </div>
                                     <SheetTitle className="text-2xl font-black text-white text-left tracking-tighter leading-none mb-1">
-                                        {selectedTripDetails.trip_id}
+                                        {selectedTripDetails.reference_number || selectedTripDetails.trip_id}
                                     </SheetTitle>
                                     <p className="text-slate-300 text-sm font-medium text-left">{selectedTripDetails.client_name}</p>
                                     

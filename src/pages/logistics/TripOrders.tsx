@@ -61,7 +61,8 @@ import {
     X,
     Calculator,
     Weight,
-    Ruler
+    Ruler,
+    Users
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -165,6 +166,7 @@ export default function TripOrders() {
     const [isAddingClient, setIsAddingClient] = useState(false);
     const [newClientName, setNewClientName] = useState("");
     const [clientComboboxOpen, setClientComboboxOpen] = useState(false);
+    const [editReturnClientComboboxOpen, setEditReturnClientComboboxOpen] = useState(false);
 
     // Order Form State
     const initialFormState = {
@@ -217,6 +219,7 @@ export default function TripOrders() {
         is_tanker?: boolean;
         agreed_amount_usd?: string;
         return_amount_usd?: string; // Return leg amount (non-tankers only)
+        return_client_name?: string; // Optional different client for return leg
         load_quantity?: string; // Amount to be loaded (litres / kg)
         rate_per_thousand?: string; // Rate per 1000
         // Calculation mode fields for non-tanker Go & Return legs
@@ -248,6 +251,7 @@ export default function TripOrders() {
         is_tanker: false,
         agreed_amount_usd: "",
         return_amount_usd: "",
+        return_client_name: "",
         load_quantity: "",
         rate_per_thousand: "",
         go_calc_mode: "per_trip",
@@ -261,6 +265,9 @@ export default function TripOrders() {
         return_rate_per_km: "",
         return_distance_km: ""
     };
+
+    // Return Client combobox open state (keyed by vehicle index)
+    const [returnClientComboboxOpen, setReturnClientComboboxOpen] = useState<Record<number, boolean>>({});
 
     const [vehicleAssignments, setVehicleAssignments] = useState<VehicleAssignment[]>(() => {
         try {
@@ -945,6 +952,7 @@ export default function TripOrders() {
                 order_number: formattedOrderNumber,
                 trip_number: v.trip_number.trim(),
                 client_name: formData.client_name,
+                return_client_name: v.return_client_name || null,
                 agreed_amount_usd: vehicleUSD,
                 agreed_client_rate: clientRate,
                 agreed_amount_local: vehicleLocal,
@@ -1864,7 +1872,8 @@ export default function TripOrders() {
                                                                             return_rate_per_tonne: order.return_rate_per_tonne ? String(order.return_rate_per_tonne) : '',
                                                                             return_tonnage: order.return_tonnage ? String(order.return_tonnage) : '',
                                                                             return_rate_per_km: order.return_rate_per_km ? String(order.return_rate_per_km) : '',
-                                                                            return_distance_km: order.return_distance_km ? String(order.return_distance_km) : ''
+                                                                            return_distance_km: order.return_distance_km ? String(order.return_distance_km) : '',
+                                                                            return_client_name: order.return_client_name || ''
                                                                         });
                                                                     }}
                                                                     className={cn(
@@ -2227,7 +2236,8 @@ export default function TripOrders() {
                                                                             return_calc_mode: (subOrder.return_calc_mode as 'trip' | 'tonne' | 'distance') || 'trip',
                                                                             return_rate_per_unit: subOrder.return_rate_per_unit ? String(subOrder.return_rate_per_unit) : '',
                                                                             return_tonnes: subOrder.return_tonnes ? String(subOrder.return_tonnes) : '',
-                                                                            return_distance_km: subOrder.return_distance_km ? String(subOrder.return_distance_km) : ''
+                                                                            return_distance_km: subOrder.return_distance_km ? String(subOrder.return_distance_km) : '',
+                                                                            return_client_name: subOrder.return_client_name || ''
                                                                         });
                                                                     }}
                                                                     className={cn(
@@ -2886,6 +2896,63 @@ export default function TripOrders() {
                                                         <div className="flex items-center gap-1.5 mb-1">
                                                             <ArrowRight className="w-3 h-3 text-amber-500 rotate-180" />
                                                             <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">Return Leg</span>
+                                                        </div>
+
+                                                        {/* Return Client Selector */}
+                                                        <div className="space-y-1">
+                                                            <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                                                <Users className="w-3 h-3 text-amber-500" />
+                                                                Return Client <span className="text-[9px] text-slate-400 font-normal">(leave empty if same as GO leg client)</span>
+                                                            </Label>
+                                                            <Popover open={returnClientComboboxOpen[vIdx] || false} onOpenChange={(open) => setReturnClientComboboxOpen(prev => ({ ...prev, [vIdx]: open }))}>
+                                                                <PopoverTrigger asChild>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        role="combobox"
+                                                                        type="button"
+                                                                        className={cn("w-full h-8 justify-between bg-white border-amber-200 text-[11px] font-semibold", !veh.return_client_name && "text-slate-400")}
+                                                                    >
+                                                                        {veh.return_client_name || `Same as GO (${formData.client_name || '—'})`}
+                                                                        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                                                    </Button>
+                                                                </PopoverTrigger>
+                                                                <PopoverContent className="w-[300px] p-0 z-[9999]" align="start">
+                                                                    <Command>
+                                                                        <CommandInput placeholder="Search client..." className="h-8 text-xs" />
+                                                                        <CommandList>
+                                                                            <CommandEmpty className="p-2 text-xs text-center text-slate-500">No client found.</CommandEmpty>
+                                                                            <CommandGroup className="max-h-[200px] overflow-auto">
+                                                                                {/* Option to reset to same as GO leg */}
+                                                                                <CommandItem
+                                                                                    value="__same_as_go__"
+                                                                                    onSelect={() => {
+                                                                                        updateVehicleSlotField(vIdx, "return_client_name", "");
+                                                                                        setReturnClientComboboxOpen(prev => ({ ...prev, [vIdx]: false }));
+                                                                                    }}
+                                                                                    className="text-xs font-medium text-slate-500 italic"
+                                                                                >
+                                                                                    <Check className={cn("mr-2 h-3.5 w-3.5", !veh.return_client_name ? "opacity-100" : "opacity-0")} />
+                                                                                    Same as GO leg client
+                                                                                </CommandItem>
+                                                                                {clientsList.map((c: any) => (
+                                                                                    <CommandItem
+                                                                                        key={c.id || c.name}
+                                                                                        value={c.name}
+                                                                                        onSelect={() => {
+                                                                                            updateVehicleSlotField(vIdx, "return_client_name", c.name);
+                                                                                            setReturnClientComboboxOpen(prev => ({ ...prev, [vIdx]: false }));
+                                                                                        }}
+                                                                                        className="text-xs font-medium"
+                                                                                    >
+                                                                                        <Check className={cn("mr-2 h-3.5 w-3.5", veh.return_client_name === c.name ? "opacity-100" : "opacity-0")} />
+                                                                                        {c.name}
+                                                                                    </CommandItem>
+                                                                                ))}
+                                                                            </CommandGroup>
+                                                                        </CommandList>
+                                                                    </Command>
+                                                                </PopoverContent>
+                                                            </Popover>
                                                         </div>
                                                         {/* Calc Mode Selector */}
                                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -3795,9 +3862,71 @@ export default function TripOrders() {
                             {/* Return Commercial Calculation Mode — hidden for tankers */}
                             {!editFormData.is_tanker && (
                                 <div className="space-y-2 p-2.5 rounded-lg bg-amber-50/40 border border-amber-100">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        <ArrowRight className="w-3 h-3 text-amber-600 rotate-180" />
+                                        <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">Return Fee Calculation</span>
+                                    </div>
+
+                                    {/* Return Client Selector for Edit */}
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-semibold text-slate-600 flex items-center gap-1">
+                                            <Users className="w-3 h-3 text-amber-500" />
+                                            Return Client <span className="text-[9px] text-slate-400 font-normal">(leave empty if same as GO leg client)</span>
+                                        </Label>
+                                        <Popover open={editReturnClientComboboxOpen} onOpenChange={setEditReturnClientComboboxOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    type="button"
+                                                    className={cn("w-full h-8 justify-between bg-white border-amber-200 text-[11px] font-semibold", !editFormData.return_client_name && "text-slate-400")}
+                                                >
+                                                    {editFormData.return_client_name || `Same as GO (${editFormData.client_name || '\u2014'})`}
+                                                    <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[300px] p-0 z-[9999]" align="start">
+                                                <Command>
+                                                    <CommandInput placeholder="Search client..." className="h-8 text-xs" />
+                                                    <CommandList>
+                                                        <CommandEmpty className="p-2 text-xs text-center text-slate-500">No client found.</CommandEmpty>
+                                                        <CommandGroup className="max-h-[200px] overflow-auto">
+                                                            {/* Option to reset to same as GO leg */}
+                                                            <CommandItem
+                                                                value="__same_as_go__"
+                                                                onSelect={() => {
+                                                                    setEditFormData((prev: any) => ({ ...prev, return_client_name: '' }));
+                                                                    setEditReturnClientComboboxOpen(false);
+                                                                }}
+                                                                className="text-xs font-medium text-slate-500 italic"
+                                                            >
+                                                                <Check className={cn("mr-2 h-3.5 w-3.5", !editFormData.return_client_name ? "opacity-100" : "opacity-0")} />
+                                                                Same as GO leg client
+                                                            </CommandItem>
+                                                            {clientsList.map((c: any) => (
+                                                                <CommandItem
+                                                                    key={c.id || c.name}
+                                                                    value={c.name}
+                                                                    onSelect={() => {
+                                                                        setEditFormData((prev: any) => ({ ...prev, return_client_name: c.name }));
+                                                                        setEditReturnClientComboboxOpen(false);
+                                                                    }}
+                                                                    className="text-xs font-medium"
+                                                                >
+                                                                    <Check className={cn("mr-2 h-3.5 w-3.5", editFormData.return_client_name === c.name ? "opacity-100" : "opacity-0")} />
+                                                                    {c.name}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
+
                                     <div className="flex items-center justify-between">
                                         <Label className="text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
-                                            <ArrowRight className="w-3 h-3 text-amber-600 rotate-180" /> Return Fee Calculation
+                                            <Calculator className="w-3 h-3 text-amber-600" /> Calculation Mode
                                         </Label>
                                         <div className="flex items-center gap-1 bg-white p-0.5 rounded-md border border-amber-200">
                                             {(['trip', 'tonne', 'distance'] as const).map((mode) => (
@@ -4074,6 +4203,7 @@ export default function TripOrders() {
                                     updates.return_rate_per_unit = editFormData.return_rate_per_unit ? parseFloat(editFormData.return_rate_per_unit) : null;
                                     updates.return_tonnes = editFormData.return_tonnes ? parseFloat(editFormData.return_tonnes) : null;
                                     updates.return_distance_km = editFormData.return_distance_km ? parseFloat(editFormData.return_distance_km) : null;
+                                    updates.return_client_name = editFormData.return_client_name || null;
                                     if (editFormData.cargo_description !== undefined) updates.cargo_description = editFormData.cargo_description;
                                     if (editFormData.notes !== undefined) updates.notes = editFormData.notes;
                                     updateOrderMutation.mutate({ orderId: editingOrder.id, updates });

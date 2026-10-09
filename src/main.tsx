@@ -6,9 +6,16 @@ import "./index.css";
 // TEMPORARILY DISABLED SERVICE WORKER TO FIX POST REQUEST ISSUES
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then(function (registrations) {
-    for (let registration of registrations) {
+    for (const registration of registrations) {
       registration.unregister();
       console.log('Service Worker Unregistered');
+    }
+  });
+}
+if (typeof window !== 'undefined' && 'caches' in window) {
+  caches.keys().then((names) => {
+    for (const name of names) {
+      caches.delete(name);
     }
   });
 }

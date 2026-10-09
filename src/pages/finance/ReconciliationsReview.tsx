@@ -27,7 +27,7 @@ export default function ReconciliationsReview() {
             const { data: trips, error: tripError } = await supabase
                 .from("logistics_trip_sheets")
                 .select(`
-                    id, sheet_number, reference_number, status, expenses, created_at, client_name, origin, destination,
+                    id, reference_number, status, expenses, created_at, client_name, origin, destination,
                     vehicle:vehicle_id ( vehicle_no ),
                     driver:driver_id ( full_name )
                 `)

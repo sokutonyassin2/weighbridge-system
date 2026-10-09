@@ -682,8 +682,46 @@ export default function CashierDashboard() {
               These vehicles have exhausted all weigh attempts and require penalty payment
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Table>
+          <CardContent className="p-3 sm:p-6">
+            {/* Mobile View for Penalty Vehicles */}
+            <div className="block md:hidden space-y-3">
+              {exhaustedPendingWeighs.map((pw) => {
+                const dbAttempts = pw.weigh_attempts || 0;
+                const pendingOffline = offlineDataManager.getPendingCount(pw.entry_id, 'weigh_record');
+                const totalAttempts = dbAttempts + pendingOffline;
+                return (
+                  <div key={`mobile-pw-${pw.id}`} className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-semibold text-slate-500">
+                        {getShortEntryId(pw.entry_id, pw.vehicle_entries?.wb_number)}
+                      </span>
+                      <Badge variant="destructive" className="text-[10px]">
+                        {totalAttempts}/3 EXHAUSTED
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-base text-slate-900">{pw.vehicle_no}</p>
+                        <p className="text-xs text-slate-500">{pw.vehicle_entries?.vehicle_types?.type_name || "N/A"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-400 font-medium">Penalty Due</p>
+                        <p className="font-black text-sm text-destructive">
+                          TShs {(pw.vehicle_entries?.vehicle_types?.first_weigh_fee || 0).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="w-full justify-center text-warning border-warning/40 bg-warning/5 py-1 text-xs">
+                      Pending Payment
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Entry ID</TableHead>
@@ -724,24 +762,69 @@ export default function CashierDashboard() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}
 
       {/* Payment Transactions */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+        <CardHeader className="p-3 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
             <Banknote className="h-5 w-5" />
             Payment Transactions
           </CardTitle>
-          <CardDescription>All payment records</CardDescription>
+          <CardDescription className="text-xs sm:text-sm">All payment records</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6 pt-0 sm:pt-0">
           {payments?.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">No payments found</p>
           ) : (
-            <Table>
+            <>
+              {/* Mobile Transaction Cards */}
+              <div className="block md:hidden space-y-3">
+                {payments?.slice(0, 50).map((payment) => (
+                  <div key={`m-tx-${payment.id}`} className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs text-slate-500 font-semibold">
+                        {payment.entry_id ? getShortEntryId(payment.entry_id, payment.vehicle_entries?.wb_number) : "N/A"}
+                      </span>
+                      <Badge variant={payment.payment_status === "Paid" ? "default" : "secondary"} className="text-[10px]">
+                        {payment.payment_status}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-base text-slate-900">{payment.vehicle_no}</p>
+                        <p className="text-xs text-slate-500">{payment.payment_type}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-black text-sm text-slate-900">
+                          TShs {parseFloat(payment.amount.toString()).toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {format(new Date(payment.created_at), "MMM dd, HH:mm")}
+                        </p>
+                      </div>
+                    </div>
+                    {payment.payment_status === "Pending" && (
+                      <Button
+                        size="sm"
+                        className="w-full h-10 font-bold text-xs"
+                        onClick={() => handleMarkAsPaid(payment.id, parseFloat(payment.amount.toString()))}
+                        disabled={processingId === payment.id}
+                      >
+                        <CheckCircle className="mr-1.5 h-4 w-4" />
+                        Mark as Paid
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Entry ID</TableHead>
@@ -786,6 +869,8 @@ export default function CashierDashboard() {
                 ))}
               </TableBody>
             </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

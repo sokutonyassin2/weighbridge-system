@@ -283,53 +283,53 @@ export default function VehicleHistory() {
 
       {/* Summary Statistics */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="p-4 sm:pt-6">
               <div className="text-center">
-                <Scale className="mx-auto h-8 w-8 text-primary mb-2" />
-                <p className="text-2xl font-bold">{stats.totalWeighs}</p>
-                <p className="text-sm text-muted-foreground">Total Weighs</p>
+                <Scale className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-primary mb-1 sm:mb-2" />
+                <p className="text-xl sm:text-2xl font-bold">{stats.totalWeighs}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Total Weighs</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="p-4 sm:pt-6">
               <div className="text-center">
-                <Clock className="mx-auto h-8 w-8 text-blue-500 mb-2" />
-                <p className="text-2xl font-bold">{stats.totalEntries}</p>
-                <p className="text-sm text-muted-foreground">Total Entries</p>
+                <Clock className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-blue-500 mb-1 sm:mb-2" />
+                <p className="text-xl sm:text-2xl font-bold">{stats.totalEntries}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Total Entries</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="p-4 sm:pt-6">
               <div className="text-center">
-                <div className="flex items-center justify-center h-8 w-8 mx-auto mb-2 bg-green-100 rounded-full">
-                  <span className="text-[10px] font-bold text-green-600">TShs</span>
+                <div className="flex items-center justify-center h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1 sm:mb-2 bg-green-100 rounded-full">
+                  <span className="text-[9px] sm:text-[10px] font-bold text-green-600">TShs</span>
                 </div>
-                <p className="text-2xl font-bold">{stats.totalPayments.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Total Payments</p>
+                <p className="text-lg sm:text-2xl font-bold">{stats.totalPayments.toLocaleString()}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Total Payments</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="p-4 sm:pt-6">
               <div className="text-center">
-                <div className="flex items-center justify-center h-8 w-8 mx-auto mb-2 bg-red-100 rounded-full">
-                  <span className="text-[10px] font-bold text-red-600">TShs</span>
+                <div className="flex items-center justify-center h-6 w-6 sm:h-8 sm:w-8 mx-auto mb-1 sm:mb-2 bg-red-100 rounded-full">
+                  <span className="text-[9px] sm:text-[10px] font-bold text-red-600">TShs</span>
                 </div>
-                <p className="text-2xl font-bold">{stats.totalPenalties.toLocaleString()}</p>
-                <p className="text-sm text-muted-foreground">Total Penalties</p>
+                <p className="text-lg sm:text-2xl font-bold">{stats.totalPenalties.toLocaleString()}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Total Penalties</p>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-6">
+          <Card className="col-span-2 sm:col-span-1">
+            <CardContent className="p-4 sm:pt-6">
               <div className="text-center">
-                <Scale className="mx-auto h-8 w-8 text-purple-500 mb-2" />
-                <p className="text-2xl font-bold">{stats.avgWeight.toFixed(2)}</p>
-                <p className="text-sm text-muted-foreground">Avg Net Weight (kg)</p>
+                <Scale className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-purple-500 mb-1 sm:mb-2" />
+                <p className="text-xl sm:text-2xl font-bold">{stats.avgWeight.toFixed(2)}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Avg Net Weight (kg)</p>
               </div>
             </CardContent>
           </Card>

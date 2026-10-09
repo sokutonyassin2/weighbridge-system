@@ -75,7 +75,7 @@ const garageItems = [
 
 const procurementItems = [
   { title: "Management Approvals", url: "/procurement/approvals", icon: CheckCircle, roles: ["admin", "super_admin"] },
-  { title: "Payment Portal", url: "/procurement/cashier-portal", icon: DollarSign, roles: ["admin", "super_admin", "cashier", "procurement_cashier"] },
+  { title: "Payment Portal", url: "/procurement/cashier-portal", icon: DollarSign, roles: ["admin", "super_admin", "cashier", "procurement_cashier", "finance"] },
   { title: "Overview", url: "/procurement", icon: BarChart3, roles: ["admin", "super_admin", "procurement_officer", "finance"] },
   { title: "Procurement Reports", url: "/procurement/reports", icon: FileBarChart, roles: ["admin", "super_admin", "procurement_officer", "cashier", "finance"] },
   { title: "Compliance Centre", url: "/procurement/compliance", icon: Shield, roles: ["admin", "super_admin", "procurement_officer"] },
@@ -88,16 +88,18 @@ const systemItems = [
 ];
 
 const financeItems = [
+  { title: "Overview", url: "/finance", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
   { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
   { title: "Trip Invoices", url: "/logistics/invoices", icon: CreditCard, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["super_admin"] },
-  { title: "Logistics P&L", url: "/finance-dashboard", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
+  { title: "Payment Portal (Cashier)", url: "/procurement/cashier-portal", icon: DollarSign, roles: ["finance", "cashier", "procurement_cashier", "admin", "super_admin"] },
+  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["finance", "admin", "super_admin", "audit_clerk"] },
+  { title: "Logistics P&L", url: "/finance-dashboard", icon: BarChart3, roles: ["finance", "admin", "super_admin"] },
   { title: "Accounts Receivable", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
   { title: "Payroll Management", url: "/finance/payroll", icon: Users, roles: ["finance", "admin", "super_admin"] },
   { title: "Company Expenses", url: "/finance/expenses", icon: Banknote, roles: ["finance", "admin", "super_admin"] },
   { title: "Asset Depreciation", url: "/finance/assets", icon: TrendingDown, roles: ["finance", "admin", "super_admin"] },
   { title: "General Ledger", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
-  { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["super_admin"] },
+  { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
 ];
 
 const getCurrentShift = () => {
@@ -106,13 +108,20 @@ const getCurrentShift = () => {
 };
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, setOpenMobile, isMobile } = useSidebar();
   const { userRole, userProfile, signOut } = useAuth();
   const { language } = useLanguage();
   const location = useLocation();
   const isCollapsed = state === "collapsed";
   const [currentShift, setCurrentShift] = useState(getCurrentShift());
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
+
+  // Automatically close mobile sidebar on navigation
+  useEffect(() => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  }, [location.pathname, isMobile, setOpenMobile]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -268,9 +277,103 @@ export function AppSidebar() {
           </SidebarGroup>
         )}
 
+        {/* 👑 EXECUTIVE APPROVALS DESK - DIRECTORS & ADMINS (No digging in submenus) */}
+        {(userRole === "admin" || userRole === "super_admin") && (
+          <SidebarGroup className="py-1">
+            <SidebarGroupLabel className="px-2 mb-1 font-bold text-[10px] uppercase tracking-[0.2em] text-indigo-600/90 flex items-center justify-between">
+              <span>Executive Desk</span>
+              <Badge className="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0 h-4 border-none font-bold">
+                Approvals
+              </Badge>
+            </SidebarGroupLabel>
+            <SidebarMenu className="space-y-1">
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Management Approvals (POs & Repairs)">
+                  <NavLink
+                    to="/procurement/approvals"
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${isActive
+                        ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md scale-[1.01]"
+                        : "hover:bg-indigo-50 text-slate-800 hover:text-indigo-700 border border-indigo-100/70 bg-indigo-50/30"
+                      }`
+                    }
+                  >
+                    <CheckCircle className={`h-4 w-4 stroke-[2.2] text-indigo-600 group-hover:scale-110 transition-transform`} />
+                    <span className="font-bold text-xs tracking-tight">Management Approvals</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Trip Fund Approvals">
+                  <NavLink
+                    to="/logistics/fund-approvals"
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${isActive
+                        ? "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md scale-[1.01]"
+                        : "hover:bg-indigo-50 text-slate-800 hover:text-indigo-700 border border-indigo-100/70 bg-indigo-50/30"
+                      }`
+                    }
+                  >
+                    <ShieldCheck className={`h-4 w-4 stroke-[2.2] text-indigo-600 group-hover:scale-110 transition-transform`} />
+                    <span className="font-bold text-xs tracking-tight">Trip Fund Approvals</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <Separator className="mt-3 opacity-50" />
+          </SidebarGroup>
+        )}
+
+        {/* 💵 CASHIER DESK - CASHIERS (Direct 1-click access) */}
+        {(userRole === "cashier" || userRole === "procurement_cashier") && (
+          <SidebarGroup className="py-1">
+            <SidebarGroupLabel className="px-2 mb-1 font-bold text-[10px] uppercase tracking-[0.2em] text-emerald-600/90 flex items-center justify-between">
+              <span>Cashier Desk</span>
+              <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1.5 py-0 h-4 border-none font-bold">
+                Payouts
+              </Badge>
+            </SidebarGroupLabel>
+            <SidebarMenu className="space-y-1">
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Cashier Payment Portal">
+                  <NavLink
+                    to="/procurement/cashier-portal"
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group ${isActive
+                        ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md scale-[1.01]"
+                        : "hover:bg-emerald-50 text-slate-800 hover:text-emerald-700 border border-emerald-200/70 bg-emerald-50/40"
+                      }`
+                    }
+                  >
+                    <DollarSign className={`h-4 w-4 stroke-[2.5] text-emerald-600 group-hover:scale-110 transition-transform`} />
+                    <span className="font-bold text-xs tracking-tight">Payment Portal (Disbursements)</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Weighbridge Cashier">
+                  <NavLink
+                    to="/cashier"
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-200 group ${isActive
+                        ? "bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md scale-[1.01]"
+                        : "hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-emerald-100/50"
+                      }`
+                    }
+                  >
+                    <Scale className={`h-4 w-4 stroke-[2] text-emerald-600 group-hover:scale-110 transition-transform`} />
+                    <span className="font-semibold text-xs tracking-tight">Weighbridge Cashier</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <Separator className="mt-3 opacity-50" />
+          </SidebarGroup>
+        )}
+
         {/* WEIGHBRIDGE SECTION */}
         {showWeighbridge && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'weighbridge'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'weighbridge' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -307,7 +410,7 @@ export function AppSidebar() {
 
         {/* LOGISTICS SECTION */}
         {filteredLogistics.length > 0 && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'logistics'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'logistics' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -344,7 +447,7 @@ export function AppSidebar() {
 
         {/* GARAGE SECTION */}
         {filteredGarage.length > 0 && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'garage'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'garage' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -388,7 +491,7 @@ export function AppSidebar() {
 
         {/* PROCUREMENT SECTION */}
         {filteredProcurement.length > 0 && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'procurement'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'procurement' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -425,7 +528,7 @@ export function AppSidebar() {
 
         {/* FINANCE SECTION */}
         {filteredFinance.length > 0 && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'finance'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'finance' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -462,7 +565,7 @@ export function AppSidebar() {
 
         {/* OBSERVER SECTION */}
         {showObserver && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'security'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'security' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">
@@ -513,7 +616,7 @@ export function AppSidebar() {
 
         {/* SYSTEM SECTION - NOW LAST */}
         {showSystem && (
-          <Collapsible className="group/collapsible">
+          <Collapsible open={activeGroup === 'system'} onOpenChange={(isOpen) => setActiveGroup(isOpen ? 'system' : null)} className="group/collapsible">
             <SidebarGroup className="py-0">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="flex w-full items-center transition-all hover:bg-sidebar-accent/50 px-2 py-2 rounded-md font-semibold text-sm tracking-wider text-sidebar-foreground/80">

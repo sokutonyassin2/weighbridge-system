@@ -1391,9 +1391,9 @@ Please process payment in Cashier section first.`,
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 to-slate-900 min-h-screen">
+    <div className="p-2.5 sm:p-4 md:p-6 max-w-[1600px] mx-auto space-y-4 sm:space-y-6 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 to-slate-900 min-h-screen">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border shadow-sm border-slate-200 dark:border-slate-800">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border shadow-xs border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate("/")} className="hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full">
             <ArrowLeft className="h-5 w-5" />

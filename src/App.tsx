@@ -8,62 +8,74 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { useEffect } from 'react';
-import OperatorDashboard from "./pages/OperatorDashboard";
-import VehicleEntry from "./pages/VehicleEntry";
-import WeighEntry from "./pages/WeighEntry";
-import PendingWeighs from "./pages/PendingWeighs";
-import CashierDashboard from "./pages/CashierDashboard";
-import VehicleTypes from "./pages/VehicleTypes";
-import AllEntries from "./pages/AllEntries";
-import VehicleHistory from "./pages/VehicleHistory";
-import CompletedVehicles from "./pages/CompletedVehicles";
-import ActivityLogs from "./pages/ActivityLogs";
-import UserManagement from "./pages/UserManagement";
-import AuditTrail from "./pages/AuditTrail";
-import AdminPenalties from "./pages/AdminPenalties";
-import AdminCompanyWeights from "./pages/AdminCompanyWeights";
-import AdminReceiptSettings from "./pages/AdminReceiptSettings";
-import AdminWeightSettings from "./pages/AdminWeightSettings";
-import ShiftAnalytics from "./pages/ShiftAnalytics";
-import Auth from "./pages/Auth";
-import NotFound from "./pages/NotFound";
-import ShiftSummaryReport from "./pages/ShiftSummaryReport";
-import OverdueHistory from "./pages/OverdueHistory";
-import ReceiptHistory from "./pages/ReceiptHistory";
-import LogisticsDashboard from "./pages/logistics/LogisticsDashboard";
-import FleetCommand from "./pages/logistics/FleetCommand";
-import DriverRegistry from "./pages/logistics/DriverRegistry";
-import TripManagement from "./pages/logistics/TripManagement";
-import ComplianceCenter from "./pages/logistics/ComplianceCenter";
-import VehiclePerformance from "./pages/logistics/VehiclePerformance";
-import TransitTripSheetPage from "./pages/logistics/TransitTripSheetPage";
-import Reconciliation from "./pages/logistics/Reconciliation";
-import TripInvoices from "./pages/logistics/TripInvoices";
-import GarageDashboard from "./pages/garage/GarageDashboard";
-import ProcurementDashboard from "./pages/procurement/ProcurementDashboard";
-import InventoryReports from "./pages/garage/InventoryReports";
-import GarageAttendance from "./pages/garage/Attendance";
-import SuperadminDashboard from "./pages/SuperadminDashboard";
-import WeighbridgeRequisitions from "./pages/WeighbridgeRequisitions";
-import ObserverDashboard from "./pages/ObserverDashboard";
-import FinanceDashboard from "./pages/FinanceDashboard";
-import ManagementApprovals from "./pages/procurement/ManagementApprovals";
-import CashierPaymentPortal from "./pages/procurement/CashierPaymentPortal";
-import ProcurementReports from "./pages/procurement/ProcurementReports";
-import ReplacedVehicleParts from "./pages/procurement/ReplacedVehicleParts";
-import GuardianEye from "./pages/GuardianEye";
-import TripOrders from "./pages/logistics/TripOrders";
-import TripSheets from "./pages/logistics/TripSheets";
-import TripFundApprovals from "./pages/logistics/TripFundApprovals";
-import MasterCollection from "./pages/logistics/MasterCollection";
-import KoridorAccount from "./pages/finance/KoridorAccount";
-import AccountsReceivable from "./pages/finance/AccountsReceivable";
-import ReconciliationsReview from "./pages/finance/ReconciliationsReview";
-import Payroll from "./pages/finance/Payroll";
-import CompanyExpenses from "./pages/finance/CompanyExpenses";
-import AssetDepreciation from "./pages/finance/AssetDepreciation";
-import GeneralLedger from "./pages/finance/GeneralLedger";
+import { lazy, Suspense } from 'react';
+
+// Route-level code-splitting (Lazy loading) for lightning-fast initial load times
+const OperatorDashboard = lazy(() => import("./pages/OperatorDashboard"));
+const VehicleEntry = lazy(() => import("./pages/VehicleEntry"));
+const WeighEntry = lazy(() => import("./pages/WeighEntry"));
+const PendingWeighs = lazy(() => import("./pages/PendingWeighs"));
+const CashierDashboard = lazy(() => import("./pages/CashierDashboard"));
+const VehicleTypes = lazy(() => import("./pages/VehicleTypes"));
+const AllEntries = lazy(() => import("./pages/AllEntries"));
+const VehicleHistory = lazy(() => import("./pages/VehicleHistory"));
+const CompletedVehicles = lazy(() => import("./pages/CompletedVehicles"));
+const ActivityLogs = lazy(() => import("./pages/ActivityLogs"));
+const UserManagement = lazy(() => import("./pages/UserManagement"));
+const AuditTrail = lazy(() => import("./pages/AuditTrail"));
+const AdminPenalties = lazy(() => import("./pages/AdminPenalties"));
+const AdminCompanyWeights = lazy(() => import("./pages/AdminCompanyWeights"));
+const AdminReceiptSettings = lazy(() => import("./pages/AdminReceiptSettings"));
+const AdminWeightSettings = lazy(() => import("./pages/AdminWeightSettings"));
+const ShiftAnalytics = lazy(() => import("./pages/ShiftAnalytics"));
+const Auth = lazy(() => import("./pages/Auth"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const ShiftSummaryReport = lazy(() => import("./pages/ShiftSummaryReport"));
+const OverdueHistory = lazy(() => import("./pages/OverdueHistory"));
+const ReceiptHistory = lazy(() => import("./pages/ReceiptHistory"));
+const LogisticsDashboard = lazy(() => import("./pages/logistics/LogisticsDashboard"));
+const FleetCommand = lazy(() => import("./pages/logistics/FleetCommand"));
+const DriverRegistry = lazy(() => import("./pages/logistics/DriverRegistry"));
+const TripManagement = lazy(() => import("./pages/logistics/TripManagement"));
+const ComplianceCenter = lazy(() => import("./pages/logistics/ComplianceCenter"));
+const VehiclePerformance = lazy(() => import("./pages/logistics/VehiclePerformance"));
+const TransitTripSheetPage = lazy(() => import("./pages/logistics/TransitTripSheetPage"));
+const Reconciliation = lazy(() => import("./pages/logistics/Reconciliation"));
+const TripInvoices = lazy(() => import("./pages/logistics/TripInvoices"));
+const GarageDashboard = lazy(() => import("./pages/garage/GarageDashboard"));
+const ProcurementDashboard = lazy(() => import("./pages/procurement/ProcurementDashboard"));
+const InventoryReports = lazy(() => import("./pages/garage/InventoryReports"));
+const GarageAttendance = lazy(() => import("./pages/garage/Attendance"));
+const SuperadminDashboard = lazy(() => import("./pages/SuperadminDashboard"));
+const WeighbridgeRequisitions = lazy(() => import("./pages/WeighbridgeRequisitions"));
+const ObserverDashboard = lazy(() => import("./pages/ObserverDashboard"));
+const FinanceDashboard = lazy(() => import("./pages/FinanceDashboard"));
+const FinanceOverview = lazy(() => import("./pages/finance/FinanceOverview"));
+const ManagementApprovals = lazy(() => import("./pages/procurement/ManagementApprovals"));
+const CashierPaymentPortal = lazy(() => import("./pages/procurement/CashierPaymentPortal"));
+const ProcurementReports = lazy(() => import("./pages/procurement/ProcurementReports"));
+const ReplacedVehicleParts = lazy(() => import("./pages/procurement/ReplacedVehicleParts"));
+const GuardianEye = lazy(() => import("./pages/GuardianEye"));
+const TripOrders = lazy(() => import("./pages/logistics/TripOrders"));
+const TripSheets = lazy(() => import("./pages/logistics/TripSheets"));
+const TripFundApprovals = lazy(() => import("./pages/logistics/TripFundApprovals"));
+const MasterCollection = lazy(() => import("./pages/logistics/MasterCollection"));
+const KoridorAccount = lazy(() => import("./pages/finance/KoridorAccount"));
+const AccountsReceivable = lazy(() => import("./pages/finance/AccountsReceivable"));
+const ReconciliationsReview = lazy(() => import("./pages/finance/ReconciliationsReview"));
+const Payroll = lazy(() => import("./pages/finance/Payroll"));
+const CompanyExpenses = lazy(() => import("./pages/finance/CompanyExpenses"));
+const AssetDepreciation = lazy(() => import("./pages/finance/AssetDepreciation"));
+const GeneralLedger = lazy(() => import("./pages/finance/GeneralLedger"));
+
+const PageFallback = () => (
+  <div className="min-h-[60vh] flex items-center justify-center p-8">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+      <span className="text-xs font-semibold text-slate-400">Loading module...</span>
+    </div>
+  </div>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,7 +101,7 @@ const App = () => {
       case 'admin':
         return <Navigate to="/admin/dashboard" replace />;
       case 'finance':
-        return <Navigate to="/finance-dashboard" replace />;
+        return <Navigate to="/finance" replace />;
       case 'logistics_admin':
       case 'logistics_manager':
         return <Navigate to="/logistics" replace />;
@@ -102,6 +114,8 @@ const App = () => {
         return <Navigate to="/procurement" replace />;
       case 'procurement_cashier':
         return <Navigate to="/procurement/cashier-portal" replace />;
+      case 'cashier':
+        return <Navigate to="/cashier" replace />;
       case 'audit_clerk':
         return <Navigate to="/logistics/reconciliation" replace />;
       case 'observer':
@@ -121,7 +135,8 @@ const App = () => {
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             <LanguageProvider>
-              <Routes>
+              <Suspense fallback={<PageFallback />}>
+                <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route
               path="/"
@@ -184,9 +199,19 @@ const App = () => {
               }
             />
             <Route
+              path="/finance"
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'finance', 'super_admin']}>
+                  <Layout>
+                    <FinanceOverview />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/finance-dashboard"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <FinanceDashboard />
                   </Layout>
@@ -196,7 +221,7 @@ const App = () => {
             <Route
               path="/finance/koridor"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <KoridorAccount />
                   </Layout>
@@ -206,7 +231,7 @@ const App = () => {
             <Route
               path="/finance/receivables"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <AccountsReceivable />
                   </Layout>
@@ -216,7 +241,7 @@ const App = () => {
             <Route
               path="/finance/reconciliations"
               element={
-                <ProtectedRoute requireSuperAdmin>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <ReconciliationsReview />
                   </Layout>
@@ -226,7 +251,7 @@ const App = () => {
             <Route
               path="/finance/payroll"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <Payroll />
                   </Layout>
@@ -236,7 +261,7 @@ const App = () => {
             <Route
               path="/finance/expenses"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <CompanyExpenses />
                   </Layout>
@@ -246,7 +271,7 @@ const App = () => {
             <Route
               path="/finance/assets"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'finance']}>
+                <ProtectedRoute allowedRoles={['super_admin', 'admin', 'finance']}>
                   <Layout>
                     <AssetDepreciation />
                   </Layout>
@@ -276,7 +301,7 @@ const App = () => {
             <Route
               path="/procurement/cashier-portal"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'cashier', 'procurement_cashier']}>
+                <ProtectedRoute allowedRoles={['admin', 'cashier', 'procurement_cashier', 'finance']}>
                   <Layout>
                     <CashierPaymentPortal />
                   </Layout>
@@ -726,6 +751,7 @@ const App = () => {
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
+              </Suspense>
             </LanguageProvider>
           </AuthProvider>
         </BrowserRouter>

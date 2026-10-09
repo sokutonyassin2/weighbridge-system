@@ -1,0 +1,8 @@
+{
+  "name": "Energy Feeds Weighbridge System",
+  "description": "Professional weighbridge management system for tracking vehicle entries, weighing operations, and payment processing for SudSud Group",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

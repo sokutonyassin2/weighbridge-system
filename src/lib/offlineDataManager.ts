@@ -1,6 +1,12 @@
 // offlineDataManager.ts
 // Handles offline data storage and synchronization
 
+const DEFAULT_SUPABASE_URL = 'https://vsgtvcvzijuehawpodhz.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzZ3R2Y3Z6aWp1ZWhhd3BvZGh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MjA0MTMsImV4cCI6MjA3NTA5NjQxM30.Tbq4bYTrRmZV49ErK7py56DLIT_LHRM4j8uFWDekAJA';
+
+const getBaseUrl = () => import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+const getApiKey = () => import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || DEFAULT_SUPABASE_KEY;
+
 interface OfflineDataItem {
   id: string;
   type: 'vehicle_entry' | 'weigh_record' | 'payment' | 'penalty' | 'vehicle_types' | 'user_auth' | 'other';
@@ -145,14 +151,17 @@ class OfflineDataManager {
         let url;
         let options;
 
+        const baseUrl = getBaseUrl();
+        const apiKey = getApiKey();
+
         switch (item.type) {
           case 'vehicle_entry':
-            url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehicle_entries`;
+            url = `${baseUrl}/rest/v1/vehicle_entries`;
             options = {
               method: item.operation === 'create' ? 'POST' : item.operation === 'update' ? 'PATCH' : 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                'apikey': apiKey,
                 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`
               },
               body: JSON.stringify(item.data)
@@ -160,12 +169,12 @@ class OfflineDataManager {
             break;
 
           case 'weigh_record':
-            url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/weigh_records`;
+            url = `${baseUrl}/rest/v1/weigh_records`;
             options = {
               method: item.operation === 'create' ? 'POST' : item.operation === 'update' ? 'PATCH' : 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                'apikey': apiKey,
                 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`
               },
               body: JSON.stringify(item.data)
@@ -173,12 +182,12 @@ class OfflineDataManager {
             break;
 
           case 'payment':
-            url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/payments`;
+            url = `${baseUrl}/rest/v1/payments`;
             options = {
               method: item.operation === 'create' ? 'POST' : item.operation === 'update' ? 'PATCH' : 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                'apikey': apiKey,
                 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`
               },
               body: JSON.stringify(item.data)
@@ -186,12 +195,12 @@ class OfflineDataManager {
             break;
 
           case 'penalty':
-            url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/penalties`;
+            url = `${baseUrl}/rest/v1/penalties`;
             options = {
               method: item.operation === 'create' ? 'POST' : item.operation === 'update' ? 'PATCH' : 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                'apikey': apiKey,
                 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`
               },
               body: JSON.stringify(item.data)
@@ -199,12 +208,12 @@ class OfflineDataManager {
             break;
 
           default:
-            url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/${item.tableName}`;
+            url = `${baseUrl}/rest/v1/${item.tableName}`;
             options = {
               method: item.operation === 'create' ? 'POST' : item.operation === 'update' ? 'PATCH' : 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                'apikey': apiKey,
                 'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token') || ''}`
               },
               body: JSON.stringify(item.data)

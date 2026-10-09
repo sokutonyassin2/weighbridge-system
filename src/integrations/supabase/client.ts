@@ -4,8 +4,22 @@ import type { Database } from './types';
 
 // Safety Switch: If VITE_USE_MOCK_DATA is "true", we use a dummy URL to prevent any live sync.
 const IS_MOCK_MODE = import.meta.env.VITE_USE_MOCK_DATA === 'true';
-const SUPABASE_URL = IS_MOCK_MODE ? 'http://localhost:0000' : import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = IS_MOCK_MODE ? 'mock-key' : import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+const CLOUD_URL = 'https://vsgtvcvzijuehawpodhz.supabase.co';
+const CLOUD_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzZ3R2Y3Z6aWp1ZWhhd3BvZGh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MjA0MTMsImV4cCI6MjA3NTA5NjQxM30.Tbq4bYTrRmZV49ErK7py56DLIT_LHRM4j8uFWDekAJA';
+
+const rawUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+const isLocalOrInvalidUrl = !rawUrl || rawUrl.includes('127.0.0.1') || rawUrl.includes('localhost') || rawUrl.includes('placeholder');
+const isInvalidKey = !rawKey || rawKey === 'your_local_anon_key' || rawKey === 'placeholder-anon-key' || rawKey === 'mock-key';
+
+const SUPABASE_URL = IS_MOCK_MODE 
+  ? 'http://localhost:0000' 
+  : (!isLocalOrInvalidUrl ? rawUrl : CLOUD_URL);
+const SUPABASE_PUBLISHABLE_KEY = IS_MOCK_MODE 
+  ? 'mock-key' 
+  : (!isInvalidKey ? rawKey : CLOUD_KEY);
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

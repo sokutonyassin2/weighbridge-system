@@ -281,11 +281,11 @@ export function WeightCaptureButtons({
 
       {/* DIGITAL WEIGHT MONITOR */}
       {!isLocked && settings.hardwareIntegrationEnabled && ( // Only show if hardware integration is enabled
-        <div className="bg-slate-950 border-2 border-slate-800 rounded-lg p-4 my-2 text-center shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-          <div className="text-[10px] text-emerald-500/40 font-mono uppercase tracking-[0.3em] mb-3">
+        <div className="bg-slate-950 border-2 border-slate-800 rounded-xl p-3 sm:p-4 my-2 text-center shadow-[0_0_20px_rgba(0,0,0,0.5)] overflow-hidden">
+          <div className="text-[9px] sm:text-[10px] text-emerald-500/40 font-mono uppercase tracking-[0.2em] sm:tracking-[0.3em] mb-2 sm:mb-3">
             Digital Scale Monitor
           </div>
-          <div className="flex items-center justify-center gap-1.5">
+          <div className="flex items-center justify-center gap-1 sm:gap-1.5">
             {liveWeight.padStart(6, '0').split('').map((digit, idx) => {
               const totalDigits = liveWeight.length;
               const paddingZerosCount = 6 - totalDigits;
@@ -294,9 +294,9 @@ export function WeightCaptureButtons({
                 <div
                   key={idx}
                   className={`
-                    w-10 h-14 rounded-sm flex items-center justify-center
-                    border-2 border-slate-800 bg-slate-900/80
-                    text-4xl font-mono font-bold
+                    w-7 xs:w-8 sm:w-10 h-10 sm:h-14 rounded-sm flex items-center justify-center
+                    border border-slate-800 bg-slate-900/80
+                    text-xl xs:text-2xl sm:text-4xl font-mono font-bold
                     ${isPadding ? 'text-emerald-500/10' : 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.7)]'}
                     transition-all duration-75
                   `}
@@ -305,13 +305,13 @@ export function WeightCaptureButtons({
                 </div>
               );
             })}
-            <div className="ml-2 text-2xl font-mono text-emerald-500/80 font-bold italic self-end mb-1">
+            <div className="ml-1 sm:ml-2 text-lg sm:text-2xl font-mono text-emerald-500/80 font-bold italic self-end mb-0.5 sm:mb-1">
               kg
             </div>
           </div>
-          <div className="mt-3 flex justify-center items-center gap-2">
+          <div className="mt-2.5 sm:mt-3 flex justify-center items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${hardwareStatus === 'connected' ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]' : hardwareStatus === 'error' ? 'bg-red-500' : 'bg-slate-800'}`} />
-            <div className={`text-[10px] uppercase font-bold tracking-wider ${hardwareStatus === 'connected' ? 'text-emerald-500' : hardwareStatus === 'error' ? 'text-red-500' : 'text-slate-500'}`}>
+            <div className={`text-[9px] sm:text-[10px] uppercase font-bold tracking-wider ${hardwareStatus === 'connected' ? 'text-emerald-500' : hardwareStatus === 'error' ? 'text-red-500' : 'text-slate-500'}`}>
               {hardwareStatus === 'connected' ? 'SCALE CONNECTED' : hardwareStatus === 'error' ? 'CONNECTION ERROR' : 'CONNECTING TO SCALE...'}
             </div>
           </div>
@@ -325,7 +325,7 @@ export function WeightCaptureButtons({
           size="sm"
           onClick={() => captureWeight('gross')}
           disabled={disabled || isLocked || isCapturing !== null}
-          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground h-11 sm:h-9 font-semibold text-xs sm:text-sm"
         >
           {isCapturing === 'gross' ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -340,7 +340,7 @@ export function WeightCaptureButtons({
           size="sm"
           onClick={() => captureWeight('tare')}
           disabled={disabled || isLocked || isCapturing !== null}
-          className="border-secondary text-secondary-foreground hover:bg-secondary"
+          className="border-secondary text-secondary-foreground hover:bg-secondary h-11 sm:h-9 font-semibold text-xs sm:text-sm"
         >
           {isCapturing === 'tare' ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

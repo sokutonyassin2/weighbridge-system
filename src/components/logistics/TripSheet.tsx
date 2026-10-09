@@ -45,7 +45,8 @@ import {
     CheckCircle,
     Printer,
     Settings2,
-    Loader2
+    Loader2,
+    Droplet
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -53,6 +54,11 @@ import { cn } from "@/lib/utils";
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { 
+    getTripShortageRecovery, 
+    saveTripShortageRecovery, 
+    TankerShortageRecovery 
+} from "@/lib/logisticsFinanceService";
 
 function ManageExpensesDialog() {
     const [open, setOpen] = useState(false);
@@ -486,6 +492,24 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         fuel_liters: '',
         fuel_price: '',
         fuel_amount: '0' // Total fuel cost in USD (calculated)
+    });
+
+    // Tanker Shortage & Driver Recovery State
+    const [shortageRecoveryData, setShortageRecoveryData] = useState<TankerShortageRecovery>({
+        applicable: false,
+        cargo_type: "Fuel / Petroleum",
+        agreed_amount: 0,
+        agreed_currency: "USD",
+        shortage_liters: 0,
+        shortage_rate: 0,
+        shortage_amount: 0,
+        net_client_amount: 0,
+        driver_recovered_amount: 0,
+        driver_recovery_status: "Pending",
+        driver_payment_method: "Allowance Deduction",
+        driver_receipt_no: "",
+        driver_payment_date: "",
+        notes: ""
     });
 
     const [countryRates, setCountryRates] = useState<Record<string, number>>(() => {
@@ -936,6 +960,10 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         fuel_entries: doc.country_rates?.fuel_entries || [{ liters: (doc.fuel_liters || '').toString(), price: (doc.fuel_price || '').toString() }]
                     }));
 
+                    // Load Tanker Shortage & Driver Recovery
+                    const existingShortage = getTripShortageRecovery(doc.id, doc);
+                    setShortageRecoveryData(existingShortage);
+
                     if (doc.country_rates) {
                         setCountryRates(doc.country_rates);
                     } else if (doc.exchange_rate) {
@@ -1323,9 +1351,17 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const totalExtraUSD = Object.values(extraCatTotals).reduce((sum, cat) => sum + cat.usd, 0);
 
         const revenueAmount = parseFloat(revenueData.revenue_amount) || 0;
-        const revenueInUSD = revenueData.revenue_currency === 'USD'
+        let revenueInUSD = revenueData.revenue_currency === 'USD'
             ? revenueAmount
             : (revenueAmount / rate);
+
+        // If Tanker Cargo Shortage & Driver Recovery is applicable
+        if (shortageRecoveryData.applicable && shortageRecoveryData.shortage_amount > 0) {
+            const netClient = shortageRecoveryData.net_client_amount || Math.max(0, shortageRecoveryData.agreed_amount - shortageRecoveryData.shortage_amount);
+            const driverRecovered = shortageRecoveryData.driver_recovered_amount || 0;
+            // Realized Trip Revenue = What Client Pays ($500) + What Driver Pays ($200) = $700 Total
+            revenueInUSD = netClient + driverRecovered;
+        }
 
         // Final Logic: Profit = Revenue - Operational - (isWithFuel ? Fuel : 0)
         const activeFuelUSD = revenueData.revenue_type === 'With Fuel' ? fuelTotalUSD : 0;
@@ -1347,7 +1383,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             categoryTotals: catTotals,
             extraCategoryTotals: extraCatTotals
         });
-    }, [expenses, revenueData, countryRates]);
+    }, [expenses, revenueData, countryRates, shortageRecoveryData]);
 
     const getDefaultCurrency = (category: string) => {
         if (category === 'Zambia') return 'ZMW';
@@ -1452,7 +1488,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 revenue_amount: parseFloat(revenueData.revenue_amount) || 0,
                 revenue_currency: revenueData.revenue_currency,
                 exchange_rate: countryRates["TZ"] || 2700, // Sync legacy field for compatibility
-                country_rates: { ...countryRates, fuel_entries: revenueData.fuel_entries }, // Save fuel_entries alongside country rates
+                country_rates: { ...countryRates, fuel_entries: revenueData.fuel_entries, shortage_recovery: shortageRecoveryData }, // Save fuel_entries & shortage_recovery alongside country rates
                 fuel_liters: (() => {
                     const fe = revenueData.fuel_entries || [];
                     return fe.reduce((s: number, e: any) => s + (parseFloat(e.liters) || 0), 0);
@@ -1553,6 +1589,11 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 title: "Trip Sheet Saved",
                 description: activeSheetId === (currentTripId || tripId) ? "Plan updated successfully." : "New standalone trip sheet created.",
             });
+
+            // Persist Tanker Shortage & Driver Recovery
+            if (activeSheetId) {
+                saveTripShortageRecovery(activeSheetId, shortageRecoveryData, tripData.trip_number);
+            }
 
             // Mark as saved so auto-save and reload prompt are disabled
             justSavedRef.current = true;
@@ -2231,21 +2272,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             .filter(e => e.category === category && !e.is_extra);
 
         return (
-            <div className="space-y-4 print:space-y-1">
-                {/* Professional Table Header */}
-                <div className="flex gap-4 px-4 py-2 bg-slate-100/50 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest print:hidden">
-                    <div className="flex-[8] min-w-[200px]">Expense Description</div>
-                    <div className="w-28 text-center">Nature</div>
-                    <div className="w-40 text-right pr-4">Currency & Amount</div>
-                    {category === 'TZ' ? (
-                        <div className="w-20 text-right">USD</div>
-                    ) : (
-                        <div className="w-20 text-right">TZS Equiv.</div>
-                    )}
-                    <div className="w-6"></div>
+            <div className="space-y-3 print:space-y-1">
+                {/* Professional Header */}
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/70 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider print:hidden">
+                    <span>{title} Items ({filteredExpenses.length})</span>
+                    <span className="text-[9px] text-slate-400 font-medium">Description • Nature • Amount & Equiv</span>
                 </div>
 
-                <div className="grid gap-1.5 print:gap-1 max-h-[450px] overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>
+                <div className="grid gap-2 print:gap-1 max-h-[460px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
                     {filteredExpenses.map((item) => {
                         const inputAmount = parseFloat(item.amount) || 0;
                         const tzRate = countryRates["TZ"] || 2700;
@@ -2300,47 +2334,61 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                    category === 'Burundi' ? 'BIF' : 'TZS';
 
                         return (
-                            <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-200 transition-all animate-fade-in print:gap-1 print:border-none print:p-0 print:border-b print:border-slate-50">
-                                <div className="flex-[8] min-w-[200px]">
-                                    <div className="hidden print:block text-[9px] font-medium text-slate-700">{item.item_name}</div>
-                                    <ExpenseCombobox
-                                        value={item.item_name}
-                                        onChange={(val) => updateExpense(item.originalIndex, 'item_name', val)}
-                                        disabled={isLocked}
-                                        items={expenseItemsList || []}
-                                    />
-                                </div>
-
-                                <div className="w-28 print:hidden">
-                                     <Select
-                                        value={item.nature}
-                                        onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
-                                        disabled={isLocked}
-                                    >
-                                        <SelectTrigger className="h-7 !text-[12px] bg-white border-slate-100 shadow-none font-normal text-slate-500 hover:text-slate-700">
-                                            <SelectValue placeholder="Nature" />
-                                        </SelectTrigger>
-                                        <SelectContent className="z-[100]">
-                                            <SelectItem value="Go & Return">Go & Return</SelectItem>
-                                            <SelectItem value="Going Only">Going Only</SelectItem>
-                                            <SelectItem value="Returning Only">Returning Only</SelectItem>
-                                            <SelectItem value="Single Trip">Single Trip</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-
-                                <div className="w-40 flex items-center gap-1 print:w-fit">
-                                    <div className="hidden print:flex items-center justify-end gap-2 text-[9px] whitespace-nowrap">
-                                        <span className="text-slate-900 font-bold">{item.currency === 'USD' ? 'USD' : inputCurrencyLabel} {Math.round(inputAmount).toLocaleString()}</span>
+                            <div key={item.originalIndex} className="group bg-white p-2 sm:p-2.5 rounded-xl border border-slate-200/90 hover:border-slate-300 hover:shadow-xs transition-all space-y-2 print:border-none print:p-0 print:border-b print:border-slate-100">
+                                {/* Line 1: Description + Nature + Delete */}
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="hidden print:block text-[9px] font-medium text-slate-700">{item.item_name}</div>
+                                        <ExpenseCombobox
+                                            value={item.item_name}
+                                            onChange={(val) => updateExpense(item.originalIndex, 'item_name', val)}
+                                            disabled={isLocked}
+                                            items={expenseItemsList || []}
+                                        />
                                     </div>
-                                    <div className="flex items-center gap-1 print:hidden w-full">
-                                        {category === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
+
+                                    <div className="w-28 sm:w-32 shrink-0 print:hidden">
+                                        <Select
+                                            value={item.nature}
+                                            onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
+                                            disabled={isLocked}
+                                        >
+                                            <SelectTrigger className="h-7 text-[11px] bg-slate-50/60 hover:bg-slate-100 border-slate-200/80 shadow-none font-medium text-slate-600">
+                                                <SelectValue placeholder="Nature" />
+                                            </SelectTrigger>
+                                            <SelectContent className="z-[100]">
+                                                <SelectItem value="Go & Return">Go & Return</SelectItem>
+                                                <SelectItem value="Going Only">Going Only</SelectItem>
+                                                <SelectItem value="Returning Only">Returning Only</SelectItem>
+                                                <SelectItem value="Single Trip">Single Trip</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="shrink-0 print:hidden">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 text-slate-300 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                            onClick={() => removeExpense(item.originalIndex)}
+                                            disabled={isLocked}
+                                            title="Remove Item"
+                                        >
+                                            <Trash2 size={13} />
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Line 2: Currency & Amount + Live Converted Equiv */}
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                                    <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-[260px]">
+                                        {category === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 shrink-0">EXCLUDED</Badge>}
                                         <Select
                                             value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
                                             onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val)}
                                             disabled={isLocked}
                                         >
-                                            <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-slate-100 border-none shadow-none px-1.5 text-slate-500 hover:bg-slate-200 focus:ring-0">
+                                            <SelectTrigger className="h-7 w-16 shrink-0 text-[10px] font-bold bg-slate-100 border border-slate-200/60 shadow-none px-2 text-slate-700 hover:bg-slate-200">
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent className="z-[100]">
@@ -2351,7 +2399,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             </SelectContent>
                                         </Select>
                                         <Input
-                                            className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
+                                            className="h-7 text-right font-bold text-slate-800 bg-slate-50/70 border-slate-200 focus-visible:ring-1 ring-primary pr-2 text-xs w-full tabular-nums"
                                             type="text"
                                             placeholder="0"
                                             value={formatWithCommas(item.amount || '')}
@@ -2359,32 +2407,22 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                             disabled={isLocked}
                                         />
                                     </div>
-                                </div>
-                                
-                                {category === 'TZ' ? (
-                                    <div className="w-20 text-right print:hidden shrink-0">
-                                        <p className="text-[11px] font-semibold text-slate-400">
-                                            ${Math.round(amountUSD).toLocaleString()}
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className="w-20 text-right print:hidden shrink-0">
-                                        <p className="text-[10px] font-bold text-slate-600">
-                                            TShs {Math.round(amountTSh).toLocaleString()}
-                                        </p>
-                                    </div>
-                                )}
 
-                                <div className="w-6 flex justify-end shrink-0">
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 text-slate-200 hover:text-destructive hover:bg-destructive/5 opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
-                                        onClick={() => removeExpense(item.originalIndex)}
-                                        disabled={isLocked}
-                                    >
-                                        <Trash2 size={12} />
-                                    </Button>
+                                    {/* Live Converted Equiv */}
+                                    <div className="text-right shrink-0 pl-2">
+                                        <div className="flex items-center gap-1 justify-end">
+                                            <span className="text-[9px] uppercase font-bold text-slate-400">Equiv:</span>
+                                            {category === 'TZ' ? (
+                                                <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                                                    ${Math.round(amountUSD).toLocaleString()}
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs font-bold text-blue-900 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md">
+                                                    TSh {Math.round(amountTSh).toLocaleString()}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         );
@@ -3250,6 +3288,239 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             </CardContent>
                         </Card>
                         </div>
+
+                        {/* 🛢️ TANKER CARGO SHORTAGE & DRIVER RECOVERY LEDGER */}
+                        <Card className="mt-8 border-none shadow-xl bg-white overflow-hidden ring-1 ring-amber-200">
+                            <CardHeader className="bg-amber-50/60 border-b border-amber-100 py-4 px-8 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                    <CardTitle className="text-sm font-bold text-amber-900 flex items-center gap-3">
+                                        <div className="p-2 bg-amber-500/10 rounded-lg text-amber-700">
+                                            <Droplet size={18} />
+                                        </div>
+                                        Tanker Cargo Shortage & Driver Recovery Ledger
+                                    </CardTitle>
+                                    <CardDescription className="text-xs text-amber-700/80 mt-0.5">
+                                        For fuel & liquid bulk tankers where offloading evaporation loss is deducted by the client and recovered from the driver.
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Badge 
+                                        variant={shortageRecoveryData.applicable ? "default" : "outline"}
+                                        className={`cursor-pointer text-xs font-bold px-3 py-1 transition-all ${
+                                            shortageRecoveryData.applicable 
+                                                ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-600" 
+                                                : "border-slate-300 text-slate-600 hover:bg-amber-50"
+                                        }`}
+                                        onClick={() => {
+                                            if (isLocked) return;
+                                            const newApp = !shortageRecoveryData.applicable;
+                                            const agreed = parseFloat(revenueData.revenue_amount) || 700;
+                                            const shortage = newApp ? (shortageRecoveryData.shortage_amount || 200) : 0;
+                                            setShortageRecoveryData(prev => ({
+                                                ...prev,
+                                                applicable: newApp,
+                                                agreed_amount: agreed,
+                                                shortage_amount: shortage,
+                                                net_client_amount: Math.max(0, agreed - shortage),
+                                                driver_recovered_amount: newApp ? (prev.driver_recovered_amount || shortage) : 0
+                                            }));
+                                        }}
+                                    >
+                                        {shortageRecoveryData.applicable ? "✓ Shortage Accounting Active" : "+ Activate Shortage Ledger"}
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-8 space-y-6">
+                                {shortageRecoveryData.applicable ? (
+                                    <div className="space-y-6">
+                                        {/* Row 1: Freight Agreement & Client Deduction */}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            {/* 1. Base Agreed Rate */}
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold text-slate-600">
+                                                    1. Agreed Base Rate with Client (USD)
+                                                </Label>
+                                                <div className="relative">
+                                                    <DollarSign className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
+                                                    <Input 
+                                                        className="h-11 pl-9 font-bold text-slate-900 bg-white"
+                                                        type="number"
+                                                        value={shortageRecoveryData.agreed_amount || revenueData.revenue_amount || 700}
+                                                        onChange={(e) => {
+                                                            const agreed = parseFloat(e.target.value) || 0;
+                                                            const shortage = shortageRecoveryData.shortage_amount || 0;
+                                                            setShortageRecoveryData(prev => ({
+                                                                ...prev,
+                                                                agreed_amount: agreed,
+                                                                net_client_amount: Math.max(0, agreed - shortage)
+                                                            }));
+                                                        }}
+                                                        disabled={isLocked}
+                                                    />
+                                                </div>
+                                                <p className="text-[11px] text-slate-400">Total freight agreed with customer (e.g. $700 USD)</p>
+                                            </div>
+
+                                            {/* 2. Offloading Evaporation / Shortage Loss */}
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold text-amber-800">
+                                                    2. Offloading Shortage / Evaporation Loss (USD)
+                                                </Label>
+                                                <div className="relative">
+                                                    <DollarSign className="w-4 h-4 absolute left-3 top-3.5 text-amber-600" />
+                                                    <Input 
+                                                        className="h-11 pl-9 font-bold text-amber-900 bg-amber-50/50 border-amber-300"
+                                                        type="number"
+                                                        value={shortageRecoveryData.shortage_amount}
+                                                        onChange={(e) => {
+                                                            const shortage = parseFloat(e.target.value) || 0;
+                                                            const agreed = shortageRecoveryData.agreed_amount || parseFloat(revenueData.revenue_amount) || 700;
+                                                            setShortageRecoveryData(prev => ({
+                                                                ...prev,
+                                                                shortage_amount: shortage,
+                                                                net_client_amount: Math.max(0, agreed - shortage)
+                                                            }));
+                                                        }}
+                                                        placeholder="200.00"
+                                                        disabled={isLocked}
+                                                    />
+                                                </div>
+                                                <p className="text-[11px] text-amber-700">Client loss deducted from invoice (e.g. $200 USD)</p>
+                                            </div>
+
+                                            {/* 3. Net Invoiced to Client (Auto-Calculated) */}
+                                            <div className="space-y-2">
+                                                <Label className="text-xs font-semibold text-indigo-700">
+                                                    3. Net Client Payable / Invoiced (USD)
+                                                </Label>
+                                                <div className="h-11 px-4 bg-indigo-50/60 rounded-lg border border-indigo-200 flex items-center justify-between">
+                                                    <span className="text-xs text-indigo-600 font-medium">Client Pays:</span>
+                                                    <span className="text-lg font-black text-indigo-950">
+                                                        ${(shortageRecoveryData.net_client_amount || Math.max(0, (shortageRecoveryData.agreed_amount || 700) - (shortageRecoveryData.shortage_amount || 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-indigo-600">Calculated: Agreed ($700) − Shortage ($200) = $500 USD</p>
+                                            </div>
+                                        </div>
+
+                                        <Separator className="bg-amber-100" />
+
+                                        {/* Row 2: Driver Shortage Payment & Recovery */}
+                                        <div>
+                                            <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-2">
+                                                <User className="w-4 h-4 text-emerald-600" /> Driver Shortage Payment Recovery (Driver Liable)
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                                {/* Driver Amount Paid */}
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs font-semibold text-slate-600">Amount Paid by Driver (USD)</Label>
+                                                    <div className="relative">
+                                                        <DollarSign className="w-4 h-4 absolute left-3 top-3 text-emerald-600" />
+                                                        <Input 
+                                                            className="h-10 pl-9 font-bold text-emerald-800 bg-white"
+                                                            type="number"
+                                                            value={shortageRecoveryData.driver_recovered_amount}
+                                                            onChange={(e) => {
+                                                                const paid = parseFloat(e.target.value) || 0;
+                                                                const shortage = shortageRecoveryData.shortage_amount || 0;
+                                                                setShortageRecoveryData(prev => ({
+                                                                    ...prev,
+                                                                    driver_recovered_amount: paid,
+                                                                    driver_recovery_status: paid >= shortage - 0.01 ? "Fully Recovered" : paid > 0 ? "Partially Recovered" : "Pending"
+                                                                }));
+                                                            }}
+                                                            placeholder="200.00"
+                                                            disabled={isLocked}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Recovery Method */}
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs font-semibold text-slate-600">Recovery Method</Label>
+                                                    <Select 
+                                                        value={shortageRecoveryData.driver_payment_method}
+                                                        onValueChange={(val: any) => setShortageRecoveryData(prev => ({ ...prev, driver_payment_method: val }))}
+                                                        disabled={isLocked}
+                                                    >
+                                                        <SelectTrigger className="h-10 text-xs font-medium bg-white">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="Allowance Deduction">Deducted from Trip Allowance</SelectItem>
+                                                            <SelectItem value="Cash Deposit">Paid in Cash at Office</SelectItem>
+                                                            <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                                                            <SelectItem value="Mobile Money">Mobile Money (M-Pesa)</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                {/* Receipt / Voucher # */}
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs font-semibold text-slate-600">Receipt / Ref Voucher #</Label>
+                                                    <Input 
+                                                        className="h-10 font-mono text-xs bg-white"
+                                                        value={shortageRecoveryData.driver_receipt_no || ""}
+                                                        onChange={(e) => setShortageRecoveryData(prev => ({ ...prev, driver_receipt_no: e.target.value }))}
+                                                        placeholder="REC-DRV-01"
+                                                        disabled={isLocked}
+                                                    />
+                                                </div>
+
+                                                {/* Payment Date */}
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs font-semibold text-slate-600">Payment Date</Label>
+                                                    <Input 
+                                                        type="date"
+                                                        className="h-10 text-xs bg-white"
+                                                        value={shortageRecoveryData.driver_payment_date || ""}
+                                                        onChange={(e) => setShortageRecoveryData(prev => ({ ...prev, driver_payment_date: e.target.value }))}
+                                                        disabled={isLocked}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Financial Equation Banner */}
+                                        <div className="bg-slate-900 text-white p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                            <div>
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Realized Freight Revenue</span>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-xs text-indigo-300 font-bold">Client ($500)</span>
+                                                    <span className="text-slate-500 font-bold">+</span>
+                                                    <span className="text-xs text-emerald-300 font-bold">Driver ($200)</span>
+                                                    <span className="text-slate-500 font-bold">=</span>
+                                                    <span className="text-xl font-black text-white">
+                                                        ${((shortageRecoveryData.net_client_amount || 500) + (shortageRecoveryData.driver_recovered_amount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-3">
+                                                <Badge className={`text-xs font-bold px-3 py-1 ${
+                                                    shortageRecoveryData.driver_recovery_status === "Fully Recovered"
+                                                        ? "bg-emerald-500 text-white"
+                                                        : shortageRecoveryData.driver_recovered_amount > 0
+                                                        ? "bg-orange-500 text-white"
+                                                        : "bg-amber-500 text-white"
+                                                }`}>
+                                                    {shortageRecoveryData.driver_recovery_status === "Fully Recovered" 
+                                                        ? "✓ Shortage Fully Settled ($700 Realized)" 
+                                                        : "⏳ Shortage Recovery Pending From Driver"}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="p-6 text-center text-slate-500 space-y-2 border-2 border-dashed border-amber-200/80 rounded-xl bg-amber-50/20">
+                                        <p className="text-xs font-bold text-slate-700">Standard Freight Billing Active (No Evaporation Shortage)</p>
+                                        <p className="text-[11px] text-slate-400">
+                                            If this tanker experienced evaporation loss at delivery (e.g. client pays $500 and driver covers $200), click <strong>Activate Shortage Ledger</strong> above.
+                                        </p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
                     </TabsContent>
                 )}
 
@@ -3582,10 +3853,10 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 {activeCountries.includes('TZ') && (
                     <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
-                        <CardHeader className="bg-blue-50/50 border-b py-4 px-8">
+                        <CardHeader className="bg-blue-50/50 border-b py-3 px-4 sm:px-6">
                             <CardTitle className="text-xs font-bold flex items-center justify-between text-blue-900">
                                 <div className="flex items-center gap-3">
                                     <span>Tanzania Operations</span>
@@ -3610,7 +3881,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-8">
+                        <CardContent className="p-3 sm:p-5">
                             {renderExpenseSection("Tanzania Operations", "TZ", MapPin)}
                         </CardContent>
                     </Card>
@@ -3618,7 +3889,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                 {activeCountries.includes('Zambia') && (
                     <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
-                        <CardHeader className="bg-green-50/50 border-b py-4 px-8">
+                        <CardHeader className="bg-green-50/50 border-b py-3 px-4 sm:px-6">
                             <CardTitle className="text-xs font-bold flex items-center justify-between text-green-900">
                                 <div className="flex items-center gap-3">
                                     <span>Zambia Operations</span>
@@ -3643,7 +3914,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-8">
+                        <CardContent className="p-3 sm:p-5">
                             {renderExpenseSection("Zambia Operations", "Zambia", Globe)}
                         </CardContent>
                     </Card>
@@ -3651,7 +3922,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                 {activeCountries.includes('DRC') && (
                     <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
-                        <CardHeader className="bg-yellow-50/50 border-b py-4 px-8">
+                        <CardHeader className="bg-yellow-50/50 border-b py-3 px-4 sm:px-6">
                             <CardTitle className="text-xs font-bold flex items-center justify-between text-yellow-900">
                                 <div className="flex items-center gap-3">
                                     <span>DR Congo Operations</span>
@@ -3676,7 +3947,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-8">
+                        <CardContent className="p-3 sm:p-5">
                             {renderExpenseSection("DR Congo Operations", "DRC", MapPin)}
                         </CardContent>
                     </Card>
@@ -3684,7 +3955,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                 {activeCountries.includes('Rwanda') && (
                     <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
-                        <CardHeader className="bg-purple-50/50 border-b py-4 px-8">
+                        <CardHeader className="bg-purple-50/50 border-b py-3 px-4 sm:px-6">
                             <CardTitle className="text-xs font-semibold flex items-center justify-between text-purple-900">
                                 <div className="flex items-center gap-3">
                                     <span>Rwanda Operations</span>
@@ -3709,7 +3980,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-8">
+                        <CardContent className="p-3 sm:p-5">
                             {renderExpenseSection("Rwanda Operations", "Rwanda", Navigation)}
                         </CardContent>
                     </Card>
@@ -3717,7 +3988,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                 {activeCountries.includes('Burundi') && (
                     <Card className="border-none shadow-xl bg-white overflow-hidden ring-1 ring-slate-200">
-                        <CardHeader className="bg-rose-50/50 border-b py-4 px-8">
+                        <CardHeader className="bg-rose-50/50 border-b py-3 px-4 sm:px-6">
                             <CardTitle className="text-xs font-semibold flex items-center justify-between text-rose-900">
                                 <div className="flex items-center gap-3">
                                     <span>Burundi Operations</span>
@@ -3742,14 +4013,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 </div>
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-8">
+                        <CardContent className="p-3 sm:p-5">
                             {renderExpenseSection("Burundi Operations", "Burundi", Navigation)}
                         </CardContent>
                     </Card>
                 )}
 
                 <Card className="border-none shadow-xl bg-slate-50/50 overflow-hidden ring-1 ring-slate-200 border-dashed">
-                    <CardHeader className="bg-slate-200/50 border-b py-4 px-8">
+                    <CardHeader className="bg-slate-200/50 border-b py-3 px-4 sm:px-6">
                         <div className="flex items-center gap-2 mb-1">
                             <ShieldCheck size={12} className="text-red-500" />
                             <span className="text-[9px] font-bold text-red-500 uppercase tracking-widest">Informational / Non-Budgeted</span>
@@ -3778,7 +4049,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                             </div>
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-8">
+                    <CardContent className="p-3 sm:p-5">
                         {renderExpenseSection("Fixed Expenses", "Fixed", Calculator)}
                     </CardContent>
                 </Card>
@@ -4099,75 +4370,89 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                 const inputCurrencyLabel = country.id === 'Zambia' ? 'ZMW' : country.id === 'DRC' ? 'USD' : country.id === 'Rwanda' ? 'RWF' : country.id === 'Burundi' ? 'BIF' : 'TZS';
                                                 
                                                 return (
-                                                    <div key={item.originalIndex} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-red-100 hover:border-red-200 transition-all">
-                                                        <div className="flex-[8] min-w-[200px]">
-                                                            <Input
-                                                                className="w-full h-7 bg-white border border-slate-200 rounded-md px-2 text-[12px] text-slate-700 font-normal focus-visible:ring-1 ring-red-300"
-                                                                placeholder="What was the expense?"
-                                                                value={item.item_name}
-                                                                onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
-                                                                disabled={isExtraLocked}
-                                                            />
+                                                    <div key={item.originalIndex} className="group bg-white p-2 sm:p-2.5 rounded-xl border border-red-100 hover:border-red-200 hover:shadow-xs transition-all space-y-2">
+                                                        {/* Line 1: Description + Nature + Delete */}
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex-1 min-w-0">
+                                                                <Input
+                                                                    className="w-full h-7 bg-white border border-slate-200 rounded-md px-2 text-xs text-slate-700 font-normal focus-visible:ring-1 ring-red-300"
+                                                                    placeholder="What was the expense?"
+                                                                    value={item.item_name}
+                                                                    onChange={(e) => updateExpense(item.originalIndex, 'item_name', e.target.value)}
+                                                                    disabled={isExtraLocked}
+                                                                />
+                                                            </div>
+                                                            <div className="w-28 sm:w-32 shrink-0">
+                                                                <Select
+                                                                    value={item.nature}
+                                                                    onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
+                                                                    disabled={isExtraLocked}
+                                                                >
+                                                                    <SelectTrigger className="w-full h-7 text-[11px] bg-red-50/40 hover:bg-red-50 border-red-100 shadow-none font-medium text-slate-600">
+                                                                        <SelectValue placeholder="Nature" />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent className="z-[100]">
+                                                                        <SelectItem value="Unbudgeted">Unbudgeted</SelectItem>
+                                                                        <SelectItem value="Emergency">Emergency</SelectItem>
+                                                                        <SelectItem value="Breakdown">Breakdown</SelectItem>
+                                                                        <SelectItem value="Fine / Penalty">Fine / Penalty</SelectItem>
+                                                                        <SelectItem value="Extra Fuel">Extra Fuel</SelectItem>
+                                                                        <SelectItem value="Other">Other</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </div>
+                                                            <div className="shrink-0">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-7 w-7 text-red-300 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                                                                    onClick={() => removeExpense(item.originalIndex)}
+                                                                    disabled={isExtraLocked}
+                                                                    title="Remove Extra Expense"
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                </Button>
+                                                            </div>
                                                         </div>
-                                                        <div className="w-28">
-                                                            <Select
-                                                                value={item.nature}
-                                                                onValueChange={(val) => updateExpense(item.originalIndex, 'nature', val)}
-                                                                disabled={isExtraLocked}
-                                                            >
-                                                                <SelectTrigger className="w-full h-7 !text-[12px] bg-white border-slate-100 shadow-none font-normal text-slate-500 hover:text-slate-700">
-                                                                    <SelectValue placeholder="Nature" />
-                                                                </SelectTrigger>
-                                                                <SelectContent className="z-[100]">
-                                                                    <SelectItem value="Unbudgeted">Unbudgeted</SelectItem>
-                                                                    <SelectItem value="Emergency">Emergency</SelectItem>
-                                                                    <SelectItem value="Breakdown">Breakdown</SelectItem>
-                                                                    <SelectItem value="Fine / Penalty">Fine / Penalty</SelectItem>
-                                                                    <SelectItem value="Extra Fuel">Extra Fuel</SelectItem>
-                                                                    <SelectItem value="Other">Other</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                        <div className="w-40 flex items-center gap-1">
-                                                            {country.id === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 mr-1">EXCLUDED</Badge>}
-                                                            <Select
-                                                                value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
-                                                                onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val)}
-                                                                disabled={isExtraLocked}
-                                                            >
-                                                                <SelectTrigger className="h-7 w-14 shrink-0 text-[9px] font-bold bg-slate-100 border-none shadow-none px-1.5 text-slate-500 hover:bg-slate-200 focus:ring-0">
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent className="z-[100]">
-                                                                    <SelectItem value={inputCurrencyLabel} className="text-xs font-bold">{inputCurrencyLabel}</SelectItem>
-                                                                    {inputCurrencyLabel !== 'USD' && (
-                                                                        <SelectItem value="USD" className="text-xs font-bold text-emerald-700">USD $</SelectItem>
-                                                                    )}
-                                                                </SelectContent>
-                                                            </Select>
-                                                            <Input
-                                                                className="h-7 text-right font-medium text-slate-800 bg-slate-50 border-slate-200/50 focus-visible:ring-1 ring-primary pr-1.5 !text-[12px] w-full tabular-nums"
-                                                                type="text"
-                                                                placeholder="0"
-                                                                value={formatWithCommas(item.amount || '')}
-                                                                onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
-                                                                disabled={isExtraLocked}
-                                                            />
-                                                        </div>
-                                                        <div className="w-20 text-right shrink-0">
-                                                            <p className="text-[11px] font-semibold text-slate-400">
-                                                                ${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                                            </p>
-                                                        </div>
-                                                        <div className="w-6 flex justify-end shrink-0">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-6 w-6 text-red-300 hover:text-destructive hover:bg-destructive/5 transition-opacity shrink-0"
-                                                                onClick={() => removeExpense(item.originalIndex)}
-                                                            >
-                                                                <Trash2 size={12} />
-                                                            </Button>
+
+                                                        {/* Line 2: Currency & Amount + Converted Equiv */}
+                                                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-red-50">
+                                                            <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-[260px]">
+                                                                {country.id === 'Fixed' && <Badge variant="outline" className="text-[7px] h-4 px-1 border-red-200 text-red-500 bg-red-50 shrink-0">EXCLUDED</Badge>}
+                                                                <Select
+                                                                    value={item.currency === 'USD' ? 'USD' : inputCurrencyLabel}
+                                                                    onValueChange={(val) => updateExpense(item.originalIndex, 'currency', val)}
+                                                                    disabled={isExtraLocked}
+                                                                >
+                                                                    <SelectTrigger className="h-7 w-16 shrink-0 text-[10px] font-bold bg-slate-100 border border-slate-200/60 shadow-none px-2 text-slate-700 hover:bg-slate-200">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent className="z-[100]">
+                                                                        <SelectItem value={inputCurrencyLabel} className="text-xs font-bold">{inputCurrencyLabel}</SelectItem>
+                                                                        {inputCurrencyLabel !== 'USD' && (
+                                                                            <SelectItem value="USD" className="text-xs font-bold text-emerald-700">USD $</SelectItem>
+                                                                        )}
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                <Input
+                                                                    className="h-7 text-right font-bold text-slate-800 bg-slate-50/70 border-slate-200 focus-visible:ring-1 ring-red-300 pr-2 text-xs w-full tabular-nums"
+                                                                    type="text"
+                                                                    placeholder="0"
+                                                                    value={formatWithCommas(item.amount || '')}
+                                                                    onChange={(e) => updateExpense(item.originalIndex, 'amount', e.target.value)}
+                                                                    disabled={isExtraLocked}
+                                                                />
+                                                            </div>
+
+                                                            {/* Converted Equiv */}
+                                                            <div className="text-right shrink-0 pl-2">
+                                                                <div className="flex items-center gap-1 justify-end">
+                                                                    <span className="text-[9px] uppercase font-bold text-slate-400">Equiv:</span>
+                                                                    <span className="text-xs font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
+                                                                        ${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 );

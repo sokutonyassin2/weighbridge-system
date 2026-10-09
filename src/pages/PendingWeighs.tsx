@@ -140,10 +140,10 @@ export default function PendingWeighs() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Pending Weighs</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-xl sm:text-3xl font-bold">Pending Weighs</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground">
           Time-sensitive vehicles awaiting return weighing
         </p>
       </div>
@@ -186,7 +186,7 @@ export default function PendingWeighs() {
             Vehicles within 12-hour return window
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading...</div>
           ) : activePending.length === 0 ? (
@@ -194,7 +194,8 @@ export default function PendingWeighs() {
               No active pending vehicles
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Vehicle No</TableHead>
@@ -286,28 +287,30 @@ export default function PendingWeighs() {
                 })}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* Exhausted Attempts Section - Only for vehicles with 3/3 attempts */}
       <Card className="border-destructive">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
+        <CardHeader className="p-3 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-destructive text-base sm:text-lg">
             <AlertTriangle className="h-5 w-5" />
             Exhausted Attempts - Payment Required
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
             Vehicles that used all 3 weigh attempts. Payment required before re-weighing.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6 pt-0 sm:pt-0">
           {exhaustedPending.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No vehicles with exhausted attempts
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Vehicle No</TableHead>
@@ -371,6 +374,7 @@ export default function PendingWeighs() {
                 })}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

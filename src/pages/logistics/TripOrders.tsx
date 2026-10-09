@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,7 +63,9 @@ import {
     Calculator,
     Weight,
     Ruler,
-    Users
+    Users,
+    Navigation,
+    Package
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -85,6 +88,7 @@ const STANDARD_DESTINATIONS = [
 ];
 
 export default function TripOrders() {
+    const navigate = useNavigate();
     const { userRole, user, userProfile } = useAuth();
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -487,6 +491,53 @@ export default function TripOrders() {
             setIsAddingClient(false);
         }
     };
+
+    // Fetch Client Accounts Receivable & Credit Standing for selected client
+    const { data: clientCreditInfo } = useQuery({
+        queryKey: ["client_credit_standing", formData.client_name],
+        queryFn: async () => {
+            if (!formData.client_name) return null;
+            try {
+                const { data, error } = await supabase
+                    .from("logistics_trip_sheets" as any)
+                    .select("id, invoice_no, payment_status, revenue_amount, revenue_currency, client_name, return_client_name, return_payment_status, return_revenue_amount, return_revenue_currency")
+                    .or(`client_name.eq."${formData.client_name}",return_client_name.eq."${formData.client_name}"`);
+
+                if (error || !data) return { unpaidCount: 0, totalUnpaidUSD: 0, totalUnpaidTZS: 0, hasCreditHistory: false, totalTrips: 0 };
+
+                let unpaidCount = 0;
+                let totalUnpaidUSD = 0;
+                let totalUnpaidTZS = 0;
+
+                data.forEach((item: any) => {
+                    if (item.client_name === formData.client_name && item.invoice_no && item.payment_status !== 'Paid') {
+                        unpaidCount++;
+                        const amt = parseFloat(item.revenue_amount) || 0;
+                        if (item.revenue_currency === 'USD') totalUnpaidUSD += amt;
+                        else totalUnpaidTZS += amt;
+                    }
+                    if (item.return_client_name === formData.client_name && item.return_payment_status !== 'Paid' && (parseFloat(item.return_revenue_amount) || 0) > 0) {
+                        unpaidCount++;
+                        const amt = parseFloat(item.return_revenue_amount) || 0;
+                        if (item.return_revenue_currency === 'USD') totalUnpaidUSD += amt;
+                        else totalUnpaidTZS += amt;
+                    }
+                });
+
+                return {
+                    unpaidCount,
+                    totalUnpaidUSD,
+                    totalUnpaidTZS,
+                    totalTrips: data.length,
+                    hasCreditHistory: data.length > 0
+                };
+            } catch (e) {
+                console.error("Error fetching client credit:", e);
+                return null;
+            }
+        },
+        enabled: !!formData.client_name
+    });
 
     // Auto-calculate order total USD across all vehicle assignments inside modal
     const formAccumulatedUSD = useMemo(() => {
@@ -1263,6 +1314,76 @@ export default function TripOrders() {
 
     return (
         <div className="space-y-6 pb-12">
+            {/* UNIFIED LOGISTICS OPERATIONS NAVIGATION RIBBON */}
+            <div className="bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => navigate("/logistics")} 
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                    >
+                        <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Command Center</span>
+                    </Button>
+                    <Button 
+                        variant="default" 
+                        size="sm" 
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shadow-xs shrink-0"
+                    >
+                        <Package className="w-3.5 h-3.5" />
+                        <span>Trip Orders</span>
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => navigate("/logistics/trips")} 
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                    >
+                        <Navigation className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Live Journeys</span>
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => navigate("/logistics/fleet")} 
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                    >
+                        <Truck className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Fleet & Couplings</span>
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => navigate("/logistics/drivers")} 
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                    >
+                        <User className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Driver Registry</span>
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => navigate("/logistics/tripsheets")} 
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                    >
+                        <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Trip Sheets & Fuel</span>
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => navigate("/logistics/fund-approvals")} 
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 font-bold text-xs h-8 px-3 rounded-lg gap-1.5 shrink-0"
+                    >
+                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Road Fund Approvals</span>
+                    </Button>
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium px-2 hidden xl:block shrink-0">
+                    Dispatch Operations
+                </div>
+            </div>
             {/* Header banner */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm">
                 <div>
@@ -1959,7 +2080,7 @@ export default function TripOrders() {
                                     const hasPending = group.items.some((o: any) => o.status === "Pending Approval");
 
                                     return (
-                                        <div key={group.key} className="contents">
+                                        <React.Fragment key={group.key}>
                                             {/* Group Parent Row */}
                                             <TableRow 
                                                 className="bg-indigo-50/50 hover:bg-indigo-50/80 border-y border-indigo-100/80 transition-colors cursor-pointer select-none font-medium"
@@ -2312,7 +2433,7 @@ export default function TripOrders() {
                                                     </TableRow>
                                                 );
                                             })}
-                                        </div>
+                                        </React.Fragment>
                                     );
                                 })
                             )}
@@ -2415,6 +2536,51 @@ export default function TripOrders() {
                                     />
                                 </div>
                             </div>
+
+                            {/* Client Credit & Outstanding Invoices Advisory */}
+                            {formData.client_name && clientCreditInfo && (
+                                <div className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                                    clientCreditInfo.unpaidCount > 0
+                                        ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                                        : clientCreditInfo.hasCreditHistory
+                                            ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                                            : 'bg-slate-100/70 border-slate-200 text-slate-800'
+                                }`}>
+                                    <div className="flex items-center gap-2.5">
+                                        {clientCreditInfo.unpaidCount > 0 ? (
+                                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                                        ) : clientCreditInfo.hasCreditHistory ? (
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        ) : (
+                                            <Building2 className="w-4 h-4 text-slate-500 shrink-0" />
+                                        )}
+                                        <div>
+                                            <p className="font-bold">
+                                                {clientCreditInfo.unpaidCount > 0
+                                                    ? `Client Credit Advisory: ${clientCreditInfo.unpaidCount} Pending Invoice(s)`
+                                                    : clientCreditInfo.hasCreditHistory
+                                                        ? `Client Account In Good Standing ✓ (${clientCreditInfo.totalTrips} past trips)`
+                                                        : `New Client Account: No prior invoice balance`}
+                                            </p>
+                                            {clientCreditInfo.unpaidCount > 0 ? (
+                                                <p className="text-[11px] text-amber-800 mt-0.5">
+                                                    Outstanding receivables: <strong className="text-amber-950 font-black">${clientCreditInfo.totalUnpaidUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong>
+                                                    {clientCreditInfo.totalUnpaidTZS > 0 && ` + TSh ${clientCreditInfo.totalUnpaidTZS.toLocaleString()}`} • Verify credit terms before dispatch.
+                                                </p>
+                                            ) : (
+                                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                                    Zero unpaid or overdue invoices recorded in Accounts Receivable.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {clientCreditInfo.unpaidCount > 0 && (
+                                        <Badge variant="outline" className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] font-black shrink-0 px-2 py-0.5">
+                                            Credit Active
+                                        </Badge>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-xl border border-slate-200/60 shadow-2xs">
                                 <div className="flex items-center justify-between">

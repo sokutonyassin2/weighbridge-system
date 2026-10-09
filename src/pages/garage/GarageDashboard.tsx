@@ -1772,257 +1772,449 @@ const GarageDashboard = () => {
             {/* Dashboard Stats */}
             {activeTab === 'jobs' ? (
                 <>
-                    {/* TOP ROW: Metrics */}
-                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+                    {/* TOP ROW: Unified Executive Metrics */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-5">
                         {/* 1. Trip Nominations from Logistics */}
-                        <Card 
-                            className={`border shadow-sm transition-all cursor-pointer hover:shadow-md ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0)
-                                ? "bg-purple-600 text-white border-purple-600 shadow-purple-100"
-                                : "bg-white text-slate-900 border-slate-100 hover:border-purple-200"
-                            }`}
-                            onClick={() => setJobViewTab('nominations')}
-                        >
-                            <CardContent className="p-4 flex flex-col justify-between h-full">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className={`text-[11px] font-bold uppercase ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "text-purple-100" : "text-slate-500"}`}>
-                                        {language === 'en' ? 'Trip Nominations' : 'Magari Yaliyoteuliwa'}
-                                    </span>
-                                    <div className={`h-6 w-6 rounded-full flex items-center justify-center ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "bg-purple-500/50" : "bg-purple-50"}`}>
-                                        <Truck className={`h-3.5 w-3.5 ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "text-white" : "text-purple-600"}`} />
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-2xl font-bold leading-none">
-                                        {(nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length}
-                                    </div>
-                                    <p className={`text-[10px] mt-1 font-medium ${((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) ? "text-purple-100/90" : "text-slate-400"}`}>
-                                        {(nominations || []).length} {language === 'en' ? 'total nominated' : 'jumla yaliyoteuliwa'}
-                                    </p>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        {(() => {
+                            const pendingNomCount = (nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length;
+                            return (
+                                <Card 
+                                    className={`border shadow-sm transition-all rounded-2xl cursor-pointer hover:shadow-md hover:border-purple-300 bg-white ${
+                                        jobViewTab === 'nominations' ? "ring-2 ring-purple-500 border-purple-300" : "border-slate-200/80"
+                                    }`}
+                                    onClick={() => setJobViewTab('nominations')}
+                                >
+                                    <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                                {language === 'en' ? 'Trip Nominations' : 'Magari Yaliyoteuliwa'}
+                                            </span>
+                                            <div className="h-7 w-7 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center">
+                                                <Truck className="h-3.5 w-3.5 text-purple-600" />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-2xl font-black text-slate-900 leading-none">
+                                                    {pendingNomCount}
+                                                </span>
+                                                {pendingNomCount > 0 && (
+                                                    <Badge className="bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0 border-none">
+                                                        Needs Inspection
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                                                {(nominations || []).length} {language === 'en' ? 'total dispatched' : 'jumla yaliyoteuliwa'}
+                                            </p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })()}
 
                         {/* 2. Active Jobs */}
-                        <Card className="border border-slate-100 shadow-sm bg-white hover:shadow-md transition-all">
-                            <CardContent className="p-4 flex flex-col justify-between h-full">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[11px] font-bold text-slate-500 uppercase">{t('active_jobs')}</span>
-                                    <div className="h-6 w-6 rounded-full bg-indigo-50 flex items-center justify-center">
-                                        <Truck className="h-3.5 w-3.5 text-indigo-500" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-2xl font-bold text-slate-800 leading-none">
-                                        {(() => {
-                                            const activeJobs = jobCards?.filter(j => j.status !== 'Closed') || [];
-                                            const uniqueVehicles = new Set(activeJobs.map(j => j.vehicle_id));
-                                            return uniqueVehicles.size;
-                                        })()}
-                                    </div>
-                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Live on the floor' : 'Gerezani sasa'}</p>
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* 2. Critical Faults */}
-                        <Card className="border border-red-100 shadow-sm bg-white hover:shadow-md transition-all border-l-4 border-l-red-500">
-                            <CardContent className="p-4 flex flex-col justify-between h-full">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[11px] font-bold text-red-500 uppercase">{t('critical_faults')}</span>
-                                    <div className="h-6 w-6 rounded-full bg-red-50 flex items-center justify-center">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-2xl font-bold text-red-600 leading-none">
-                                        {(() => {
-                                            const criticalJobs = jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed') || [];
-                                            const uniqueVehicles = new Set(criticalJobs.map(j => j.vehicle_id));
-                                            return uniqueVehicles.size;
-                                        })()}
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* 3. Pending Issues */}
-                        <Card className="border border-slate-100 shadow-sm bg-white hover:shadow-md transition-all">
-                            <CardContent className="p-4 flex flex-col justify-between h-full">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[11px] font-bold text-slate-500 uppercase">{t('pending_issues')}</span>
-                                    <div className="h-6 w-6 rounded-full bg-amber-50 flex items-center justify-center">
-                                        <Clock className="h-3.5 w-3.5 text-amber-500" />
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-2xl font-bold text-slate-800 leading-none">
-                                        {(() => {
-                                            const pendingJobs = jobCards?.filter(j =>
-                                                j.status === 'Closed' &&
-                                                (j.requires_followup || j.fault_list?.some((f: any) => ['Partial', 'Not Repaired'].includes(f.status)))
-                                            ) || [];
-                                            const uniqueVehicles = new Set(pendingJobs.map(j => j.vehicle_id));
-                                            return uniqueVehicles.size;
-                                        })()}
-                                    </div>
-                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Needs follow-up' : 'Yanahitaji ufuatiliaji'}</p>
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* 4. Manager Issuance Approvals */}
-                        {(['admin', 'super_admin', 'garage_manager'].includes(userRole)) ? (
-                            <Card
-                                className={`border shadow-sm transition-all cursor-pointer hover:shadow-md ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0)
-                                    ? "bg-indigo-600 text-white border-indigo-600"
-                                    : "bg-white text-slate-900 border-slate-100"
-                                    }`}
-                                onClick={() => {
-                                    setActiveTab('logs');
-                                    setActiveStoreTab('approvals');
-                                }}
-                            >
-                                <CardContent className="p-4 flex flex-col justify-between h-full">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className={`text-[11px] font-bold uppercase ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100" : "text-slate-500"}`}>
-                                            {language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}
-                                        </span>
-                                        <div className={`h-6 w-6 rounded-full flex items-center justify-center ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "bg-indigo-500/50" : "bg-slate-50"}`}>
-                                            <ClipboardCheck className={`h-3.5 w-3.5 ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-white" : "text-slate-400"}`} />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-2xl font-bold leading-none">
-                                            {(usageLogs || []).filter((l: any) => l.status === 'Pending').length}
-                                        </div>
-                                        <p className={`text-[10px] mt-1 font-medium ${((usageLogs || []).filter((l: any) => l.status === 'Pending').length > 0) ? "text-indigo-100/80" : "text-slate-400"}`}>
-                                            {language === 'en' ? 'Requires manager review' : 'Inahitaji uhakiki wa meneja'}
-                                        </p>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ) : (
-                            <div className="hidden lg:block"></div>
-                        )}
-                    </div>
-
-                    {/* BOTTOM ROW: Feeds & Alerts */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
-                        {/* Accountability Feed */}
-                        <Card className="border border-slate-100 shadow-sm bg-white lg:col-span-1 h-full">
-                            <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between border-b border-slate-50">
-                                <CardTitle className="text-[11px] font-bold text-slate-600 uppercase flex items-center gap-2">
-                                    <HistoryIcon className="h-3.5 w-3.5 text-indigo-500" />
-                                    {language === 'en' ? 'Accountability Feed' : 'Mlisho wa Uwajibikaji'}
-                                </CardTitle>
-                                <Badge variant="outline" className="text-[9px] font-semibold text-indigo-600 border-indigo-200 bg-indigo-50 px-1.5 py-0">Live</Badge>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                                <ScrollArea className="h-[140px] px-4 py-2">
-                                    <div className="space-y-2.5">
-                                        {(usageLogs || []).slice(0, 10).map((log: any) => (
-                                            <div key={log.id} className="flex gap-2 items-start border-l-2 border-indigo-100 pl-2 py-0.5">
-                                                <div className="flex flex-col flex-1">
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-[10px] font-bold text-slate-700">{log.issued_to || (language === 'en' ? "Staff" : "Mfanyakazi")}</span>
-                                                        <span className="text-[9px] text-slate-400 font-medium">
-                                                            {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                    </div>
-                                                    <p className="text-[10px] text-slate-500 leading-snug mt-0.5">
-                                                        Took <span className="text-indigo-600 font-semibold">{log.quantity_used} {log.garage_inventory?.item_name || log.item_name}</span> for <span className="text-slate-700 font-bold">{log.vehicle?.vehicle_no || log.vehicle?.horse_number || "General"}</span>
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {(!usageLogs || usageLogs.length === 0) && (
-                                            <p className="text-[10px] text-slate-400 italic text-center py-4">No recent activity</p>
-                                        )}
-                                    </div>
-                                </ScrollArea>
-                            </CardContent>
-                        </Card>
-
-                        {/* Status Recovery Card */}
                         {(() => {
-                            const stuckVehicles = (vehicles || []).filter(v =>
-                                v.status === 'Maintenance' &&
-                                !(jobCards || []).some(j => j.vehicle_id === v.id && j.status !== 'Closed')
-                            );
-                            if (stuckVehicles.length === 0) return null;
+                            const activeJobs = jobCards?.filter(j => j.status !== 'Closed') || [];
+                            const uniqueVehicles = new Set(activeJobs.map(j => j.vehicle_id));
                             return (
-                                <Card className="border border-amber-200 shadow-sm bg-amber-50/50 lg:col-span-2 h-full">
-                                    <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between border-b border-amber-100/50">
-                                        <CardTitle className="text-[11px] font-bold text-amber-700 uppercase flex items-center gap-2">
-                                            <AlertTriangle className="h-3.5 w-3.5" /> {language === 'en' ? 'Status Recovery Needed' : 'Urejeshaji wa Hali Unahitajika'}
-                                        </CardTitle>
-                                    </CardHeader>
-
-                                    <CardContent className="p-3">
-                                        <ScrollArea className="h-[128px]">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pr-3">
-                                                {stuckVehicles.map(v => (
-                                                    <div key={v.id} className="flex items-center justify-between p-2 bg-white border border-amber-100 rounded-md shadow-sm">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[11px] font-bold text-slate-800">{v.plate_number}</span>
-                                                            <span className="text-[9px] text-slate-500 font-medium">Stuck without active job</span>
-                                                        </div>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-6 px-2 text-[9px] font-semibold border-amber-200 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
-                                                            onClick={() => forceReleaseMutation.mutate(v.id)}
-                                                            disabled={forceReleaseMutation.isPending}
-                                                        >
-                                                            {forceReleaseMutation.isPending ? "Fixing..." : "Unlock"}
-                                                        </Button>
-                                                    </div>
-                                                ))}
+                                <Card 
+                                    className={`border shadow-sm transition-all rounded-2xl cursor-pointer hover:shadow-md hover:border-blue-300 bg-white ${
+                                        jobViewTab === 'active' ? "ring-2 ring-indigo-500 border-indigo-300" : "border-slate-200/80"
+                                    }`}
+                                    onClick={() => setJobViewTab('active')}
+                                >
+                                    <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('active_jobs')}</span>
+                                            <div className="h-7 w-7 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+                                                <Wrench className="h-3.5 w-3.5 text-blue-600" />
                                             </div>
-                                        </ScrollArea>
+                                        </div>
+                                        <div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-2xl font-black text-slate-900 leading-none">
+                                                    {uniqueVehicles.size}
+                                                </span>
+                                                <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-semibold px-1.5 py-0">
+                                                    In Bays
+                                                </Badge>
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Live on garage floor' : 'Gerezani sasa'}</p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })()}
+
+                        {/* 3. Critical Faults */}
+                        {(() => {
+                            const criticalJobs = jobCards?.filter(j => j.priority === 'Critical' && j.status !== 'Closed') || [];
+                            const uniqueVehicles = new Set(criticalJobs.map(j => j.vehicle_id));
+                            const critCount = uniqueVehicles.size;
+                            return (
+                                <Card className={`border shadow-sm rounded-2xl bg-white transition-all hover:shadow-md ${
+                                    critCount > 0 ? "border-rose-300 bg-rose-50/20" : "border-slate-200/80"
+                                }`}>
+                                    <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className={`text-[11px] font-bold uppercase tracking-wider ${critCount > 0 ? "text-rose-600" : "text-slate-500"}`}>
+                                                {t('critical_faults')}
+                                            </span>
+                                            <div className={`h-7 w-7 rounded-xl flex items-center justify-center ${critCount > 0 ? "bg-rose-100 text-rose-600" : "bg-slate-50 text-slate-400 border border-slate-100"}`}>
+                                                <AlertTriangle className="h-3.5 w-3.5" />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className={`text-2xl font-black leading-none ${critCount > 0 ? "text-rose-600" : "text-slate-900"}`}>
+                                                    {critCount}
+                                                </span>
+                                                {critCount > 0 ? (
+                                                    <Badge className="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0 border-none animate-pulse">
+                                                        Urgent Attention
+                                                    </Badge>
+                                                ) : (
+                                                    <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                                                        ✓ All Clear
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Grounded trucks' : 'Malori yaliyosimama'}</p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })()}
+
+                        {/* 4. Pending Issues */}
+                        {(() => {
+                            const pendingJobs = jobCards?.filter(j =>
+                                j.status === 'Closed' &&
+                                (j.requires_followup || j.fault_list?.some((f: any) => ['Partial', 'Not Repaired'].includes(f.status)))
+                            ) || [];
+                            const uniqueVehicles = new Set(pendingJobs.map(j => j.vehicle_id));
+                            return (
+                                <Card className="border border-slate-200/80 shadow-sm bg-white rounded-2xl hover:shadow-md transition-all">
+                                    <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('pending_issues')}</span>
+                                            <div className="h-7 w-7 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+                                                <Clock className="h-3.5 w-3.5 text-amber-500" />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-2xl font-black text-slate-900 leading-none">
+                                                    {uniqueVehicles.size}
+                                                </span>
+                                                {uniqueVehicles.size > 0 && (
+                                                    <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold px-1.5 py-0">
+                                                        Post-Trip
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1 font-medium">{language === 'en' ? 'Needs follow-up' : 'Yanahitaji ufuatiliaji'}</p>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })()}
+
+                        {/* 5. Manager Issuance Approvals */}
+                        {(() => {
+                            const pendingLogCount = (usageLogs || []).filter((l: any) => l.status === 'Pending').length;
+                            return (
+                                <Card
+                                    className={`border shadow-sm transition-all rounded-2xl cursor-pointer hover:shadow-md bg-white ${
+                                        pendingLogCount > 0 ? "border-indigo-300 hover:border-indigo-400" : "border-slate-200/80"
+                                    }`}
+                                    onClick={() => {
+                                        setActiveTab('logs');
+                                        setActiveStoreTab('approvals');
+                                    }}
+                                >
+                                    <CardContent className="p-4 flex flex-col justify-between h-full space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                                {language === 'en' ? 'Issuance Approvals' : 'Idhini za Matoleo'}
+                                            </span>
+                                            <div className={`h-7 w-7 rounded-xl flex items-center justify-center ${pendingLogCount > 0 ? "bg-indigo-100 text-indigo-700" : "bg-slate-50 text-slate-400 border border-slate-100"}`}>
+                                                <ClipboardCheck className="h-3.5 w-3.5" />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-2xl font-black text-slate-900 leading-none">
+                                                    {pendingLogCount}
+                                                </span>
+                                                {pendingLogCount > 0 ? (
+                                                    <Badge className="bg-indigo-100 text-indigo-700 text-[10px] font-bold px-1.5 py-0 border-none">
+                                                        Review Needed
+                                                    </Badge>
+                                                ) : (
+                                                    <span className="text-[10px] text-slate-400 font-medium">Cleared</span>
+                                                )}
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                                                {language === 'en' ? 'Spare parts requisitions' : 'Maombi ya vipuri'}
+                                            </p>
+                                        </div>
                                     </CardContent>
                                 </Card>
                             );
                         })()}
                     </div>
 
-                    <Card className="border-none shadow-lg bg-white">
-                        <CardHeader>
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <CardTitle className="text-sm font-bold text-slate-700 uppercase tracking-[0.15em] flex items-center gap-2">{language === 'en' ? 'Job Cards' : 'Kadi za Kazi'}</CardTitle>
+                    {/* MIDDLE ROW: Balanced 2-Column Command Workspace */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-5">
+                        {/* 1. Live Accountability Feed (5 columns) */}
+                        <Card className="border border-slate-200/80 shadow-sm bg-white lg:col-span-5 rounded-2xl flex flex-col justify-between overflow-hidden">
+                            <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-100 bg-slate-50/50">
+                                <CardTitle className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                    <HistoryIcon className="h-4 w-4 text-indigo-600" />
+                                    <span>{language === 'en' ? 'Live Parts Accountability' : 'Mlisho wa Uwajibikaji wa Vipuri'}</span>
+                                </CardTitle>
+                                <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    <Badge variant="outline" className="text-[9px] font-bold text-emerald-700 border-emerald-200 bg-emerald-50 px-1.5 py-0">
+                                        Live
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-0 flex-1">
+                                <ScrollArea className="h-[160px] px-4 py-2.5">
+                                    <div className="space-y-2">
+                                        {(usageLogs || []).slice(0, 10).map((log: any) => (
+                                            <div key={log.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-50/60 hover:bg-slate-50 border border-slate-100 transition-colors">
+                                                <div className="flex flex-col min-w-0 pr-2">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-[11px] font-bold text-slate-800 truncate">{log.issued_to || (language === 'en' ? "Staff" : "Mfanyakazi")}</span>
+                                                        <span className="text-[10px] text-slate-400 font-medium">
+                                                            {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-600 truncate mt-0.5">
+                                                        Took <span className="font-semibold text-indigo-700">{log.quantity_used} {log.garage_inventory?.item_name || log.item_name}</span>
+                                                    </p>
+                                                </div>
+                                                <Badge variant="outline" className="text-[10px] font-bold shrink-0 bg-white text-slate-700 border-slate-200 px-2 py-0.5">
+                                                    {log.vehicle?.vehicle_no || log.vehicle?.horse_number || "General"}
+                                                </Badge>
+                                            </div>
+                                        ))}
+                                        {(!usageLogs || usageLogs.length === 0) && (
+                                            <p className="text-xs text-slate-400 italic text-center py-8">No recent parts logged</p>
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </CardContent>
+                            <div className="p-2.5 border-t border-slate-100 bg-slate-50/40 flex justify-between items-center text-[11px]">
+                                <span className="text-slate-400 font-medium">Automatic stock tracking</span>
+                                <button 
+                                    onClick={() => { setActiveTab('inventory'); }}
+                                    className="text-indigo-600 hover:text-indigo-700 font-bold hover:underline"
+                                >
+                                    Open Parts Store →
+                                </button>
+                            </div>
+                        </Card>
 
-                                <div className="flex flex-col sm:flex-row items-center gap-4">
-                                    <div className="flex bg-slate-100 p-1 rounded-md">
+                        {/* 2. Workshop Floor Status & Priority Distribution (7 columns) */}
+                        <Card className="border border-slate-200/80 shadow-sm bg-white lg:col-span-7 rounded-2xl flex flex-col justify-between overflow-hidden">
+                            <CardHeader className="py-3 px-4 flex flex-row items-center justify-between border-b border-slate-100 bg-slate-50/50">
+                                <div>
+                                    <CardTitle className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                        <LayoutGrid className="h-4 w-4 text-indigo-600" />
+                                        <span>Workshop Floor Live Status</span>
+                                    </CardTitle>
+                                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">Quick priority breakdown and instant bay filtering</p>
+                                </div>
+                                {searchTerm && (
+                                    <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        onClick={() => setSearchTerm("")}
+                                        className="h-6 text-[10px] text-rose-600 hover:bg-rose-50 px-2"
+                                    >
+                                        ✕ Clear Filter
+                                    </Button>
+                                )}
+                            </CardHeader>
+
+                            <CardContent className="p-4 space-y-3.5 flex-1 flex flex-col justify-center">
+                                {/* Interactive Priority Filter Chips */}
+                                <div className="space-y-1.5">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Filter Jobs by Urgency:</span>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(() => {
+                                            const critCount = (jobCards || []).filter((j: any) => j.status !== 'Closed' && j.priority === 'Critical').length;
+                                            const urgentCount = (jobCards || []).filter((j: any) => j.status !== 'Closed' && (j.priority === 'Urgent' || j.priority === 'High')).length;
+                                            const normalCount = (jobCards || []).filter((j: any) => j.status !== 'Closed' && !['Critical', 'Urgent', 'High'].includes(j.priority)).length;
+                                            return (
+                                                <>
+                                                    <button
+                                                        onClick={() => setSearchTerm(searchTerm === "Critical" ? "" : "Critical")}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                                                            searchTerm === "Critical" 
+                                                                ? "bg-rose-600 text-white border-rose-600 shadow-sm" 
+                                                                : "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
+                                                        }`}
+                                                    >
+                                                        <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                                                        Critical ({critCount})
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => setSearchTerm(searchTerm === "Urgent" ? "" : "Urgent")}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                                                            searchTerm === "Urgent" 
+                                                                ? "bg-amber-600 text-white border-amber-600 shadow-sm" 
+                                                                : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                                                        }`}
+                                                    >
+                                                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                                        Urgent / High ({urgentCount})
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => setSearchTerm(searchTerm === "Normal" ? "" : "Normal")}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                                                            searchTerm === "Normal" 
+                                                                ? "bg-emerald-600 text-white border-emerald-600 shadow-sm" 
+                                                                : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                                                        }`}
+                                                    >
+                                                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                        Normal / PPM ({normalCount})
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => setSearchTerm("")}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                                                            !searchTerm 
+                                                                ? "bg-slate-800 text-white border-slate-800 shadow-sm" 
+                                                                : "bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200"
+                                                        }`}
+                                                    >
+                                                        All Active ({((jobCards || []).filter((j: any) => j.status !== 'Closed')).length})
+                                                    </button>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Status Recovery Alert (if any truck is stuck without active job) */}
+                                {(() => {
+                                    const stuckVehicles = (vehicles || []).filter(v =>
+                                        v.status === 'Maintenance' &&
+                                        !(jobCards || []).some(j => j.vehicle_id === v.id && j.status !== 'Closed')
+                                    );
+                                    if (stuckVehicles.length === 0) return null;
+                                    return (
+                                        <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2.5">
+                                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                                <div className="text-[11px] text-amber-900 leading-tight">
+                                                    <span className="font-bold">{stuckVehicles.length} vehicle(s)</span> marked in maintenance without active job card.
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                {stuckVehicles.slice(0, 2).map(v => (
+                                                    <Button
+                                                        key={v.id}
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="h-6 px-2 text-[10px] font-bold border-amber-300 text-amber-800 bg-white hover:bg-amber-100"
+                                                        onClick={() => forceReleaseMutation.mutate(v.id)}
+                                                        disabled={forceReleaseMutation.isPending}
+                                                    >
+                                                        Unlock {v.plate_number}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </CardContent>
+
+                            <div className="p-2.5 border-t border-slate-100 bg-slate-50/40 flex justify-between items-center text-[11px] text-slate-500 font-medium">
+                                <span>Bay Efficiency: <strong className="text-slate-800">{((jobCards || []).filter((j: any) => j.status === 'Closed')).length}</strong> repairs closed</span>
+                                <span className="text-slate-400">Total Tracked Units: {(vehicles || []).length}</span>
+                            </div>
+                        </Card>
+                    </div>
+
+                    {/* MAIN JOB CARDS TABLE CONTAINER */}
+                    <Card className="border border-slate-200/80 shadow-sm rounded-2xl bg-white overflow-hidden">
+                        <CardHeader className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/30">
+                            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="h-8 w-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                                        <Wrench className="h-4 w-4 text-indigo-600" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                                            {language === 'en' ? 'Job Cards & Workshop Bays' : 'Kadi za Kazi na Maeneo ya Gereji'}
+                                        </CardTitle>
+                                        <p className="text-[11px] text-slate-400 font-medium">Comprehensive vehicle fault tracking and mechanic assignments</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row items-center gap-3">
+                                    {/* Segmented Tabs */}
+                                    <div className="flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60 w-full sm:w-auto">
                                         <button
                                             onClick={() => setJobViewTab('active')}
-                                            className={`px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${jobViewTab === 'active' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                                                jobViewTab === 'active' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-600 hover:text-slate-800'
+                                            }`}
                                         >
-                                            {language === 'en' ? 'Active Jobs' : 'Kazi Amilifu'}
+                                            <span>{language === 'en' ? 'Active Jobs' : 'Kazi Amilifu'}</span>
+                                            <Badge className="bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0 h-4 border-none font-bold">
+                                                {(() => {
+                                                    const active = (jobCards || []).filter((j: any) => j.status !== 'Closed');
+                                                    return new Set(active.map((j: any) => j.vehicle_id)).size;
+                                                })()}
+                                            </Badge>
                                         </button>
                                         <button
                                             onClick={() => setJobViewTab('closed')}
-                                            className={`px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded transition-all ${jobViewTab === 'closed' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                                                jobViewTab === 'closed' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-600 hover:text-slate-800'
+                                            }`}
                                         >
-                                            {language === 'en' ? 'Closed History' : 'Historia Zilizofungwa'}
+                                            <span>{language === 'en' ? 'Closed History' : 'Historia Zilizofungwa'}</span>
+                                            <Badge className="bg-slate-100 text-slate-700 text-[10px] px-1.5 py-0 h-4 border-none font-bold">
+                                                {(() => {
+                                                    const closed = (jobCards || []).filter((j: any) => j.status === 'Closed');
+                                                    return new Set(closed.map((j: any) => j.vehicle_id)).size;
+                                                })()}
+                                            </Badge>
                                         </button>
                                         <button
                                             onClick={() => setJobViewTab('nominations')}
-                                            className={`px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded transition-all flex items-center gap-1.5 ${jobViewTab === 'nominations' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                                                jobViewTab === 'nominations' ? 'bg-white shadow-sm text-purple-600' : 'text-slate-600 hover:text-slate-800'
+                                            }`}
                                         >
-                                            <Bell className="w-3 h-3" />
-                                            {language === 'en' ? 'Trip Nominations' : 'Magari Yaliyoteuliwa'}
+                                            <Bell className="w-3 h-3 text-purple-600" />
+                                            <span>{language === 'en' ? 'Trip Nominations' : 'Magari Yaliyoteuliwa'}</span>
                                             {((nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length > 0) && (
-                                                <Badge className="bg-purple-600 text-white text-[9px] px-1.5 py-0 h-4">
+                                                <Badge className="bg-purple-600 text-white text-[10px] px-1.5 py-0 h-4 font-bold">
                                                     {(nominations || []).filter((n: any) => n.garage_readiness === 'Pending' || n.status === 'Pending Inspection').length}
                                                 </Badge>
                                             )}
                                         </button>
                                     </div>
 
-                                    <div className="flex w-full max-w-sm items-center">
+                                    {/* Search Input with Icon */}
+                                    <div className="relative w-full sm:w-[240px]">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                                         <Input
-                                            placeholder={language === 'en' ? "Search jobs..." : "Tafuta kazi..."}
-                                            className="h-9 w-[150px] lg:w-[250px]"
+                                            placeholder={language === 'en' ? "Search jobs or plates..." : "Tafuta kazi au plate..."}
+                                            className="h-9 pl-9 pr-3 text-xs bg-white rounded-xl border-slate-200 focus:border-indigo-500"
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
                                         />

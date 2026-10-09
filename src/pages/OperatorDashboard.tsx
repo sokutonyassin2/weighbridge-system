@@ -641,8 +641,200 @@ export default function OperatorDashboard() {
               No vehicles currently awaiting weighing
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+            <>
+              {/* MOBILE PORTRAIT VIEW: Touch-friendly Card List (< md screens) */}
+              <div className="block md:hidden divide-y divide-slate-100 p-2 space-y-3">
+                {pendingEntries.map((entry) => {
+                  const dbWeighCount = entry.weigh_records?.length || 0;
+                  const pendingOfflineCount = offlineDataManager.getPendingCount(entry.id, 'weigh_record');
+                  const weighCount = dbWeighCount + pendingOfflineCount;
+
+                  const isMVCategory = entry.category && ["MV-Company", "MV-PublicSeller", "MV-Supplier"].includes(entry.category);
+                  const isExhausted = !isMVCategory && weighCount >= 3 && !entry.penalty_paid_entry;
+                  const pendingWeigh = pendingWeighsMap?.[entry.id];
+                  const isTimeOverdue = pendingWeigh?.expected_return_time &&
+                    new Date(pendingWeigh.expected_return_time) < new Date();
+
+                  const requiresPayment = isExhausted;
+                  const requiresMoveToHistory = isTimeOverdue && !isExhausted;
+                  const hasPaidPenalty = paidPenaltiesMap?.[entry.id];
+                  const paymentReason = isExhausted ? "Exhausted all 3 weigh attempts" : "";
+                  const penaltyAmount = pendingWeigh?.payment_amount || (entry.vehicle_types?.first_weigh_fee || 0);
+                  const shiftInfo = formatShiftBadge(entry.shifts as any);
+                  const isDay = shiftInfo?.shiftName === "Day";
+
+                  return (
+                    <div
+                      key={`mobile-${entry.id}`}
+                      className={`p-3.5 rounded-2xl border shadow-xs transition-all ${
+                        isMVCategory
+                          ? "bg-blue-50/60 border-blue-200"
+                          : requiresPayment
+                            ? "bg-rose-50/60 border-rose-200"
+                            : "bg-white border-slate-200"
+                      }`}
+                    >
+                      {/* Top Row: Plate & Entry ID & Category */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-base font-extrabold text-slate-900 tracking-tight block">
+                            {entry.vehicle_no}
+                          </span>
+                          <span className="text-[11px] font-mono text-slate-500 font-semibold">
+                            {getShortEntryId(entry.id, entry.wb_number)} • {entry.vehicle_types?.type_name || "Vehicle"}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <StatusBadge status={entry.status} category={entry.category} />
+                          {isMVCategory && (
+                            <Badge className="bg-blue-100 text-blue-800 border-none text-[9px] font-bold">
+                              MV Transfer
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Middle Details: Shift, Time, Weigh Count */}
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {shiftInfo && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-bold ${
+                                shiftInfo.isAging
+                                  ? "bg-orange-50 text-orange-700 border-orange-300"
+                                  : isDay
+                                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                                    : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                              }`}
+                            >
+                              {shiftInfo.isAging && <Clock className="h-3 w-3 mr-1" />}
+                              {!shiftInfo.isAging && (isDay ? <Sun className="h-3 w-3 mr-1" /> : <Moon className="h-3 w-3 mr-1" />)}
+                              {shiftInfo.dateStr} {shiftInfo.shiftName}
+                            </Badge>
+                          )}
+                          <span className="text-[10px] text-slate-400">
+                            {format(new Date(entry.entry_time), "HH:mm")}
+                          </span>
+                        </div>
+
+                        <Badge
+                          variant={requiresPayment ? "destructive" : "secondary"}
+                          className="text-[10px] font-bold"
+                        >
+                          {isMVCategory ? (
+                            weighCount === 0 ? "1st Weigh" : "2nd Weigh"
+                          ) : (
+                            `${weighCount}/3 Weighs`
+                          )}
+                          {isExhausted && " (EXHAUSTED)"}
+                        </Badge>
+                      </div>
+
+                      {/* Action Row: Large Touch Button */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-100">
+                        {requiresPayment ? (
+                          <div className="space-y-1.5">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="w-full h-10 font-bold text-xs"
+                              onClick={() => {
+                                setSelectedVehicle({
+                                  ...entry,
+                                  paymentReason,
+                                  penaltyAmount,
+                                });
+                                setPaymentDialogOpen(true);
+                              }}
+                            >
+                              <AlertTriangle className="mr-1.5 h-4 w-4" />
+                              Penalty Payment Required
+                            </Button>
+                            {hasPaidPenalty && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full h-9 border-green-500 text-green-700 bg-green-50 text-xs font-bold"
+                                onClick={() => handleResetAfterPenalty(entry)}
+                                disabled={isProcessingRepair}
+                              >
+                                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                                Apply Paid Penalty
+                              </Button>
+                            )}
+                          </div>
+                        ) : requiresMoveToHistory ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full h-10 border-orange-500 text-orange-700 bg-orange-50 font-bold text-xs"
+                            onClick={async () => {
+                              try {
+                                await supabase.from("overdue_vehicles_history").insert({
+                                  entry_id: entry.id,
+                                  vehicle_no: entry.vehicle_no,
+                                  category: entry.category,
+                                  first_weigh_time: pendingWeigh?.first_weigh_time,
+                                  overdue_time: new Date().toISOString(),
+                                  shift_id: entry.shift_id,
+                                  shift_name: entry.shifts?.shift_name,
+                                  shift_date: entry.shifts?.shift_date,
+                                  notes: "Manually moved to overdue history - exceeded 12-hour return window"
+                                });
+
+                                await supabase.from("vehicle_entries")
+                                  .update({ completed: true, status: "Overdue-Removed" })
+                                  .eq("id", entry.id);
+
+                                await supabase.from("pending_weighs")
+                                  .delete()
+                                  .eq("entry_id", entry.id);
+
+                                toast({
+                                  title: "Vehicle Moved",
+                                  description: `${entry.vehicle_no} moved to overdue history.`,
+                                });
+                                queryClient.invalidateQueries({ queryKey: ["pending-entries"] });
+                                queryClient.invalidateQueries({ queryKey: ["pending-weighs-map"] });
+                              } catch (err: any) {
+                                toast({ variant: "destructive", title: "Error", description: err.message });
+                              }
+                            }}
+                          >
+                            <Clock className="mr-1.5 h-4 w-4" />
+                            Exceeded 12hr Window • Move to History
+                          </Button>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              className="flex-1 h-10 font-bold text-xs bg-primary text-primary-foreground shadow-xs"
+                              onClick={() => navigate(`/weigh/${entry.id}`)}
+                            >
+                              <ScaleIcon className="mr-1.5 h-4 w-4" />
+                              Enter Weight
+                            </Button>
+                            {weighCount === 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-10 px-3 text-slate-500 hover:text-destructive"
+                                onClick={() => handleDeleteVehicle(entry.id, entry.vehicle_no, weighCount)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* DESKTOP VIEW: Full Data Table (>= md screens) */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-xs">Vehicle No</TableHead>
@@ -895,6 +1087,7 @@ export default function OperatorDashboard() {
                 </TableBody>
               </Table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

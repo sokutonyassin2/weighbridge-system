@@ -9,17 +9,36 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, CreditCard, Truck, RefreshCw, Pencil, Navigation, Plus, Calculator, CheckSquare, Square, Printer } from "lucide-react";
+import { Search, CreditCard, Truck, RefreshCw, Pencil, Navigation, Plus, Calculator, CheckSquare, Square, Printer, DollarSign, Calendar, History, Receipt } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import LogisticsInvoicePreview from "@/components/logistics/LogisticsInvoicePreview";
+import { useAuth } from "@/contexts/AuthContext";
+import { CheckCircle2, AlertCircle } from "lucide-react";
+import { fetchCleanLogisticsTripSheets } from "@/lib/logisticsDataService";
 
 export default function TripInvoices() {
+    const { user } = useAuth();
     const [searchTerm, setSearchTerm] = useState("");
     const [activeTab, setActiveTab] = useState("all");
     const [editingTrip, setEditingTrip] = useState<any>(null);
     const [createModalOpen, setCreateModalOpen] = useState(false);
+    
+    // Payment Recording Modal State
+    const [paymentModal, setPaymentModal] = useState<{
+        open: boolean;
+        invoice_no: string;
+        client_name: string;
+        currency: string;
+        total_amount: number;
+        amount_received: number;
+        still_demanded: number;
+        trips: any[];
+    } | null>(null);
+    const [paymentAmountInput, setPaymentAmountInput] = useState<string>("");
+    const [paymentDateInput, setPaymentDateInput] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [paymentNotesInput, setPaymentNotesInput] = useState<string>("");
     
     // Create Invoice States
     const [newInvoiceData, setNewInvoiceData] = useState({
@@ -42,23 +61,32 @@ export default function TripInvoices() {
     const { data: tripSheets, isLoading } = useQuery({
         queryKey: ["logistics-invoices-sheets"],
         queryFn: async () => {
-            const { data: sheets, error } = await supabase
-                .from("logistics_trip_sheets")
-                .select(`
-                    *,
-                    vehicle:vehicle_id ( id, vehicle_no, fleet_category ),
-                    trailer:trailer_id ( id, vehicle_no, trailer_number, fleet_category ),
-                    driver:driver_id ( id, full_name )
-                `)
-                .order("created_at", { ascending: false });
-
-            if (error) {
-                console.error("Error fetching trip sheets in invoices:", error);
-                throw error;
-            }
-            return sheets || [];
+            return await fetchCleanLogisticsTripSheets();
         }
     });
+
+    // Fetch Recorded Invoice Payments
+    const { data: invoicePayments = [] } = useQuery({
+        queryKey: ["logistics_invoice_payments_list"],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from("logistics_invoice_payments" as any)
+                .select("*")
+                .order("created_at", { ascending: false });
+            if (error) return [];
+            return data || [];
+        }
+    });
+
+    const paymentMap = useMemo(() => {
+        const map: Record<string, number> = {};
+        invoicePayments.forEach((p: any) => {
+            if (p.invoice_no) {
+                map[p.invoice_no] = (map[p.invoice_no] || 0) + (parseFloat(p.amount_paid) || 0);
+            }
+        });
+        return map;
+    }, [invoicePayments]);
 
     const updateInvoiceMutation = useMutation({
         mutationFn: async (updates: any) => {
@@ -72,7 +100,10 @@ export default function TripInvoices() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics-invoices-sheets"] });
-            toast({ title: "Invoices Updated", description: "The invoice details have been saved successfully." });
+            queryClient.invalidateQueries({ queryKey: ["logistics_invoice_payments_list"] });
+            queryClient.invalidateQueries({ queryKey: ["finance_overview_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["finance_overview_payments"] });
+            toast({ title: "Invoices Updated", description: "The invoice details and payment records have been saved successfully." });
             setEditingTrip(null);
         },
         onError: (error: any) => {
@@ -126,8 +157,112 @@ export default function TripInvoices() {
         }
     });
 
-    const handleSaveEdit = () => {
+    const recordPaymentMutation = useMutation({
+        mutationFn: async () => {
+            if (!paymentModal || !paymentAmountInput) throw new Error("Payment amount is required");
+            const amt = parseFloat(paymentAmountInput);
+            if (isNaN(amt) || amt <= 0) throw new Error("Please enter a valid positive payment amount");
+
+            // 1. Insert payment record into logistics_invoice_payments
+            const { error: pError } = await supabase
+                .from("logistics_invoice_payments" as any)
+                .insert({
+                    invoice_no: paymentModal.invoice_no,
+                    amount_paid: amt,
+                    payment_date: paymentDateInput || new Date().toISOString().split('T')[0],
+                    notes: paymentNotesInput || "Customer payment received",
+                    recorded_by: user?.id || null
+                });
+
+            if (pError) throw pError;
+
+            // 2. Compute new total paid and new status
+            const newTotalPaid = paymentModal.amount_received + amt;
+            const newBalance = Math.max(0, paymentModal.total_amount - newTotalPaid);
+            const newStatus = newBalance <= 0.01 ? "Paid" : "Partial";
+
+            // 3. Update trip sheets associated with this invoice
+            for (const trip of paymentModal.trips) {
+                if (trip._leg === 'RETURN') {
+                    await supabase
+                        .from("logistics_trip_sheets" as any)
+                        .update({ return_payment_status: newStatus })
+                        .eq("id", trip.id);
+                } else {
+                    await supabase
+                        .from("logistics_trip_sheets" as any)
+                        .update({ payment_status: newStatus })
+                        .eq("id", trip.id);
+                }
+            }
+
+            return { newTotalPaid, newBalance, newStatus };
+        },
+        onSuccess: (res) => {
+            queryClient.invalidateQueries({ queryKey: ["logistics-invoices-sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_invoice_payments_list"] });
+            queryClient.invalidateQueries({ queryKey: ["finance-accounts-receivable"] });
+            queryClient.invalidateQueries({ queryKey: ["finance_overview_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["finance_overview_payments"] });
+
+            toast({
+                title: "Payment Recorded Successfully",
+                description: res.newBalance <= 0.01
+                    ? `Invoice ${paymentModal?.invoice_no} is now FULLY SETTLED.`
+                    : `Partial payment recorded. Still Demanded: ${paymentModal?.currency} ${res.newBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            });
+            setPaymentModal(null);
+            setPaymentAmountInput("");
+            setPaymentNotesInput("");
+        },
+        onError: (err: any) => {
+            toast({ variant: "destructive", title: "Failed to Record Payment", description: err.message });
+        }
+    });
+
+    const handleOpenRecordPayment = (group: any) => {
+        const defaultRec = group.trips?.[0]?.amount_received !== undefined ? group.trips[0].amount_received : (group.payment_status === 'Paid' ? group.total_revenue : 0);
+        const received = paymentMap[group.invoice_no] !== undefined ? paymentMap[group.invoice_no] : defaultRec;
+        const demanded = Math.max(0, group.total_revenue - received);
+        setPaymentModal({
+            open: true,
+            invoice_no: group.invoice_no,
+            client_name: group.client_name || "Client",
+            currency: group.currency,
+            total_amount: group.total_revenue,
+            amount_received: received,
+            still_demanded: demanded,
+            trips: group.trips
+        });
+        setPaymentAmountInput(demanded > 0 ? demanded.toString() : "");
+        setPaymentDateInput(new Date().toISOString().split('T')[0]);
+        setPaymentNotesInput("");
+    };
+
+    const handleSaveEdit = async () => {
         if (!editingTrip) return;
+
+        // If user recorded a new payment amount in the modal, log it into logistics_invoice_payments
+        if (editingTrip._new_payment_amt && parseFloat(editingTrip._new_payment_amt) > 0) {
+            const pAmt = parseFloat(editingTrip._new_payment_amt);
+            const targetInv = editingTrip.invoice_no;
+            if (targetInv) {
+                try {
+                    await supabase
+                        .from("logistics_invoice_payments" as any)
+                        .insert({
+                            invoice_no: targetInv,
+                            amount_paid: pAmt,
+                            payment_date: new Date().toISOString().split('T')[0],
+                            notes: "Payment logged during invoice edit",
+                            recorded_by: user?.id || null
+                        });
+                } catch (e) {
+                    console.error("Error logging payment entry:", e);
+                }
+            }
+        }
+
         updateInvoiceMutation.mutate({
             id: editingTrip.id,
             invoice_no: editingTrip.invoice_no,
@@ -358,42 +493,67 @@ export default function TripInvoices() {
                                         </div>
                                     </div>
                                     
-                                    {!group.invoice_no.startsWith("UNASSIGNED") && (
-                                        <div className="flex items-center gap-4">
-                                            <div className="hidden md:flex items-center gap-4 text-xs">
-                                                <div className="text-right">
-                                                    <p className="text-[10px] uppercase text-slate-500 font-bold mb-0.5">Est. Expenses</p>
-                                                    <p className="font-bold text-rose-600">{group.total_expenses > 0 ? `TShs ${group.total_expenses.toLocaleString()}` : '-'}</p>
+                                    {!group.invoice_no.startsWith("UNASSIGNED") && (() => {
+                                        const defaultRec = group.trips?.[0]?.amount_received !== undefined ? group.trips[0].amount_received : (group.payment_status === 'Paid' ? group.total_revenue : 0);
+                                        const amountReceived = paymentMap[group.invoice_no] !== undefined ? paymentMap[group.invoice_no] : defaultRec;
+                                        const stillDemanded = Math.max(0, group.total_revenue - amountReceived);
+                                        const isFullyPaid = stillDemanded <= 0.01 && group.total_revenue > 0;
+                                        const isPartial = amountReceived > 0 && stillDemanded > 0.01;
+
+                                        return (
+                                            <div className="flex items-center gap-3">
+                                                <div className="hidden lg:flex items-center gap-3 text-xs">
+                                                    <div className="text-right">
+                                                        <p className="text-[9px] uppercase text-slate-400 font-bold mb-0.5">Total Revenue</p>
+                                                        <p className="font-black text-slate-900">{group.currency} {group.total_revenue.toLocaleString()}</p>
+                                                    </div>
+                                                    <div className="text-right pl-3 border-l">
+                                                        <p className="text-[9px] uppercase text-emerald-600 font-bold mb-0.5">Received</p>
+                                                        <p className="font-bold text-emerald-700">{group.currency} {amountReceived.toLocaleString()}</p>
+                                                    </div>
+                                                    <div className="text-right pl-3 border-l">
+                                                        <p className="text-[9px] uppercase text-amber-700 font-bold mb-0.5">Still Demanded</p>
+                                                        <p className={`font-black ${stillDemanded > 0.01 ? 'text-amber-900' : 'text-emerald-700'}`}>
+                                                            {stillDemanded > 0.01 ? `${group.currency} ${stillDemanded.toLocaleString()}` : 'Settled ✓'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right pl-3 border-l">
+                                                        <p className="text-[9px] uppercase text-slate-400 font-bold mb-0.5">Est. Surplus</p>
+                                                        <p className="font-black text-emerald-600">
+                                                            {group.currency === 'TZS' ? `TShs ${(group.total_revenue - group.total_expenses).toLocaleString()}` : 'Varies'}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <p className="text-[10px] uppercase text-slate-500 font-bold mb-0.5">Total Revenue</p>
-                                                    <p className="font-black text-slate-900">{group.currency} {group.total_revenue.toLocaleString()}</p>
-                                                </div>
-                                                <div className="text-right pl-4 border-l">
-                                                    <p className="text-[10px] uppercase text-slate-500 font-bold mb-0.5">Est. Surplus</p>
-                                                    <p className="font-black text-emerald-600">
-                                                        {group.currency === 'TZS' ? `TShs ${(group.total_revenue - group.total_expenses).toLocaleString()}` : 'Varies'}
-                                                    </p>
-                                                </div>
+
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-8 text-xs font-bold gap-1 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                                    onClick={(e) => { e.stopPropagation(); setPreviewInvoice(group); }}
+                                                >
+                                                    <Printer className="w-3.5 h-3.5" /> Print
+                                                </Button>
+
+                                                {stillDemanded > 0.01 && (
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-8 text-xs font-bold gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenRecordPayment(group); }}
+                                                    >
+                                                        <DollarSign className="w-3.5 h-3.5" /> Enter Payment
+                                                    </Button>
+                                                )}
+
+                                                <Badge className={cn("ml-1 text-[10px] font-bold whitespace-nowrap",
+                                                    isFullyPaid ? "bg-emerald-500 hover:bg-emerald-600 text-white" : 
+                                                    isPartial ? "bg-orange-500 hover:bg-orange-600 text-white" : 
+                                                    "bg-slate-400 hover:bg-slate-500 text-white"
+                                                )}>
+                                                    {isFullyPaid ? "Paid" : isPartial ? "Partial Payment" : "Pending / Unpaid"}
+                                                </Badge>
                                             </div>
-
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-8 text-xs font-bold gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                                onClick={(e) => { e.stopPropagation(); setPreviewInvoice(group); }}
-                                            >
-                                                <Printer className="w-3.5 h-3.5" /> Print Invoice
-                                            </Button>
-
-                                            <Badge className={cn("ml-2",
-                                                group.payment_status === 'Paid' ? "bg-emerald-500" : 
-                                                group.payment_status === 'Partial' ? "bg-amber-500" : "bg-slate-400"
-                                            )}>
-                                                {group.payment_status || "Pending"}
-                                            </Badge>
-                                        </div>
-                                    )}
+                                        );
+                                    })()}
                                 </CardHeader>
                                 <CardContent className="p-0">
                                     <div className="divide-y divide-slate-100 bg-white">
@@ -789,8 +949,41 @@ export default function TripInvoices() {
                                         </div>
                                     </div>
                                     <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-bold text-emerald-700 uppercase">Amount Received</Label>
+                                        <Input 
+                                            type="number"
+                                            step="any"
+                                            placeholder="0.00" 
+                                            value={editingTrip.amount_received ?? (editingTrip.payment_status === 'Paid' ? (editingTrip.revenue_amount || '') : '')} 
+                                            onChange={e => {
+                                                const recVal = parseFloat(e.target.value) || 0;
+                                                const revVal = parseFloat(editingTrip.revenue_amount) || 0;
+                                                const newStatus = recVal >= revVal && revVal > 0 ? 'Paid' : recVal > 0 ? 'Partial' : 'Pending';
+                                                setEditingTrip({
+                                                    ...editingTrip,
+                                                    amount_received: e.target.value,
+                                                    _new_payment_amt: e.target.value,
+                                                    payment_status: newStatus
+                                                });
+                                            }}
+                                            className="h-10 text-sm font-bold text-emerald-700 bg-emerald-50/30 border-emerald-200"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
                                         <Label className="text-[10px] font-bold text-slate-500 uppercase">Payment Status</Label>
-                                        <Select value={editingTrip.payment_status || "Pending"} onValueChange={(val) => setEditingTrip({...editingTrip, payment_status: val})}>
+                                        <Select 
+                                            value={editingTrip.payment_status || "Pending"} 
+                                            onValueChange={(val) => {
+                                                const revVal = parseFloat(editingTrip.revenue_amount) || 0;
+                                                const autoRec = val === 'Paid' ? revVal.toString() : val === 'Pending' ? '0' : editingTrip.amount_received;
+                                                setEditingTrip({
+                                                    ...editingTrip, 
+                                                    payment_status: val, 
+                                                    amount_received: autoRec, 
+                                                    _new_payment_amt: val === 'Paid' ? revVal.toString() : editingTrip._new_payment_amt
+                                                });
+                                            }}
+                                        >
                                             <SelectTrigger className="h-10">
                                                 <SelectValue />
                                             </SelectTrigger>
@@ -801,6 +994,30 @@ export default function TripInvoices() {
                                             </SelectContent>
                                         </Select>
                                     </div>
+
+                                    {/* Outbound Still Demanded Live Callout */}
+                                    {(() => {
+                                        const rev = parseFloat(editingTrip.revenue_amount) || 0;
+                                        const rec = parseFloat(editingTrip.amount_received ?? (editingTrip.payment_status === 'Paid' ? rev : 0)) || 0;
+                                        const demanded = Math.max(0, rev - rec);
+                                        return (
+                                            <div className="col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-slate-500 font-bold uppercase text-[10px]">Still Demanded:</span>
+                                                    <span className={`text-sm font-black ${demanded > 0.01 ? 'text-amber-900' : 'text-emerald-700'}`}>
+                                                        {editingTrip.revenue_currency || 'TZS'} {demanded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                </div>
+                                                <Badge className={cn("text-[10px] font-bold",
+                                                    editingTrip.payment_status === 'Paid' ? 'bg-emerald-600 text-white' :
+                                                    editingTrip.payment_status === 'Partial' ? 'bg-orange-600 text-white' :
+                                                    'bg-slate-400 text-white'
+                                                )}>
+                                                    {editingTrip.payment_status === 'Paid' ? 'Fully Settled' : editingTrip.payment_status === 'Partial' ? 'Partial Balance' : 'Unpaid'}
+                                                </Badge>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
 
@@ -858,8 +1075,35 @@ export default function TripInvoices() {
                                             </div>
                                         </div>
                                         <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-bold text-emerald-700 uppercase">Return Amount Received</Label>
+                                            <Input 
+                                                type="number"
+                                                step="any"
+                                                placeholder="0.00" 
+                                                value={editingTrip.return_amount_received ?? (editingTrip.return_payment_status === 'Paid' ? (editingTrip.return_revenue_amount || '') : '')} 
+                                                onChange={e => {
+                                                    const recVal = parseFloat(e.target.value) || 0;
+                                                    const revVal = parseFloat(editingTrip.return_revenue_amount) || 0;
+                                                    const newStatus = recVal >= revVal && revVal > 0 ? 'Paid' : recVal > 0 ? 'Partial' : 'Pending';
+                                                    setEditingTrip({
+                                                        ...editingTrip,
+                                                        return_amount_received: e.target.value,
+                                                        return_payment_status: newStatus
+                                                    });
+                                                }}
+                                                className="h-10 text-sm font-bold text-emerald-700 bg-emerald-50/30 border-emerald-200"
+                                            />
+                                        </div>
+                                        <div className="space-y-1.5">
                                             <Label className="text-[10px] font-bold text-slate-500 uppercase">Return Payment Status</Label>
-                                            <Select value={editingTrip.return_payment_status || "Pending"} onValueChange={(val) => setEditingTrip({...editingTrip, return_payment_status: val})}>
+                                            <Select 
+                                                value={editingTrip.return_payment_status || "Pending"} 
+                                                onValueChange={(val) => {
+                                                    const revVal = parseFloat(editingTrip.return_revenue_amount) || 0;
+                                                    const autoRec = val === 'Paid' ? revVal.toString() : val === 'Pending' ? '0' : editingTrip.return_amount_received;
+                                                    setEditingTrip({...editingTrip, return_payment_status: val, return_amount_received: autoRec});
+                                                }}
+                                            >
                                                 <SelectTrigger className="h-10 border-indigo-100 bg-indigo-50/30">
                                                     <SelectValue />
                                                 </SelectTrigger>
@@ -870,6 +1114,30 @@ export default function TripInvoices() {
                                                 </SelectContent>
                                             </Select>
                                         </div>
+
+                                        {/* Return Still Demanded Live Callout */}
+                                        {(() => {
+                                            const rev = parseFloat(editingTrip.return_revenue_amount) || 0;
+                                            const rec = parseFloat(editingTrip.return_amount_received ?? (editingTrip.return_payment_status === 'Paid' ? rev : 0)) || 0;
+                                            const demanded = Math.max(0, rev - rec);
+                                            return (
+                                                <div className="col-span-2 p-3 rounded-xl bg-indigo-50/50 border border-indigo-100 flex items-center justify-between text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-slate-500 font-bold uppercase text-[10px]">Return Still Demanded:</span>
+                                                        <span className={`text-sm font-black ${demanded > 0.01 ? 'text-amber-900' : 'text-emerald-700'}`}>
+                                                            {editingTrip.return_revenue_currency || 'TZS'} {demanded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    </div>
+                                                    <Badge className={cn("text-[10px] font-bold",
+                                                        editingTrip.return_payment_status === 'Paid' ? 'bg-emerald-600 text-white' :
+                                                        editingTrip.return_payment_status === 'Partial' ? 'bg-orange-600 text-white' :
+                                                        'bg-slate-400 text-white'
+                                                    )}>
+                                                        {editingTrip.return_payment_status === 'Paid' ? 'Fully Settled' : editingTrip.return_payment_status === 'Partial' ? 'Partial Balance' : 'Unpaid'}
+                                                    </Badge>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             )}
@@ -883,6 +1151,141 @@ export default function TripInvoices() {
                             className="bg-indigo-600 hover:bg-indigo-700 shadow-md"
                         >
                             {updateInvoiceMutation.isPending ? "Saving..." : "Save Edits"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* RECORD PAYMENT DIALOG */}
+            <Dialog open={!!paymentModal} onOpenChange={(open) => !open && setPaymentModal(null)}>
+                <DialogContent className="sm:max-w-[460px]">
+                    <DialogHeader>
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                                <DollarSign className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <DialogTitle className="text-lg font-black text-slate-900">Record Customer Payment</DialogTitle>
+                                <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                                    Log exact payment receipt into the invoice ledger.
+                                </DialogDescription>
+                            </div>
+                        </div>
+                    </DialogHeader>
+
+                    {paymentModal && (() => {
+                        const parsedAmt = parseFloat(paymentAmountInput) || 0;
+                        const previewNewTotal = paymentModal.amount_received + parsedAmt;
+                        const previewRemaining = Math.max(0, paymentModal.total_amount - previewNewTotal);
+
+                        return (
+                            <div className="space-y-4 py-2">
+                                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-2">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Invoice:</span>
+                                        <span className="font-black text-slate-900">{paymentModal.invoice_no}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Client:</span>
+                                        <span className="font-bold text-indigo-600">{paymentModal.client_name}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Total Invoiced:</span>
+                                        <span className="font-bold text-slate-800">
+                                            {paymentModal.currency} {paymentModal.total_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Already Received:</span>
+                                        <span className="font-bold text-emerald-700">
+                                            {paymentModal.currency} {paymentModal.amount_received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="border-t border-slate-200 pt-2 flex justify-between items-center">
+                                        <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">Currently Still Demanded:</span>
+                                        <span className="text-base font-black text-amber-900">
+                                            {paymentModal.currency} {paymentModal.still_demanded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                            Payment Amount Received ({paymentModal.currency})
+                                        </Label>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setPaymentAmountInput(paymentModal.still_demanded.toString())}
+                                            className="text-[11px] font-bold text-indigo-600 hover:underline"
+                                        >
+                                            Full Balance
+                                        </button>
+                                    </div>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">
+                                            {paymentModal.currency}
+                                        </span>
+                                        <Input 
+                                            type="number" 
+                                            step="any"
+                                            placeholder="0.00" 
+                                            value={paymentAmountInput} 
+                                            onChange={(e) => setPaymentAmountInput(e.target.value)}
+                                            className="pl-14 h-10 font-bold text-slate-900 text-base"
+                                            autoFocus
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Payment Date</Label>
+                                        <Input 
+                                            type="date" 
+                                            value={paymentDateInput} 
+                                            onChange={(e) => setPaymentDateInput(e.target.value)}
+                                            className="h-9 text-xs"
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Reference / Note</Label>
+                                        <Input 
+                                            placeholder="e.g. Bank slip, Cheque" 
+                                            value={paymentNotesInput} 
+                                            onChange={(e) => setPaymentNotesInput(e.target.value)}
+                                            className="h-9 text-xs"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-indigo-50/70 rounded-xl border border-indigo-100 flex items-center justify-between text-xs">
+                                    <div>
+                                        <span className="text-slate-500 font-medium">New Still Demanded:</span>
+                                        <p className="text-sm font-black text-indigo-950 mt-0.5">
+                                            {paymentModal.currency} {previewRemaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </p>
+                                    </div>
+                                    <Badge className={cn("text-[10px] font-bold",
+                                        previewRemaining <= 0.01 ? "bg-emerald-600 text-white" : "bg-amber-600 text-white"
+                                    )}>
+                                        {previewRemaining <= 0.01 ? "Will Mark Paid" : "Will Mark Partial"}
+                                    </Badge>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    <DialogFooter className="gap-2 sm:justify-between pt-2 border-t border-slate-100">
+                        <Button variant="ghost" size="sm" onClick={() => setPaymentModal(null)}>
+                            Cancel
+                        </Button>
+                        <Button 
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 px-4 shadow-sm"
+                            disabled={recordPaymentMutation.isPending || !paymentAmountInput || parseFloat(paymentAmountInput) <= 0}
+                            onClick={() => recordPaymentMutation.mutate()}
+                        >
+                            {recordPaymentMutation.isPending ? "Recording..." : "Save Payment"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

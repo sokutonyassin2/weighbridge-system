@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { POPreviewDialog } from "@/components/POPreviewDialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,12 +16,13 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image, Check, ChevronsUpDown, Pencil } from "lucide-react";
+import { Search, Package, CheckCircle, XCircle, AlertCircle, TrendingUp, History as HistoryIcon, Filter, Truck, Plus, Printer, Building2, FileCheck, ArrowRight, ChevronDown, ChevronRight, Users, FileText, Receipt, Upload, ExternalLink, Loader2, Calendar, Trash2, Eye, Image, Check, ChevronsUpDown, Pencil, Layers, CheckCircle2, Clock, Sparkles, X, ShieldCheck, DollarSign, Wrench } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { printPurchaseOrder } from "@/utils/printUtils";
+import { cn } from "@/lib/utils";
 
 const compressImage = async (file: File): Promise<File> => {
     if (!file.type.startsWith('image/')) return file;
@@ -1167,346 +1168,463 @@ const ProcurementDashboard = () => {
                 </TabsList>
 
                 <TabsContent value="requisitions" className="mt-6 space-y-6">
-                    {/* Stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6">
-                        <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
-                                <CardTitle className="text-[10px] md:text-[11px] font-medium text-slate-500 uppercase tracking-widest">Pending Actions</CardTitle>
-                                <AlertCircle className="h-4 w-4 text-amber-500" />
-                            </CardHeader>
-                            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
-                                <div className="text-xl md:text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.status === 'Pending').length}</div>
-                            </CardContent>
-                        </Card>
-                        <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
-                                <CardTitle className="text-[10px] md:text-[11px] font-medium text-slate-500 uppercase tracking-widest">PO's Issued</CardTitle>
-                                <FileCheck className="h-4 w-4 text-blue-950" />
-                            </CardHeader>
-                            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
-                                <div className="text-xl md:text-2xl font-semibold text-slate-900">{(requisitions || []).filter((r: any) => r.po_number).length}</div>
-                            </CardContent>
-                        </Card>
-                        <Card className="border-none shadow-sm bg-white">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
-                                <CardTitle className="text-[10px] md:text-[11px] font-medium text-slate-500 uppercase tracking-widest">Low Stock Alert</CardTitle>
-                                <Package className="h-4 w-4 text-red-500" />
-                            </CardHeader>
-                            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
-                                <div className="text-xl md:text-2xl font-semibold text-slate-900">{(inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length}</div>
-                            </CardContent>
-                        </Card>
-                        {(userRole === 'admin' || userRole === 'super_admin') && (
-                            <Card className="border-none shadow-sm bg-blue-900 text-white">
-                                <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-6 pb-2">
-                                    <CardTitle className="text-[10px] md:text-[11px] font-medium text-indigo-100 uppercase tracking-widest">Total Valuation</CardTitle>
-                                    <TrendingUp className="h-4 w-4 text-indigo-200" />
-                                </CardHeader>
-                                <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
-                                    <div className="text-xl md:text-2xl font-semibold">
-                                        {(inventory || []).reduce((acc: number, item: any) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0).toLocaleString()}
+                    {(() => {
+                        const formatTSh = (val: any) => {
+                            if (!val && val !== 0) return "TShs. 0";
+                            return `TShs. ${parseFloat(val || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                        };
+
+                        const all = requisitions || [];
+                        const pendingCount = all.filter((r: any) =>
+                            r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Reviewed & Pending' || r.status === 'Awaiting Approval' || r.status === 'Revoked'
+                        ).length;
+                        const approvedCount = all.filter((r: any) => r.status === 'Approved').length;
+                        const purchasedCount = all.filter((r: any) =>
+                            r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed' || r.status === 'Arrived'
+                        ).length;
+                        const poIssuedList = all.filter((r: any) => r.po_number);
+                        const poIssuedCount = poIssuedList.length;
+                        const poTotalValuationTZS = poIssuedList.reduce((acc: number, r: any) => {
+                            const qty = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
+                            const price = r.unit_price || 0;
+                            return acc + (qty * price);
+                        }, 0);
+                        const lowStockCount = (inventory || []).filter((i: any) => (i.quantity || 0) <= (i.min_threshold || 0)).length;
+                        const totalInventoryValuationTZS = (inventory || []).reduce((acc: number, item: any) => acc + ((item.quantity || 0) * (item.unit_price || 0)), 0);
+
+                        const filteredReqs = all.filter((r: any) => {
+                            const searchLower = searchTerm.trim().toLowerCase();
+                            const matchesSearch = !searchLower || (
+                                (r.item_name || "").toLowerCase().includes(searchLower) ||
+                                (r.target_company || "").toLowerCase().includes(searchLower) ||
+                                (r.garage_suppliers?.name || "").toLowerCase().includes(searchLower) ||
+                                (r.po_number || "").toLowerCase().includes(searchLower) ||
+                                (r.status || "").toLowerCase().includes(searchLower) ||
+                                (r.requirement_category || "").toLowerCase().includes(searchLower) ||
+                                (r.vehicle?.make_model || "").toLowerCase().includes(searchLower) ||
+                                (r.vehicle?.vehicle_no || "").toLowerCase().includes(searchLower) ||
+                                (r.vehicle?.horse_number || "").toLowerCase().includes(searchLower) ||
+                                (r.vehicle?.trailer_number || "").toLowerCase().includes(searchLower)
+                            );
+
+                            const matchesStatus = reqStatusFilter === 'All' ? true :
+                                reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Reviewed & Pending' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
+                                reqStatusFilter === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed' || r.status === 'Arrived') :
+                                r.status === reqStatusFilter;
+
+                            return matchesSearch && matchesStatus;
+                        });
+
+                        // Unified supplier grouping (NEVER duplicates same supplier across months)
+                        const groups: Record<string, {
+                            id: string;
+                            type: 'supplier' | 'vehicle';
+                            title: string;
+                            subtitle: string;
+                            poTotal: number;
+                            latestDate: string;
+                            hasEmergency: boolean;
+                            hasAwaitingApproval: boolean;
+                            reqs: any[];
+                        }> = {};
+
+                        filteredReqs.forEach((req: any) => {
+                            let key = "";
+                            let type: 'supplier' | 'vehicle' = 'supplier';
+                            let title = "";
+                            let subtitle = "";
+
+                            if (req.supplier_id || req.garage_suppliers?.name) {
+                                const sName = req.garage_suppliers?.name || "Unassigned Supplier";
+                                key = `supplier_${req.supplier_id || sName}`;
+                                type = 'supplier';
+                                title = sName;
+                                subtitle = "Vendor Quotations & Purchase Orders";
+                            } else if (req.vehicle_id && req.vehicle) {
+                                const vPlate = req.vehicle.vehicle_no || req.vehicle.horse_number || req.vehicle.make_model || "Workshop Vehicle";
+                                key = `vehicle_${req.vehicle_id}`;
+                                type = 'vehicle';
+                                title = `${vPlate} • ${req.vehicle.make_model || 'Fleet Vehicle'}`;
+                                subtitle = "Fleet Mechanical & Workshop Requisitions";
+                            } else {
+                                key = "general_internal";
+                                type = 'vehicle';
+                                title = "General Workshop & Facility Supplies";
+                                subtitle = "Internal Non-Fleet Requisitions";
+                            }
+
+                            if (!groups[key]) {
+                                groups[key] = {
+                                    id: key,
+                                    type,
+                                    title,
+                                    subtitle,
+                                    poTotal: 0,
+                                    latestDate: req.created_at || "",
+                                    hasEmergency: false,
+                                    hasAwaitingApproval: false,
+                                    reqs: []
+                                };
+                            }
+
+                            groups[key].reqs.push(req);
+
+                            let lineTotal = 0;
+                            if (req.total_price && Number(req.total_price) > 0) {
+                                lineTotal = Number(req.total_price);
+                            } else {
+                                const qty = req.quantity_approved || req.management_reviewed_quantity || req.quantity_requested || 1;
+                                const unitPrice = req.unit_price > 0 ? req.unit_price : ((inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0);
+                                const base = qty * unitPrice;
+                                const disc = base * ((req.discount_percentage || 0) / 100);
+                                const vat = req.includes_vat ? ((base - disc) * 0.18) : 0;
+                                lineTotal = base - disc + vat;
+                            }
+                            groups[key].poTotal += lineTotal;
+
+                            if (req.is_emergency) groups[key].hasEmergency = true;
+                            if (req.status === 'Awaiting Approval') groups[key].hasAwaitingApproval = true;
+                            if (new Date(req.created_at) > new Date(groups[key].latestDate)) {
+                                groups[key].latestDate = req.created_at;
+                            }
+                        });
+
+                        const groupList = Object.values(groups);
+                        const groupKeys = Object.keys(groups);
+                        const isAllExpanded = groupKeys.length > 0 && groupKeys.every(k => expandedVehicles.includes(k));
+
+                        const handleToggleAll = () => {
+                            if (isAllExpanded) {
+                                setExpandedVehicles([]);
+                            } else {
+                                setExpandedVehicles(groupKeys);
+                            }
+                        };
+
+                        const toggleGroup = (groupId: string) => {
+                            setExpandedVehicles(prev =>
+                                prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+                            );
+                        };
+
+                        return (
+                            <div className="space-y-6">
+                                {/* ── 1. Executive Top Metric Cards ────────────────────────────── */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {/* 1. Pending Actions */}
+                                    <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pending Actions</span>
+                                            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                                                <AlertCircle size={16} />
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-slate-900">{pendingCount}</span>
+                                            <span className="text-xs font-bold text-amber-600">Awaiting Action</span>
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                                            Quotes, boss reviews & authorizations needed
+                                        </div>
+                                    </Card>
+
+                                    {/* 2. PO's Issued */}
+                                    <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">PO's Issued</span>
+                                            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                                                <FileCheck size={16} />
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-slate-900">{poIssuedCount}</span>
+                                            <span className="text-xs font-bold text-blue-600">Purchase Orders</span>
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-400 font-medium truncate">
+                                            Est. Value: {formatTSh(poTotalValuationTZS)}
+                                        </div>
+                                    </Card>
+
+                                    {/* 3. Low Stock Alert */}
+                                    <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Low Stock Alert</span>
+                                            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                                                <Package size={16} />
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-slate-900">{lowStockCount}</span>
+                                            <span className="text-xs font-bold text-rose-600">Reorders Due</span>
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                                            Inventory items below safety threshold
+                                        </div>
+                                    </Card>
+
+                                    {/* 4. Total Store Valuation */}
+                                    <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Store Valuation</span>
+                                            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                                                <TrendingUp size={16} />
+                                            </div>
+                                        </div>
+                                        <div className="mt-2">
+                                            <div className="text-lg font-black text-slate-900 leading-tight">
+                                                {formatTSh(totalInventoryValuationTZS)}
+                                            </div>
+                                            <div className="text-[11px] font-bold text-emerald-600 mt-0.5">
+                                                {(inventory || []).length} Stocked Spare Lines
+                                            </div>
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                                            Estimated total workshop spare inventory
+                                        </div>
+                                    </Card>
+                                </div>
+
+                                {/* ── 2. Operations Control Toolbar ────────────────────────────── */}
+                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                                    {/* Search Input */}
+                                    <div className="relative flex-1 max-w-md">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                                        <Input
+                                            placeholder="Search by part name, supplier, PO #, truck plate, driver..."
+                                            className="pl-9 pr-8 h-9 bg-slate-50 border-slate-200 focus:bg-white text-xs font-medium rounded-xl"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                        {searchTerm && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setSearchTerm("")}
+                                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        )}
                                     </div>
-                                </CardContent>
-                            </Card>
-                        )}
-                    </div>
 
-                    <Card className="border-none shadow-sm bg-white overflow-hidden">
-                        <CardHeader className="flex flex-col border-b bg-slate-50/50 p-0">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between px-4 md:px-6 py-4 gap-4">
-                                <div className="flex items-center gap-3">
-                                    <CardTitle className="text-[11px] font-medium uppercase tracking-widest text-slate-700">Audit Trail: Requisitions & POs</CardTitle>
-                                    <Badge variant="outline" className="bg-slate-100/50 text-slate-500 border-slate-200 text-[10px] font-mono">
-                                        Total: {requisitions?.length || 0} Records
-                                    </Badge>
+                                    {/* Status Filter Toggle Pills */}
+                                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setReqStatusFilter('Pending')}
+                                            className={cn(
+                                                "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
+                                                reqStatusFilter === 'Pending'
+                                                    ? "bg-amber-600 text-white shadow-xs"
+                                                    : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                                            )}
+                                        >
+                                            <AlertCircle size={11} />
+                                            <span>New Requests ({pendingCount})</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setReqStatusFilter('Approved')}
+                                            className={cn(
+                                                "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
+                                                reqStatusFilter === 'Approved'
+                                                    ? "bg-blue-600 text-white shadow-xs"
+                                                    : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
+                                            )}
+                                        >
+                                            <FileCheck size={11} />
+                                            <span>Authorized ({approvedCount})</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setReqStatusFilter('Purchased')}
+                                            className={cn(
+                                                "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
+                                                reqStatusFilter === 'Purchased'
+                                                    ? "bg-emerald-600 text-white shadow-xs"
+                                                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                                            )}
+                                        >
+                                            <CheckCircle2 size={11} />
+                                            <span>Completed ({purchasedCount})</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setReqStatusFilter('All')}
+                                            className={cn(
+                                                "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all whitespace-nowrap",
+                                                reqStatusFilter === 'All'
+                                                    ? "bg-slate-900 text-white shadow-xs"
+                                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                            )}
+                                        >
+                                            All ({all.length})
+                                        </button>
+                                    </div>
+
+                                    {/* Expand All / Collapse All */}
+                                    <div className="flex items-center gap-2 ml-auto lg:ml-0">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleToggleAll}
+                                            className="h-8 px-3 text-xs font-bold text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 rounded-xl"
+                                        >
+                                            <Layers size={13} className="text-slate-400" />
+                                            <span>{isAllExpanded ? "Collapse All" : "Expand All"}</span>
+                                        </Button>
+                                    </div>
                                 </div>
-                                <div className="relative w-full sm:w-64">
-                                    <Search className="absolute left-2 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                                    <Input
-                                        placeholder="Search by item, company, PO, vehicle model, or plate..."
-                                        className="pl-8 h-8 text-[11px] bg-white border-slate-200 w-full"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                    />
-                                </div>
-                            </div>
 
-                            {/* Status Sub-Tabs */}
-                            <div className="flex px-4 md:px-6 border-t border-slate-200 bg-white overflow-x-auto hide-scrollbar">
-                                {['Pending', 'Approved', 'Purchased', 'All'].map((status) => (
-                                    <button
-                                        key={status}
-                                        onClick={() => setReqStatusFilter(status as any)}
-                                        className={`px-3 md:px-4 py-3 text-[9px] md:text-[10px] uppercase font-bold tracking-wider transition-all border-b-2 hover:text-blue-900 whitespace-nowrap flex-shrink-0 ${reqStatusFilter === status
-                                            ? 'border-blue-900 text-blue-900'
-                                            : 'border-transparent text-slate-400'
-                                            }`}
-                                    >
-                                        {status === 'Pending' ? 'New Requests & Quotes' :
-                                            status === 'Approved' ? 'Authorized & Buying' :
-                                                status === 'Purchased' ? 'Completed Purchases' : 'All History'}
-                                        <Badge className={`ml-2 h-4 px-1 text-[9px] ${reqStatusFilter === status ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-500'
-                                            }`}>
-                                            {(requisitions || []).filter(r => status === 'All' ? true :
-                                            status === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
-                                                    status === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
-                                                        r.status === status
-                                            ).length}
-                                        </Badge>
-                                    </button>
-                                ))}
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-0 overflow-x-auto">
-                            <Table className="min-w-[800px]">
-                                <TableHeader>
-                                    <TableRow className="bg-slate-50/40 border-b">
-                                        <TableHead className="w-[40px] px-4">
-                                            <Checkbox
-                                                checked={selectedRequisitionIds.length === (requisitions || []).length && requisitions?.length > 0}
-                                                onCheckedChange={(checked) => {
-                                                    if (checked) {
-                                                        setSelectedRequisitionIds((requisitions || []).map((r: any) => r.id));
-                                                    } else {
-                                                        setSelectedRequisitionIds([]);
-                                                    }
-                                                }}
-                                            />
-                                        </TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Req Date</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Company</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">PO Number</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase">Item Details</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Fulfillment</TableHead>
-                                        <TableHead className="text-xs font-semibold uppercase hidden md:table-cell">Status</TableHead>
-                                        <TableHead className="text-right text-xs font-semibold uppercase px-6">Action</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {isLoadingRequisitions ? (
-                                        Array.from({ length: 5 }).map((_, i) => (
-                                            <TableRow key={i}>
-                                                <TableCell colSpan={8} className="p-4">
-                                                    <Skeleton className="h-12 w-full bg-slate-100/50" />
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    ) : (() => {
-                                        const filteredReqs = (requisitions || []).filter((r: any) => {
-                                            const searchLower = searchTerm.toLowerCase();
-                                            const matchesSearch = (
-                                                (r.item_name || "").toLowerCase().includes(searchLower) ||
-                                                (r.target_company || "unassigned").toLowerCase().includes(searchLower) ||
-                                                (r.po_number || "").toLowerCase().includes(searchLower) ||
-                                                (r.status || "").toLowerCase().includes(searchLower) ||
-                                                (r.vehicle?.make_model || "").toLowerCase().includes(searchLower) ||
-                                                (r.vehicle?.vehicle_no || "").toLowerCase().includes(searchLower) ||
-                                                (r.vehicle?.horse_number || "").toLowerCase().includes(searchLower) ||
-                                                (r.vehicle?.trailer_number || "").toLowerCase().includes(searchLower)
-                                            );
+                                {/* ── 3. Content List ────────────────────────────────────────── */}
+                                {isLoadingRequisitions ? (
+                                    <Card className="border border-slate-200 bg-white p-16 rounded-2xl text-center shadow-xs">
+                                        <Loader2 size={28} className="mx-auto text-blue-900 animate-spin mb-3" />
+                                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                            Loading Procurement Requisitions...
+                                        </p>
+                                    </Card>
+                                ) : groupList.length === 0 ? (
+                                    <Card className="border border-slate-200 bg-white p-16 rounded-2xl text-center shadow-xs">
+                                        <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                                            <Package size={28} className="text-slate-400" />
+                                        </div>
+                                        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">
+                                            No Requisitions Found
+                                        </h3>
+                                        <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 font-medium">
+                                            {searchTerm
+                                                ? "No requisitions match your search query. Try clearing your search keyword."
+                                                : "No active procurement orders in this status category."}
+                                        </p>
+                                        {searchTerm && (
+                                            <div className="mt-5 flex items-center justify-center">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setSearchTerm("")}
+                                                    className="h-9 px-4 text-xs font-bold rounded-xl"
+                                                >
+                                                    Clear Search
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </Card>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {groupList.map((group) => {
+                                            const isExpanded = expandedVehicles.includes(group.id);
+                                            const firstReq = group.reqs[0];
 
-                                            const matchesStatus = reqStatusFilter === 'All' ? true :
-                                        reqStatusFilter === 'Pending' ? (r.status === 'Pending' || r.status === 'Pending Review' || r.status === 'Reviewed & Pending' || r.status === 'Awaiting Approval' || r.status === 'Revoked') :
-                                                    reqStatusFilter === 'Purchased' ? (r.status === 'Purchased' || r.status === 'Paid' || r.status === 'Delivered' || r.status === 'Closed') :
-                                                        r.status === reqStatusFilter;
-
-                                            return matchesSearch && matchesStatus;
-                                        });
-
-                                        if (filteredReqs.length === 0) {
                                             return (
-                                                <TableRow>
-                                                    <TableCell colSpan={8} className="py-20 text-center">
-                                                        <div className="flex flex-col items-center gap-2 opacity-50">
-                                                            <FileText className="w-10 h-10 text-slate-300" />
-                                                            <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-widest">No Records Found</h3>
-                                                            <p className="text-xs text-slate-400 font-medium tracking-tight">Try adjusting your filters or search term.</p>
+                                                <Card
+                                                    key={group.id}
+                                                    className="border border-slate-200 bg-white shadow-xs rounded-2xl overflow-hidden transition-all duration-200"
+                                                >
+                                                    {/* Group Header Card */}
+                                                    <div
+                                                        onClick={() => toggleGroup(group.id)}
+                                                        className="p-4 sm:p-5 bg-gradient-to-r from-slate-50/90 via-white to-slate-50/50 hover:from-slate-100/90 hover:to-slate-100/60 border-b border-slate-200 cursor-pointer transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4 select-none"
+                                                    >
+                                                        <div className="flex items-center gap-3.5 flex-1">
+                                                            <div className="text-slate-400 transition-transform duration-200">
+                                                                {isExpanded ? <ChevronDown size={20} className="text-slate-700" /> : <ChevronRight size={20} />}
+                                                            </div>
+
+                                                            <div className={cn(
+                                                                "p-2.5 text-white rounded-xl shadow-xs",
+                                                                group.type === 'supplier' ? "bg-blue-900" : "bg-slate-800"
+                                                            )}>
+                                                                {group.type === 'supplier' ? <Building2 size={18} /> : <Wrench size={18} />}
+                                                            </div>
+
+                                                            <div>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">
+                                                                        {group.title}
+                                                                    </h3>
+                                                                    <Badge className={cn(
+                                                                        "text-[10px] font-black border-none px-2 h-5 rounded-md",
+                                                                        group.type === 'supplier' ? "bg-blue-900 text-white" : "bg-slate-800 text-white"
+                                                                    )}>
+                                                                        {group.reqs.length} {group.reqs.length === 1 ? 'Item' : 'Items'}
+                                                                    </Badge>
+                                                                    {group.hasEmergency && (
+                                                                        <Badge variant="destructive" className="text-[9px] font-bold px-2 py-0.5 animate-pulse">
+                                                                            EMERGENCY ORDER
+                                                                        </Badge>
+                                                                    )}
+                                                                    {group.hasAwaitingApproval && (
+                                                                        <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-bold">
+                                                                            WAITING APPROVAL
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                                                                    {group.subtitle} • Latest: {formatDate(group.latestDate)}
+                                                                </p>
+                                                            </div>
                                                         </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            );
-                                        }
 
-                                        const grouped = groupRequisitionsByMonth(filteredReqs, reqStatusFilter);
-                                        return Object.keys(grouped).map((month) => (
-                                            <React.Fragment key={month}>
-                                                <TableRow className="bg-slate-50/80 border-y">
-                                                    <TableCell colSpan={8} className="py-2 px-6">
-                                                        <div className="flex items-center gap-2">
-                                                            <Calendar className="w-3.5 h-3.5 text-blue-900" />
-                                                            <span className="text-[10px] font-bold text-blue-950 uppercase tracking-widest">{month}</span>
-                                                            <Badge variant="outline" className="ml-auto text-[9px] bg-white font-mono">
-                                                                {grouped[month].length} Items
-                                                            </Badge>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                                {(() => {
-                                                    const flatItems: any[] = [];
-                                                    // Always group by supplier across ALL tabs
-                                                        const supplierGroups: Record<string, any[]> = {};
-                                                        const ungrouped: any[] = [];
-                                                        grouped[month].forEach((req: any) => {
-                                                            if (req.supplier_id) {
-                                                                const supplierName = req.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                                const isDraftOrRevoked = req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Reviewed & Pending' || req.status === 'Revoked';
-                                                                const key = isDraftOrRevoked ? `DRAFT_${supplierName}` : `${req.po_number || 'NO-PO'}_${supplierName}`;
-                                                                if (!supplierGroups[key]) supplierGroups[key] = [];
-                                                                supplierGroups[key].push(req);
-                                                            } else {
-                                                                ungrouped.push(req);
-                                                            }
-                                                        });
-                                                        
-                                                        Object.entries(supplierGroups).forEach(([key, reqs]) => {
-                                                            const supplierName = reqs[0].garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                            flatItems.push({ isSupplierHeader: true, reqs, sId: key, supplierName });
-                                                            if (expandedVehicles.includes(key)) {
-                                                                reqs.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req, isChild: true }));
-                                                            }
-                                                        });
-                                                        
-                                                        const vehicleGroups: Record<string, any[]> = {};
-                                                        ungrouped.forEach((req: any) => {
-                                                            const vId = req.vehicle_id || 'NO-VEHICLE';
-                                                            const cat = req.requirement_category || 'Uncategorized';
-                                                            const key = req.request_type === 'General' ? `general-${req.id}` : `${vId}-${cat}`;
-                                                            if (!vehicleGroups[key]) vehicleGroups[key] = [];
-                                                            vehicleGroups[key].push(req);
-                                                        });
+                                                        {/* Group Totals & Header Action Buttons */}
+                                                        <div className="flex items-center gap-4 sm:gap-6 flex-wrap sm:flex-nowrap pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="space-y-0.5 text-right">
+                                                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Est. PO Total</span>
+                                                                <div className="text-sm font-black text-blue-900 leading-none">
+                                                                    {formatTSh(group.poTotal)}
+                                                                </div>
+                                                                <span className="text-[10px] font-bold text-slate-400 block">
+                                                                    {group.reqs.length} Parts Allocated
+                                                                </span>
+                                                            </div>
 
-                                                        Object.entries(vehicleGroups).forEach(([key, reqs]) => {
-                                                            if (reqs[0].request_type === 'General') {
-                                                                flatItems.push({ isSupplierHeader: false, req: reqs[0] });
-                                                            } else {
-                                                                flatItems.push({ isVehicleHeader: true, reqs, vId: key });
-                                                                if (expandedVehicles.includes(key)) {
-                                                                    reqs.forEach((req: any) => flatItems.push({ isSupplierHeader: false, req, isChild: true }));
-                                                                }
-                                                            }
-                                                        });
-
-                                                    return flatItems.map((item: any, idx: number) => {
-                                                        if (item.isSupplierHeader) {
-                                                            const isExpanded = expandedVehicles.includes(item.sId);
-                                                            const firstReq = item.reqs[0];
-                                                            
-                                                            // Calculate Totals
-                                                            let poTotal = 0;
-                                                            item.reqs.forEach((r: any) => {
-                                                                if (r.total_price && r.total_price > 0) {
-                                                                    poTotal += Number(r.total_price);
-                                                                } else {
-                                                                    const qty = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
-                                                                    const unitPrice = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
-                                                                    const lineTotal = qty * unitPrice;
-                                                                    const discount = lineTotal * ((r.discount_percentage || 0) / 100);
-                                                                    const vat = r.includes_vat ? ((lineTotal - discount) * 0.18) : 0;
-                                                                    poTotal += (lineTotal - discount + vat);
-                                                                }
-                                                            });
-
-                                                            if (poTotal === 0) return null;
-
-                                                            return (
-                                                                <TableRow key={`sup-${item.sId}-${idx}`} className="bg-blue-50/30 hover:bg-blue-50/50 cursor-pointer border-y border-blue-100" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.sId) : [...prev, item.sId])}>
-                                                                    <TableCell className="px-4">
-                                                                        {isExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-blue-400" />}
-                                                                    </TableCell>
-                                                                    <TableCell colSpan={2} className="py-3">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <div className="bg-blue-100 p-1.5 rounded-md">
-                                                                                <Building2 className="w-4 h-4 text-blue-700" />
-                                                                            </div>
-                                                                            <div className="flex flex-col max-w-[200px]">
-                                                                                <span className="text-xs font-bold text-blue-900">{item.supplierName}</span>
-                                                                                <span className="text-[10px] text-blue-600/80 font-medium">Est. PO Total: {poTotal.toLocaleString()} TZS</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell colSpan={3}>
-                                                                        <div className="flex items-center gap-4">
-                                                                            <Badge variant="outline" className="bg-white border-blue-200 text-blue-700 text-[10px]">
-                                                                                {item.reqs.length} Item{item.reqs.length !== 1 ? 's' : ''} Pending
-                                                                            </Badge>
-                                                                            <span className="text-[10px] text-slate-500 font-medium">Latest: {formatDate(firstReq.created_at)}</span>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="text-right px-2 md:px-6" colSpan={2}>
-                                                                        <div className="flex flex-wrap items-center justify-end gap-2">
-                                                                            {reqStatusFilter === 'Purchased' ? (
+                                                            {/* Contextual Action Buttons on Header */}
+                                                            <div className="flex items-center gap-2 pl-3 border-l border-slate-200">
+                                                                {reqStatusFilter === 'Purchased' ? (
+                                                                    <>
+                                                                        {firstReq.po_number && (
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                className="h-8 text-[10px] font-bold uppercase border-slate-200 hover:bg-slate-100 gap-1 rounded-lg"
+                                                                                onClick={() => printPurchaseOrder({ poNumber: firstReq.po_number })}
+                                                                            >
+                                                                                <Printer size={12} />
+                                                                                Print PO
+                                                                            </Button>
+                                                                        )}
+                                                                        {(() => {
+                                                                            const payUrl = group.reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
+                                                                            const suppUrl = group.reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
+                                                                            return (
                                                                                 <>
-                                                                                    {firstReq.po_number && (
-                                                                                        <Button
-                                                                                            variant="outline"
-                                                                                            size="sm"
-                                                                                            className="h-8 text-[10px] font-bold uppercase border-slate-200"
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                printPurchaseOrder({ poNumber: firstReq.po_number });
-                                                                                            }}
+                                                                                    {payUrl && (
+                                                                                        <Button 
+                                                                                            variant="outline" 
+                                                                                            size="sm" 
+                                                                                            className="h-8 text-[10px] font-bold uppercase border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-lg"
+                                                                                            onClick={() => window.open(payUrl, '_blank')}
                                                                                         >
-                                                                                            <Printer className="w-3 h-3 mr-1" />
-                                                                                            Print PO
+                                                                                            <Receipt size={12} className="mr-1" /> Payment Receipt
                                                                                         </Button>
                                                                                     )}
-                                                                                    {(() => {
-                                                                                        const payUrl = item.reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
-                                                                                        const suppUrl = item.reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
-                                                                                        return (
-                                                                                            <>
-                                                                                                {payUrl && (
-                                                                                                    <Button 
-                                                                                                        variant="outline" 
-                                                                                                        size="sm" 
-                                                                                                        className="h-8 text-[10px] font-bold uppercase border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                                                                                                        onClick={(e) => { e.stopPropagation(); window.open(payUrl, '_blank'); }}
-                                                                                                    >
-                                                                                                        <Receipt className="w-3 h-3 mr-1" /> View Payment Receipt
-                                                                                                    </Button>
-                                                                                                )}
-                                                                                                {suppUrl ? (
-                                                                                                    <div className="flex items-center">
-                                                                                                        <Button 
-                                                                                                            variant="outline" 
-                                                                                                            size="sm" 
-                                                                                                            className="h-8 text-[10px] font-bold uppercase border-purple-200 text-purple-700 hover:bg-purple-50 rounded-r-none"
-                                                                                                            onClick={(e) => { e.stopPropagation(); window.open(suppUrl, '_blank'); }}
-                                                                                                        >
-                                                                                                            <FileText className="w-3 h-3 mr-1" /> View Supp Receipt
-                                                                                                        </Button>
-                                                                                                        <Button
-                                                                                                            variant="outline"
-                                                                                                            size="sm"
-                                                                                                            className="h-8 px-2 border-purple-200 border-l-0 text-purple-700 hover:bg-purple-50 rounded-l-none"
-                                                                                                            title="Replace Supplier Receipt"
-                                                                                                            onClick={(e) => {
-                                                                                                                e.stopPropagation();
-                                                                                                                const input = document.createElement('input');
-                                                                                                                input.type = 'file';
-                                                                                                                input.accept = 'image/*,.pdf';
-                                                                                                                input.onchange = (ev: any) => {
-                                                                                                                    const file = ev.target.files?.[0];
-                                                                                                                    if (file) {
-                                                                                                                        uploadSupplierReceiptMutation.mutate({
-                                                                                                                            reqIds: item.reqs.map((r: any) => r.id),
-                                                                                                                            file
-                                                                                                                        });
-                                                                                                                    }
-                                                                                                                };
-                                                                                                                input.click();
-                                                                                                            }}
-                                                                                                        >
-                                                                                                            <Upload className="w-3 h-3" />
-                                                                                                        </Button>
-                                                                                                    </div>
-                                                                                                ) : (
+                                                                                    {suppUrl ? (
+                                                                                        <Button 
+                                                                                            variant="outline" 
+                                                                                            size="sm" 
+                                                                                            className="h-8 text-[10px] font-bold uppercase border-purple-200 text-purple-700 hover:bg-purple-50 rounded-lg"
+                                                                                            onClick={() => window.open(suppUrl, '_blank')}
+                                                                                        >
+                                                                                            <FileText size={12} className="mr-1" /> Supp Receipt
+                                                                                        </Button>
+                                                                                    ) : (
                                                                                         <Button
                                                                                             size="sm"
-                                                                                            className="h-8 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase shadow-sm"
+                                                                                            className="h-8 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-bold uppercase shadow-xs rounded-lg gap-1"
                                                                                             disabled={uploadSupplierReceiptMutation.isPending}
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
+                                                                                            onClick={() => {
                                                                                                 const input = document.createElement('input');
                                                                                                 input.type = 'file';
                                                                                                 input.accept = 'image/*,.pdf';
@@ -1514,7 +1632,7 @@ const ProcurementDashboard = () => {
                                                                                                     const file = ev.target.files?.[0];
                                                                                                     if (file) {
                                                                                                         uploadSupplierReceiptMutation.mutate({
-                                                                                                            reqIds: item.reqs.map((r: any) => r.id),
+                                                                                                            reqIds: group.reqs.map((r: any) => r.id),
                                                                                                             file
                                                                                                         });
                                                                                                     }
@@ -1522,443 +1640,393 @@ const ProcurementDashboard = () => {
                                                                                                 input.click();
                                                                                             }}
                                                                                         >
-                                                                                            <Upload className="w-3 h-3 mr-1" /> Upload Supplier Receipt
+                                                                                            <Upload size={12} /> Upload Receipt
                                                                                         </Button>
                                                                                     )}
                                                                                 </>
                                                                             );
                                                                         })()}
                                                                     </>
-                                                                ) : item.reqs.some((r: any) => r.status === 'Awaiting Approval') ? (
-                                                                                <Badge className="bg-orange-100 text-orange-800 border-orange-200 px-3 py-1 font-bold uppercase text-[10px]">
-                                                                                    Waiting For Approval
-                                                                                </Badge>
-                                                                            ) : (
-                                                                                <>
-                                                                                    <Button
-                                                                                        size="sm"
-                                                                                        variant="outline"
-                                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            setPreviewSupplierName(item.supplierName);
-                                                                                            setPreviewReqs(item.reqs);
-                                                                                            setIsPreviewDialogOpen(true);
-                                                                                        }}
-                                                                                    >
-                                                                                        Preview PO
-                                                                                    </Button>
-                                                                                    <Button
-                                                                                        size="sm"
-                                                                                        variant="outline"
-                                                                                        className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-700 hover:bg-blue-50"
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            setBatchQuoteReqs(item.reqs);
-                                                                                            setBatchSharedDetails({
-                                                                                                supplier_id: firstReq.supplier_id || "",
-                                                                                                po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
-                                                                                                includes_vat: firstReq.includes_vat || false,
-                                                                                                payment_method_id: firstReq.payment_details?.id || "",
-                                                                                                discount_percentage: firstReq.discount_percentage || 0
-                                                                                            });
-                                                                                            const initialPrices: Record<string, number> = {};
-                                                                                            const initialQuantities: Record<string, number> = {};
-                                                                                            item.reqs.forEach((r: any) => {
-                                                                                                initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
-                                                                                                // Use approved qty (what was actually approved), not the original request qty
-                                                                                                initialQuantities[r.id] = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
-                                                                                            });
-                                                                                            setBatchItemPrices(initialPrices);
-                                                                                            setBatchItemQuantities(initialQuantities);
-                                                                                            setIsBatchQuoteOpen(true);
-                                                                                        }}
-                                                                                    >
-                                                                                        Batch PO
-                                                                                    </Button>
-                                                                                    <Button
-                                                                                        size="sm"
-                                                                                        className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
-                                                                                        disabled={
-                                                                                            item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length === 0 || 
-                                                                                            submitModelBatchMutation.isPending
-                                                                                        }
-                                                                                        onClick={(e) => {
-                                                                                            e.stopPropagation();
-                                                                                            const draftReqs = item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id);
-                                                                                            if (draftReqs.length > 0) {
-                                                                                                const existingPo = draftReqs.find((r: any) => r.po_number)?.po_number;
-                                                                                                const poNumToUse = existingPo || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0);
-                                                                                                submitModelBatchMutation.mutate({
-                                                                                                    reqIds: draftReqs.map((r: any) => r.id),
-                                                                                                    poNumber: poNumToUse
-                                                                                                });
-                                                                                            }
-                                                                                        }}
-                                                                                    >
-                                                                                        {submitModelBatchMutation.isPending ? "Submitting..." : `Send PO (${item.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
-                                                                                    </Button>
-                                                                                </>
+                                                                ) : (
+                                                                    <>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-800 hover:bg-blue-50 rounded-lg"
+                                                                            onClick={() => {
+                                                                                setPreviewSupplierName(group.title);
+                                                                                setPreviewReqs(group.reqs);
+                                                                                setIsPreviewDialogOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            Preview PO
+                                                                        </Button>
+
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-8 text-[10px] font-bold uppercase border-blue-200 text-blue-800 hover:bg-blue-50 rounded-lg"
+                                                                            onClick={() => {
+                                                                                setBatchQuoteReqs(group.reqs);
+                                                                                setBatchSharedDetails({
+                                                                                    supplier_id: firstReq.supplier_id || "",
+                                                                                    po_number: generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0),
+                                                                                    includes_vat: firstReq.includes_vat || false,
+                                                                                    payment_method_id: firstReq.payment_details?.id || "",
+                                                                                    discount_percentage: firstReq.discount_percentage || 0
+                                                                                });
+                                                                                const initialPrices: Record<string, number> = {};
+                                                                                const initialQuantities: Record<string, number> = {};
+                                                                                group.reqs.forEach((r: any) => {
+                                                                                    initialPrices[r.id] = r.unit_price > 0 ? r.unit_price : ((inventory || []).find((i: any) => i.id === r.item_id)?.unit_price || 0);
+                                                                                    initialQuantities[r.id] = r.quantity_approved || r.management_reviewed_quantity || r.quantity_requested || 1;
+                                                                                });
+                                                                                setBatchItemPrices(initialPrices);
+                                                                                setBatchItemQuantities(initialQuantities);
+                                                                                setIsBatchQuoteOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            Batch PO
+                                                                        </Button>
+
+                                                                        <Button
+                                                                            size="sm"
+                                                                            className="h-8 bg-blue-900 hover:bg-blue-950 text-white text-[10px] font-bold uppercase rounded-lg shadow-xs"
+                                                                            disabled={
+                                                                                group.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length === 0 || 
+                                                                                submitModelBatchMutation.isPending
+                                                                            }
+                                                                            onClick={() => {
+                                                                                const draftReqs = group.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id);
+                                                                                if (draftReqs.length > 0) {
+                                                                                    const existingPo = draftReqs.find((r: any) => r.po_number)?.po_number;
+                                                                                    const poNumToUse = existingPo || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0);
+                                                                                    submitModelBatchMutation.mutate({
+                                                                                        reqIds: draftReqs.map((r: any) => r.id),
+                                                                                        poNumber: poNumToUse
+                                                                                    });
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            {submitModelBatchMutation.isPending ? "Submitting..." : `Send PO (${group.reqs.filter((r: any) => r.unit_price > 0 && r.supplier_id).length})`}
+                                                                        </Button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Expanded Items List (Clean Card Layout) */}
+                                                    {isExpanded && (
+                                                        <div className="p-4 sm:p-5 bg-slate-50/40 space-y-3">
+                                                            {group.reqs.map((req: any, rIdx: number) => {
+                                                                const qtyApproved = req.quantity_approved || req.management_reviewed_quantity || req.quantity_requested || 1;
+                                                                const unitPrice = req.unit_price > 0 ? req.unit_price : ((inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0);
+                                                                const lineBase = qtyApproved * unitPrice;
+                                                                const lineDisc = lineBase * ((req.discount_percentage || 0) / 100);
+                                                                const lineVat = req.includes_vat ? ((lineBase - lineDisc) * 0.18) : 0;
+                                                                const lineTotal = req.total_price && Number(req.total_price) > 0 ? Number(req.total_price) : (lineBase - lineDisc + lineVat);
+
+                                                                const isSelected = selectedRequisitionIds.includes(req.id);
+
+                                                                return (
+                                                                    <div
+                                                                        key={req.id}
+                                                                        className={cn(
+                                                                            "relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:shadow-md hover:border-blue-300 transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-5 overflow-hidden",
+                                                                            isSelected ? "ring-2 ring-blue-500 bg-blue-50/20" : ""
+                                                                        )}
+                                                                    >
+                                                                        {/* Status Accent Bar */}
+                                                                        <div
+                                                                            className={cn(
+                                                                                "absolute left-0 top-0 bottom-0 w-1.5",
+                                                                                req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked' ? 'bg-amber-400' :
+                                                                                req.status === 'Awaiting Approval' ? 'bg-purple-500' :
+                                                                                req.status === 'Approved' ? 'bg-blue-600' :
+                                                                                req.status === 'Purchased' || req.status === 'Paid' || req.status === 'Delivered' || req.status === 'Arrived' ? 'bg-emerald-500' :
+                                                                                'bg-slate-300'
                                                                             )}
-                                                                        </div>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            );
-                                                        }
+                                                                        />
 
-                                                        if (item.isVehicleHeader) {
-                                                            const isExpanded = expandedVehicles.includes(item.vId);
-                                                            const firstReq = item.reqs[0];
-                                                            const category = firstReq.requirement_category || 'Uncategorized';
-                                                            const vehicle = firstReq.vehicle;
+                                                                        {/* 1. Item Identification & Vehicle Details */}
+                                                                        <div className="flex items-start gap-3.5 flex-1 min-w-[280px]">
+                                                                            <div className="flex items-center gap-2 mt-1">
+                                                                                <Checkbox
+                                                                                    checked={isSelected}
+                                                                                    onCheckedChange={(checked) => {
+                                                                                        if (checked) {
+                                                                                            setSelectedRequisitionIds(prev => [...prev, req.id]);
+                                                                                        } else {
+                                                                                            setSelectedRequisitionIds(prev => prev.filter(id => id !== req.id));
+                                                                                        }
+                                                                                    }}
+                                                                                />
+                                                                                <span className="text-[10px] font-black text-slate-300 tabular-nums">
+                                                                                    {(rIdx + 1).toString().padStart(2, '0')}
+                                                                                </span>
+                                                                            </div>
 
-                                                            return (
-                                                                <TableRow key={`veh-${item.vId}-${idx}`} className="hover:bg-slate-50/50 border-y border-slate-100 transition-colors cursor-pointer bg-white" onClick={() => setExpandedVehicles(prev => isExpanded ? prev.filter(id => id !== item.vId) : [...prev, item.vId])}>
-                                                                    <TableCell className="px-4">
-                                                                        {isExpanded ? <ChevronDown className="w-4 h-4 text-blue-600" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                                                                    </TableCell>
-                                                                    <TableCell className="py-3 hidden md:table-cell">
-                                                                        <div className="flex flex-col">
-                                                                            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">Multi-date</span>
+                                                                            <div className="space-y-1.5 flex-1">
+                                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                                    <span className="font-black text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
+                                                                                        <Package size={14} className="text-blue-900" />
+                                                                                        {req.item_name}
+                                                                                    </span>
+
+                                                                                    {req.vehicle && (
+                                                                                        <Badge variant="outline" className="text-[10px] font-bold border-slate-200 text-slate-700 bg-slate-50 gap-1 rounded">
+                                                                                            <Truck size={11} className="text-blue-700" />
+                                                                                            <span>{req.vehicle.vehicle_no || req.vehicle.horse_number || req.vehicle.trailer_number || 'VEHICLE'}</span>
+                                                                                            {req.vehicle.make_model && (
+                                                                                                <span className="text-slate-400 font-normal">({req.vehicle.make_model})</span>
+                                                                                            )}
+                                                                                        </Badge>
+                                                                                    )}
+
+                                                                                    {req.target_company && (
+                                                                                        <Badge variant="outline" className="text-[9px] font-bold border-slate-200 text-slate-600 bg-white uppercase">
+                                                                                            {getDepartmentName(req.target_company)}
+                                                                                        </Badge>
+                                                                                    )}
+
+                                                                                    {req.requirement_category && (
+                                                                                        <Badge variant="outline" className="text-[9px] font-bold border-indigo-200 text-indigo-700 bg-indigo-50/50 uppercase">
+                                                                                            {req.requirement_category}
+                                                                                        </Badge>
+                                                                                    )}
+
+                                                                                    {req.is_emergency && (
+                                                                                        <Badge variant="destructive" className="text-[9px] font-bold uppercase animate-pulse">
+                                                                                            EMERGENCY
+                                                                                        </Badge>
+                                                                                    )}
+
+                                                                                    {getStatusBadge(req.status, req)}
+                                                                                </div>
+
+                                                                                <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                                                                                    {/* PO Number Badge */}
+                                                                                    {req.po_number ? (
+                                                                                        <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-mono font-bold">
+                                                                                            PO: {req.po_number}
+                                                                                        </Badge>
+                                                                                    ) : (
+                                                                                        <span className="text-[10px] font-mono text-slate-400 italic">
+                                                                                            -- No PO Generated --
+                                                                                        </span>
+                                                                                    )}
+
+                                                                                    <span className="text-slate-300">•</span>
+
+                                                                                    {/* Requester & Date */}
+                                                                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 font-medium">
+                                                                                        <span>Req by: <strong className="text-slate-700">{req.profiles?.full_name || 'Workshop Team'}</strong></span>
+                                                                                        <span>• {formatDate(req.created_at)}</span>
+                                                                                    </div>
+
+                                                                                    {/* Attached Photos */}
+                                                                                    {req.image_url && (
+                                                                                        <>
+                                                                                            <span className="text-slate-300">•</span>
+                                                                                            <div className="flex items-center gap-1">
+                                                                                                {req.image_url.split(',').filter(Boolean).map((url: string, i: number) => (
+                                                                                                    <a
+                                                                                                        key={i}
+                                                                                                        href={url}
+                                                                                                        target="_blank"
+                                                                                                        rel="noopener noreferrer"
+                                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                                        className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 hover:bg-blue-100 transition-colors"
+                                                                                                    >
+                                                                                                        <FileText size={10} /> Photo {i + 1}
+                                                                                                    </a>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
+
+                                                                                {/* Boss Review Note */}
+                                                                                {req.management_review_note && (
+                                                                                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 text-[11px] text-amber-900 italic w-fit mt-1">
+                                                                                        <span className="font-bold mr-1 not-italic">Boss Note:</span>
+                                                                                        {req.management_review_note}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
                                                                         </div>
-                                                                    </TableCell>
-                                                                    <TableCell colSpan={2} className="py-3">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <div className="flex flex-col max-w-[200px]">
-                                                                                <span className="text-xs font-bold text-slate-700 uppercase">{vehicle?.make_model || vehicle?.asset_type || 'Unknown'}</span>
-                                                                                <span className="text-[10px] text-slate-500 font-medium tracking-tight">
-                                                                                    {vehicle ? (vehicle.vehicle_no ? `${vehicle.vehicle_no}` : (vehicle.horse_number || vehicle.trailer_number || '-')) : '-'}
+
+                                                                        {/* 2. Quantities & Financial Breakdown */}
+                                                                        <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-3 xl:pt-0 xl:pl-6 w-full xl:w-auto">
+                                                                            <div className="space-y-0.5 min-w-[100px]">
+                                                                                <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Quantity</span>
+                                                                                <div className="text-xs font-black text-slate-800">
+                                                                                    {req.quantity_approved || req.quantity_requested} Units
+                                                                                </div>
+                                                                                <div className="text-[10px] text-slate-400 font-medium">
+                                                                                    Req: {req.original_quantity || req.quantity_requested}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="space-y-0.5 pl-4 border-l border-slate-100 min-w-[100px]">
+                                                                                <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Unit Price</span>
+                                                                                <div className="text-xs font-black text-slate-800">
+                                                                                    {formatTSh(unitPrice)}
+                                                                                </div>
+                                                                                <span className="text-[10px] text-slate-400 font-medium block">
+                                                                                    {req.includes_vat ? "Inc. VAT" : "Ex. VAT"}
+                                                                                </span>
+                                                                            </div>
+
+                                                                            <div className="space-y-0.5 pl-4 border-l border-slate-100 text-right min-w-[110px]">
+                                                                                <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Total Value</span>
+                                                                                <div className="text-xs font-black text-blue-900 leading-none">
+                                                                                    {formatTSh(lineTotal)}
+                                                                                </div>
+                                                                                <span className="text-[10px] text-emerald-600 font-bold block">
+                                                                                    Line Total
                                                                                 </span>
                                                                             </div>
                                                                         </div>
-                                                                    </TableCell>
-                                                                    <TableCell colSpan={2}>
-                                                                        <div className="flex items-center gap-4">
-                                                                            <Badge variant="outline" className={`text-[10px] uppercase font-bold py-0 h-5 tracking-tighter ${category === 'Spare' ? 'border-orange-200 text-orange-600 bg-orange-50' : category === 'Paint' ? 'border-blue-200 text-blue-600 bg-blue-50' : category === 'Electrical' ? 'border-yellow-200 text-yellow-600 bg-yellow-50' : 'border-slate-200 text-slate-500 bg-slate-50'}`}>{category}</Badge>
-                                                                            <span className="text-[10px] text-slate-400 font-mono">({item.reqs.length} items)</span>
+
+                                                                        {/* 3. Action Buttons */}
+                                                                        <div className="flex items-center gap-2 pl-0 xl:pl-4 border-t xl:border-t-0 xl:border-l border-slate-100 pt-3 xl:pt-0 w-full xl:w-auto flex-wrap sm:flex-nowrap justify-end">
+                                                                            {/* Admin quick edit & delete */}
+                                                                            {(userRole === 'admin' || userRole === 'super_admin') && (
+                                                                                <>
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="sm"
+                                                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                                        title="Admin Quick Edit"
+                                                                                        onClick={() => {
+                                                                                            setQuickEditData({
+                                                                                                id: req.id,
+                                                                                                item_name: req.item_name,
+                                                                                                quantity_requested: req.quantity_requested || 0,
+                                                                                                quantity_approved: req.quantity_approved || 0,
+                                                                                                unit_price: req.unit_price || 0,
+                                                                                                pack_size: req.pack_size || 1
+                                                                                            });
+                                                                                            setIsQuickEditOpen(true);
+                                                                                        }}
+                                                                                    >
+                                                                                        <Pencil size={13} />
+                                                                                    </Button>
+
+                                                                                    <Button 
+                                                                                        variant="ghost" 
+                                                                                        size="sm" 
+                                                                                        className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                                                        title="Delete Requisition"
+                                                                                        disabled={deleteRequisitionGroupMutation.isPending}
+                                                                                        onClick={() => {
+                                                                                            if (window.confirm(`Are you sure you want to delete this requisition? This will remove it from the system entirely.`)) {
+                                                                                                deleteRequisitionGroupMutation.mutate([req.id]);
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <Trash2 size={13} />
+                                                                                    </Button>
+                                                                                </>
+                                                                            )}
+
+                                                                            {/* Enter / Review Quote */}
+                                                                            {(req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked') && (
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    className="h-8 px-3 bg-blue-900 hover:bg-blue-950 text-white text-[10px] font-bold uppercase rounded-lg shadow-xs"
+                                                                                    onClick={() => {
+                                                                                        setSelectedReq(req);
+                                                                                        setApprovalDetails({
+                                                                                            supplier_id: req.supplier_id || "",
+                                                                                            po_number: req.po_number || generatePONumber(requisitions?.filter((r: any) =>
+                                                                                                new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number
+                                                                                            ).length || 0),
+                                                                                            includes_vat: req.includes_vat || false,
+                                                                                            vat_amount: req.vat_amount || 0,
+                                                                                            temp_price: req.unit_price || (inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0,
+                                                                                            payment_method_id: req.payment_details?.id || "",
+                                                                                            quantity_approving: req.quantity_requested || 0,
+                                                                                            pack_size: req.pack_size || 1
+                                                                                        });
+                                                                                        setIsApproveDialogOpen(true);
+                                                                                    }}
+                                                                                >
+                                                                                    {userRole === 'procurement_officer' ? "Enter Quote" : "Review Quote"}
+                                                                                </Button>
+                                                                            )}
+
+                                                                            {/* Management Approval */}
+                                                                            {req.status === 'Awaiting Approval' && (userRole === 'admin' || userRole === 'super_admin') && (
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase rounded-lg shadow-xs gap-1"
+                                                                                    onClick={() => {
+                                                                                        setSelectedReq(req);
+                                                                                        setApprovalDetails({
+                                                                                            supplier_id: req.supplier_id || "",
+                                                                                            po_number: req.po_number || generatePONumber(),
+                                                                                            includes_vat: req.includes_vat || false,
+                                                                                            vat_amount: req.vat_amount || 0,
+                                                                                            temp_price: req.unit_price || 0,
+                                                                                            payment_method_id: req.payment_details?.id || "",
+                                                                                            quantity_approving: req.quantity_requested || 0,
+                                                                                            pack_size: req.pack_size || 1
+                                                                                        });
+                                                                                        setIsApproveDialogOpen(true);
+                                                                                    }}
+                                                                                >
+                                                                                    <ShieldCheck size={12} />
+                                                                                    Approve Line
+                                                                                </Button>
+                                                                            )}
+
+                                                                            {/* Mark as Paid */}
+                                                                            {req.status === 'Approved' && (userRole === 'finance' || userRole === 'super_admin' || userRole === 'admin') && (
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold uppercase rounded-lg shadow-xs"
+                                                                                    onClick={() => {
+                                                                                        workflowMutation.mutate({
+                                                                                            reqId: req.id,
+                                                                                            qty: req.quantity_approved,
+                                                                                            itemId: req.item_id,
+                                                                                            details: { ...req, payment_method_id: req.payment_details?.id },
+                                                                                            nextStatus: 'Paid'
+                                                                                        });
+                                                                                    }}
+                                                                                >
+                                                                                    Mark as Paid
+                                                                                </Button>
+                                                                            )}
+
+                                                                            {/* Print PO */}
+                                                                            {req.po_number && (
+                                                                                <Button
+                                                                                    variant="outline"
+                                                                                    size="sm"
+                                                                                    className="h-8 px-2.5 text-[10px] font-bold uppercase border-slate-200 hover:bg-slate-50 rounded-lg"
+                                                                                    onClick={() => printPurchaseOrder({ reqId: req.id })}
+                                                                                >
+                                                                                    <Printer size={12} />
+                                                                                </Button>
+                                                                            )}
                                                                         </div>
-                                                                    </TableCell>
-                                                                    <TableCell className="text-right px-2 md:px-6" colSpan={2}>
-                                                                        <div className="flex items-center justify-end gap-2">
-                                                                            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-indigo-600">
-                                                                                {isExpanded ? 'Hide' : 'View'}
-                                                                            </Button>
-                                                                        </div>
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            );
-                                                        }
-                                                        
-                                                        const req = item.req;
-                                                        const isChild = item.isChild;
-                                                        return (
-                                                            <TableRow key={req.id} className={`hover:bg-slate-50/30 transition-colors ${isChild ? 'bg-blue-50/20 border-l-[3px] border-blue-500' : ''} ${selectedRequisitionIds.includes(req.id) ? 'bg-blue-50/50' : ''}`}>
-                                                        <TableCell className="px-4">
-                                                            <Checkbox
-                                                                checked={selectedRequisitionIds.includes(req.id)}
-                                                                onCheckedChange={(checked) => {
-                                                                    if (checked) {
-                                                                        setSelectedRequisitionIds(prev => [...prev, req.id]);
-                                                                    } else {
-                                                                        setSelectedRequisitionIds(prev => prev.filter(id => id !== req.id));
-                                                                    }
-                                                                }}
-                                                            />
-                                                        </TableCell>
-                                                        <TableCell className="py-4 hidden md:table-cell">
-                                                            <div className="flex flex-col">
-                                                                <span className="text-xs text-slate-500 font-bold">{formatDate(req.created_at)}</span>
-                                                                <span className="text-[10px] text-blue-600 font-mono italic hidden md:inline-block">
-                                                                    {new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                </span>
-                                                                <span className="text-[10px] font-bold text-slate-700 uppercase mt-1 hidden md:block">
-                                                                    Requested By: <span className="text-blue-700">{req.profiles?.full_name || 'System'}</span>
-                                                                </span>
-                                                                {req.is_emergency && (
-                                                                    <Badge variant="destructive" className="mt-1 text-[9px] uppercase font-bold w-fit animate-pulse">EMERGENCY</Badge>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="hidden md:table-cell">
-                                                            <Badge variant="outline" className="text-xs font-semibold bg-slate-50 text-slate-600 border-slate-200 uppercase">
-                                                                {getDepartmentName(req.target_company)}
-                                                            </Badge>
-                                                        </TableCell>
-                                                        <TableCell className="font-mono text-xs text-slate-500 hidden md:table-cell">
-                                                            {req.po_number || <span className="text-slate-300">-- No PO --</span>}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <div className="flex flex-col gap-0.5">
-                                                                <span className="font-bold text-sm text-slate-900 leading-tight block">{req.item_name}</span>
-                                                                
-                                                                {/* Mobile-only info block */}
-                                                                <div className="md:hidden flex flex-col gap-1 mt-1 mb-1 pb-1 border-b border-slate-100">
-                                                                    <div className="flex justify-between items-center">
-                                                                        <span className="text-[10px] text-slate-500 font-bold">{formatDate(req.created_at)}</span>
-                                                                        {req.po_number && <span className="text-[10px] text-slate-500 font-mono italic">PO: {req.po_number}</span>}
                                                                     </div>
-                                                                    <span className="text-[9px] font-bold text-slate-700 uppercase block">
-                                                                        Req By: <span className="text-blue-700">{req.profiles?.full_name || 'System'}</span>
-                                                                    </span>
-                                                                    {req.is_emergency && (
-                                                                        <Badge variant="destructive" className="mt-0.5 text-[9px] uppercase font-bold w-fit">EMERGENCY</Badge>
-                                                                    )}
-                                                                    <div className="flex justify-between items-center bg-slate-50 p-1.5 rounded mt-0.5">
-                                                                        <span className="text-[10px] text-slate-500 font-semibold uppercase">Req: {req.original_quantity || req.quantity_requested}</span>
-                                                                        <span className="text-[10px] text-indigo-700 font-bold uppercase">Appr: {req.quantity_approved || 0}</span>
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="flex flex-col gap-1">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="text-[10px] text-slate-500 font-semibold uppercase hidden md:inline">
-                                                                            Qty: {req.management_reviewed_quantity ? req.management_reviewed_quantity : req.quantity_requested} units
-                                                                        </span>
-                                                                        {req.management_reviewed_quantity && req.management_reviewed_quantity !== req.quantity_requested && (
-                                                                            <Badge variant="outline" className="text-[9px] border-indigo-200 text-indigo-600 bg-indigo-50 h-4 hidden md:inline-flex" title={`Original requested: ${req.quantity_requested}`}>
-                                                                                Changed by Boss (was {req.quantity_requested})
-                                                                            </Badge>
-                                                                        )}
-                                                                        {req.original_quantity && req.original_quantity !== req.quantity_requested && (
-                                                                            <Badge variant="outline" className="text-[9px] border-amber-200 text-amber-600 bg-amber-50 h-4 hidden md:inline-flex">
-                                                                                Split from {req.original_quantity}
-                                                                            </Badge>
-                                                                        )}
-                                                                    </div>
-                                                                    {req.management_review_note && (
-                                                                        <div className="bg-amber-50 border border-amber-100 rounded px-2 py-1 text-[10px] text-amber-800 italic w-fit">
-                                                                            <span className="font-bold mr-1">Boss Note:</span>
-                                                                            {req.management_review_note}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                                {req.vehicle_id && req.vehicle && (
-                                                                    <Badge variant="secondary" className="bg-slate-100 text-slate-600 border-slate-200 w-fit text-[9px] font-bold mt-1">
-                                                                        <Truck className="h-3 w-3 mr-1" />
-                                                                        <div className="flex flex-col leading-tight"><span>{req.vehicle.vehicle_no || req.vehicle.horse_number}</span>{req.vehicle.make_model && <span className="text-[10px] text-slate-500 font-medium">{req.vehicle.make_model}</span>}</div>
-                                                                    </Badge>
-                                                                )}
-
-                                                                {/* Attached Reference Photos */}
-                                                                {req.image_url && (
-                                                                    <div className="flex flex-wrap items-center gap-1 mt-1">
-                                                                        {req.image_url.split(',').filter(Boolean).map((url: string, i: number) => (
-                                                                            <a
-                                                                                key={i}
-                                                                                href={url}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                                className="inline-flex items-center gap-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5 hover:bg-indigo-100 transition-colors"
-                                                                                title="View attached photo"
-                                                                            >
-                                                                                <FileText className="w-2.5 h-2.5" /> Photo {i + 1}
-                                                                            </a>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="hidden md:table-cell">
-                                                            <div className="flex flex-col gap-0.5 min-w-[120px]">
-                                                                <div className="flex justify-between text-[10px] font-semibold text-slate-500 uppercase">
-                                                                    <span>Requested</span>
-                                                                    <span>{req.original_quantity || req.quantity_requested}</span>
-                                                                </div>
-                                                                <div className="flex justify-between text-[10px] font-bold text-indigo-700 uppercase">
-                                                                    <span>Approved</span>
-                                                                    <span>{req.quantity_approved || 0}</span>
-                                                                </div>
-                                                                {req.status === 'Arrived' && (
-                                                                    <div className="flex justify-between text-[10px] font-bold text-emerald-600 uppercase">
-                                                                        <span>Received</span>
-                                                                        <span>{req.quantity_received || 0}</span>
-                                                                    </div>
-                                                                )}
-                                                                <div className="mt-1 h-1 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                                    <div
-                                                                        className="h-full bg-indigo-500"
-                                                                        style={{ width: `${Math.min(100, ((req.quantity_received || 0) / (req.quantity_approved || 1)) * 100)}%` }}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="hidden md:table-cell">
-                                                            <div className="flex items-center">
-                                                                {getStatusBadge(req.status, req)}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-right px-6">
-                                                            <div className="flex items-center justify-end gap-2">
-                                                                {/* ADMIN QUICK EDIT AND DELETE */}
-                                                                {(userRole === 'admin' || userRole === 'super_admin') && (
-                                                                    <>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
-                                                                        title="Admin Quick Edit"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setQuickEditData({
-                                                                                id: req.id,
-                                                                                item_name: req.item_name,
-                                                                                quantity_requested: req.quantity_requested || 0,
-                                                                                quantity_approved: req.quantity_approved || 0,
-                                                                                unit_price: req.unit_price || 0,
-                                                                                pack_size: req.pack_size || 1
-                                                                            });
-                                                                            setIsQuickEditOpen(true);
-                                                                        }}
-                                                                    >
-                                                                        <Pencil className="w-3.5 h-3.5" />
-                                                                    </Button>
-                                                                    <Button 
-                                                                        variant="ghost" 
-                                                                        size="sm" 
-                                                                        className="h-7 w-7 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
-                                                                        title="Delete Requisition completely"
-                                                                        disabled={deleteRequisitionGroupMutation.isPending}
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            if (window.confirm(`Are you sure you want to delete this requisition? This will remove it from the system entirely up to the garage area.`)) {
-                                                                                deleteRequisitionGroupMutation.mutate([req.id]);
-                                                                            }
-                                                                        }}
-                                                                    >
-                                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                                    </Button>
-                                                                    </>
-                                                                )}
-                                                                {/* PROCUREMENT OFFICER: Prepare Quote */}
-                                                                {(req.status === 'Pending' || req.status === 'Pending Review' || req.status === 'Revoked') && (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Button
-                                                                            size="sm"
-                                                                            className="h-8 bg-blue-900 hover:bg-black text-[10px] font-bold uppercase"
-                                                                            onClick={() => {
-                                                                                setSelectedReq(req);
-                                                                                setApprovalDetails({
-                                                                                    supplier_id: req.supplier_id || "",
-                                                                                    po_number: req.po_number || generatePONumber(requisitions?.filter((r: any) =>
-                                                                                        new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number
-                                                                                    ).length || 0),
-                                                                                    includes_vat: req.includes_vat || false,
-                                                                                    vat_amount: req.vat_amount || 0,
-                                                                                    temp_price: req.unit_price || (inventory || []).find((i: any) => i.id === req.item_id)?.unit_price || 0,
-                                                                                    payment_method_id: req.payment_details?.id || "",
-                                                                                    quantity_approving: req.quantity_requested || 0,
-                                                                                    pack_size: req.pack_size || 1
-                                                                                });
-                                                                                setIsApproveDialogOpen(true);
-                                                                            }}
-                                                                        >
-                                                                            {userRole === 'procurement_officer' ? "Enter Quote" : "Review & Quote"}
-                                                                        </Button>
-
-                                                                        {((!req.po_number || req.status === 'Revoked') && !isChild) && (
-                                                                            <Button
-                                                                                size="sm"
-                                                                                className="h-8 bg-orange-600 hover:bg-orange-700 text-[10px] font-bold uppercase shadow-md shadow-orange-100 text-white"
-                                                                                disabled={!req.unit_price || req.unit_price <= 0 || !req.supplier_id || submitModelBatchMutation.isPending}
-                                                                                onClick={() => {
-                                                                                    submitModelBatchMutation.mutate({
-                                                                                        reqIds: [req.id],
-                                                                                        poNumber: req.po_number || generatePONumber(requisitions?.filter((r: any) => new Date(r.created_at).toDateString() === new Date().toDateString() && r.po_number).length || 0)
-                                                                                    });
-                                                                                }}
-                                                                            >
-                                                                                Send for Approval
-                                                                            </Button>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-
-                                                                {/* OPERATIONS MANAGER: Management Approval */}
-                                                                {req.status === 'Awaiting Approval' && (userRole === 'admin' || userRole === 'super_admin') && (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className="h-8 bg-indigo-600 hover:bg-indigo-700 text-[10px] font-bold uppercase text-white shadow-md shadow-indigo-100"
-                                                                        onClick={() => {
-                                                                            setSelectedReq(req);
-                                                                            setApprovalDetails({
-                                                                                supplier_id: req.supplier_id || "",
-                                                                                po_number: req.po_number || generatePONumber(),
-                                                                                includes_vat: req.includes_vat || false,
-                                                                                vat_amount: req.vat_amount || 0,
-                                                                                temp_price: req.unit_price || 0,
-                                                                                payment_method_id: req.payment_details?.id || "",
-                                                                                quantity_approving: req.quantity_requested || 0,
-                                                                                pack_size: req.pack_size || 1
-                                                                            });
-                                                                            setIsApproveDialogOpen(true);
-                                                                        }}
-                                                                    >
-                                                                        Management Approval
-                                                                    </Button>
-                                                                )}
-
-                                                                {/* FINANCE: Mark as Paid */}
-                                                                {req.status === 'Approved' && (userRole === 'finance' || userRole === 'super_admin' || userRole === 'admin') && (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className="h-8 bg-emerald-600 hover:bg-emerald-700 text-[10px] font-bold uppercase text-white"
-                                                                        onClick={() => {
-                                                                            workflowMutation.mutate({
-                                                                                reqId: req.id,
-                                                                                qty: req.quantity_approved,
-                                                                                itemId: req.item_id,
-                                                                                details: { ...req, payment_method_id: req.payment_details?.id },
-                                                                                nextStatus: 'Paid'
-                                                                            });
-                                                                        }}
-                                                                    >
-                                                                        Mark as Paid
-                                                                    </Button>
-                                                                )}
-
-                                                                {/* PRINT OPTIONS */}
-                                                                {(req.po_number && !isChild) && (
-                                                                    <Button
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        className="h-8 text-[10px] font-bold uppercase border-slate-200"
-                                                                        onClick={() => printPurchaseOrder({ reqId: req.id })}
-                                                                    >
-                                                                        <Printer className="w-3 h-3 mr-1" />
-                                                                        Print PO
-                                                                    </Button>
-                                                                )}
-
-                                                                {/* OWNERSHIP BASED DELETION */}
-                                                                {(req.requested_by === profile?.id && req.status === 'Pending') && (
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-8 w-8 p-0 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
-                                                                        onClick={() => {
-                                                                            if (window.confirm("Are you sure you want to delete your pending requisition?")) {
-                                                                                deleteRequisitionMutation.mutate(req.id);
-                                                                            }
-                                                                        }}
-                                                                        title="Delete My Requisition"
-                                                                    >
-                                                                        <Trash2 className="h-4 w-4" />
-                                                                    </Button>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                            );
-                                                        });
-                                                })()}
-                                            </React.Fragment>
-                                        ));
-                                    })()}
-                                </TableBody>
-                            </Table>
-                        </CardContent >
-                    </Card >
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </Card>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
 
                     {/* Floating Grouped Actions Bar */}
                     {

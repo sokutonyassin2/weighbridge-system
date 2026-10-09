@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -44,7 +45,10 @@ import {
     X,
     Filter,
     Download,
-    FileSpreadsheet
+    FileSpreadsheet,
+    Package,
+    Wrench,
+    ExternalLink
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, formatDistanceToNow } from "date-fns";
@@ -52,6 +56,7 @@ import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 
 export default function TripFundApprovals() {
+    const navigate = useNavigate();
     const { user, userRole, userProfile } = useAuth();
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -80,7 +85,7 @@ export default function TripFundApprovals() {
                 .select(`
                     *,
                     vehicle:vehicle_id(id, vehicle_no, make_model, asset_type),
-                    driver:driver_id(id, full_name, phone_number, license_no)
+                    driver:driver_id(id, full_name, phone_no, license_no)
                 `)
                 .order("created_at", { ascending: false });
 
@@ -130,7 +135,7 @@ export default function TripFundApprovals() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("logistics_drivers" as any)
-                .select("id, full_name, phone_number, assigned_vehicle_id");
+                .select("id, full_name, phone_no, assigned_vehicle_id");
             if (error) return [];
             return data || [];
         }
@@ -231,8 +236,11 @@ export default function TripFundApprovals() {
             "Unassigned Driver";
 
         const driverPhone = 
+            sheet.driver?.phone_no ||
             sheet.driver?.phone_number || 
+            driverMatch?.phone_no ||
             driverMatch?.phone_number || 
+            assignedDriverMatch?.phone_no ||
             assignedDriverMatch?.phone_number || 
             sheet.driver_phone ||
             matchedOrder?.contact_no || 
@@ -1036,6 +1044,46 @@ export default function TripFundApprovals() {
 
     return (
         <div className="p-3 sm:p-6 lg:p-8 space-y-5 max-w-7xl mx-auto animate-in fade-in duration-300">
+            {/* Unified Management Approval Navigation Bar */}
+            <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("/procurement/approvals")}
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2"
+                    >
+                        <Package className="w-4 h-4 text-indigo-500" />
+                        <span>Procurement POs & Requisitions</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                    </Button>
+                    <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shadow-sm"
+                    >
+                        <Truck className="w-4 h-4" />
+                        <span>Trip Orders & Road Funds</span>
+                        <Badge className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0 h-4 border-none">
+                            {pendingCount}
+                        </Badge>
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("/garage")}
+                        className="text-slate-700 hover:text-amber-600 hover:bg-amber-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2"
+                    >
+                        <Wrench className="w-4 h-4 text-amber-500" />
+                        <span>Garage Workshop & Job Cards</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                    </Button>
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium hidden sm:block">
+                    Executive Authorization Center
+                </div>
+            </div>
+
             {/* 👑 EXECUTIVE HEADER */}
             <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-xl border border-indigo-900/40 relative overflow-hidden">
                 <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-indigo-500/10 to-transparent pointer-events-none" />

@@ -93,12 +93,13 @@ export function GlobalSearch() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="w-64 justify-start text-left font-normal">
-          <Search className="mr-2 h-4 w-4" />
-          <span className="text-muted-foreground">Search by Entry ID or Vehicle...</span>
+        <Button variant="outline" className="w-full max-w-[170px] xs:max-w-[210px] sm:max-w-xs md:w-64 justify-start text-left font-normal text-xs sm:text-sm h-9 px-2 sm:px-3 truncate">
+          <Search className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground truncate hidden sm:inline">Search by Entry ID or Vehicle...</span>
+          <span className="text-muted-foreground truncate sm:hidden">Search vehicle...</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="start">
+      <PopoverContent className="w-[calc(100vw-2rem)] max-w-sm sm:w-80 p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
             placeholder="Type WB-123 or vehicle number..."

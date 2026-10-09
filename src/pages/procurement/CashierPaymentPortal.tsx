@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { POPreviewDialog } from "@/components/POPreviewDialog";
@@ -11,10 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff, Pencil, Undo2 } from "lucide-react";
+import { Wallet, CheckCircle, Receipt, Search, Loader2, Filter, DollarSign, ArrowRight, Calendar, Hash, Printer, FileText, ChevronRight, History, HandCoins, PackageCheck, Upload, Eye, Image, Building2, Truck, Paperclip, ChevronDown, ChevronUp, EyeOff, Pencil, Undo2, X, Layers, CheckCircle2, Clock, AlertCircle, ExternalLink, ClipboardCheck, BarChart3, Wrench, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { printPurchaseOrder } from "@/utils/printUtils";
+import { cn } from "@/lib/utils";
 
 const compressImage = async (file: File): Promise<File> => {
     if (!file.type.startsWith('image/')) return file;
@@ -76,8 +78,11 @@ const CashierPaymentPortal = () => {
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const { userProfile, userRole } = useAuth();
+    const navigate = useNavigate();
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin' || userProfile?.role === 'admin' || userProfile?.role === 'super_admin';
 
     const [searchTerm, setSearchTerm] = useState("");
+    const [activeTab, setActiveTab] = useState("pending");
     const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
     const [selectedPOReqs, setSelectedPOReqs] = useState<any[]>([]);
     const [paymentRef, setPaymentRef] = useState("");
@@ -272,6 +277,44 @@ const CashierPaymentPortal = () => {
 
         return records;
     }, [historicalRecords, selectedMonth, selectedDay, searchTerm]);
+
+    // Computed Executive Metrics for Cashier Portal
+    const pendingMetrics = useMemo(() => {
+        const items = (authorizedItems || []).filter((item: any) => {
+            const total = Number(item.total_price) || 0;
+            const paid = Number(item.amount_paid) || 0;
+            const hasUnpaidBalance = (total - paid) > 1;
+            return item.status !== 'Paid' || hasUnpaidBalance;
+        });
+        const totalPayable = items.reduce((sum: number, r: any) => {
+            const total = Number(r.total_price) || 0;
+            const paid = Number(r.amount_paid) || 0;
+            const advance = Number(r.advance_payment) || 0;
+            if (advance > 0 && paid === 0) return sum + advance;
+            return sum + Math.max(0, total - paid);
+        }, 0);
+        const uniquePOs = new Set(items.map((r: any) => r.po_number || r.supplier_id)).size;
+        return { count: items.length, poCount: uniquePOs, totalPayable };
+    }, [authorizedItems]);
+
+    const advanceMetrics = useMemo(() => {
+        const advanceItems = (authorizedItems || []).filter((item: any) => {
+            const advance = Number(item.advance_payment) || 0;
+            const paid = Number(item.amount_paid) || 0;
+            return advance > 0 && paid === 0 && item.status !== 'Paid' && item.status !== 'Partially Paid';
+        });
+        const totalAdvance = advanceItems.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
+        const poCount = new Set(advanceItems.map((r: any) => r.po_number || r.supplier_id)).size;
+        return { count: advanceItems.length, poCount, totalAdvance };
+    }, [authorizedItems]);
+
+    const waitingArrivalTotal = useMemo(() => {
+        return actualWaitingArrival.reduce((sum: number, r: any) => sum + (Number(r.total_price) || 0), 0);
+    }, [actualWaitingArrival]);
+
+    const todayDisbursedTotal = useMemo(() => {
+        return todayRecords.reduce((sum: number, r: any) => sum + (Number(r.total_price) || 0), 0);
+    }, [todayRecords]);
 
     // Payment Mutation
     const quickEditMutation = useMutation({
@@ -550,15 +593,15 @@ const CashierPaymentPortal = () => {
             const isExpanded = !!expandedGroups[key];
 
             return (
-                <Card key={key} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
-                    <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(key)}>
-                        <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                            <div className="space-y-1 w-full md:w-auto">
+                <Card key={key} className="overflow-hidden border border-slate-200 shadow-xs hover:shadow-md transition-shadow bg-white rounded-2xl">
+                    <CardHeader className="bg-slate-50/60 border-b pb-4 cursor-pointer hover:bg-slate-100/60 transition-colors" onClick={() => toggleGroup(key)}>
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                            <div className="space-y-1.5 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
+                                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-slate-200 rounded-lg">
                                         {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                     </Button>
-                                    <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
+                                    <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200 font-bold px-2 py-0.5">
                                         PO #: {poNumber}
                                     </Badge>
                                     {hasAdvancePaid ? (
@@ -570,22 +613,30 @@ const CashierPaymentPortal = () => {
                                             Advance Due First
                                         </Badge>
                                     ) : (
-                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-[10px]">
+                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-[10px] font-bold">
                                             Approved for Payment
                                         </Badge>
                                     )}
+                                    <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-bold">
+                                        {reqs.length} {reqs.length === 1 ? 'Item' : 'Items'}
+                                    </Badge>
                                 </div>
-                                <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
-                                    <Building2 className="w-5 h-5 text-slate-400" />
-                                    {supplierName}
-                                </CardTitle>
-                                <p className="text-sm text-slate-500 font-medium">{formatDate(firstReq.created_at)}</p>
+                                <div className="flex flex-wrap items-center gap-2 pt-1">
+                                    <Building2 className="w-5 h-5 text-emerald-600" />
+                                    <CardTitle className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                                        {supplierName}
+                                    </CardTitle>
+                                </div>
+                                <p className="text-xs text-slate-400 font-medium">
+                                    Requisition Authorized: {formatDate(firstReq.created_at)} • Payment Terms: {firstReq.payment_details?.method_type || 'Direct Transfer'}
+                                </p>
                             </div>
-                            <div className="flex flex-col items-start md:items-end gap-1.5 w-full md:w-auto text-left md:text-right">
-                                <div className="text-2xl font-black text-emerald-600">
-                                    {currentPayable.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+
+                            <div className="flex flex-col items-start lg:items-end gap-1.5 w-full lg:w-auto text-left lg:text-right">
+                                <div className="text-2xl font-black text-emerald-600 leading-none">
+                                    {currentPayable.toLocaleString()} <span className="text-xs text-slate-500 font-normal">TZS</span>
                                 </div>
-                                <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
+                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                                     {isAdvanceDue ? "Advance Amount Due" : (hasAdvancePaid ? "Remaining Balance Due" : "Total Payable Amount")}
                                 </div>
                                 {(totalAdvance > 0 || hasAdvancePaid) && (
@@ -596,83 +647,126 @@ const CashierPaymentPortal = () => {
                                         )}
                                     </div>
                                 )}
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="h-7 text-xs border-slate-200 mt-1" 
-                                    onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
-                                >
-                                    <Printer className="w-3 h-3 mr-1" /> Print PO
-                                </Button>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="h-8 text-xs font-bold border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl" 
+                                        onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
+                                    >
+                                        <Printer className="w-3.5 h-3.5 mr-1 text-slate-500" /> Print PO
+                                    </Button>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="h-8 text-xs font-bold border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleGroup(key);
+                                        }}
+                                    >
+                                        {isExpanded ? "Collapse" : "View Items"}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </CardHeader>
+
                     {isExpanded && (
-                        <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
-                            <Table>
-                                <TableHeader className="bg-slate-100/50">
-                                    <TableRow>
-                                        <TableHead className="pl-6">Item Description</TableHead>
-                                        <TableHead>Vehicle</TableHead>
-                                        <TableHead>Qty</TableHead>
-                                        <TableHead>Unit Price</TableHead>
-                                        <TableHead className="text-right pr-6">Total</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {reqs.map((r: any) => (
-                                        <TableRow key={r.id}>
-                                            <TableCell className="pl-6 font-semibold text-slate-800">
-                                                <div className="flex items-center gap-1.5">
+                        <div className="p-4 sm:p-5 bg-slate-50/40 space-y-3">
+                            {reqs.map((r: any, rIdx: number) => (
+                                <div
+                                    key={r.id}
+                                    className="relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:shadow-md hover:border-emerald-300 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 overflow-hidden"
+                                >
+                                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500" />
+                                    <div className="flex items-start gap-3 flex-1 min-w-[260px]">
+                                        <span className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                            {(rIdx + 1).toString().padStart(2, '0')}
+                                        </span>
+                                        <div className="space-y-1.5 flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-black text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
+                                                    <Wrench size={14} className="text-emerald-600" />
                                                     {r.item_name}
-                                                    {(userRole === 'admin' || userRole === 'super_admin') && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-6 w-6 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
-                                                            title="Admin Quick Edit"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setQuickEditData({
-                                                                    id: r.id,
-                                                                    item_name: r.item_name,
-                                                                    quantity_requested: r.quantity_requested || 0,
-                                                                    quantity_approved: r.quantity_approved || 0,
-                                                                    unit_price: r.unit_price || 0
-                                                                });
-                                                                setIsQuickEditOpen(true);
-                                                            }}
-                                                        >
-                                                            <Pencil className="w-3 h-3" />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                {r.vehicle ? (
-                                                    <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
+                                                </span>
+                                                {r.vehicle && (
+                                                    <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100 font-bold">
                                                         <Truck className="w-3 h-3 mr-1" />
                                                         {r.vehicle.vehicle_no || r.vehicle.horse_number}
                                                     </Badge>
-                                                ) : '-'}
-                                            </TableCell>
-                                            <TableCell className="font-medium">{r.quantity_approved}</TableCell>
-                                            <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
-                                            <TableCell className="text-right pr-6 font-bold text-slate-900">
+                                                )}
+                                                {(userRole === 'admin' || userRole === 'super_admin') && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-6 w-6 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded"
+                                                        title="Admin Quick Edit"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setQuickEditData({
+                                                                id: r.id,
+                                                                item_name: r.item_name,
+                                                                quantity_requested: r.quantity_requested || 0,
+                                                                quantity_approved: r.quantity_approved || 0,
+                                                                unit_price: r.unit_price || 0
+                                                            });
+                                                            setIsQuickEditOpen(true);
+                                                        }}
+                                                    >
+                                                        <Pencil className="w-3 h-3" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
+                                                <span>Requested by: <strong className="text-slate-700">{r.profiles?.full_name || 'Workshop'}</strong></span>
+                                                {r.created_at && (
+                                                    <>
+                                                        <span>•</span>
+                                                        <span>Date: <strong className="text-slate-700">{formatDate(r.created_at)}</strong></span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between lg:justify-end gap-6 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 w-full lg:w-auto">
+                                        <div className="space-y-0.5 min-w-[80px]">
+                                            <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Qty Approved</span>
+                                            <div className="text-xs font-black text-slate-800">
+                                                {r.quantity_approved} Units
+                                            </div>
+                                            {r.quantity_requested && r.quantity_requested !== r.quantity_approved && (
+                                                <span className="text-[10px] text-slate-400 font-medium">
+                                                    Req: {r.quantity_requested}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-0.5 pl-4 border-l border-slate-100 min-w-[95px]">
+                                            <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Unit Price</span>
+                                            <div className="text-xs font-black text-slate-800">
+                                                {(r.unit_price || 0).toLocaleString()} TZS
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-0.5 pl-4 border-l border-slate-100 text-right min-w-[110px]">
+                                            <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Total Amount</span>
+                                            <div className="text-xs font-black text-emerald-600 leading-none">
                                                 {(r.total_price || 0).toLocaleString()} TZS
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     )}
                     
                     {(uploads.length > 0 || firstReq.payment_details) && (
-                        <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
+                        <div className="bg-slate-50/80 border-t p-4 flex flex-wrap items-center justify-between gap-4">
                             {firstReq.payment_details && (
                                 <div className="space-y-1">
-                                    <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
+                                    <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Payment Instructions</p>
                                     <p className="text-xs font-semibold text-slate-700">
                                         {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} 
                                         ({firstReq.payment_details.account_number}) 
@@ -683,11 +777,11 @@ const CashierPaymentPortal = () => {
                             
                             {uploads.length > 0 && (
                                 <div className="space-y-1 text-right ml-auto">
-                                    <p className="text-[10px] uppercase font-bold text-slate-500">Attachments</p>
+                                    <p className="text-[10px] uppercase font-black text-slate-400 tracking-wider">Quotation Attachments</p>
                                     <div className="flex flex-wrap items-center justify-end gap-2">
                                         {uploads.map((url, idx) => (
-                                            <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-100">
-                                                <Paperclip className="w-3 h-3 mr-1" /> Quote/Receipt {idx + 1}
+                                            <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100 font-medium">
+                                                <Paperclip className="w-3 h-3 mr-1" /> Quote {idx + 1}
                                             </a>
                                         ))}
                                     </div>
@@ -696,11 +790,11 @@ const CashierPaymentPortal = () => {
                         </div>
                     )}
                     
-                    <CardFooter className="bg-white border-t p-4 flex justify-between">
+                    <CardFooter className="bg-white border-t p-4 flex justify-between items-center gap-3">
                         {(userRole === 'admin' || userRole === 'super_admin') && (
                             <Button
                                 variant="outline"
-                                className="border-orange-300 text-orange-600 hover:bg-orange-50 hover:text-orange-700 uppercase text-xs font-bold px-4"
+                                className="border-orange-300 text-orange-600 hover:bg-orange-50 hover:text-orange-700 uppercase text-xs font-bold px-4 rounded-xl"
                                 disabled={sendBackToApprovalMutation.isPending}
                                 onClick={() => sendBackToApprovalMutation.mutate(reqs)}
                             >
@@ -709,13 +803,13 @@ const CashierPaymentPortal = () => {
                             </Button>
                         )}
                         <Button
-                            className={`${isAdvanceDue ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white shadow-md uppercase text-xs font-bold px-6 ml-auto`}
+                            className={`${isAdvanceDue ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white shadow-md uppercase text-xs font-bold px-6 ml-auto rounded-xl`}
                             onClick={() => {
                                 setSelectedPOReqs(reqs);
                                 setIsPaymentDialogOpen(true);
                             }}
                         >
-                            <DollarSign className="w-4 h-4 mr-2" />
+                            <DollarSign className="w-4 h-4 mr-1.5" />
                             {isAdvanceDue ? "Disburse Advance" : (hasAdvancePaid ? "Disburse Remaining Balance" : "Disburse PO Batch")}
                         </Button>
                     </CardFooter>
@@ -725,405 +819,549 @@ const CashierPaymentPortal = () => {
     };
 
     return (
-        <div className="p-6 space-y-6 bg-slate-50/50 min-h-screen animate-fade-in">
-            <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex flex-col gap-1">
-                    <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                        <Wallet className="w-8 h-8 text-primary" />
-                        Cashier Hub
-                        {filteredItems?.length > 0 && (
-                            <Badge className="ml-2 bg-emerald-100 text-emerald-700 border-emerald-200">
-                                {new Set(filteredItems.map((a:any) => a.po_number || a.supplier_id)).size} Pending POs
+        <div className="space-y-4 sm:space-y-6 p-2.5 sm:p-4 md:p-6 animate-fade-in bg-slate-50/30 min-h-screen max-w-[100vw] overflow-x-hidden">
+            {/* Unified Navigation Bar - Only visible to Admin and Super Admin */}
+            {isAdmin && (
+                <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 sm:gap-3">
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate("/procurement")}
+                            className="text-slate-700 hover:text-blue-900 hover:bg-blue-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shrink-0"
+                        >
+                            <Package className="w-4 h-4 text-blue-900" />
+                            <span>Procurement Overview</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate("/procurement/approvals")}
+                            className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shrink-0"
+                        >
+                            <ClipboardCheck className="w-4 h-4 text-indigo-500" />
+                            <span>Management Approvals</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                        </Button>
+                        <Button
+                            variant="default"
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shadow-xs shrink-0"
+                        >
+                            <DollarSign className="w-4 h-4" />
+                            <span>Cashier Hub</span>
+                            <Badge className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0 h-4 border-none">
+                                {pendingMetrics.poCount} Pending
+                            </Badge>
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate("/procurement/replaced-parts")}
+                            className="text-slate-700 hover:text-teal-600 hover:bg-teal-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shrink-0"
+                        >
+                            <Wrench className="w-4 h-4 text-teal-500" />
+                            <span>Replaced Parts</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate("/procurement/reports")}
+                            className="text-slate-700 hover:text-blue-900 hover:bg-blue-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shrink-0"
+                        >
+                            <BarChart3 className="w-4 h-4 text-blue-900" />
+                            <span>Procurement Reports</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                        </Button>
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-semibold hidden md:block shrink-0">
+                        Disbursement & Treasury Management
+                    </div>
+                </div>
+            )}
+
+            {/* Header Title */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                        <Wallet className="w-6 h-6 md:w-7 md:h-7 text-emerald-600" />
+                        Cashier Disbursement Hub
+                        {pendingMetrics.poCount > 0 && (
+                            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs font-bold">
+                                {pendingMetrics.poCount} Batches Cleared
                             </Badge>
                         )}
                     </h1>
-                    <p className="text-slate-500 text-sm">Disbursement portal for authorized purchase orders.</p>
+                    <p className="text-xs md:text-sm text-slate-500 mt-0.5">
+                        Manage vendor disbursements, advance payments, and confirm receipt of paid goods.
+                    </p>
                 </div>
+            </div>
 
-                <div className="relative w-full max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            {/* ── 1. Executive Top Metric Cards ────────────────────────────── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Ready for Disbursement */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ready for Disbursement</span>
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                            <DollarSign size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-lg font-black text-slate-900 leading-tight">
+                            {pendingMetrics.totalPayable.toLocaleString()} <span className="text-xs font-medium text-slate-500">TZS</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-emerald-600 mt-0.5">
+                            {pendingMetrics.poCount} Batches • {pendingMetrics.count} Items
+                        </div>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        Authorized POs cleared for release
+                    </div>
+                </Card>
+
+                {/* 2. Advance Payments Due */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Advance Payments Due</span>
+                        <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                            <HandCoins size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-lg font-black text-slate-900 leading-tight">
+                            {advanceMetrics.totalAdvance.toLocaleString()} <span className="text-xs font-medium text-slate-500">TZS</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-blue-600 mt-0.5">
+                            {advanceMetrics.poCount} Batches Require Advance
+                        </div>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        Upfront vendor commitment deposits
+                    </div>
+                </Card>
+
+                {/* 3. Awaiting Store Arrival */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Awaiting Store Arrival</span>
+                        <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                            <PackageCheck size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                        <span className="text-2xl font-black text-slate-900">{actualWaitingArrival.length}</span>
+                        <span className="text-xs font-bold text-amber-600">Items Disbursed</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        {waitingArrivalTotal.toLocaleString()} TZS paid, awaiting delivery
+                    </div>
+                </Card>
+
+                {/* 4. Today's Disbursed Total */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Today's Disbursements</span>
+                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                            <Receipt size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-lg font-black text-slate-900 leading-tight">
+                            {todayDisbursedTotal.toLocaleString()} <span className="text-xs font-medium text-slate-500">TZS</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-indigo-600 mt-0.5">
+                            {todayRecords.length} Transactions Settled
+                        </div>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        Payments closed today
+                    </div>
+                </Card>
+            </div>
+
+            {/* ── 2. Operations Control Toolbar ────────────────────────────── */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                {/* Search Input */}
+                <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                     <Input
-                        placeholder="Search items or references..."
-                        className="pl-10 bg-white border-slate-200 h-10 text-sm shadow-sm"
+                        placeholder="Search items, PO numbers, suppliers, or references..."
+                        className="pl-9 pr-8 h-9 bg-slate-50 border-slate-200 focus:bg-white text-xs font-medium rounded-xl"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
+                    {searchTerm && (
+                        <button
+                            type="button"
+                            onClick={() => setSearchTerm("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                        >
+                            <X size={12} />
+                        </button>
+                    )}
                 </div>
-            </header>
 
-            <Tabs defaultValue="pending" className="space-y-4">
-                <div className="w-full overflow-x-auto pb-2">
-                    <TabsList className="bg-slate-200/50 p-1 border w-max min-w-full justify-start md:w-full md:grid md:grid-cols-3">
-                        <TabsTrigger value="pending" className="gap-2 px-8 flex items-center">
-                            <DollarSign className="w-4 h-4" />
-                            Pending
+                {/* Master Expand / Collapse All */}
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            const allKeys: string[] = [];
+                            if (activeTab === "pending") {
+                                const grouped = groupRequisitionsByPO(filteredItems);
+                                Object.keys(grouped).forEach(k => allKeys.push(k));
+                            } else if (activeTab === "arrival") {
+                                const grouped = groupRequisitionsByPO(actualWaitingArrival);
+                                Object.keys(grouped).forEach(k => allKeys.push(`arr_${k}`));
+                            } else if (activeTab === "history") {
+                                const grouped = groupRequisitionsByPO(filteredArchived);
+                                Object.keys(grouped).forEach(k => allKeys.push(`hist_${k}`));
+                            }
+                            
+                            const areAllExpanded = allKeys.length > 0 && allKeys.every(k => expandedGroups[k]);
+                            if (areAllExpanded) {
+                                setExpandedGroups({});
+                            } else {
+                                const newExpanded: Record<string, boolean> = {};
+                                allKeys.forEach(k => { newExpanded[k] = true; });
+                                setExpandedGroups(prev => ({ ...prev, ...newExpanded }));
+                            }
+                        }}
+                        className="h-8 px-3 text-xs font-bold text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 rounded-xl ml-auto lg:ml-0"
+                    >
+                        <Layers size={13} className="text-slate-400" />
+                        <span>Toggle Expand</span>
+                    </Button>
+                </div>
+            </div>
+
+            {/* ── 3. Tabs Navigation & Content ────────────────────────────── */}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+                <div className="w-full overflow-x-auto pb-1">
+                    <TabsList className="bg-slate-100 p-1 border border-slate-200 rounded-2xl w-full grid grid-cols-2 md:grid-cols-4 h-auto">
+                        <TabsTrigger value="pending" className="gap-2 py-2 px-3 text-xs font-bold rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-xs">
+                            <DollarSign className="w-4 h-4 text-emerald-600" />
+                            <span>Pending Disbursement</span>
+                            {filteredItems.length > 0 && (
+                                <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-1.5 py-0 h-4 border-none ml-1">
+                                    {pendingMetrics.poCount}
+                                </Badge>
+                            )}
                         </TabsTrigger>
-                        <TabsTrigger value="arrival" className="gap-2 px-8 relative flex items-center">
-                            <PackageCheck className="w-4 h-4" />
-                            Arrival Confirmation
+                        <TabsTrigger value="arrival" className="gap-2 py-2 px-3 text-xs font-bold rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-xs">
+                            <PackageCheck className="w-4 h-4 text-orange-500" />
+                            <span>Arrival Confirmation</span>
                             {actualWaitingArrival.length > 0 && (
-                                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
+                                <Badge className="bg-orange-100 text-orange-800 text-[10px] font-black px-1.5 py-0 h-4 border-none ml-1">
                                     {actualWaitingArrival.length}
-                                </span>
+                                </Badge>
                             )}
                         </TabsTrigger>
-                        <TabsTrigger value="unseen" className="gap-2 px-8 relative flex items-center">
-                            <EyeOff className="w-4 h-4" />
-                            Unseen Items
+                        <TabsTrigger value="unseen" className="gap-2 py-2 px-3 text-xs font-bold rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-xs">
+                            <EyeOff className="w-4 h-4 text-slate-500" />
+                            <span>Unseen Items</span>
                             {unseenItems.length > 0 && (
-                                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-500 text-[10px] font-bold text-white">
+                                <Badge className="bg-slate-200 text-slate-800 text-[10px] font-black px-1.5 py-0 h-4 border-none ml-1">
                                     {unseenItems.length}
-                                </span>
+                                </Badge>
                             )}
                         </TabsTrigger>
-                        <TabsTrigger value="history" className="gap-2 px-8 flex items-center">
-                            <History className="w-4 h-4" />
-                            Records
+                        <TabsTrigger value="history" className="gap-2 py-2 px-3 text-xs font-bold rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-xs">
+                            <History className="w-4 h-4 text-blue-600" />
+                            <span>Disbursement Records</span>
                         </TabsTrigger>
                     </TabsList>
                 </div>
 
-                <TabsContent value="pending">
-                    <Card className="border shadow-none overflow-hidden bg-transparent">
-                        <CardHeader className="bg-white border-b py-3 rounded-t-lg">
-                            <CardTitle className="text-sm font-bold text-slate-600">
-                                Ready for Disbursement
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            {isAuthorizedLoading ? (
-                                <div className="flex items-center justify-center p-20 bg-white rounded-b-lg">
-                                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                <TabsContent value="pending" className="space-y-4">
+                    {isAuthorizedLoading ? (
+                        <div className="flex items-center justify-center p-20 bg-white rounded-2xl border border-slate-200">
+                            <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                        </div>
+                    ) : filteredItems.length === 0 ? (
+                        <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none rounded-2xl">
+                            <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+                                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl mb-2">
+                                    <CheckCircle2 size={28} />
                                 </div>
-                            ) : (
-                                <div className="grid gap-6 mt-6">
-                                    {filteredItems.length === 0 ? (
-                                        <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none">
-                                            <CardContent className="flex flex-col items-center justify-center py-24 text-center">
-                                                <div className="flex flex-col items-center gap-2">
-                                                    <CheckCircle className="w-10 h-10 text-slate-200" />
-                                                    <span className="italic text-slate-400">No pending disbursements at this time.</span>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    ) : (
-                                        renderPOCards()
-                                    )}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">No Pending Disbursements</h3>
+                                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                                    All authorized purchase orders have been fully disbursed and processed.
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="space-y-4">
+                            {renderPOCards()}
+                        </div>
+                    )}
                 </TabsContent>
 
-                <TabsContent value="arrival">
-                    <Card className="border shadow-none overflow-hidden bg-transparent">
-                        <CardHeader className="bg-white border-b py-3 rounded-t-lg">
-                            <CardTitle className="text-sm font-bold text-slate-600">
-                                Confirm Receipt of Paid Items
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            {isWaitingLoading ? (
-                                <div className="flex items-center justify-center p-20 bg-white rounded-b-lg">
-                                    <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
-                                </div>
-                            ) : (
-                                <div className="grid gap-6 mt-6">
-                                    {actualWaitingArrival.length === 0 ? (
-                                        <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none">
-                                            <CardContent className="flex flex-col items-center justify-center py-24 text-center">
-                                                <div className="flex flex-col items-center gap-2">
-                                                    <HandCoins className="w-10 h-10 text-slate-200" />
-                                                    <span className="italic text-slate-400">No items waiting for arrival confirmation.</span>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    ) : (
-                                        (() => {
-                                            const filteredWaiting = actualWaitingArrival.filter((item: any) =>
-                                                item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                                item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
-                                            );
-                                            if (filteredWaiting.length === 0) return null;
-                                            
-                                            const grouped = groupRequisitionsByPO(filteredWaiting);
-                                            return Object.entries(grouped).map(([key, reqs]) => {
-                                                const firstReq = reqs[0];
-                                                const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                                                const poNumber = firstReq.po_number || 'DRAFT-PO';
-                                                let poTotal = 0;
-                                                reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
-                                                const isExpanded = expandedGroups[`arr_${key}`];
-                                                
-                                                return (
-                                                    <Card key={`arr_${key}`} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
-                                                        <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(`arr_${key}`)}>
-                                                            <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                                                                <div className="space-y-1 w-full md:w-auto">
-                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
-                                                                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                                                        </Button>
-                                                                        <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
-                                                                            PO #: {poNumber}
-                                                                        </Badge>
-                                                                        <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
-                                                                            Payment Confirmed
-                                                                        </Badge>
-                                                                    </div>
-                                                                    <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
-                                                                        <Building2 className="w-5 h-5 text-slate-400" />
-                                                                        {supplierName}
-                                                                    </CardTitle>
-                                                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 font-medium">
-                                                                        <span className="text-emerald-700 font-semibold">
-                                                                            Paid Date: {formatDate(firstReq.status_updated_at || firstReq.created_at)}
-                                                                        </span>
-                                                                        <span>•</span>
-                                                                        <span>Payment Ref: {firstReq.payment_reference || 'N/A'}</span>
+                <TabsContent value="arrival" className="space-y-4">
+                    {isWaitingLoading ? (
+                        <div className="flex items-center justify-center p-20 bg-white rounded-2xl border border-slate-200">
+                            <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
+                        </div>
+                    ) : (
+                        (() => {
+                            const filteredWaiting = actualWaitingArrival.filter((item: any) =>
+                                item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                item.po_number?.toLowerCase().includes(searchTerm.toLowerCase())
+                            );
+                            if (filteredWaiting.length === 0) {
+                                return (
+                                    <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none rounded-2xl">
+                                        <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+                                            <div className="p-3 bg-orange-50 text-orange-600 rounded-2xl mb-2">
+                                                <PackageCheck size={28} />
+                                            </div>
+                                            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">All Deliveries Confirmed</h3>
+                                            <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                                                No paid items currently waiting for store/garage physical receipt verification.
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+                                );
+                            }
+
+                            const grouped = groupRequisitionsByPO(filteredWaiting);
+                            return (
+                                <div className="space-y-4">
+                                    {Object.entries(grouped).map(([key, reqs]) => {
+                                        const firstReq = reqs[0];
+                                        const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                                        const poNumber = firstReq.po_number || 'DRAFT-PO';
+                                        let poTotal = 0;
+                                        reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+                                        const isExpanded = expandedGroups[`arr_${key}`];
+
+                                        return (
+                                            <Card key={`arr_${key}`} className="overflow-hidden border border-slate-200 shadow-xs hover:shadow-md transition-shadow bg-white rounded-2xl">
+                                                <CardHeader className="bg-slate-50/60 border-b pb-4 cursor-pointer hover:bg-slate-100/60 transition-colors" onClick={() => toggleGroup(`arr_${key}`)}>
+                                                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                                                        <div className="space-y-1.5 flex-1">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-slate-200 rounded-lg">
+                                                                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                                </Button>
+                                                                <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200 font-bold px-2 py-0.5">
+                                                                    PO #: {poNumber}
+                                                                </Badge>
+                                                                <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px] font-bold">
+                                                                    Payment Confirmed
+                                                                </Badge>
+                                                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-bold">
+                                                                    {reqs.length} {reqs.length === 1 ? 'Item' : 'Items'}
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                                                                <Building2 className="w-5 h-5 text-orange-500" />
+                                                                <CardTitle className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                                                                    {supplierName}
+                                                                </CardTitle>
+                                                            </div>
+                                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 font-medium">
+                                                                <span>Paid Date: <strong className="text-emerald-700">{formatDate(firstReq.status_updated_at || firstReq.created_at)}</strong></span>
+                                                                <span>•</span>
+                                                                <span>Payment Ref: <strong className="text-slate-700">{firstReq.payment_reference || 'N/A'}</strong></span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex flex-col items-start lg:items-end gap-1.5 w-full lg:w-auto text-left lg:text-right">
+                                                            <div className="text-2xl font-black text-slate-900 leading-none">
+                                                                {poTotal.toLocaleString()} <span className="text-xs text-slate-500 font-normal">TZS</span>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2 justify-end mt-1">
+                                                                {(() => {
+                                                                    const payReceiptUrl = reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
+                                                                    const supplierReceiptUrl = reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
+                                                                    return (
+                                                                        <>
+                                                                            {payReceiptUrl && (
+                                                                                <Button 
+                                                                                    variant="outline" 
+                                                                                    size="sm" 
+                                                                                    className="h-8 text-xs font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl"
+                                                                                    onClick={(e) => { e.stopPropagation(); window.open(payReceiptUrl, '_blank'); }}
+                                                                                >
+                                                                                    <Receipt className="w-3.5 h-3.5 mr-1" /> View Receipt
+                                                                                </Button>
+                                                                            )}
+                                                                            {supplierReceiptUrl && (
+                                                                                <Button 
+                                                                                    variant="outline" 
+                                                                                    size="sm" 
+                                                                                    className="h-8 text-xs font-bold border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl"
+                                                                                    onClick={(e) => { e.stopPropagation(); window.open(supplierReceiptUrl, '_blank'); }}
+                                                                                >
+                                                                                    <FileText className="w-3.5 h-3.5 mr-1" /> Delivery Note
+                                                                                </Button>
+                                                                            )}
+                                                                        </>
+                                                                    );
+                                                                })()}
+                                                                <Button 
+                                                                    variant="outline" 
+                                                                    size="sm" 
+                                                                    className="h-8 text-xs font-bold border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl" 
+                                                                    onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
+                                                                >
+                                                                    <Printer className="w-3.5 h-3.5 mr-1" /> Print PO
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </CardHeader>
+
+                                                {isExpanded && (
+                                                    <div className="p-4 sm:p-5 bg-slate-50/40 space-y-3">
+                                                        {reqs.map((r: any, rIdx: number) => (
+                                                            <div
+                                                                key={r.id}
+                                                                className="relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:shadow-md hover:border-orange-300 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 overflow-hidden"
+                                                            >
+                                                                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-orange-500" />
+                                                                <div className="flex items-start gap-3 flex-1 min-w-[260px]">
+                                                                    <span className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                                                        {(rIdx + 1).toString().padStart(2, '0')}
+                                                                    </span>
+                                                                    <div className="space-y-1.5 flex-1">
+                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                            <span className="font-black text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
+                                                                                <Wrench size={14} className="text-orange-600" />
+                                                                                {r.item_name}
+                                                                            </span>
+                                                                            {r.vehicle && (
+                                                                                <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100 font-bold">
+                                                                                    <Truck className="w-3 h-3 mr-1" />
+                                                                                    {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                                                </Badge>
+                                                                            )}
+                                                                            <Badge className="bg-orange-50 text-orange-700 border-orange-200 text-[10px] font-bold uppercase">
+                                                                                Paid — Awaiting Arrival
+                                                                            </Badge>
+                                                                        </div>
+                                                                        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
+                                                                            <span>Qty: <strong className="text-slate-700">{r.quantity_approved}</strong></span>
+                                                                            <span>•</span>
+                                                                            <span>Unit: <strong className="text-slate-700">{(r.unit_price || 0).toLocaleString()} TZS</strong></span>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
-                                                                <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto text-left md:text-right">
-                                                                    <div className="text-2xl font-black text-slate-700">
-                                                                        {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+
+                                                                <div className="flex items-center justify-between lg:justify-end gap-4 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 w-full lg:w-auto">
+                                                                    <div className="text-right mr-2">
+                                                                        <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Line Total</span>
+                                                                        <div className="text-sm font-black text-slate-900">
+                                                                            {(r.total_price || 0).toLocaleString()} <span className="text-[10px] text-slate-500 font-normal">TZS</span>
+                                                                        </div>
                                                                     </div>
-                                                                    <div className="flex flex-wrap gap-2 justify-end">
-                                                                        {(() => {
-                                                                            const payReceiptUrl = reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
-                                                                            const supplierReceiptUrl = reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
-                                                                            return (
-                                                                                <>
-                                                                                    {payReceiptUrl ? (
-                                                                                        <div className="flex items-center">
-                                                                                            <Button 
-                                                                                                variant="outline" 
-                                                                                                size="sm" 
-                                                                                                className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-r-none"
-                                                                                                onClick={(e) => { e.stopPropagation(); window.open(payReceiptUrl, '_blank'); }}
-                                                                                            >
-                                                                                                <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
-                                                                                            </Button>
-                                                                                            <Button
-                                                                                                variant="outline"
-                                                                                                size="sm"
-                                                                                                className="h-7 px-2 border-emerald-200 border-l-0 text-emerald-700 hover:bg-emerald-50 rounded-l-none"
-                                                                                                title="Replace Payment Receipt"
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    const input = document.createElement('input');
-                                                                                                    input.type = 'file';
-                                                                                                    input.accept = 'image/*,.pdf';
-                                                                                                    input.onchange = (ev: any) => {
-                                                                                                        const file = ev.target.files?.[0];
-                                                                                                        if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'payment' });
-                                                                                                    };
-                                                                                                    input.click();
-                                                                                                }}
-                                                                                            >
-                                                                                                <Upload className="w-3 h-3" />
-                                                                                            </Button>
-                                                                                        </div>
-                                                                                    ) : (
-                                                                                        <Button
-                                                                                            variant="outline"
-                                                                                            size="sm"
-                                                                                            className="h-7 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                const input = document.createElement('input');
-                                                                                                input.type = 'file';
-                                                                                                input.accept = 'image/*,.pdf';
-                                                                                                input.onchange = (ev: any) => {
-                                                                                                    const file = ev.target.files?.[0];
-                                                                                                    if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'payment' });
-                                                                                                };
-                                                                                                input.click();
-                                                                                            }}
-                                                                                        >
-                                                                                            <Upload className="w-3 h-3 mr-1" /> Upload Payment Receipt
-                                                                                        </Button>
-                                                                                    )}
-                                                                                    {supplierReceiptUrl ? (
-                                                                                        <div className="flex items-center">
-                                                                                            <Button 
-                                                                                                variant="outline" 
-                                                                                                size="sm" 
-                                                                                                className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50 rounded-r-none"
-                                                                                                onClick={(e) => { e.stopPropagation(); window.open(supplierReceiptUrl, '_blank'); }}
-                                                                                            >
-                                                                                                <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
-                                                                                            </Button>
-                                                                                            <Button
-                                                                                                variant="outline"
-                                                                                                size="sm"
-                                                                                                className="h-7 px-2 border-purple-200 border-l-0 text-purple-700 hover:bg-purple-50 rounded-l-none"
-                                                                                                title="Replace Supplier Receipt"
-                                                                                                onClick={(e) => {
-                                                                                                    e.stopPropagation();
-                                                                                                    const input = document.createElement('input');
-                                                                                                    input.type = 'file';
-                                                                                                    input.accept = 'image/*,.pdf';
-                                                                                                    input.onchange = (ev: any) => {
-                                                                                                        const file = ev.target.files?.[0];
-                                                                                                        if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'delivery' });
-                                                                                                    };
-                                                                                                    input.click();
-                                                                                                }}
-                                                                                            >
-                                                                                                <Upload className="w-3 h-3" />
-                                                                                            </Button>
-                                                                                        </div>
-                                                                                    ) : (
-                                                                                        <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
-                                                                                            Awaiting Supplier Receipt
-                                                                                        </Badge>
-                                                                                    )}
-                                                                                </>
-                                                                            );
-                                                                        })()}
-                                                                        <Button 
-                                                                            variant="outline" 
-                                                                            size="sm" 
-                                                                            className="h-7 text-xs border-slate-200" 
-                                                                            onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="border-slate-300 text-slate-600 hover:bg-slate-100 shadow-xs text-xs font-bold h-8 px-3 rounded-xl"
+                                                                            onClick={(e) => { e.stopPropagation(); setUnseenConfirmReq(r); }}
+                                                                            disabled={unseenMutation.isPending}
+                                                                            title="Item was not seen physically"
                                                                         >
-                                                                            <Printer className="w-3 h-3 mr-1" /> Print PO
+                                                                            <EyeOff className="w-3.5 h-3.5 mr-1 text-slate-500" />
+                                                                            Not Seen
+                                                                        </Button>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs text-xs font-bold h-8 px-3.5 rounded-xl"
+                                                                            onClick={(e) => { e.stopPropagation(); arrivalMutation.mutate(r); }}
+                                                                            disabled={arrivalMutation.isPending}
+                                                                        >
+                                                                            {arrivalMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <PackageCheck className="w-3.5 h-3.5 mr-1" />}
+                                                                            Confirm Arrival
                                                                         </Button>
                                                                     </div>
                                                                 </div>
                                                             </div>
-                                                        </CardHeader>
-                                                        {isExpanded && (
-                                                            <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
-                                                                <Table>
-                                                                    <TableHeader className="bg-slate-100/50">
-                                                                        <TableRow>
-                                                                            <TableHead className="pl-6 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Item Description</TableHead>
-                                                                            <TableHead>Qty</TableHead>
-                                                                            <TableHead>Unit Price</TableHead>
-                                                                            <TableHead className="text-right">Total</TableHead>
-                                                                            <TableHead className="text-right pr-6">Action</TableHead>
-                                                                        </TableRow>
-                                                                    </TableHeader>
-                                                                    <TableBody>
-                                                                        {reqs.map((r: any) => (
-                                                                            <TableRow key={r.id}>
-                                                                                <TableCell className="pl-6 py-4 sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                                                                    <div className="font-medium text-slate-900">{r.item_name}</div>
-                                                                                    {r.vehicle && (
-                                                                                        <div className="text-[10px] text-blue-700 font-bold mt-0.5 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 inline-block">
-                                                                                            {r.vehicle.vehicle_no || r.vehicle.horse_number || 'N/A'}
-                                                                                        </div>
-                                                                                    )}
-                                                                                </TableCell>
-                                                                                <TableCell className="font-medium">{r.quantity_approved}</TableCell>
-                                                                                <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
-                                                                                <TableCell className="text-right font-bold text-slate-900">
-                                                                                    {(r.total_price || 0).toLocaleString()} TZS
-                                                                                </TableCell>
-                                                                                <TableCell className="text-right pr-6">
-                                                                                    <div className="flex items-center justify-end gap-2">
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            variant="outline"
-                                                                                            className="border-slate-300 text-slate-600 hover:bg-slate-100 shadow-sm text-[10px] uppercase font-bold h-7 max-w-[120px]"
-                                                                                            onClick={(e) => { e.stopPropagation(); setUnseenConfirmReq(r); }}
-                                                                                            disabled={unseenMutation.isPending}
-                                                                                            title="Did not see physically"
-                                                                                        >
-                                                                                            <EyeOff className="w-3 h-3 mr-1" />
-                                                                                            Not Seen
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            className="bg-primary hover:bg-primary/90 text-white shadow-sm text-[10px] uppercase font-bold h-7 max-w-[120px]"
-                                                                                            onClick={(e) => { e.stopPropagation(); arrivalMutation.mutate(r); }}
-                                                                                            disabled={arrivalMutation.isPending}
-                                                                                        >
-                                                                                            <PackageCheck className="w-3 h-3 mr-1" />
-                                                                                            Confirm Arrival
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                </TableCell>
-                                                                            </TableRow>
-                                                                        ))}
-                                                                    </TableBody>
-                                                                </Table>
-                                                            </CardContent>
-                                                        )}
-                                                    </Card>
-                                                );
-                                            });
-                                        })()
-                                    )}
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </Card>
+                                        );
+                                    })}
                                 </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                            );
+                        })()
+                    )}
                 </TabsContent>
 
-                <TabsContent value="unseen">
-                    <Card className="border shadow-none overflow-hidden bg-transparent">
-                        <CardHeader className="bg-white border-b py-3 rounded-t-lg">
-                            <CardTitle className="text-sm font-bold text-slate-600 flex items-center gap-2">
-                                <EyeOff className="w-4 h-4 text-slate-500" />
-                                Items Paid But Not Seen Physically
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-0 bg-white">
-                            {isWaitingLoading ? (
-                                <div className="flex items-center justify-center p-20">
-                                    <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                <TabsContent value="unseen" className="space-y-4">
+                    {isWaitingLoading ? (
+                        <div className="flex items-center justify-center p-20 bg-white rounded-2xl border border-slate-200">
+                            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                        </div>
+                    ) : unseenItems.length === 0 ? (
+                        <Card className="border-dashed border-2 border-slate-200 bg-white shadow-none rounded-2xl">
+                            <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+                                <div className="p-3 bg-slate-100 text-slate-400 rounded-2xl mb-2">
+                                    <Eye className="w-6 h-6" />
                                 </div>
-                            ) : (
-                                <div className="p-0">
-                                    {unseenItems.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center py-20 text-center">
-                                            <div className="flex flex-col items-center gap-2">
-                                                <Eye className="w-10 h-10 text-slate-200" />
-                                                <span className="italic text-slate-400">No unseen items recorded.</span>
+                                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">No Unseen Items</h3>
+                                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                                    Every disbursed item has been physically accounted for or verified at delivery.
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="space-y-3">
+                            {unseenItems.map((item: any, uIdx: number) => (
+                                <div
+                                    key={item.id}
+                                    className="relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 overflow-hidden"
+                                >
+                                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-slate-400" />
+                                    <div className="flex items-start gap-3 flex-1">
+                                        <span className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                            {(uIdx + 1).toString().padStart(2, '0')}
+                                        </span>
+                                        <div className="space-y-1.5 flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-black text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
+                                                    <EyeOff size={14} className="text-slate-500" />
+                                                    {item.item_name}
+                                                </span>
+                                                <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200 font-bold">
+                                                    PO #: {item.po_number || 'N/A'}
+                                                </Badge>
+                                                {item.vehicle && (
+                                                    <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100 font-bold">
+                                                        <Truck className="w-3 h-3 mr-1" />
+                                                        {item.vehicle.vehicle_no || item.vehicle.horse_number}
+                                                    </Badge>
+                                                )}
+                                                <Badge className="bg-slate-100 text-slate-700 border-slate-300 text-[10px] font-bold uppercase">
+                                                    Not Seen Physically
+                                                </Badge>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
+                                                <span>Supplier: <strong className="text-slate-700">{item.garage_suppliers?.name || 'Unknown'}</strong></span>
+                                                <span>•</span>
+                                                <span>Disbursed Date: <strong className="text-slate-700">{formatDate(item.status_updated_at)}</strong></span>
                                             </div>
                                         </div>
-                                    ) : (
-                                        <Table>
-                                            <TableHeader className="bg-slate-50">
-                                                <TableRow>
-                                                    <TableHead className="pl-6 font-bold text-xs">Date</TableHead>
-                                                    <TableHead className="font-bold text-xs">PO Number</TableHead>
-                                                    <TableHead className="font-bold text-xs">Supplier</TableHead>
-                                                    <TableHead className="font-bold text-xs">Item Description</TableHead>
-                                                    <TableHead className="font-bold text-xs">Vehicle</TableHead>
-                                                    <TableHead className="font-bold text-xs text-right pr-6">Amount</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {unseenItems.map((item: any) => (
-                                                    <TableRow key={item.id} className="hover:bg-slate-50/50">
-                                                        <TableCell className="pl-6 text-sm text-slate-500">{formatDate(item.status_updated_at)}</TableCell>
-                                                        <TableCell className="font-medium text-slate-900">{item.po_number || 'N/A'}</TableCell>
-                                                        <TableCell className="text-sm">{item.garage_suppliers?.name || 'Unknown'}</TableCell>
-                                                        <TableCell className="font-medium">{item.item_name}</TableCell>
-                                                        <TableCell>
-                                                            {item.vehicle ? (
-                                                                <span className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">
-                                                                    {item.vehicle.vehicle_no || item.vehicle.horse_number || 'N/A'}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-[10px] text-slate-400">—</span>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell className="text-right pr-6 font-bold text-slate-900">
-                                                            {(item.total_price || 0).toLocaleString()} TZS
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
-                                    )}
+                                    </div>
+                                    <div className="text-right sm:min-w-[130px]">
+                                        <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Disbursed Amount</span>
+                                        <div className="text-sm font-black text-slate-900">
+                                            {(item.total_price || 0).toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">TZS</span>
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
-                        </CardContent>
-                    </Card>
+                            ))}
+                        </div>
+                    )}
                 </TabsContent>
 
                 <TabsContent value="history" className="space-y-6">
@@ -1131,62 +1369,60 @@ const CashierPaymentPortal = () => {
                     <div className="space-y-3">
                         <div className="flex items-center justify-between px-1">
                             <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 bg-emerald-500 rounded-full" />
-                                <h3 className="text-sm font-bold text-slate-900 uppercase">Today's Disbursements</h3>
-                                <Badge variant="outline" className="text-emerald-600 border-emerald-200 text-[10px] font-bold">
-                                    {todayRecords.length}
+                                <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full" />
+                                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Today's Disbursements</h3>
+                                <Badge variant="outline" className="text-emerald-700 border-emerald-200 bg-emerald-50 text-[10px] font-bold">
+                                    {todayRecords.length} Settled
                                 </Badge>
                             </div>
                         </div>
 
-                        <Card className="border shadow-none overflow-hidden bg-white">
-                            <CardContent className="p-0">
-                                <Table>
-                                    <TableHeader className="bg-slate-50/50">
-                                        <TableRow>
-                                            <TableHead className="text-xs font-bold py-3 pl-6">Reference</TableHead>
-                                            <TableHead className="text-xs font-bold">Item & PO</TableHead>
-                                            <TableHead className="text-xs font-bold">Supplier</TableHead>
-                                            <TableHead className="text-xs font-bold text-right pr-6">Amount Paid</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {todayRecords.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={4} className="text-center py-10 text-slate-400 italic text-sm">
-                                                    No payments made today.
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            todayRecords.map((item: any) => (
-                                                <TableRow key={item.id} className="hover:bg-slate-50/30">
-                                                    <TableCell className="font-mono text-xs font-bold text-emerald-600 pl-6">
-                                                        {item.payment_reference}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="flex flex-col items-start">
-                                                            <span className="text-xs font-bold text-slate-800">{item.item_name}</span>
-                                                            <span className="text-[10px] text-slate-400 italic">#{item.po_number}</span>
-                                                            {item.vehicle && (
-                                                                <div className="text-[10px] text-blue-700 font-bold mt-0.5 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 inline-block">
-                                                                    {item.vehicle.vehicle_no || item.vehicle.horse_number || 'N/A'}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-xs font-medium">
-                                                        {item.garage_suppliers?.name}
-                                                    </TableCell>
-                                                    <TableCell className="text-right font-bold text-slate-900 pr-6 text-xs">
-                                                        {item.total_price?.toLocaleString()} TShs
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </CardContent>
-                        </Card>
+                        {todayRecords.length === 0 ? (
+                            <Card className="border border-slate-200 bg-white rounded-xl shadow-xs p-8 text-center">
+                                <p className="text-xs text-slate-400 italic">No disbursement records processed today yet.</p>
+                            </Card>
+                        ) : (
+                            <div className="space-y-2">
+                                {todayRecords.map((item: any, tIdx: number) => (
+                                    <div
+                                        key={item.id}
+                                        className="relative group/card bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 overflow-hidden"
+                                    >
+                                        <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500" />
+                                        <div className="flex items-start gap-3 flex-1 pl-1">
+                                            <span className="text-[10px] font-black text-slate-300 tabular-nums mt-0.5">
+                                                {(tIdx + 1).toString().padStart(2, '0')}
+                                            </span>
+                                            <div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-xs font-bold text-slate-900">{item.item_name}</span>
+                                                    <Badge variant="outline" className="font-mono text-[10px] text-blue-900 border-blue-200">
+                                                        #{item.po_number}
+                                                    </Badge>
+                                                    {item.vehicle && (
+                                                        <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100 font-bold">
+                                                            <Truck className="w-3 h-3 mr-1" />
+                                                            {item.vehicle.vehicle_no || item.vehicle.horse_number}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                                                    <span>Ref: <strong className="font-mono text-emerald-700">{item.payment_reference || 'N/A'}</strong></span>
+                                                    <span>•</span>
+                                                    <span>Vendor: <strong className="text-slate-700">{item.garage_suppliers?.name || 'Verified Supplier'}</strong></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="text-right sm:min-w-[120px]">
+                                            <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Amount Paid</span>
+                                            <div className="text-sm font-black text-slate-900">
+                                                {(item.total_price || 0).toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">TZS</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     <hr className="border-slate-200" />
@@ -1194,19 +1430,19 @@ const CashierPaymentPortal = () => {
                     {/* Archives Section */}
                     <div className="space-y-4">
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-1">
-                            <h3 className="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
-                                <History className="w-4 h-4" />
-                                Archived Records
+                            <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                                <History className="w-4 h-4 text-slate-500" />
+                                Archived Historical Disbursements
                             </h3>
 
                             <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg border">
+                                <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
                                     <Select value={selectedMonth} onValueChange={(val) => { setSelectedMonth(val); setSelectedDay("All"); }}>
-                                        <SelectTrigger className="w-[180px] h-8 text-xs font-bold">
+                                        <SelectTrigger className="w-[170px] h-8 text-xs font-bold rounded-lg bg-white border-slate-200">
                                             <SelectValue placeholder="Select Month" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="All">All History</SelectItem>
+                                            <SelectItem value="All">All Historical Months</SelectItem>
                                             {availableMonths.map(([val, label]) => (
                                                 <SelectItem key={val} value={val}>{label}</SelectItem>
                                             ))}
@@ -1216,7 +1452,7 @@ const CashierPaymentPortal = () => {
                                     <div className="w-px h-4 bg-slate-300" />
 
                                     <Select value={selectedDay} onValueChange={setSelectedDay} disabled={selectedMonth === "All"}>
-                                        <SelectTrigger className="w-[130px] h-8 text-xs font-bold">
+                                        <SelectTrigger className="w-[120px] h-8 text-xs font-bold rounded-lg bg-white border-slate-200">
                                             <SelectValue placeholder="Select Day" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -1225,20 +1461,20 @@ const CashierPaymentPortal = () => {
                                                 <SelectItem key={day} value={day}>{formatDate(day)}</SelectItem>
                                             ))}
                                         </SelectContent>
-                                                                    </Select>
+                                    </Select>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="grid gap-4 mt-4">
+                        <div className="space-y-4 mt-4">
                             {isHistoryLoading ? (
-                                <div className="text-center py-10">
-                                    <Loader2 className="w-5 h-5 animate-spin mx-auto text-slate-300" />
+                                <div className="text-center py-12">
+                                    <Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" />
                                 </div>
                             ) : filteredArchived.length === 0 ? (
-                                <Card className="border shadow-none overflow-hidden bg-white/50 border-dashed">
+                                <Card className="border border-slate-200 shadow-none overflow-hidden bg-white/70 border-dashed rounded-2xl">
                                     <CardContent className="text-center py-16 text-slate-400 italic text-sm">
-                                        No archived records found for selection.
+                                        No archived records found for selected period.
                                     </CardContent>
                                 </Card>
                             ) : (
@@ -1251,121 +1487,58 @@ const CashierPaymentPortal = () => {
                                     const isExpanded = expandedGroups[`hist_${key}`];
                                     
                                     return (
-                                        <Card key={`hist_${key}`} className="overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
-                                            <CardHeader className="bg-slate-50/50 border-b pb-4 cursor-pointer hover:bg-slate-100/50 transition-colors" onClick={() => toggleGroup(`hist_${key}`)}>
-                                                <div className="flex flex-col md:flex-row justify-between items-start gap-4">
-                                                    <div className="space-y-1 w-full md:w-auto">
+                                        <Card key={`hist_${key}`} className="overflow-hidden border border-slate-200 shadow-xs hover:shadow-md transition-shadow bg-white rounded-2xl">
+                                            <CardHeader className="bg-slate-50/60 border-b pb-4 cursor-pointer hover:bg-slate-100/60 transition-colors" onClick={() => toggleGroup(`hist_${key}`)}>
+                                                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                                                    <div className="space-y-1.5 flex-1">
                                                         <div className="flex flex-wrap items-center gap-2">
-                                                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-slate-200">
+                                                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-slate-200 rounded-lg">
                                                                 {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                                             </Button>
-                                                            <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200">
+                                                            <Badge variant="outline" className="font-mono text-xs text-blue-900 bg-white border-blue-200 font-bold px-2 py-0.5">
                                                                 PO #: {poNumber}
                                                             </Badge>
-                                                            <Badge className="bg-slate-100 text-slate-700 border-slate-300 uppercase text-[10px]">
-                                                                Closed
+                                                            <Badge className="bg-slate-100 text-slate-700 border-slate-300 uppercase text-[10px] font-bold">
+                                                                Closed & Settled
                                                             </Badge>
                                                         </div>
-                                                        <CardTitle className="text-xl font-bold text-slate-800 flex items-center gap-2 mt-2">
+                                                        <div className="flex flex-wrap items-center gap-2 pt-1">
                                                             <Building2 className="w-5 h-5 text-slate-400" />
-                                                            {supplierName}
-                                                        </CardTitle>
-                                                        <p className="text-sm text-slate-500 font-medium">Payment Ref: {firstReq.payment_reference || 'N/A'}</p>
-                                                    </div>
-                                                    <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto text-left md:text-right">
-                                                        <div className="text-2xl font-black text-slate-700">
-                                                            {poTotal.toLocaleString()} <span className="text-sm text-slate-500 font-medium">TZS</span>
+                                                            <CardTitle className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                                                                {supplierName}
+                                                            </CardTitle>
                                                         </div>
-                                                        <div className="flex flex-wrap gap-2 justify-end">
+                                                        <p className="text-xs text-slate-400 font-medium">Payment Ref: <strong className="text-slate-700 font-mono">{firstReq.payment_reference || 'N/A'}</strong></p>
+                                                    </div>
+                                                    <div className="flex flex-col items-start lg:items-end gap-1.5 w-full lg:w-auto text-left lg:text-right">
+                                                        <div className="text-2xl font-black text-slate-900 leading-none">
+                                                            {poTotal.toLocaleString()} <span className="text-xs text-slate-500 font-normal">TZS</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2 justify-end mt-1">
                                                             {(() => {
                                                                 const payReceiptUrl = reqs.find((r: any) => r.payment_receipt_url)?.payment_receipt_url;
                                                                 const supplierReceiptUrl = reqs.find((r: any) => r.delivery_receipt_url)?.delivery_receipt_url;
                                                                 return (
                                                                     <>
-                                                                        {payReceiptUrl ? (
-                                                                            <div className="flex items-center">
-                                                                                <Button 
-                                                                                    variant="outline" 
-                                                                                    size="sm" 
-                                                                                    className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-r-none"
-                                                                                    onClick={(e) => { e.stopPropagation(); window.open(payReceiptUrl, '_blank'); }}
-                                                                                >
-                                                                                    <Receipt className="w-3 h-3 mr-1" /> Payment Receipt
-                                                                                </Button>
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-7 px-2 border-emerald-200 border-l-0 text-emerald-700 hover:bg-emerald-50 rounded-l-none"
-                                                                                    title="Replace Payment Receipt"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        const input = document.createElement('input');
-                                                                                        input.type = 'file';
-                                                                                        input.accept = 'image/*,.pdf';
-                                                                                        input.onchange = (ev: any) => {
-                                                                                            const file = ev.target.files?.[0];
-                                                                                            if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'payment' });
-                                                                                        };
-                                                                                        input.click();
-                                                                                    }}
-                                                                                >
-                                                                                    <Upload className="w-3 h-3" />
-                                                                                </Button>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <Button
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                className="h-7 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const input = document.createElement('input');
-                                                                                    input.type = 'file';
-                                                                                    input.accept = 'image/*,.pdf';
-                                                                                    input.onchange = (ev: any) => {
-                                                                                        const file = ev.target.files?.[0];
-                                                                                        if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'payment' });
-                                                                                    };
-                                                                                    input.click();
-                                                                                }}
+                                                                        {payReceiptUrl && (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-8 text-xs font-bold border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl"
+                                                                                onClick={(e) => { e.stopPropagation(); window.open(payReceiptUrl, '_blank'); }}
                                                                             >
-                                                                                <Upload className="w-3 h-3 mr-1" /> Upload Payment Receipt
+                                                                                <Receipt className="w-3.5 h-3.5 mr-1" /> View Receipt
                                                                             </Button>
                                                                         )}
-                                                                        {supplierReceiptUrl ? (
-                                                                            <div className="flex items-center">
-                                                                                <Button 
-                                                                                    variant="outline" 
-                                                                                    size="sm" 
-                                                                                    className="h-7 text-xs border-purple-200 text-purple-700 hover:bg-purple-50 rounded-r-none"
-                                                                                    onClick={(e) => { e.stopPropagation(); window.open(supplierReceiptUrl, '_blank'); }}
-                                                                                >
-                                                                                    <FileText className="w-3 h-3 mr-1" /> Supplier Receipt
-                                                                                </Button>
-                                                                                <Button
-                                                                                    variant="outline"
-                                                                                    size="sm"
-                                                                                    className="h-7 px-2 border-purple-200 border-l-0 text-purple-700 hover:bg-purple-50 rounded-l-none"
-                                                                                    title="Replace Supplier Receipt"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        const input = document.createElement('input');
-                                                                                        input.type = 'file';
-                                                                                        input.accept = 'image/*,.pdf';
-                                                                                        input.onchange = (ev: any) => {
-                                                                                            const file = ev.target.files?.[0];
-                                                                                            if (file) receiptUploadMutation.mutate({ reqId: firstReq.id, file, type: 'delivery' });
-                                                                                        };
-                                                                                        input.click();
-                                                                                    }}
-                                                                                >
-                                                                                    <Upload className="w-3 h-3" />
-                                                                                </Button>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <Badge variant="outline" className="h-7 px-3 flex items-center bg-slate-50 text-slate-500 border-slate-200 uppercase text-[9px]">
-                                                                                Awaiting Supplier Receipt
-                                                                            </Badge>
+                                                                        {supplierReceiptUrl && (
+                                                                            <Button 
+                                                                                variant="outline" 
+                                                                                size="sm" 
+                                                                                className="h-8 text-xs font-bold border-purple-200 text-purple-700 hover:bg-purple-50 rounded-xl"
+                                                                                onClick={(e) => { e.stopPropagation(); window.open(supplierReceiptUrl, '_blank'); }}
+                                                                            >
+                                                                                <FileText className="w-3.5 h-3.5 mr-1" /> Delivery Receipt
+                                                                            </Button>
                                                                         )}
                                                                     </>
                                                                 );
@@ -1373,47 +1546,51 @@ const CashierPaymentPortal = () => {
                                                             <Button 
                                                                 variant="outline" 
                                                                 size="sm" 
-                                                                className="h-7 text-xs border-slate-200" 
+                                                                className="h-8 text-xs font-bold border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl" 
                                                                 onClick={(e) => { e.stopPropagation(); printPurchaseOrder({ requisitions: reqs, userProfile }); }}
                                                             >
-                                                                <Printer className="w-3 h-3 mr-1" /> Print PO
+                                                                <Printer className="w-3.5 h-3.5 mr-1" /> Print PO
                                                             </Button>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </CardHeader>
                                             {isExpanded && (
-                                                <CardContent className="pt-0 pb-0 p-0 overflow-x-auto">
-                                                    <Table>
-                                                        <TableHeader className="bg-slate-100/50">
-                                                            <TableRow>
-                                                                <TableHead className="pl-6">Date</TableHead>
-                                                                <TableHead>Item Description</TableHead>
-                                                                <TableHead>Qty</TableHead>
-                                                                <TableHead className="text-right pr-6">Total</TableHead>
-                                                            </TableRow>
-                                                        </TableHeader>
-                                                        <TableBody>
-                                                            {reqs.map((r: any) => (
-                                                                <TableRow key={r.id}>
-                                                                    <TableCell className="pl-6 text-xs">{formatDate(r.status_updated_at)}</TableCell>
-                                                                    <TableCell className="font-semibold text-slate-800">
-                                                                        <div className="font-medium text-slate-900">{r.item_name}</div>
+                                                <div className="p-4 sm:p-5 bg-slate-50/40 space-y-3">
+                                                    {reqs.map((r: any, rIdx: number) => (
+                                                        <div
+                                                            key={r.id}
+                                                            className="relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 overflow-hidden"
+                                                        >
+                                                            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-slate-400" />
+                                                            <div className="flex items-start gap-3 flex-1 min-w-[240px]">
+                                                                <span className="text-[10px] font-black text-slate-300 tabular-nums mt-0.5">
+                                                                    {(rIdx + 1).toString().padStart(2, '0')}
+                                                                </span>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                                        <span className="font-bold text-slate-900 text-sm">{r.item_name}</span>
                                                                         {r.vehicle && (
-                                                                            <div className="text-[10px] text-blue-700 font-bold mt-0.5 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 inline-block">
-                                                                                {r.vehicle.vehicle_no || r.vehicle.horse_number || 'N/A'}
-                                                                            </div>
+                                                                            <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100 font-bold">
+                                                                                <Truck className="w-3 h-3 mr-1" />
+                                                                                {r.vehicle.vehicle_no || r.vehicle.horse_number}
+                                                                            </Badge>
                                                                         )}
-                                                                    </TableCell>
-                                                                    <TableCell className="font-medium">{r.quantity_approved}</TableCell>
-                                                                    <TableCell className="text-right pr-6 font-bold text-slate-900">
-                                                                        {(r.total_price || 0).toLocaleString()} TZS
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            ))}
-                                                        </TableBody>
-                                                    </Table>
-                                                </CardContent>
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                                                        Settled Date: {formatDate(r.status_updated_at)} • Qty: {r.quantity_approved}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right sm:min-w-[120px]">
+                                                                <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Line Total</span>
+                                                                <div className="text-sm font-black text-slate-900">
+                                                                    {(r.total_price || 0).toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">TZS</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             )}
                                         </Card>
                                     );

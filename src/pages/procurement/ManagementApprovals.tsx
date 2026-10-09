@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -13,10 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2, Pencil, ChevronsUpDown } from "lucide-react";
+import { CheckCircle, FileCheck, ClipboardCheck, Loader2, Receipt, AlertTriangle, Calendar, Truck, Building2, ExternalLink, Paperclip, Check, Eye, Trash2, Pencil, ChevronsUpDown, Package, Wrench, Search, X, Layers, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, DollarSign, Clock, ShieldCheck, Sparkles } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 const ManagementApprovals = () => {
+    const navigate = useNavigate();
     const sb = supabase as any;
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -43,6 +46,12 @@ const ManagementApprovals = () => {
     const [reviewEdits, setReviewEdits] = useState<Record<string, { qty: number, note: string }>>({});
     const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
     const [quickEditData, setQuickEditData] = useState({ id: "", quantity_requested: 0, unit_price: 0, quantity_approved: 0, item_name: "" });
+
+    // Toolbar & Filter State
+    const [searchTerm, setSearchTerm] = useState("");
+    const [approvalFilterTab, setApprovalFilterTab] = useState<'all' | 'reviews' | 'pos'>('all');
+    const [expandedReviewVehicles, setExpandedReviewVehicles] = useState<string[]>([]);
+    const [expandedPOKeys, setExpandedPOKeys] = useState<string[]>([]);
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return "N/A";
@@ -443,352 +452,785 @@ const ManagementApprovals = () => {
         return groups;
     };
 
-    const renderReviewTable = () => {
-        if (!reviewsPending || reviewsPending.length === 0) return (
-            <Card className="border-dashed border-2 border-slate-200 bg-transparent shadow-none mb-8">
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                        <CheckCircle className="w-8 h-8 text-emerald-500" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-slate-900">No Pending Reviews!</h3>
-                    <p className="text-slate-500 max-sm mt-1">
-                        There are no new garage requisitions waiting for your review.
-                    </p>
-                </CardContent>
-            </Card>
+    // Filtered lists for real-time search
+    const filteredReviewsPending = useMemo(() => {
+        if (!reviewsPending) return [];
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return reviewsPending;
+        return reviewsPending.filter((r: any) =>
+            (r.item_name || "").toLowerCase().includes(q) ||
+            (r.garage_inventory?.item_name || "").toLowerCase().includes(q) ||
+            (r.vehicle?.vehicle_no || "").toLowerCase().includes(q) ||
+            (r.vehicle?.horse_number || "").toLowerCase().includes(q) ||
+            (r.vehicle?.make_model || "").toLowerCase().includes(q) ||
+            (r.profiles?.full_name || "").toLowerCase().includes(q)
         );
+    }, [reviewsPending, searchTerm]);
 
-        const grouped = groupRequisitionsByVehicle(reviewsPending);
+    const filteredApprovals = useMemo(() => {
+        if (!approvals) return [];
+        const q = searchTerm.trim().toLowerCase();
+        if (!q) return approvals;
+        return approvals.filter((r: any) =>
+            (r.item_name || "").toLowerCase().includes(q) ||
+            (r.garage_suppliers?.name || "").toLowerCase().includes(q) ||
+            (r.po_number || "").toLowerCase().includes(q) ||
+            (r.vehicle?.vehicle_no || "").toLowerCase().includes(q) ||
+            (r.vehicle?.horse_number || "").toLowerCase().includes(q) ||
+            (r.vehicle?.make_model || "").toLowerCase().includes(q) ||
+            (r.profiles?.full_name || "").toLowerCase().includes(q)
+        );
+    }, [approvals, searchTerm]);
+
+    const groupedReviews = useMemo(() => groupRequisitionsByVehicle(filteredReviewsPending), [filteredReviewsPending]);
+    const groupedPOs = useMemo(() => groupRequisitionsByPO(filteredApprovals), [filteredApprovals]);
+
+    const reviewGroupKeys = useMemo(() => Object.keys(groupedReviews), [groupedReviews]);
+    const poGroupKeys = useMemo(() => Object.keys(groupedPOs), [groupedPOs]);
+
+    const isAllExpanded = useMemo(() => {
+        const hasReviews = reviewGroupKeys.length > 0;
+        const hasPOs = poGroupKeys.length > 0;
+        const reviewsExpanded = !hasReviews || reviewGroupKeys.every(k => expandedReviewVehicles.includes(k));
+        const posExpanded = !hasPOs || poGroupKeys.every(k => expandedPOKeys.includes(k));
+        return (hasReviews || hasPOs) && reviewsExpanded && posExpanded;
+    }, [reviewGroupKeys, poGroupKeys, expandedReviewVehicles, expandedPOKeys]);
+
+    const handleToggleAllGroups = () => {
+        if (isAllExpanded) {
+            setExpandedReviewVehicles([]);
+            setExpandedPOKeys([]);
+        } else {
+            setExpandedReviewVehicles(reviewGroupKeys);
+            setExpandedPOKeys(poGroupKeys);
+        }
+    };
+
+    const toggleReviewVehicle = (vehicleKey: string) => {
+        setExpandedReviewVehicles(prev =>
+            prev.includes(vehicleKey) ? prev.filter(k => k !== vehicleKey) : [...prev, vehicleKey]
+        );
+    };
+
+    const togglePOKey = (key: string) => {
+        setExpandedPOKeys(prev =>
+            prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+        );
+    };
+
+    const pendingReviewsCount = reviewsPending?.length || 0;
+    const poBatchesCount = approvals ? new Set(approvals.map((a: any) => a.po_number || a.supplier_id)).size : 0;
+    const totalPOCommitmentTZS = useMemo(() => {
+        return (approvals || []).reduce((acc: number, r: any) => acc + (Number(r.total_price) || 0), 0);
+    }, [approvals]);
+    const totalAdvanceCommittedTZS = useMemo(() => {
+        return (approvals || []).reduce((acc: number, r: any) => acc + (Number(r.advance_payment) || 0), 0);
+    }, [approvals]);
+
+    const renderReviewTable = () => {
+        if (!filteredReviewsPending || filteredReviewsPending.length === 0) {
+            return (
+                <Card className="border border-slate-200 bg-white p-12 rounded-2xl text-center shadow-xs mb-6">
+                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle className="w-6 h-6 text-emerald-600" />
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">
+                        {searchTerm ? "No Matching Review Requests" : "All Caught Up on Reviews"}
+                    </h3>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 font-medium">
+                        {searchTerm
+                            ? "No pending garage requests match your search query."
+                            : "There are currently no new garage requisitions awaiting your initial management review."}
+                    </p>
+                </Card>
+            );
+        }
 
         return (
-            <div className="mb-8">
-                <div className="flex items-center gap-2 mb-4">
-                    <Eye className="w-5 h-5 text-amber-600" />
-                    <h2 className="text-xl font-bold text-slate-800 tracking-tight">Review New Requests</h2>
-                    <Badge className="bg-amber-100 text-amber-700 border-amber-200 ml-2">{reviewsPending.length} Pending</Badge>
+            <div className="space-y-4 mb-8">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
+                            <Eye className="w-4 h-4" />
+                        </div>
+                        <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                            Review New Requests (From Garage)
+                        </h2>
+                        <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-bold ml-1">
+                            {filteredReviewsPending.length} Pending
+                        </Badge>
+                    </div>
                 </div>
-                
-                <Accordion type="multiple" className="space-y-4">
-                    {Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0])).map(([vehicleKey, reqs]) => {
+
+                <div className="space-y-3">
+                    {Object.entries(groupedReviews).sort((a, b) => a[0].localeCompare(b[0])).map(([vehicleKey, reqs]) => {
+                        const isExpanded = expandedReviewVehicles.includes(vehicleKey);
+
                         return (
-                            <AccordionItem key={vehicleKey} value={vehicleKey} className="overflow-hidden border border-amber-200/60 rounded-lg shadow-sm bg-white">
-                                <AccordionTrigger className="hover:no-underline bg-amber-50/30 px-6 py-4 data-[state=open]:border-b">
-                                    <div className="flex justify-between items-center w-full pr-4 text-left">
-                                        <div className="flex items-center gap-3">
-                                            {vehicleKey === "STORE ROOM" ? (
-                                                <Building2 className="w-5 h-5 text-amber-600" />
-                                            ) : (
-                                                <Truck className="w-5 h-5 text-blue-600" />
-                                            )}
-                                            <span className="text-lg font-bold text-slate-800 uppercase tracking-tight">
-                                                {vehicleKey}
-                                            </span>
+                            <Card
+                                key={vehicleKey}
+                                className="border border-slate-200 bg-white shadow-xs rounded-2xl overflow-hidden transition-all duration-200"
+                            >
+                                {/* Accordion Header */}
+                                <div
+                                    onClick={() => toggleReviewVehicle(vehicleKey)}
+                                    className="p-4 sm:p-5 bg-gradient-to-r from-amber-50/40 via-white to-slate-50/50 hover:from-amber-100/40 hover:to-slate-100/60 border-b border-slate-200 cursor-pointer transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none"
+                                >
+                                    <div className="flex items-center gap-3.5 flex-1">
+                                        <div className="text-slate-400 transition-transform duration-200">
+                                            {isExpanded ? <ChevronDown size={20} className="text-slate-700" /> : <ChevronRight size={20} />}
                                         </div>
-                                        <div className="text-right">
-                                            <Badge variant="outline" className="text-xs text-amber-700 bg-amber-50 border-amber-200">
-                                                {reqs.length} Items Pending
-                                            </Badge>
+
+                                        <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs">
+                                            {vehicleKey === "STORE ROOM" ? <Building2 size={18} /> : <Truck size={18} />}
+                                        </div>
+
+                                        <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">
+                                                    {vehicleKey}
+                                                </h3>
+                                                <Badge className="bg-amber-600 text-white border-none text-[10px] font-black px-2 h-5 rounded-md">
+                                                    {reqs.length} {reqs.length === 1 ? 'Item' : 'Items'}
+                                                </Badge>
+                                                <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-bold">
+                                                    AWAITING BOSS REVIEW
+                                                </Badge>
+                                            </div>
+                                            <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                                                {vehicleKey === "STORE ROOM" ? "General Workshop & Facility Supplies" : "Vehicle Mechanical & Workshop Requisitions"} • Latest: {formatDate(reqs[0]?.created_at)}
+                                            </p>
                                         </div>
                                     </div>
-                                </AccordionTrigger>
-                                <AccordionContent className="p-0">
-                                    <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader className="bg-slate-50">
-                                                <TableRow>
-                                                    <TableHead className="pl-6">Date</TableHead>
-                                                    <TableHead>Item</TableHead>
-                                                    <TableHead>Requester</TableHead>
-                                                    <TableHead className="w-[150px]">Approved Qty</TableHead>
-                                                    <TableHead>Boss Note (Optional)</TableHead>
-                                                    <TableHead className="text-right pr-6">Action</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {reqs.map((req: any) => {
-                                                    const currentEdits = reviewEdits[req.id] || { qty: req.quantity_requested, note: "" };
-                                                    return (
-                                                        <TableRow key={req.id}>
-                                                            <TableCell className="pl-6 text-xs text-slate-500">{formatDate(req.created_at)}</TableCell>
-                                                            <TableCell className="font-semibold text-slate-800">
-                                                                {req.garage_inventory?.item_name || req.item_name}
-                                                                <div className="text-[10px] text-slate-400 mt-0.5">Original Qty: {req.quantity_requested}</div>
-                                                            </TableCell>
-                                                            <TableCell className="text-xs">{req.profiles?.full_name}</TableCell>
-                                                            <TableCell>
-                                                                <Input 
-                                                                    type="number" 
-                                                                    min="1" 
-                                                                    className="h-8 text-sm font-bold w-20"
-                                                                    value={currentEdits.qty}
-                                                                    onChange={(e) => handleEditChange(req.id, 'qty', parseInt(e.target.value) || 1, req.quantity_requested)}
-                                                                />
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <Input 
-                                                                    placeholder="Add a note for procurement..." 
-                                                                    className="h-8 text-xs"
-                                                                    value={currentEdits.note}
-                                                                    onChange={(e) => handleEditChange(req.id, 'note', e.target.value, req.quantity_requested)}
-                                                                />
-                                                            </TableCell>
-                                                            <TableCell className="text-right pr-6">
-                                                                <div className="flex justify-end gap-2">
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
-                                                                        title="Admin Quick Edit"
-                                                                        onClick={() => {
-                                                                            setQuickEditData({
-                                                                                id: req.id,
-                                                                                item_name: req.garage_inventory?.item_name || req.item_name,
-                                                                                quantity_requested: req.quantity_requested || 0,
-                                                                                quantity_approved: req.quantity_approved || 0,
-                                                                                unit_price: req.unit_price || 0
-                                                                            });
-                                                                            setIsQuickEditOpen(true);
-                                                                        }}
-                                                                    >
-                                                                        <Pencil className="w-3.5 h-3.5" />
-                                                                    </Button>
-                                                                    <Button 
-                                                                        size="sm" 
-                                                                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4"
-                                                                        disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
-                                                                        onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
-                                                                    >
-                                                                        {forwardToProcurementMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
-                                                                        Send
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="destructive"
-                                                                        className="px-3"
-                                                                        disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
-                                                                        onClick={() => deleteRequisitionMutation.mutate(req.id)}
-                                                                        title="Delete Requisition"
-                                                                    >
-                                                                        {deleteRequisitionMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                                                                    </Button>
-                                                                </div>
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    );
-                                                })}
-                                            </TableBody>
-                                        </Table>
+
+                                    <div className="flex items-center gap-2 self-end sm:self-center">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                toggleReviewVehicle(vehicleKey);
+                                            }}
+                                            className="h-8 text-xs font-bold text-slate-600 border-slate-200 hover:bg-slate-50 rounded-xl"
+                                        >
+                                            {isExpanded ? "Collapse" : "Review Items"}
+                                        </Button>
                                     </div>
-                                </AccordionContent>
-                            </AccordionItem>
+                                </div>
+
+                                {/* Expanded Item Cards (Active Operations Style) */}
+                                {isExpanded && (
+                                    <div className="p-4 sm:p-5 bg-slate-50/40 space-y-3">
+                                        {reqs.map((req: any, rIdx: number) => {
+                                            const currentEdits = reviewEdits[req.id] || { qty: req.quantity_requested, note: "" };
+
+                                            return (
+                                                <div
+                                                    key={req.id}
+                                                    className="relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:shadow-md hover:border-amber-300 transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 overflow-hidden"
+                                                >
+                                                    {/* Status Accent Bar */}
+                                                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-400" />
+
+                                                    {/* 1. Item Details */}
+                                                    <div className="flex items-start gap-3 flex-1 min-w-[260px]">
+                                                        <span className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                                            {(rIdx + 1).toString().padStart(2, '0')}
+                                                        </span>
+
+                                                        <div className="space-y-1.5 flex-1">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="font-black text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
+                                                                    <Package size={14} className="text-amber-600" />
+                                                                    {req.garage_inventory?.item_name || req.item_name}
+                                                                </span>
+
+                                                                <Badge variant="outline" className="text-[10px] font-bold border-slate-200 text-slate-700 bg-slate-50">
+                                                                    Req: {req.quantity_requested} Units
+                                                                </Badge>
+
+                                                                {req.vehicle && (
+                                                                    <Badge variant="outline" className="text-[10px] font-bold border-slate-200 text-slate-700 bg-slate-50 gap-1 rounded">
+                                                                        <Truck size={10} className="text-blue-700" />
+                                                                        <span>{req.vehicle.vehicle_no || req.vehicle.horse_number}</span>
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
+                                                                <span>Req by: <strong className="text-slate-700">{req.profiles?.full_name || 'Workshop Team'}</strong></span>
+                                                                <span>•</span>
+                                                                <span>Date: <strong className="text-slate-700">{formatDate(req.created_at)}</strong></span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 2. Interactive Inputs: Approved Qty & Boss Note */}
+                                                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-4">
+                                                        <div className="space-y-1 w-full sm:w-28">
+                                                            <Label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                                                Approved Qty
+                                                            </Label>
+                                                            <Input
+                                                                type="number"
+                                                                min="1"
+                                                                className="h-8 text-xs font-black text-slate-900 bg-slate-50 border-slate-200 rounded-lg text-center"
+                                                                value={currentEdits.qty}
+                                                                onChange={(e) => handleEditChange(req.id, 'qty', parseInt(e.target.value) || 1, req.quantity_requested)}
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-1 flex-1 min-w-[200px]">
+                                                            <Label className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                                                Boss Note / Instructions
+                                                            </Label>
+                                                            <Input
+                                                                placeholder="Add note for procurement team..."
+                                                                className="h-8 text-xs bg-slate-50 border-slate-200 rounded-lg placeholder:text-slate-400"
+                                                                value={currentEdits.note}
+                                                                onChange={(e) => handleEditChange(req.id, 'note', e.target.value, req.quantity_requested)}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 3. Actions */}
+                                                    <div className="flex items-center gap-1.5 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-3 justify-end">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                                                            title="Admin Quick Edit"
+                                                            onClick={() => {
+                                                                setQuickEditData({
+                                                                    id: req.id,
+                                                                    item_name: req.garage_inventory?.item_name || req.item_name,
+                                                                    quantity_requested: req.quantity_requested || 0,
+                                                                    quantity_approved: req.quantity_approved || 0,
+                                                                    unit_price: req.unit_price || 0
+                                                                });
+                                                                setIsQuickEditOpen(true);
+                                                            }}
+                                                        >
+                                                            <Pencil size={13} />
+                                                        </Button>
+
+                                                        <Button
+                                                            size="sm"
+                                                            className="h-8 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase rounded-lg shadow-xs gap-1"
+                                                            disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
+                                                            onClick={() => forwardToProcurementMutation.mutate({ reqId: req.id, originalQty: req.quantity_requested })}
+                                                        >
+                                                            {forwardToProcurementMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                                                            Send to Proc
+                                                        </Button>
+
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                                                            disabled={forwardToProcurementMutation.isPending || deleteRequisitionMutation.isPending}
+                                                            onClick={() => {
+                                                                if (window.confirm("Are you sure you want to delete this requisition?")) {
+                                                                    deleteRequisitionMutation.mutate(req.id);
+                                                                }
+                                                            }}
+                                                            title="Delete Requisition"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </Card>
                         );
                     })}
-                </Accordion>
+                </div>
             </div>
         );
     };
 
     const renderPOCards = () => {
-        if (!approvals || approvals.length === 0) return (
-            <Card className="border-dashed border-2 border-slate-200 bg-transparent shadow-none">
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                        <CheckCircle className="w-8 h-8 text-emerald-500" />
+        if (!filteredApprovals || filteredApprovals.length === 0) {
+            return (
+                <Card className="border border-slate-200 bg-white p-12 rounded-2xl text-center shadow-xs">
+                    <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                        <CheckCircle className="w-6 h-6 text-emerald-600" />
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-900">All Caught Up!</h3>
-                    <p className="text-slate-500 max-sm mt-1">
-                        There are no purchase orders waiting for management approval at this time.
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-tight">
+                        {searchTerm ? "No Matching Purchase Orders" : "No Orders Awaiting Approval"}
+                    </h3>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 font-medium">
+                        {searchTerm
+                            ? "No purchase order batches match your search query."
+                            : "There are no purchase orders waiting for executive management authorization at this time."}
                     </p>
-                </CardContent>
-            </Card>
-        );
-
-        const grouped = groupRequisitionsByPO(approvals);
+                </Card>
+            );
+        }
 
         return (
-            <Accordion type="multiple" className="space-y-4">
-                {Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0])).map(([key, reqs]) => {
-                    const firstReq = reqs[0];
-                    const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
-                    const poNumber = firstReq.po_number || 'DRAFT-PO';
-                    let poTotal = 0;
-                    reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
-                    const uploads = [...new Set(reqs.map((r:any) => r.shop_receipt_url).filter(Boolean))] as string[];
-                    
-                    const totalAdvance = reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
-                    const remainingBalance = Math.max(0, poTotal - totalAdvance);
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                            <FileCheck className="w-4 h-4" />
+                        </div>
+                        <h2 className="text-base font-black text-slate-900 uppercase tracking-tight">
+                            Final Purchase Orders (From Procurement)
+                        </h2>
+                        <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] font-bold ml-1">
+                            {filteredApprovals.length} Items ({poGroupKeys.length} Batches)
+                        </Badge>
+                    </div>
+                </div>
 
-                    return (
-                        <AccordionItem key={key} value={key} className="overflow-hidden border border-slate-200 rounded-lg shadow-sm bg-white">
-                            <AccordionTrigger className="hover:no-underline bg-slate-50/50 px-6 py-4 data-[state=open]:border-b">
-                                <div className="flex justify-between items-center w-full pr-4 text-left">
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2">
-                                            <Building2 className="w-5 h-5 text-indigo-600" />
-                                            <span className="text-lg font-bold text-slate-800 uppercase tracking-tight">{supplierName}</span>
+                <div className="space-y-4">
+                    {Object.entries(groupedPOs).sort((a, b) => a[0].localeCompare(b[0])).map(([key, reqs]) => {
+                        const isExpanded = expandedPOKeys.includes(key);
+                        const firstReq = reqs[0];
+                        const supplierName = firstReq.garage_suppliers?.name || 'Manual/Unknown Supplier';
+                        const poNumber = firstReq.po_number || 'DRAFT-PO';
+                        let poTotal = 0;
+                        reqs.forEach((r: any) => { poTotal += r.total_price || 0; });
+                        const uploads = [...new Set(reqs.map((r: any) => r.shop_receipt_url).filter(Boolean))] as string[];
+
+                        const totalAdvance = reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0);
+                        const remainingBalance = Math.max(0, poTotal - totalAdvance);
+
+                        const handleOpenBatchDialog = () => {
+                            setSelectedPOItems(reqs);
+
+                            let matchedPaymentMethodId = "";
+                            if (firstReq.payment_details && firstReq.payment_details.id) {
+                                matchedPaymentMethodId = firstReq.payment_details.id;
+                            }
+
+                            setBatchSharedDetails({
+                                supplier_id: firstReq.supplier_id || "",
+                                po_number: firstReq.po_number || "",
+                                includes_vat: firstReq.includes_vat || false,
+                                payment_method_id: matchedPaymentMethodId,
+                                discount_percentage: firstReq.discount_percentage || 0,
+                                advance_payment: reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0)
+                            });
+
+                            const initialPrices: Record<string, number> = {};
+                            const initialQuantities: Record<string, number> = {};
+                            reqs.forEach((r: any) => {
+                                initialPrices[r.id] = r.unit_price || 0;
+                                initialQuantities[r.id] = r.quantity_approved || r.quantity_requested || 0;
+                            });
+                            setBatchItemPrices(initialPrices);
+                            setBatchItemQuantities(initialQuantities);
+
+                            setIsApproveDialogOpen(true);
+                        };
+
+                        return (
+                            <Card
+                                key={key}
+                                className="border border-slate-200 bg-white shadow-xs rounded-2xl overflow-hidden transition-all duration-200"
+                            >
+                                {/* Accordion Header */}
+                                <div
+                                    onClick={() => togglePOKey(key)}
+                                    className="p-4 sm:p-5 bg-gradient-to-r from-indigo-50/50 via-white to-slate-50/50 hover:from-indigo-100/50 hover:to-slate-100/60 border-b border-slate-200 cursor-pointer transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4 select-none"
+                                >
+                                    <div className="flex items-center gap-3.5 flex-1">
+                                        <div className="text-slate-400 transition-transform duration-200">
+                                            {isExpanded ? <ChevronDown size={20} className="text-slate-700" /> : <ChevronRight size={20} />}
                                         </div>
-                                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                                            <Badge variant="outline" className="font-mono text-[10px] text-blue-900 bg-blue-50 border-blue-200">
-                                                {poNumber}
-                                            </Badge>
-                                            <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px]">
-                                                Awaiting Approval
-                                            </Badge>
-                                            {totalAdvance > 0 && (
-                                                <Badge className="bg-blue-50 text-blue-800 border-blue-200 uppercase text-[10px] font-bold">
-                                                    Advance: {totalAdvance.toLocaleString()} TZS
+
+                                        <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-xs">
+                                            <Building2 size={18} />
+                                        </div>
+
+                                        <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">
+                                                    {supplierName}
+                                                </h3>
+                                                <Badge variant="outline" className="font-mono text-[10px] text-blue-900 bg-blue-50 border-blue-200 font-bold">
+                                                    {poNumber}
                                                 </Badge>
-                                            )}
-                                            <span className="text-xs text-slate-500 font-medium ml-2">Latest: {formatDate(firstReq.created_at)}</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="text-lg font-black text-indigo-900">
-                                            {poTotal.toLocaleString()} <span className="text-[10px] text-slate-500 font-medium">TZS</span>
-                                        </div>
-                                        {totalAdvance > 0 ? (
-                                            <div className="text-[11px] text-slate-500 font-semibold mt-0.5">
-                                                Adv: <strong className="text-blue-700">{totalAdvance.toLocaleString()}</strong> | Bal: <strong className="text-amber-700">{remainingBalance.toLocaleString()}</strong>
+                                                <Badge className="bg-orange-50 text-orange-700 border-orange-200 uppercase text-[10px] font-bold">
+                                                    Awaiting Approval
+                                                </Badge>
+                                                {totalAdvance > 0 && (
+                                                    <Badge className="bg-blue-50 text-blue-800 border-blue-200 uppercase text-[10px] font-bold">
+                                                        Advance: {totalAdvance.toLocaleString()} TZS
+                                                    </Badge>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">{reqs.length} Items Pending</div>
-                                        )}
-                                    </div>
-                                </div>
-                            </AccordionTrigger>
-                            
-                            <AccordionContent className="p-0">
-                                <div className="overflow-x-auto">
-                                    <Table>
-                                    <TableHeader className="bg-slate-100/50">
-                                        <TableRow>
-                                            <TableHead className="pl-6">Item Description</TableHead>
-                                            <TableHead>Vehicle</TableHead>
-                                            <TableHead>Qty</TableHead>
-                                            <TableHead>Unit Price</TableHead>
-                                            <TableHead className="text-right pr-6">Total</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {reqs.map((r: any) => (
-                                            <TableRow key={r.id}>
-                                                <TableCell className="pl-6 font-semibold text-slate-800">{r.item_name}</TableCell>
-                                                <TableCell>
-                                                    {r.vehicle ? (
-                                                        <Badge variant="secondary" className="text-[10px] bg-blue-50 text-blue-700 border-blue-100">
-                                                            <Truck className="w-3 h-3 mr-1" />
-                                                            {r.vehicle.vehicle_no || r.vehicle.horse_number}
-                                                        </Badge>
-                                                    ) : '-'}
-                                                </TableCell>
-                                                <TableCell className="font-medium">{r.quantity_requested}</TableCell>
-                                                <TableCell>{(r.unit_price || 0).toLocaleString()} TZS</TableCell>
-                                                <TableCell className="text-right pr-6 font-bold text-slate-900">
-                                                    {(r.total_price || 0).toLocaleString()} TZS
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                                </div>
-                            
-                            {(uploads.length > 0 || firstReq.payment_details) && (
-                                <div className="bg-slate-50 border-t p-4 flex flex-wrap items-center justify-between gap-4">
-                                    {firstReq.payment_details && (
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] uppercase font-bold text-slate-500">Payment Terms</p>
-                                            <p className="text-xs font-semibold text-slate-700">
-                                                {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
+                                            <p className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                                                Vendor Quotations & Purchase Orders • Latest: {formatDate(firstReq.created_at)}
                                             </p>
                                         </div>
-                                    )}
-                                    
-                                    {uploads.length > 0 && (
-                                        <div className="space-y-1 text-right ml-auto">
-                                            <p className="text-[10px] uppercase font-bold text-slate-500">Attachments</p>
-                                            <div className="flex flex-wrap items-center justify-end gap-2">
-                                                {uploads.map((url, idx) => (
-                                                    <a key={idx} href={url} target="_blank" rel="noreferrer" className="flex items-center text-xs text-blue-600 hover:underline bg-blue-50 px-2 py-1 rounded border border-blue-100">
-                                                        <Paperclip className="w-3 h-3 mr-1" /> Quote/Receipt {idx + 1}
-                                                    </a>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            
-                            <div className="bg-white border-t p-4 flex justify-end">
-                                <Button
-                                    className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md uppercase text-xs font-bold px-6"
-                                    onClick={() => {
-                                        setSelectedPOItems(reqs);
-                                        
-                                        // Pre-fill the edit state
-                                        // Attempt to match the existing payment_details back to a payment method id if possible
-                                        let matchedPaymentMethodId = "";
-                                        if (firstReq.payment_details && firstReq.payment_details.id) {
-                                            matchedPaymentMethodId = firstReq.payment_details.id;
-                                        }
+                                    </div>
 
-                                        setBatchSharedDetails({
-                                            supplier_id: firstReq.supplier_id || "",
-                                            po_number: firstReq.po_number || "",
-                                            includes_vat: firstReq.includes_vat || false,
-                                            payment_method_id: matchedPaymentMethodId,
-                                            discount_percentage: firstReq.discount_percentage || 0,
-                                            advance_payment: reqs.reduce((sum: number, r: any) => sum + (Number(r.advance_payment) || 0), 0)
-                                        });
-                                        
-                                        const initialPrices: Record<string, number> = {};
-                                        const initialQuantities: Record<string, number> = {};
-                                        reqs.forEach((r: any) => {
-                                            initialPrices[r.id] = r.unit_price || 0;
-                                            initialQuantities[r.id] = r.quantity_approved || r.quantity_requested || 0;
-                                        });
-                                        setBatchItemPrices(initialPrices);
-                                        setBatchItemQuantities(initialQuantities);
-                                        
-                                        setIsApproveDialogOpen(true);
-                                    }}
-                                >
-                                    <FileCheck className="w-4 h-4 mr-2" />
-                                    Review PO Batch
-                                </Button>
-                            </div>
-                            </AccordionContent>
-                        </AccordionItem>
-                    );
-                })}
-            </Accordion>
+                                    {/* Financial Breakdown & Action Button on Header */}
+                                    <div className="flex items-center gap-4 sm:gap-6 flex-wrap sm:flex-nowrap pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-200" onClick={(e) => e.stopPropagation()}>
+                                        <div className="space-y-0.5 text-right">
+                                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Est. PO Total</span>
+                                            <div className="text-sm font-black text-indigo-900 leading-none">
+                                                {poTotal.toLocaleString()} <span className="text-[10px] text-slate-400 font-normal">TZS</span>
+                                            </div>
+                                            {totalAdvance > 0 ? (
+                                                <span className="text-[10px] text-slate-500 font-semibold block">
+                                                    Adv: <strong className="text-blue-700">{totalAdvance.toLocaleString()}</strong> | Bal: <strong className="text-amber-700">{remainingBalance.toLocaleString()}</strong>
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-bold text-slate-400 block">
+                                                    {reqs.length} Parts Allocated
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <Button
+                                            size="sm"
+                                            className="h-8 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold uppercase rounded-xl shadow-xs gap-1.5"
+                                            onClick={handleOpenBatchDialog}
+                                        >
+                                            <FileCheck size={12} />
+                                            Review PO Batch
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Expanded Items List (Active Operations Style) */}
+                                {isExpanded && (
+                                    <div className="p-4 sm:p-5 bg-slate-50/40 space-y-3">
+                                        {reqs.map((r: any, rIdx: number) => (
+                                            <div
+                                                key={r.id}
+                                                className="relative group/card bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:shadow-md hover:border-indigo-300 transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-4 overflow-hidden"
+                                            >
+                                                {/* Left Accent Bar */}
+                                                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-indigo-600" />
+
+                                                {/* Item Details */}
+                                                <div className="flex items-start gap-3 flex-1 min-w-[260px]">
+                                                    <span className="text-[10px] font-black text-slate-300 tabular-nums mt-1">
+                                                        {(rIdx + 1).toString().padStart(2, '0')}
+                                                    </span>
+
+                                                    <div className="space-y-1 flex-1">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="font-black text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
+                                                                <Package size={14} className="text-indigo-600" />
+                                                                {r.item_name}
+                                                            </span>
+
+                                                            {r.vehicle && (
+                                                                <Badge variant="outline" className="text-[10px] font-bold border-slate-200 text-slate-700 bg-slate-50 gap-1 rounded">
+                                                                    <Truck size={10} className="text-blue-700" />
+                                                                    <span>{r.vehicle.vehicle_no || r.vehicle.horse_number}</span>
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
+                                                            <span>Quantity: <strong className="text-slate-800">{r.quantity_requested} Units</strong></span>
+                                                            <span>•</span>
+                                                            <span>Unit Price: <strong className="text-slate-800">{(r.unit_price || 0).toLocaleString()} TZS</strong></span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Financial Line Total */}
+                                                <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-3 xl:pt-0 xl:pl-6">
+                                                    <div className="space-y-0.5 text-right min-w-[120px]">
+                                                        <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Line Total</span>
+                                                        <div className="text-sm font-black text-indigo-900 leading-none">
+                                                            {(r.total_price || 0).toLocaleString()} TZS
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {/* Attachments & Payment Terms */}
+                                        {(uploads.length > 0 || firstReq.payment_details) && (
+                                            <div className="bg-white border border-slate-200 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 mt-3">
+                                                {firstReq.payment_details && (
+                                                    <div className="space-y-0.5">
+                                                        <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Payment Terms</span>
+                                                        <span className="text-xs font-bold text-slate-800">
+                                                            {firstReq.payment_details.method_type} - {firstReq.payment_details.bank_name} ({firstReq.payment_details.account_number})
+                                                        </span>
+                                                    </div>
+                                                )}
+
+                                                {uploads.length > 0 && (
+                                                    <div className="flex flex-wrap items-center gap-2 ml-auto">
+                                                        <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider">Attachments:</span>
+                                                        {uploads.map((url, idx) => (
+                                                            <a
+                                                                key={idx}
+                                                                href={url}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors"
+                                                            >
+                                                                <Paperclip size={11} /> Quote/Receipt {idx + 1}
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-end pt-2">
+                                            <Button
+                                                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs uppercase text-xs font-bold px-6 h-9 rounded-xl gap-2"
+                                                onClick={handleOpenBatchDialog}
+                                            >
+                                                <FileCheck size={14} />
+                                                Review PO Batch
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                            </Card>
+                        );
+                    })}
+                </div>
+            </div>
         );
     };
 
     return (
-        <div className="space-y-6 p-6 animate-fade-in bg-slate-50/50 min-h-screen">
-            <div className="flex flex-col gap-2">
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                    <ClipboardCheck className="w-7 h-7 text-indigo-600" />
-                    Management Approvals
-                    <Badge className="ml-2 bg-orange-100 text-orange-700 border-orange-200">
-                        {approvals ? new Set(approvals.map(a => a.po_number || a.supplier_id)).size : 0} Pending POs
-                    </Badge>
-                </h1>
-                <p className="text-slate-500">Review new requests from garage, and authorize purchase orders from procurement.</p>
+        <div className="space-y-4 sm:space-y-6 p-2.5 sm:p-4 md:p-6 animate-fade-in bg-slate-50/30 min-h-screen max-w-[100vw] overflow-x-hidden">
+            {/* Unified Management Approval Navigation Bar */}
+            <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
+                    <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shadow-xs shrink-0"
+                    >
+                        <Package className="w-4 h-4" />
+                        <span>Procurement POs & Requisitions</span>
+                        <Badge className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0 h-4 border-none">
+                            {poBatchesCount}
+                        </Badge>
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("/logistics/fund-approvals")}
+                        className="text-slate-700 hover:text-indigo-600 hover:bg-indigo-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shrink-0"
+                    >
+                        <Truck className="w-4 h-4 text-indigo-500" />
+                        <span>Trip Orders & Road Funds</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("/garage")}
+                        className="text-slate-700 hover:text-amber-600 hover:bg-amber-50 border-slate-200 font-bold text-xs h-9 px-3.5 rounded-xl gap-2 shrink-0"
+                    >
+                        <Wrench className="w-4 h-4 text-amber-500" />
+                        <span>Garage Workshop & Job Cards</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                    </Button>
+                </div>
+                <div className="text-[11px] text-slate-400 font-semibold hidden md:block shrink-0">
+                    Executive Authorization Center
+                </div>
             </div>
 
-            {(isReviewsLoading || isApprovalsLoading) ? (
-                <div className="flex items-center justify-center h-40">
-                    <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+            {/* Header Title */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+                        <ClipboardCheck className="w-6 h-6 md:w-7 md:h-7 text-indigo-600" />
+                        Management Approvals
+                        <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-xs font-bold">
+                            {poBatchesCount} Pending PO Batches
+                        </Badge>
+                    </h1>
+                    <p className="text-xs md:text-sm text-slate-500 mt-0.5">
+                        Review garage requests, approve quantities, and authorize purchase orders for procurement.
+                    </p>
                 </div>
-            ) : (
-                <div className="grid gap-6">
-                    {renderReviewTable()}
-                    
-                    <div className="mt-4">
-                        <h2 className="text-xl font-bold tracking-tight text-slate-800 mb-4">Final Purchase Orders (From Procurement)</h2>
-                        {renderPOCards()}
+            </div>
+
+            {/* ── 1. Executive Top Metric Cards ────────────────────────────── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Pending Garage Reviews */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pending Reviews</span>
+                        <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                            <Clock size={16} />
+                        </div>
                     </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                        <span className="text-2xl font-black text-slate-900">{pendingReviewsCount}</span>
+                        <span className="text-xs font-bold text-amber-600">Garage Requests</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        Awaiting management review & qty confirmation
+                    </div>
+                </Card>
+
+                {/* 2. POs for Approval */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">PO's For Approval</span>
+                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                            <FileCheck size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                        <span className="text-2xl font-black text-slate-900">{poBatchesCount}</span>
+                        <span className="text-xs font-bold text-indigo-600">PO Batches</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        {(approvals || []).length} parts queued for final sign-off
+                    </div>
+                </Card>
+
+                {/* 3. Total PO Financial Commitment */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total PO Value</span>
+                        <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                            <DollarSign size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-lg font-black text-slate-900 leading-tight">
+                            {totalPOCommitmentTZS.toLocaleString()} <span className="text-xs font-medium text-slate-500">TZS</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-blue-600 mt-0.5">
+                            Committed Vendor Purchase
+                        </div>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        Total value of orders pending authorization
+                    </div>
+                </Card>
+
+                {/* 4. Advance Cash Outlay */}
+                <Card className="border border-slate-200 bg-white p-4 rounded-2xl shadow-xs hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Advance Outlay</span>
+                        <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                            <Receipt size={16} />
+                        </div>
+                    </div>
+                    <div className="mt-2">
+                        <div className="text-lg font-black text-slate-900 leading-tight">
+                            {totalAdvanceCommittedTZS.toLocaleString()} <span className="text-xs font-medium text-slate-500">TZS</span>
+                        </div>
+                        <div className="text-[11px] font-bold text-emerald-600 mt-0.5">
+                            Immediate Deposit Required
+                        </div>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400 font-medium">
+                        Upfront payment required upon approval
+                    </div>
+                </Card>
+            </div>
+
+            {/* ── 2. Operations Control Toolbar ────────────────────────────── */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                {/* Search Input */}
+                <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                        placeholder="Search by vehicle plate, item name, supplier, PO #, requester..."
+                        className="pl-9 pr-8 h-9 bg-slate-50 border-slate-200 focus:bg-white text-xs font-medium rounded-xl"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                        <button
+                            type="button"
+                            onClick={() => setSearchTerm("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                        >
+                            <X size={12} />
+                        </button>
+                    )}
+                </div>
+
+                {/* Filter Toggle Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+                    <button
+                        type="button"
+                        onClick={() => setApprovalFilterTab('all')}
+                        className={cn(
+                            "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all whitespace-nowrap",
+                            approvalFilterTab === 'all'
+                                ? "bg-slate-900 text-white shadow-xs"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        )}
+                    >
+                        All ({pendingReviewsCount + (approvals || []).length})
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setApprovalFilterTab('reviews')}
+                        className={cn(
+                            "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
+                            approvalFilterTab === 'reviews'
+                                ? "bg-amber-600 text-white shadow-xs"
+                                : "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                        )}
+                    >
+                        <Eye size={12} />
+                        <span>Garage Reviews ({pendingReviewsCount})</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setApprovalFilterTab('pos')}
+                        className={cn(
+                            "h-8 px-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap",
+                            approvalFilterTab === 'pos'
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+                        )}
+                    >
+                        <FileCheck size={12} />
+                        <span>Final POs ({poBatchesCount})</span>
+                    </button>
+                </div>
+
+                {/* Expand All / Collapse All */}
+                <div className="flex items-center gap-2 ml-auto lg:ml-0">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleToggleAllGroups}
+                        className="h-8 px-3 text-xs font-bold text-slate-600 border-slate-200 hover:bg-slate-50 gap-1.5 rounded-xl"
+                    >
+                        <Layers size={13} className="text-slate-400" />
+                        <span>{isAllExpanded ? "Collapse All" : "Expand All"}</span>
+                    </Button>
+                </div>
+            </div>
+
+            {/* ── 3. Content Sections ────────────────────────────────────────── */}
+            {(isReviewsLoading || isApprovalsLoading) ? (
+                <Card className="border border-slate-200 bg-white p-16 rounded-2xl text-center shadow-xs">
+                    <Loader2 size={28} className="mx-auto text-indigo-600 animate-spin mb-3" />
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                        Loading Management Approval Queue...
+                    </p>
+                </Card>
+            ) : (
+                <div className="space-y-8">
+                    {(approvalFilterTab === 'all' || approvalFilterTab === 'reviews') && renderReviewTable()}
+                    {(approvalFilterTab === 'all' || approvalFilterTab === 'pos') && renderPOCards()}
                 </div>
             )}
 

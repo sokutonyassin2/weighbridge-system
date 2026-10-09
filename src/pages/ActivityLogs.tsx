@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,11 +13,12 @@ export default function ActivityLogs() {
   const { userRole } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect non-admins
-  if (userRole !== "admin") {
-    navigate("/");
-    return null;
-  }
+  // Redirect non-admins safely inside useEffect to adhere to rules of hooks
+  useEffect(() => {
+    if (userRole && userRole !== "admin" && userRole !== "super_admin") {
+      navigate("/");
+    }
+  }, [userRole, navigate]);
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ["activity-logs"],

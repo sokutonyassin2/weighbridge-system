@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,14 +20,29 @@ const TransitTripSheetPage = () => {
     const { data: trip, isLoading } = useQuery({
         queryKey: ["transit_trip_sheet", id],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from("logistics_transit_trips" as any)
-                .select("*")
-                .eq("id", id)
-                .single();
-            if (error) throw error;
+            if (!id) return null;
+            // 1. Check local session cache first for instant load
+            try {
+                const cached = sessionStorage.getItem("cached_transit_trips") || localStorage.getItem("cached_transit_trips");
+                if (cached) {
+                    const list = JSON.parse(cached);
+                    const found = list.find((t: any) => t.id === id || t.trip_id === id);
+                    if (found) return found;
+                }
+            } catch {}
+
+            // 2. Query database by either id (UUID) or trip_id
+            let q = supabase.from("logistics_transit_trips" as any).select("*");
+            if (id.includes("/") || id.includes("-")) {
+                q = q.or(`id.eq.${id},trip_id.eq.${id}`);
+            } else {
+                q = q.eq("id", id);
+            }
+            const { data } = await q.maybeSingle();
             return data as any;
         },
+        retry: false,
+        staleTime: 60 * 1000,
         enabled: !!id
     });
 
@@ -37,14 +53,15 @@ const TransitTripSheetPage = () => {
             const isReturn = trip.leg_type === "R";
             const targetTripId = isReturn ? trip.trip_id.replace('/R', '/G') : trip.trip_id.replace('/G', '/R');
             
-            const { data, error } = await supabase
+            const { data } = await supabase
                 .from("logistics_transit_trips" as any)
                 .select("*")
                 .eq("trip_id", targetTripId)
-                .single();
-            if (error) return null;
-            return data as any;
+                .maybeSingle();
+            return (data || null) as any;
         },
+        retry: false,
+        staleTime: 60 * 1000,
         enabled: !!trip?.trip_id && trip.leg_type !== undefined
     });
 
@@ -177,7 +194,7 @@ const TransitTripSheetPage = () => {
                                     <TimelineRow milestone="Official Dispatch" date={trip.dispatch_date} highlight />
                                     
                                     {(trip.borders_data || []).map((border: any, idx: number) => (
-                                        <div key={idx} className="contents">
+                                        <Fragment key={idx}>
                                             <TimelineRow 
                                                 milestone={`${border.name || `Border ${idx+1}`} — Arrival`} 
                                                 date={border.arrival} 
@@ -192,7 +209,7 @@ const TransitTripSheetPage = () => {
                                                 date={border.departure}
                                                 note={border.arrival && border.departure ? `${daysBetween(border.arrival, border.departure)} day(s) stay` : ""}
                                             />
-                                        </div>
+                                        </Fragment>
                                     ))}
 
                                     <TimelineRow milestone="Arrival at Offloading Site" date={trip.arrive_offloading_site_date} />

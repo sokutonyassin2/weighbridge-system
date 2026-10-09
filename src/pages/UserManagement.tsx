@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,11 +42,12 @@ export default function UserManagement() {
   const [deletingUser, setDeletingUser] = useState<any>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Redirect non-super-admins
-  if (userRole !== "super_admin") {
-    navigate("/");
-    return null;
-  }
+  // Redirect non-super-admins safely inside useEffect
+  useEffect(() => {
+    if (userRole && userRole !== "super_admin") {
+      navigate("/");
+    }
+  }, [userRole, navigate]);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ["all-users"],

@@ -30,7 +30,9 @@ import {
     ChevronsUpDown,
     CloudUpload,
     Database,
-    Fuel
+    Fuel,
+    Save,
+    Sparkles
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -135,6 +137,9 @@ export default function MasterCollection() {
 
     // Selected Route for Expense Master tab
     const [selectedRouteKey, setSelectedRouteKey] = useState<string>("");
+    const [isSavingMaster, setIsSavingMaster] = useState(false);
+    const [isSyncingApprovedOrders, setIsSyncingApprovedOrders] = useState(false);
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
     const formatTSh = (val: any) => {
         if (val === undefined || val === null || val === "") return "TShs. 0";
@@ -417,32 +422,210 @@ export default function MasterCollection() {
     const persistExpenses = async (expensesMap: Record<string, any[]>, destChanged?: string) => {
         setMasterExpenses(expensesMap);
         localStorage.setItem("master_collection_route_expenses", JSON.stringify(expensesMap));
+        setHasUnsavedChanges(true);
 
-        // Save to Supabase
-        const destinationsToSync = destChanged ? [destChanged] : Object.keys(expensesMap);
-        for (const dest of destinationsToSync) {
-            const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest?.toUpperCase());
+        const targetDest = destChanged || selectedRouteKey;
+        if (targetDest) {
+            const dest = targetDest.toUpperCase().trim();
+            const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest);
             const fuelInfo = masterFuel[dest] || { fuel_liters: "", fuel_rate_usd: "", fuel_rate_tzs: "" };
+            
+            const payload: any = {
+                destination: dest,
+                expenses: expensesMap[dest] || [],
+                origin: matchedRoute?.origin || "DAR ES SALAAM",
+                default_rate_usd: matchedRoute?.default_rate_usd || null,
+                default_exchange_rate: countryRates["TZ"] || matchedRoute?.default_exchange_rate || 2700,
+                default_cargo: matchedRoute?.default_cargo || null,
+                agreed_days: matchedRoute?.agreed_days || null,
+                fuel_liters: fuelInfo.fuel_liters ? parseFloat(fuelInfo.fuel_liters) : null,
+                fuel_rate_usd: fuelInfo.fuel_rate_usd ? parseFloat(fuelInfo.fuel_rate_usd) : null,
+                fuel_rate_tzs: fuelInfo.fuel_rate_tzs ? parseFloat(fuelInfo.fuel_rate_tzs) : null,
+                notes: matchedRoute?.notes || "",
+                updated_at: new Date().toISOString()
+            };
+
             try {
-                await supabase
+                let { error } = await supabase
                     .from("logistics_route_expenses_master" as any)
-                    .upsert({
-                        destination: dest,
-                        expenses: expensesMap[dest] || [],
-                        origin: matchedRoute?.origin || "DAR ES SALAAM",
-                        default_rate_usd: matchedRoute?.default_rate_usd || null,
-                        default_exchange_rate: matchedRoute?.default_exchange_rate || 2700,
-                        default_cargo: matchedRoute?.default_cargo || null,
-                        agreed_days: matchedRoute?.agreed_days || null,
-                        fuel_liters: fuelInfo.fuel_liters ? parseFloat(fuelInfo.fuel_liters) : null,
-                        fuel_rate_usd: fuelInfo.fuel_rate_usd ? parseFloat(fuelInfo.fuel_rate_usd) : null,
-                        fuel_rate_tzs: fuelInfo.fuel_rate_tzs ? parseFloat(fuelInfo.fuel_rate_tzs) : null,
-                        notes: matchedRoute?.notes || "",
-                        updated_at: new Date().toISOString()
-                    });
+                    .upsert(payload);
+
+                if (error && (error.code === '42703' || error.message?.includes('fuel_'))) {
+                    const { fuel_liters, fuel_rate_usd, fuel_rate_tzs, ...payloadWithoutFuel } = payload;
+                    await supabase
+                        .from("logistics_route_expenses_master" as any)
+                        .upsert(payloadWithoutFuel);
+                }
             } catch (err) {
                 console.warn("Failed to persist expenses to Supabase table:", err);
             }
+        }
+    };
+
+    const handleSaveMasterRoute = async () => {
+        if (!selectedRouteKey) {
+            toast({ variant: "destructive", title: "No Route Selected", description: "Please pick a destination first." });
+            return;
+        }
+
+        setIsSavingMaster(true);
+        try {
+            const dest = selectedRouteKey.toUpperCase().trim();
+            const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest);
+            const fuelInfo = masterFuel[dest] || { fuel_liters: "", fuel_rate_usd: "", fuel_rate_tzs: "" };
+            const routeExpenses = masterExpenses[dest] || [];
+
+            const payload: any = {
+                destination: dest,
+                expenses: routeExpenses,
+                origin: matchedRoute?.origin || "DAR ES SALAAM",
+                default_rate_usd: matchedRoute?.default_rate_usd || null,
+                default_exchange_rate: countryRates["TZ"] || matchedRoute?.default_exchange_rate || 2700,
+                default_cargo: matchedRoute?.default_cargo || null,
+                agreed_days: matchedRoute?.agreed_days || null,
+                fuel_liters: fuelInfo.fuel_liters ? parseFloat(fuelInfo.fuel_liters) : null,
+                fuel_rate_usd: fuelInfo.fuel_rate_usd ? parseFloat(fuelInfo.fuel_rate_usd) : null,
+                fuel_rate_tzs: fuelInfo.fuel_rate_tzs ? parseFloat(fuelInfo.fuel_rate_tzs) : null,
+                notes: matchedRoute?.notes || "",
+                updated_at: new Date().toISOString()
+            };
+
+            let { error } = await supabase
+                .from("logistics_route_expenses_master" as any)
+                .upsert(payload);
+
+            // If fuel columns don't exist in DB table yet, fallback to saving without fuel columns
+            if (error && (error.code === '42703' || error.message?.includes('fuel_'))) {
+                const { fuel_liters, fuel_rate_usd, fuel_rate_tzs, ...payloadWithoutFuel } = payload;
+                const retry = await supabase
+                    .from("logistics_route_expenses_master" as any)
+                    .upsert(payloadWithoutFuel);
+                error = retry.error;
+            }
+
+            if (error) throw error;
+
+            localStorage.setItem("master_collection_route_expenses", JSON.stringify(masterExpenses));
+            localStorage.setItem("master_collection_route_fuel", JSON.stringify(masterFuel));
+
+            await refetchDbExpensesMaster();
+            queryClient.invalidateQueries({ queryKey: ["logistics_route_expenses_master_all"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_route_expenses_master_for_orders"] });
+
+            setHasUnsavedChanges(false);
+            toast({
+                title: "Master Route Saved! 💾",
+                description: `All master expenses, rates, and route template details for "${dest}" have been saved to the database.`
+            });
+        } catch (err: any) {
+            console.error("Save master error:", err);
+            toast({
+                variant: "destructive",
+                title: "Failed to Save Master",
+                description: err.message || "An unexpected error occurred while saving."
+            });
+        } finally {
+            setIsSavingMaster(false);
+        }
+    };
+
+    const handleSyncApprovedOrders = async () => {
+        if (!selectedRouteKey) return;
+        const dest = selectedRouteKey.toUpperCase().trim();
+        setIsSyncingApprovedOrders(true);
+
+        try {
+            const { data: approvedOrders, error: fetchErr } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("id, trip_number, destination, agreed_amount_usd, agreed_days, cargo_description, trip_sheet_id, status")
+                .eq("status", "Approved")
+                .ilike("destination", dest);
+
+            if (fetchErr) throw fetchErr;
+
+            if (!approvedOrders || approvedOrders.length === 0) {
+                toast({
+                    title: "No Approved Orders",
+                    description: `There are currently no orders in the Approved Queue for "${dest}".`
+                });
+                setIsSyncingApprovedOrders(false);
+                return;
+            }
+
+            const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest);
+            const routeExpenses = masterExpenses[dest] || [];
+
+            let updatedOrdersCount = 0;
+            let updatedTripSheetsCount = 0;
+
+            for (const order of approvedOrders) {
+                const updatePayload: any = { updated_at: new Date().toISOString() };
+                if (matchedRoute?.default_rate_usd) {
+                    updatePayload.agreed_amount_usd = matchedRoute.default_rate_usd;
+                }
+                if (matchedRoute?.agreed_days) {
+                    updatePayload.agreed_days = matchedRoute.agreed_days;
+                }
+                if (matchedRoute?.default_cargo && !order.cargo_description) {
+                    updatePayload.cargo_description = matchedRoute.default_cargo;
+                }
+
+                await supabase
+                    .from("logistics_trip_orders" as any)
+                    .update(updatePayload)
+                    .eq("id", order.id);
+                updatedOrdersCount++;
+
+                if (order.trip_sheet_id) {
+                    const { data: sheet } = await supabase
+                        .from("logistics_trip_sheets" as any)
+                        .select("id, invoice_no, status")
+                        .eq("id", order.trip_sheet_id)
+                        .maybeSingle();
+
+                    if (sheet && !sheet.invoice_no && sheet.status !== "Completed") {
+                        await supabase
+                            .from("logistics_trip_expenses" as any)
+                            .delete()
+                            .eq("trip_sheet_id", sheet.id)
+                            .eq("is_extra", false);
+
+                        if (routeExpenses.length > 0) {
+                            await supabase
+                                .from("logistics_trip_expenses" as any)
+                                .insert(routeExpenses.map((e: any) => ({
+                                    trip_sheet_id: sheet.id,
+                                    category: e.category,
+                                    nature: e.nature || e.category,
+                                    item_name: e.item_name,
+                                    description: e.item_name,
+                                    amount: parseFloat(String(e.amount).replace(/,/g, '')) || 0,
+                                    currency: e.currency,
+                                    is_extra: false
+                                })));
+                        }
+                        updatedTripSheetsCount++;
+                    }
+                }
+            }
+
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets"] });
+
+            toast({
+                title: "Approved Orders Updated! 🚀",
+                description: `Updated ${updatedOrdersCount} approved order(s)${updatedTripSheetsCount > 0 ? ` and ${updatedTripSheetsCount} draft trip sheet(s)` : ''} for "${dest}" with the latest master rates & expenses.`
+            });
+        } catch (err: any) {
+            console.error("Sync approved orders error:", err);
+            toast({
+                variant: "destructive",
+                title: "Failed to Update Orders",
+                description: err.message || "An error occurred while updating approved orders."
+            });
+        } finally {
+            setIsSyncingApprovedOrders(false);
         }
     };
 
@@ -1001,21 +1184,16 @@ export default function MasterCollection() {
                         </div>
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="p-6">
-                    <div className="space-y-4">
-                        {/* Table Header exactly matching TripSheet */}
-                        <div className="flex gap-4 px-4 py-2 bg-slate-100/60 rounded-lg text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                            <div className="flex-[8] min-w-[180px]">Expense Description</div>
-                            <div className="w-28 text-center">Nature</div>
-                            <div className="w-44 text-right pr-4">Currency & Amount</div>
-                            <div className="w-24 text-right">
-                                {section.id === 'TZ' ? 'USD' : 'TZS Equiv.'}
-                            </div>
-                            <div className="w-6"></div>
+                <CardContent className="p-3 sm:p-5">
+                    <div className="space-y-3">
+                        {/* Table Header matching clean responsive layout */}
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/70 rounded-lg text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            <span>{section.name} Items ({items.length})</span>
+                            <span className="text-[9px] text-slate-400 font-medium">Description • Nature • Amount & Equiv</span>
                         </div>
 
-                        {/* Line Items exactly matching TripSheet */}
-                        <div className="grid gap-1.5 max-h-[460px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+                        {/* Line Items matching TripSheet without horizontal scroll */}
+                        <div className="grid gap-2 max-h-[460px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
                             {items.length === 0 ? (
                                 <div className="text-center py-6 border-2 border-dashed rounded-xl text-slate-400 text-xs">
                                     No {section.name} expenses registered. Click <span className="font-bold">+ Add Item</span> to add one.
@@ -1049,85 +1227,91 @@ export default function MasterCollection() {
                                     }
 
                                     return (
-                                        <div key={item.id} className="group flex gap-2 items-center bg-white p-1 md:p-1.5 rounded-xl border border-slate-100 hover:border-slate-300 transition-all">
-                                            {/* 1. Description (Searchable Combobox from DB matching TripSheet) */}
-                                            <div className="flex-[8] min-w-[200px]">
-                                                <ExpenseCombobox
-                                                    value={item.item_name}
-                                                    onChange={(val) => handleUpdateExpenseItemField(item.id, 'item_name', val)}
-                                                    items={expenseItemsList || []}
-                                                />
+                                        <div key={item.id} className="group bg-white p-2 sm:p-2.5 rounded-xl border border-slate-200/90 hover:border-slate-300 hover:shadow-xs transition-all space-y-2">
+                                            {/* 1. Description + Nature + Delete */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <ExpenseCombobox
+                                                        value={item.item_name}
+                                                        onChange={(val) => handleUpdateExpenseItemField(item.id, 'item_name', val)}
+                                                        items={expenseItemsList || []}
+                                                    />
+                                                </div>
+
+                                                <div className="w-28 sm:w-32 shrink-0">
+                                                    <Select
+                                                        value={item.nature || "Go & Return"}
+                                                        onValueChange={(val) => handleUpdateExpenseItemField(item.id, 'nature', val)}
+                                                    >
+                                                        <SelectTrigger className="h-7 text-[11px] bg-slate-50/60 hover:bg-slate-100 border-slate-200 shadow-none font-medium text-slate-600">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="Go & Return">Go & Return</SelectItem>
+                                                            <SelectItem value="Going Only">Going Only</SelectItem>
+                                                            <SelectItem value="Returning Only">Returning Only</SelectItem>
+                                                            <SelectItem value="Single Trip">Single Trip</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="shrink-0">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7 text-slate-300 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                                        onClick={() => handleDeleteExpenseItem(item.id)}
+                                                        title="Remove Item"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </Button>
+                                                </div>
                                             </div>
 
-                                            {/* 2. Nature Dropdown */}
-                                            <div className="w-28 shrink-0">
-                                                <Select
-                                                    value={item.nature || "Go & Return"}
-                                                    onValueChange={(val) => handleUpdateExpenseItemField(item.id, 'nature', val)}
-                                                >
-                                                    <SelectTrigger className="h-8 text-[11px] bg-white border-slate-200 shadow-none font-normal text-slate-600">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="Go & Return">Go & Return</SelectItem>
-                                                        <SelectItem value="Going Only">Going Only</SelectItem>
-                                                        <SelectItem value="Returning Only">Returning Only</SelectItem>
-                                                        <SelectItem value="Single Trip">Single Trip</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                            {/* 2. Currency & Amount with Commas + Converted Equiv */}
+                                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                                                <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-[260px]">
+                                                    <Select
+                                                        value={item.currency || section.defaultCurrency}
+                                                        onValueChange={(val) => handleUpdateExpenseItemField(item.id, 'currency', val)}
+                                                    >
+                                                        <SelectTrigger className="h-7 w-16 shrink-0 text-[10px] font-bold bg-slate-100 border border-slate-200/60 shadow-none px-2 text-slate-700 hover:bg-slate-200">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value={section.defaultCurrency} className="text-xs font-bold">{section.defaultCurrency}</SelectItem>
+                                                            {section.defaultCurrency !== 'USD' && (
+                                                                <SelectItem value="USD" className="text-xs font-bold text-emerald-700">USD $</SelectItem>
+                                                            )}
+                                                            {section.defaultCurrency !== 'TZS' && section.defaultCurrency !== 'USD' && (
+                                                                <SelectItem value="TZS" className="text-xs font-bold">TZS</SelectItem>
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <Input
+                                                        className="h-7 text-right font-bold text-slate-800 bg-slate-50/70 border-slate-200 focus-visible:ring-1 ring-primary pr-2 text-xs w-full tabular-nums"
+                                                        type="text"
+                                                        placeholder="0"
+                                                        value={formatWithCommas(item.amount || '')}
+                                                        onChange={(e) => handleUpdateExpenseItemField(item.id, 'amount', e.target.value)}
+                                                    />
+                                                </div>
 
-                                            {/* 3. Currency & Amount with Commas */}
-                                            <div className="w-44 flex items-center gap-1 shrink-0">
-                                                <Select
-                                                    value={item.currency || section.defaultCurrency}
-                                                    onValueChange={(val) => handleUpdateExpenseItemField(item.id, 'currency', val)}
-                                                >
-                                                    <SelectTrigger className="h-8 w-16 shrink-0 text-[10px] font-bold bg-slate-100 border-none px-1.5 text-slate-700">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value={section.defaultCurrency} className="text-xs font-bold">{section.defaultCurrency}</SelectItem>
-                                                        {section.defaultCurrency !== 'USD' && (
-                                                            <SelectItem value="USD" className="text-xs font-bold text-emerald-700">USD $</SelectItem>
+                                                {/* Live Converted Equiv */}
+                                                <div className="text-right shrink-0 pl-2">
+                                                    <div className="flex items-center gap-1 justify-end">
+                                                        <span className="text-[9px] uppercase font-bold text-slate-400">Equiv:</span>
+                                                        {section.id === 'TZ' ? (
+                                                            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                                                                ${Math.round(amountUSD).toLocaleString()}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs font-bold text-blue-900 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-md">
+                                                                TSh {Math.round(amountTSh).toLocaleString()}
+                                                            </span>
                                                         )}
-                                                        {section.defaultCurrency !== 'TZS' && section.defaultCurrency !== 'USD' && (
-                                                            <SelectItem value="TZS" className="text-xs font-bold">TZS</SelectItem>
-                                                        )}
-                                                    </SelectContent>
-                                                </Select>
-                                                <Input
-                                                    className="h-8 text-right font-bold text-slate-800 bg-slate-50 border-slate-200 text-xs w-full tabular-nums"
-                                                    type="text"
-                                                    placeholder="0"
-                                                    value={formatWithCommas(item.amount || '')}
-                                                    onChange={(e) => handleUpdateExpenseItemField(item.id, 'amount', e.target.value)}
-                                                />
-                                            </div>
-
-                                            {/* 4. Equivalent Calculation */}
-                                            <div className="w-24 text-right shrink-0">
-                                                {section.id === 'TZ' ? (
-                                                    <p className="text-[11px] font-semibold text-slate-500">
-                                                        ${Math.round(amountUSD).toLocaleString()}
-                                                    </p>
-                                                ) : (
-                                                    <p className="text-[10px] font-bold text-slate-700">
-                                                        TShs {Math.round(amountTSh).toLocaleString()}
-                                                    </p>
-                                                )}
-                                            </div>
-
-                                            {/* 5. Delete Action */}
-                                            <div className="w-6 flex justify-end shrink-0">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-7 w-7 text-slate-300 hover:text-destructive hover:bg-destructive/10"
-                                                    onClick={() => handleDeleteExpenseItem(item.id)}
-                                                >
-                                                    <Trash2 size={13} />
-                                                </Button>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     );
@@ -1455,17 +1639,45 @@ export default function MasterCollection() {
                                 </Select>
 
                                 {selectedRouteKey && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={isLoadingTripTemplate}
-                                        onClick={() => loadExpensesForDestination(selectedRouteKey, true)}
-                                        className="h-10 px-3 text-xs font-bold gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50 bg-white shadow-sm"
-                                        title="Auto-search database for latest trip sheet to this destination"
-                                    >
-                                        <RefreshCw className={`w-3.5 h-3.5 ${isLoadingTripTemplate ? "animate-spin" : ""}`} />
-                                        Auto-Fetch
-                                    </Button>
+                                    <>
+                                        <Button
+                                            onClick={handleSaveMasterRoute}
+                                            disabled={isSavingMaster}
+                                            className={cn(
+                                                "h-10 px-4 text-xs font-bold gap-2 shadow-sm rounded-xl transition-all",
+                                                hasUnsavedChanges
+                                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-400/50"
+                                                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            )}
+                                            title="Save all master rates, expenses, and fuel for this destination"
+                                        >
+                                            <Save className="w-4 h-4" />
+                                            {isSavingMaster ? "Saving..." : hasUnsavedChanges ? "Save Master Changes *" : "Save Master Changes"}
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            onClick={handleSyncApprovedOrders}
+                                            disabled={isSyncingApprovedOrders}
+                                            className="h-10 px-3 text-xs font-bold gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-100/60 bg-amber-50 shadow-sm rounded-xl"
+                                            title="Update all orders currently in the Approved Queue for this route with the latest master rates & expenses"
+                                        >
+                                            <Sparkles className={`w-3.5 h-3.5 text-amber-600 ${isSyncingApprovedOrders ? "animate-spin" : ""}`} />
+                                            {isSyncingApprovedOrders ? "Updating Orders..." : "Sync Approved Orders"}
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={isLoadingTripTemplate}
+                                            onClick={() => loadExpensesForDestination(selectedRouteKey, true)}
+                                            className="h-10 px-3 text-xs font-bold gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-50 bg-white shadow-sm rounded-xl"
+                                            title="Auto-search database for latest trip sheet to this destination"
+                                        >
+                                            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingTripTemplate ? "animate-spin" : ""}`} />
+                                            Auto-Fetch
+                                        </Button>
+                                    </>
                                 )}
 
                                 {/* Dedicated Search by Trip Sheet Number */}

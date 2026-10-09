@@ -45,38 +45,39 @@ export const Layout = ({ children }: LayoutProps) => {
         <AppSidebar />
 
         <div className="flex-1 flex flex-col overflow-auto">
-          <header className="sticky top-0 z-40 border-b px-3 md:px-6 py-3 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 shadow-sm">
-            <div className="flex items-center gap-3">
+          <header className="sticky top-0 z-40 border-b px-2.5 sm:px-4 md:px-6 py-2.5 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 shadow-xs">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
               {/* Sidebar trigger works for both desktop collapse and mobile drawer */}
-              <SidebarTrigger />
-
-              {/* Search - responsive width */}
-              <div className="flex-1 max-w-xl">
-                <GlobalSearch />
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <SidebarTrigger className="shrink-0" />
+                {/* Search - responsive width */}
+                <div className="flex-1 max-w-xl min-w-0">
+                  <GlobalSearch />
+                </div>
               </div>
 
               {/* Offline Status Indicator */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
                 {isOffline ? (
-                  <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-destructive text-destructive-foreground text-xs">
+                  <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-destructive text-destructive-foreground text-xs font-semibold">
                     <WifiOff className="h-3 w-3" />
-                    OFFLINE
+                    <span className="hidden sm:inline">OFFLINE</span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-success text-success-foreground text-xs">
-                    <Wifi className="h-3 w-3" />
-                    ONLINE
+                  <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
+                    <Wifi className="h-3 w-3 text-emerald-600" />
+                    <span className="hidden sm:inline">ONLINE</span>
                   </div>
                 )}
                 {pendingItems > 0 && (
-                  <div className="px-2 py-1 rounded-md bg-warning text-warning-foreground text-xs">
-                    {pendingItems} pending
+                  <div className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-bold">
+                    {pendingItems}
                   </div>
                 )}
               </div>
             </div>
           </header>
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1 overflow-x-hidden overflow-y-auto min-w-0">
             {children}
           </main>
         </div>

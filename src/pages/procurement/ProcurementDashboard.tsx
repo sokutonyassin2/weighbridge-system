@@ -296,8 +296,7 @@ const ProcurementDashboard = () => {
                 .eq("is_deleted", false)
                 .neq("status", "Waiting Review")
                 .neq("status", "Pending")
-                .order("created_at", { ascending: false })
-                .limit(100);
+                .order("created_at", { ascending: false });
 
             if (error) {
                 console.error("📦 PROCUREMENT ERROR:", error);
@@ -1289,7 +1288,18 @@ const ProcurementDashboard = () => {
                             }
                         });
 
-                        const groupList = Object.values(groups);
+                        const groupList = Object.values(groups).sort((a, b) => {
+                            // 1. Emergency orders top priority
+                            if (a.hasEmergency && !b.hasEmergency) return -1;
+                            if (!a.hasEmergency && b.hasEmergency) return 1;
+
+                            // 2. Waiting Approval top priority
+                            if (a.hasAwaitingApproval && !b.hasAwaitingApproval) return -1;
+                            if (!a.hasAwaitingApproval && b.hasAwaitingApproval) return 1;
+
+                            // 3. Newest items next
+                            return new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime();
+                        });
                         const groupKeys = Object.keys(groups);
                         const isAllExpanded = groupKeys.length > 0 && groupKeys.every(k => expandedVehicles.includes(k));
 

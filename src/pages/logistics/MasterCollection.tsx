@@ -537,7 +537,7 @@ export default function MasterCollection() {
         try {
             const { data: approvedOrders, error: fetchErr } = await supabase
                 .from("logistics_trip_orders" as any)
-                .select("id, trip_number, destination, agreed_amount_usd, agreed_days, cargo_description, trip_sheet_id, status")
+                .select("id, trip_number, destination, agreed_amount_usd, status")
                 .eq("status", "Approved")
                 .ilike("destination", dest);
 
@@ -552,70 +552,106 @@ export default function MasterCollection() {
                 return;
             }
 
-            const matchedRoute = customRoutes.find(r => r.destination?.toUpperCase() === dest);
             const routeExpenses = masterExpenses[dest] || [];
+            const fuelInfo = masterFuel[dest] || { fuel_liters: "", fuel_rate_usd: "", fuel_rate_tzs: "" };
+            const syncLiters = parseFloat(fuelInfo.fuel_liters) || 0;
+            const syncFuelRateTzs = parseFloat(fuelInfo.fuel_rate_tzs) || 4347;
+            const syncRateUsd = parseFloat(fuelInfo.fuel_rate_usd) || (countryRates["TZ"] > 0 ? syncFuelRateTzs / countryRates["TZ"] : 0);
 
-            let updatedOrdersCount = 0;
             let updatedTripSheetsCount = 0;
 
             for (const order of approvedOrders) {
-                const updatePayload: any = { updated_at: new Date().toISOString() };
-                if (matchedRoute?.default_rate_usd) {
-                    updatePayload.agreed_amount_usd = matchedRoute.default_rate_usd;
-                }
-                if (matchedRoute?.agreed_days) {
-                    updatePayload.agreed_days = matchedRoute.agreed_days;
-                }
-                if (matchedRoute?.default_cargo && !order.cargo_description) {
-                    updatePayload.cargo_description = matchedRoute.default_cargo;
-                }
-
-                await supabase
-                    .from("logistics_trip_orders" as any)
-                    .update(updatePayload)
-                    .eq("id", order.id);
-                updatedOrdersCount++;
-
-                if (order.trip_sheet_id) {
-                    const { data: sheet } = await supabase
+                // Find corresponding trip sheet by reference_number (which stores trip_number)
+                let sheet: any = null;
+                if (order.trip_number) {
+                    const { data: s } = await supabase
                         .from("logistics_trip_sheets" as any)
-                        .select("id, invoice_no, status")
-                        .eq("id", order.trip_sheet_id)
+                        .select("id, reference_number, invoice_no, status, total_expenses_tzs, total_expenses_usd")
+                        .eq("reference_number", order.trip_number)
                         .maybeSingle();
+                    sheet = s;
+                }
 
-                    if (sheet && !sheet.invoice_no && sheet.status !== "Completed") {
+                // Strictly update only draft/pre-op unbilled trip sheets
+                if (sheet && !sheet.invoice_no && sheet.status !== "Completed") {
+                    // 1. Sync road expenses
+                    await supabase
+                        .from("logistics_trip_expenses" as any)
+                        .delete()
+                        .eq("trip_sheet_id", sheet.id)
+                        .eq("is_extra", false);
+
+                    if (routeExpenses.length > 0) {
                         await supabase
                             .from("logistics_trip_expenses" as any)
-                            .delete()
-                            .eq("trip_sheet_id", sheet.id)
-                            .eq("is_extra", false);
-
-                        if (routeExpenses.length > 0) {
-                            await supabase
-                                .from("logistics_trip_expenses" as any)
-                                .insert(routeExpenses.map((e: any) => ({
-                                    trip_sheet_id: sheet.id,
-                                    category: e.category,
-                                    nature: e.nature || e.category,
-                                    item_name: e.item_name,
-                                    description: e.item_name,
-                                    amount: parseFloat(String(e.amount).replace(/,/g, '')) || 0,
-                                    currency: e.currency,
-                                    is_extra: false
-                                })));
-                        }
-                        updatedTripSheetsCount++;
+                            .insert(routeExpenses.map((e: any) => ({
+                                trip_sheet_id: sheet.id,
+                                category: e.category,
+                                nature: e.nature || e.category,
+                                item_name: e.item_name,
+                                description: e.item_name,
+                                amount: parseFloat(String(e.amount).replace(/,/g, '')) || 0,
+                                currency: e.currency,
+                                is_extra: false
+                            })));
                     }
+
+                    // 2. Sync fuel budget and recalculated total expenses to the sheet (NEVER touch agreed revenue!)
+                    const tzRate = countryRates["TZ"] || 2700;
+                    let calculatedExpTZS = 0;
+                    let calculatedExpUSD = 0;
+
+                    routeExpenses.forEach((item: any) => {
+                        const amt = parseFloat(String(item.amount).replace(/,/g, '')) || 0;
+                        if (item.currency === "USD") {
+                            calculatedExpUSD += amt;
+                            calculatedExpTZS += amt * tzRate;
+                        } else if (item.currency === "ZMW") {
+                            const zmwRate = countryRates["Zambia"] || 100;
+                            calculatedExpTZS += amt * zmwRate;
+                            calculatedExpUSD += tzRate > 0 ? (amt * zmwRate) / tzRate : 0;
+                        } else {
+                            calculatedExpTZS += amt;
+                            calculatedExpUSD += tzRate > 0 ? amt / tzRate : 0;
+                        }
+                    });
+
+                    // Add fuel cost to total expenses
+                    if (syncLiters > 0) {
+                        const fuelTotalTZS = syncLiters * syncFuelRateTzs;
+                        calculatedExpTZS += fuelTotalTZS;
+                        calculatedExpUSD += tzRate > 0 ? fuelTotalTZS / tzRate : 0;
+                    }
+
+                    const sheetUpdatePayload: any = {
+                        total_expenses_tzs: Math.round(calculatedExpTZS),
+                        total_expenses_usd: parseFloat(calculatedExpUSD.toFixed(2)),
+                        updated_at: new Date().toISOString()
+                    };
+
+                    if (syncLiters > 0) {
+                        sheetUpdatePayload.fuel_liters = syncLiters;
+                        sheetUpdatePayload.fuel_price = syncFuelRateTzs;
+                    }
+
+                    await supabase
+                        .from("logistics_trip_sheets" as any)
+                        .update(sheetUpdatePayload)
+                        .eq("id", sheet.id);
+
+                    updatedTripSheetsCount++;
                 }
             }
 
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
             queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_orders_for_trip_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_list"] });
 
             toast({
-                title: "Approved Orders Updated! 🚀",
-                description: `Updated ${updatedOrdersCount} approved order(s)${updatedTripSheetsCount > 0 ? ` and ${updatedTripSheetsCount} draft trip sheet(s)` : ''} for "${dest}" with the latest master rates & expenses.`
+                title: "Expenses & Fuel Synced! 🚀",
+                description: `Successfully synced route expenses and fuel for ${dest} to ${approvedOrders.length} approved order(s)${updatedTripSheetsCount > 0 ? ` and ${updatedTripSheetsCount} pre-op trip sheet(s)` : ''}. Agreed contract revenue was preserved untouched.`
             });
         } catch (err: any) {
             console.error("Sync approved orders error:", err);
@@ -679,7 +715,7 @@ export default function MasterCollection() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("logistics_trip_sheets" as any)
-                .select("id, reference_number, invoice_no, destination, origin, created_at")
+                .select("id, reference_number, invoice_no, destination, origin, created_at, fuel_liters, fuel_price, fuel_amount, country_rates, active_countries")
                 .order("created_at", { ascending: false })
                 .limit(100);
             if (error) return [];
@@ -703,7 +739,7 @@ export default function MasterCollection() {
     const [isLoadingTripTemplate, setIsLoadingTripTemplate] = useState(false);
     const [manualTripSearch, setManualTripSearch] = useState("");
 
-    // Directly load expenses from a specific trip sheet ID
+    // Directly load expenses and fuel budget from a specific trip sheet ID
     const loadExpensesFromTripId = async (targetTripSheet: any, targetDestination?: string) => {
         const dest = targetDestination || selectedRouteKey || targetTripSheet.destination?.trim().toUpperCase();
         if (!dest) {
@@ -713,18 +749,73 @@ export default function MasterCollection() {
 
         setIsLoadingTripTemplate(true);
         try {
+            // 1. Fetch detailed road expenses (support both is_extra false or null)
             const { data: tripExpenses, error } = await supabase
                 .from("logistics_trip_expenses" as any)
                 .select("*")
-                .eq("trip_sheet_id", targetTripSheet.id)
-                .eq("is_extra", false);
+                .eq("trip_sheet_id", targetTripSheet.id);
 
             if (error) throw error;
 
-            if (tripExpenses && tripExpenses.length > 0) {
-                const mapped = tripExpenses.map((e: any, idx: number) => ({
+            // 2. Import fuel liters and fuel price if available in targetTripSheet
+            let importedLiters = "";
+            let importedRateTzs = "";
+            let importedRateUsd = "";
+
+            if (targetTripSheet.fuel_liters) {
+                importedLiters = String(targetTripSheet.fuel_liters);
+            }
+            if (targetTripSheet.fuel_price) {
+                importedRateTzs = String(targetTripSheet.fuel_price);
+            }
+
+            // Check if country_rates has nested fuel entries or custom rates
+            if (targetTripSheet.country_rates && typeof targetTripSheet.country_rates === 'object') {
+                const cr = targetTripSheet.country_rates;
+                if (cr.fuel_entries && Array.isArray(cr.fuel_entries) && cr.fuel_entries.length > 0) {
+                    const totalL = cr.fuel_entries.reduce((s: number, e: any) => s + (parseFloat(e.liters) || 0), 0);
+                    const totalTZS = cr.fuel_entries.reduce((s: number, e: any) => s + ((parseFloat(e.liters) || 0) * (parseFloat(e.price) || 0)), 0);
+                    if (totalL > 0) {
+                        importedLiters = String(totalL);
+                        importedRateTzs = String(Math.round(totalTZS / totalL));
+                    }
+                }
+
+                // Update market rates if present in trip sheet
+                const tzRate = parseFloat(cr["TZ"]) || 2700;
+                const newRates = { ...countryRates };
+                ["TZ", "Zambia", "DRC", "Rwanda", "Burundi"].forEach(c => {
+                    if (cr[c]) {
+                        newRates[c] = parseFloat(cr[c]) || newRates[c];
+                    }
+                });
+                setCountryRates(newRates);
+                try {
+                    localStorage.setItem('latest_market_rates', JSON.stringify(newRates));
+                } catch (e) {}
+
+                if (importedRateTzs && tzRate > 0) {
+                    importedRateUsd = (parseFloat(importedRateTzs) / tzRate).toFixed(2);
+                }
+            }
+
+            // Persist fuel for this destination
+            if (importedLiters || importedRateTzs) {
+                persistFuel(dest, {
+                    fuel_liters: importedLiters,
+                    fuel_rate_usd: importedRateUsd,
+                    fuel_rate_tzs: importedRateTzs || "4347"
+                });
+            }
+
+            // 3. Process Expense Items
+            const nonExtraExpenses = (tripExpenses || []).filter((e: any) => e.is_extra !== true);
+            const validExpenses = nonExtraExpenses.length > 0 ? nonExtraExpenses : (tripExpenses || []);
+
+            if (validExpenses && validExpenses.length > 0) {
+                const mapped = validExpenses.map((e: any, idx: number) => ({
                     id: `trip-exp-${Date.now()}-${idx}`,
-                    item_name: e.item_name,
+                    item_name: e.item_name || e.description || "Expense Item",
                     category: e.category || "TZ",
                     amount: String(e.amount || "0"),
                     currency: e.currency || (e.category === "TZ" ? "TZS" : e.category === "Zambia" ? "ZMW" : "USD"),
@@ -738,20 +829,29 @@ export default function MasterCollection() {
                 persistExpenses(updatedMap);
                 setSelectedRouteKey(dest);
 
-                // Auto-set active countries based on what is in the loaded trip sheet!
-                const activeCats = [...new Set(mapped.map((e: any) => e.category))];
+                // Auto-set active countries
+                let activeCats = [...new Set(mapped.map((e: any) => e.category))];
+                if (targetTripSheet.active_countries && Array.isArray(targetTripSheet.active_countries)) {
+                    activeCats = [...new Set([...activeCats, ...targetTripSheet.active_countries])];
+                }
                 if (activeCats.length > 0) {
                     setActiveCountries(activeCats);
                 }
 
                 toast({
-                    title: "Trip Expenses Imported!",
-                    description: `Successfully loaded ${mapped.length} line items from ${targetTripSheet.reference_number || targetTripSheet.invoice_no || "trip sheet"} into ${dest}.`
+                    title: "Trip Template Imported!",
+                    description: `Loaded ${mapped.length} expense items${importedLiters ? ` + ${importedLiters}L fuel budget` : ''} from ${targetTripSheet.reference_number || targetTripSheet.invoice_no || "trip sheet"}.`
+                });
+            } else if (importedLiters) {
+                setSelectedRouteKey(dest);
+                toast({
+                    title: "Fuel Budget Imported!",
+                    description: `Loaded ${importedLiters}L fuel budget from ${targetTripSheet.reference_number || targetTripSheet.invoice_no || "trip sheet"}.`
                 });
             } else {
                 toast({
                     title: "No Expenses Found",
-                    description: `Trip sheet ${targetTripSheet.reference_number || targetTripSheet.invoice_no} has no recorded expense items.`
+                    description: `Trip sheet ${targetTripSheet.reference_number || targetTripSheet.invoice_no} has no recorded expense items or fuel.`
                 });
             }
         } catch (err: any) {

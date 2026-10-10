@@ -538,6 +538,28 @@ const TripSheets = () => {
         const rate = parseFloat(order.agreed_client_rate) || 2700;
         const local = parseFloat(order.agreed_amount_local) || (usd * rate);
 
+        // Check if an existing trip sheet already has actual calculated/saved expenses
+        const existingSheet = (tripSheets || []).find((s: any) => 
+            s.reference_number && order.trip_number && 
+            s.reference_number.trim().toUpperCase() === order.trip_number.trim().toUpperCase()
+        );
+
+        const savedExpTZS = parseFloat(existingSheet?.total_expenses_tzs);
+        const savedExpUSD = parseFloat(existingSheet?.total_expenses_usd);
+
+        if (existingSheet && !isNaN(savedExpTZS) && savedExpTZS > 0) {
+            const expUSD = !isNaN(savedExpUSD) && savedExpUSD > 0 ? savedExpUSD : (rate > 0 ? savedExpTZS / rate : 0);
+            return {
+                orderUSD: usd,
+                orderLocal: local,
+                orderRate: rate,
+                expUSD: expUSD,
+                expTZS: savedExpTZS,
+                profitUSD: usd - expUSD,
+                profitTZS: local - savedExpTZS
+            };
+        }
+
         let items: any[] = [];
         const routeMatch = routeExpensesMaster.find((r: any) => {
             const rDest = (r.destination || "").trim().toUpperCase();
@@ -1618,11 +1640,11 @@ const TripSheets = () => {
                                 )}
                                 <Button
                                     size="sm"
-                                    onClick={() => { setSelectedTrip(null); setDuplicateSourceTrip(null); setIsSheetOpen(true); }}
-                                    className="h-9 px-4 text-xs font-bold rounded-xl bg-slate-900 text-white hover:bg-slate-800"
+                                    onClick={() => setActiveTab('approved_orders')}
+                                    className="h-9 px-4 text-xs font-bold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
                                 >
-                                    <Plus size={14} className="mr-1.5" />
-                                    New Trip Sheet
+                                    <Sparkles size={14} className="mr-1.5" />
+                                    Open Approved Orders Queue
                                 </Button>
                             </div>
                         </Card>

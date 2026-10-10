@@ -539,28 +539,55 @@ const TripSheets = () => {
         const local = parseFloat(order.agreed_amount_local) || (usd * rate);
 
         // Check if an existing trip sheet already has actual calculated/saved expenses
-        const existingSheet = (tripSheets || []).find((s: any) => 
-            s.reference_number && order.trip_number && 
-            s.reference_number.trim().toUpperCase() === order.trip_number.trim().toUpperCase()
-        );
+        const orderCore = (order.trip_number || '').trim().replace(/^T\s*/i, '').toUpperCase();
+        const existingSheet = (tripSheets || []).find((s: any) => {
+            const sheetCore = (s.reference_number || '').trim().replace(/^T\s*/i, '').toUpperCase();
+            return (s.reference_number && order.trip_number && s.reference_number.trim().toUpperCase() === order.trip_number.trim().toUpperCase()) ||
+                   (sheetCore && orderCore && sheetCore === orderCore);
+        });
 
         const savedExpTZS = parseFloat(existingSheet?.total_expenses_tzs);
         const savedExpUSD = parseFloat(existingSheet?.total_expenses_usd);
 
+        // Check if existing sheet has fuel info attached
+        const sheetFuelLiters = parseFloat(existingSheet?.fuel_liters) || 0;
+        const sheetFuelPrice = parseFloat(existingSheet?.fuel_price) || 4347;
+        const sheetFuelTotalTZS = sheetFuelLiters * sheetFuelPrice;
+
         if (existingSheet && !isNaN(savedExpTZS) && savedExpTZS > 0) {
-            const expUSD = !isNaN(savedExpUSD) && savedExpUSD > 0 ? savedExpUSD : (rate > 0 ? savedExpTZS / rate : 0);
+            let finalExpTZS = savedExpTZS;
+            // If the saved expense is small (e.g. only road expenses ~3.7m) and sheet or route has fuel, ensure fuel is included
+            if (sheetFuelTotalTZS > 0 && finalExpTZS < sheetFuelTotalTZS) {
+                finalExpTZS += sheetFuelTotalTZS;
+            } else if (finalExpTZS < 5000000) {
+                // If saved expenses did not include fuel (less than 5M TZS), check if master route has fuel budget
+                const rMatch = routeExpensesMaster.find((r: any) => {
+                    const rDest = (r.destination || "").trim().toUpperCase();
+                    return rDest === dest || (dest && rDest.includes(dest)) || (rDest && dest.includes(rDest));
+                });
+                const rLiters = parseFloat(rMatch?.fuel_liters) || 0;
+                const rPrice = parseFloat(rMatch?.fuel_rate_tzs) || 4347;
+                if (rLiters > 0) {
+                    finalExpTZS += (rLiters * rPrice);
+                }
+            }
+
+            const expUSD = rate > 0 ? finalExpTZS / rate : (!isNaN(savedExpUSD) && savedExpUSD > 0 ? savedExpUSD : 0);
             return {
                 orderUSD: usd,
                 orderLocal: local,
                 orderRate: rate,
                 expUSD: expUSD,
-                expTZS: savedExpTZS,
+                expTZS: finalExpTZS,
                 profitUSD: usd - expUSD,
-                profitTZS: local - savedExpTZS
+                profitTZS: local - finalExpTZS
             };
         }
 
         let items: any[] = [];
+        let templateFuelLiters = 0;
+        let templateFuelRateTzs = 0;
+
         const routeMatch = routeExpensesMaster.find((r: any) => {
             const rDest = (r.destination || "").trim().toUpperCase();
             return rDest === dest || (dest && rDest.includes(dest)) || (rDest && dest.includes(rDest));
@@ -568,6 +595,8 @@ const TripSheets = () => {
 
         if (routeMatch && Array.isArray(routeMatch.expenses) && routeMatch.expenses.length > 0) {
             items = routeMatch.expenses;
+            templateFuelLiters = parseFloat(routeMatch.fuel_liters) || 0;
+            templateFuelRateTzs = parseFloat(routeMatch.fuel_rate_tzs) || 4347;
         } else {
             try {
                 const saved = localStorage.getItem("master_collection_route_expenses");
@@ -577,6 +606,15 @@ const TripSheets = () => {
                     if (items.length === 0) {
                         const matchedKey = Object.keys(expMap).find(k => k.includes(dest) || dest.includes(k));
                         if (matchedKey) items = expMap[matchedKey];
+                    }
+                }
+                const savedFuel = localStorage.getItem("master_collection_route_fuel");
+                if (savedFuel) {
+                    const fuelMap = JSON.parse(savedFuel);
+                    const f = fuelMap[dest] || fuelMap[order.destination?.trim()];
+                    if (f) {
+                        templateFuelLiters = parseFloat(f.fuel_liters) || 0;
+                        templateFuelRateTzs = parseFloat(f.fuel_rate_tzs) || 4347;
                     }
                 }
             } catch (e) {}
@@ -596,6 +634,13 @@ const TripSheets = () => {
                     orderExpUSD += rate > 0 ? amt / rate : 0;
                 }
             });
+        }
+
+        // Add fuel budget to estimated expenses
+        if (templateFuelLiters > 0) {
+            const fuelCostTZS = templateFuelLiters * templateFuelRateTzs;
+            orderExpTZS += fuelCostTZS;
+            orderExpUSD += rate > 0 ? fuelCostTZS / rate : 0;
         }
 
         return {
@@ -1458,7 +1503,11 @@ const TripSheets = () => {
                                                                     size="sm"
                                                                     className="h-8 px-3.5 rounded-lg font-black text-[10px] uppercase tracking-wider bg-slate-900 text-white hover:bg-indigo-600 shadow-xs transition-all gap-1.5"
                                                                     onClick={() => {
-                                                                        const existingTrip = tripSheets?.find((t: any) => t.reference_number === order.trip_number);
+                                                                        const orderCore = (order.trip_number || '').trim().replace(/^T\s*/i, '').toUpperCase();
+                                                                        const existingTrip = tripSheets?.find((t: any) => {
+                                                                            const sheetCore = (t.reference_number || '').trim().replace(/^T\s*/i, '').toUpperCase();
+                                                                            return t.reference_number === order.trip_number || (sheetCore && orderCore && sheetCore === orderCore);
+                                                                        });
                                                                         if (existingTrip) {
                                                                             setDuplicateSourceTrip(null);
                                                                             setSelectedTrip(existingTrip);

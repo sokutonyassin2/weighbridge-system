@@ -949,7 +949,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
 
                     setRevenueData(prev => ({
                         ...prev,
-                        revenue_type: doc.revenue_type || 'Without Fuel',
+                        revenue_type: doc.revenue_type || 'With Fuel',
                         revenue_amount: (doc.revenue_amount || 0).toString(),
                         revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
                         go_amount_usd: linkedGoUsd,
@@ -1363,8 +1363,9 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             revenueInUSD = netClient + driverRecovered;
         }
 
-        // Final Logic: Profit = Revenue - Operational - (isWithFuel ? Fuel : 0)
-        const activeFuelUSD = revenueData.revenue_type === 'With Fuel' ? fuelTotalUSD : 0;
+        // Final Logic: Profit = Revenue - Operational - Fuel (when fuel is provided/entered)
+        const isWithoutFuel = revenueData.revenue_type === 'Without Fuel';
+        const activeFuelUSD = (!isWithoutFuel || fuelTotalUSD > 0) ? fuelTotalUSD : 0;
         const totalBudgetedExpensesUSD = totalOperationalUSD + activeFuelUSD;
         const expectedNetProfitUSD = revenueInUSD - totalBudgetedExpensesUSD;
 

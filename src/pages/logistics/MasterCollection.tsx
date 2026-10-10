@@ -561,15 +561,21 @@ export default function MasterCollection() {
             let updatedTripSheetsCount = 0;
 
             for (const order of approvedOrders) {
-                // Find corresponding trip sheet by reference_number (which stores trip_number)
+                // Find corresponding trip sheet by reference_number (flexible matching)
                 let sheet: any = null;
                 if (order.trip_number) {
-                    const { data: s } = await supabase
+                    const cleanRef = order.trip_number.trim();
+                    const coreRef = cleanRef.replace(/^T\s*/i, '');
+
+                    const { data: sheets } = await supabase
                         .from("logistics_trip_sheets" as any)
                         .select("id, reference_number, invoice_no, status, total_expenses_tzs, total_expenses_usd")
-                        .eq("reference_number", order.trip_number)
-                        .maybeSingle();
-                    sheet = s;
+                        .or(`reference_number.eq."${cleanRef}",reference_number.ilike."%${coreRef}%"`);
+
+                    sheet = (sheets || []).find((s: any) => {
+                        const sRef = (s.reference_number || '').trim().replace(/^T\s*/i, '').toUpperCase();
+                        return sRef === coreRef.toUpperCase();
+                    }) || sheets?.[0];
                 }
 
                 // Strictly update only draft/pre-op unbilled trip sheets

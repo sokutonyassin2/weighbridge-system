@@ -122,14 +122,20 @@ export default function TripInvoices() {
             if (selectedSheets.length === 0) throw new Error("No vehicles selected for invoicing");
 
             // Prepare updates for all selected sheets
-            const updates = selectedSheets.map((sheet: any) => ({
-                id: sheet.id,
-                invoice_no: newInvoiceData.invoice_no,
-                invoice_date: newInvoiceData.invoice_date,
-                payment_status: newInvoiceData.payment_status,
-                revenue_currency: newInvoiceData.revenue_currency,
-                revenue_amount: vehicleRevenues[sheet.id] || newInvoiceData.default_revenue || "0"
-            }));
+            const updates = selectedSheets.map((sheet: any) => {
+                const assignedRevenue = vehicleRevenues[sheet.id];
+                const fallbackRevenue = sheet.revenue_amount !== undefined && sheet.revenue_amount !== null && sheet.revenue_amount !== '' && String(sheet.revenue_amount) !== '0'
+                    ? String(sheet.revenue_amount)
+                    : (newInvoiceData.default_revenue || "0");
+                return {
+                    id: sheet.id,
+                    invoice_no: newInvoiceData.invoice_no,
+                    invoice_date: newInvoiceData.invoice_date,
+                    payment_status: newInvoiceData.payment_status,
+                    revenue_currency: newInvoiceData.revenue_currency || sheet.revenue_currency || "TZS",
+                    revenue_amount: assignedRevenue !== undefined && assignedRevenue !== '' ? assignedRevenue : fallbackRevenue
+                };
+            });
 
             // Execute all updates
             for (const update of updates) {
@@ -802,11 +808,14 @@ export default function TripInvoices() {
                                                 onClick={() => {
                                                     if (!isSelected) {
                                                         setSelectedTripGroup(groupName);
-                                                        // Initialize revenues for this group
+                                                        // Initialize revenues for this group using existing revenue if available
                                                         const updatedRevs = { ...vehicleRevenues };
                                                         const allIds: string[] = [];
                                                         sheets.forEach((s: any) => {
-                                                            updatedRevs[s.id] = newInvoiceData.default_revenue;
+                                                            const existingRevenue = s.revenue_amount !== undefined && s.revenue_amount !== null && s.revenue_amount !== '' && String(s.revenue_amount) !== '0'
+                                                                ? String(s.revenue_amount)
+                                                                : newInvoiceData.default_revenue;
+                                                            updatedRevs[s.id] = existingRevenue;
                                                             allIds.push(s.id);
                                                         });
                                                         setVehicleRevenues(updatedRevs);

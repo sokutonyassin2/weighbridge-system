@@ -112,7 +112,7 @@ export default function TripFundApprovals() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("logistics_trip_orders" as any)
-                .select("trip_number, truck_reg, trailer_reg, driver_name, contact_no");
+                .select("trip_number, truck_reg, trailer_reg, driver_name, contact_no, agreed_amount_usd, go_amount_usd, return_amount_usd");
             if (error) return [];
             return data || [];
         }
@@ -310,7 +310,8 @@ export default function TripFundApprovals() {
             totalExpensesTZS,
             totalExpensesUSD,
             fuelLiters,
-            fuelAmountTZS
+            fuelAmountTZS,
+            matchedOrder
         };
     });
 
@@ -580,7 +581,21 @@ export default function TripFundApprovals() {
                 sheet.mergeCells(`A${rowIdx}:B${rowIdx}`);
             };
 
-            const rawRev = parseFloat(trip.revenue_amount || '0');
+            // Calculate contract revenue accurately:
+            // If the trip sheet has matchedOrder with agreed total (Go + Return), ensure full revenue is used
+            let effectiveRevenue = parseFloat(trip.revenue_amount || '0');
+            const orderAgreed = parseFloat(trip.matchedOrder?.agreed_amount_usd || '0');
+            const orderGo = parseFloat(trip.matchedOrder?.go_amount_usd || '0');
+            const orderRet = parseFloat(trip.matchedOrder?.return_amount_usd || '0');
+            const fullOrderContract = orderAgreed > 0 ? orderAgreed : (orderGo + orderRet);
+
+            if (trip.revenue_currency !== 'TZS') {
+                if (fullOrderContract > 0 && (effectiveRevenue === 0 || effectiveRevenue < fullOrderContract)) {
+                    effectiveRevenue = fullOrderContract;
+                }
+            }
+
+            const rawRev = effectiveRevenue;
             const revUsd = trip.revenue_currency === 'TZS' ? rawRev / tzR : rawRev;
             const revTzs = trip.revenue_currency === 'TZS' ? rawRev : rawRev * tzR;
 

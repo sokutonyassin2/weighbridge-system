@@ -249,10 +249,46 @@ export async function fetchCleanLogisticsTripSheets(): Promise<any[]> {
             return OPERATIONAL_BASELINE_TRIPS;
         }
 
+        // Fetch ALL trip orders to enrich sheets with the correct full contract revenue
+        let orderMap: Record<string, any> = {};
+        try {
+            const { data: orders } = await supabase
+                .from("logistics_trip_orders" as any)
+                .select("trip_number, agreed_amount_usd, go_amount_usd, return_amount_usd");
+            if (orders && orders.length > 0) {
+                orders.forEach((order: any) => {
+                    if (order.trip_number) {
+                        orderMap[order.trip_number] = order;
+                    }
+                });
+            }
+        } catch (e) {
+            console.warn("Could not fetch trip orders for revenue enrichment:", e);
+        }
+
+        // Enrich each sheet's revenue_amount with the full contract total from the matched order
+        const enrichedData = data.map((sheet: any) => {
+            const matchedOrder = orderMap[sheet.reference_number];
+            if (matchedOrder) {
+                const agreedUSD = parseFloat(matchedOrder.agreed_amount_usd) || 0;
+                const goUSD = parseFloat(matchedOrder.go_amount_usd) || 0;
+                const returnUSD = parseFloat(matchedOrder.return_amount_usd) || 0;
+                // Full contract = agreed_amount_usd if set, otherwise go + return
+                const orderTotal = agreedUSD > 0 ? agreedUSD : (goUSD + returnUSD);
+                const currentRevenue = parseFloat(sheet.revenue_amount) || 0;
+
+                // Use the order total if it's greater than what's currently stored on the sheet
+                if (orderTotal > 0 && orderTotal > currentRevenue) {
+                    return { ...sheet, revenue_amount: orderTotal };
+                }
+            }
+            return sheet;
+        });
+
         // Merge with operational baseline so user never loses historical convoys
-        const existingInvoiceNos = new Set(data.map((d: any) => d.invoice_no).filter(Boolean));
+        const existingInvoiceNos = new Set(enrichedData.map((d: any) => d.invoice_no).filter(Boolean));
         const missingBaseline = OPERATIONAL_BASELINE_TRIPS.filter(b => !existingInvoiceNos.has(b.invoice_no));
-        return [...data, ...missingBaseline];
+        return [...enrichedData, ...missingBaseline];
     } catch (e) {
         console.warn("Exception fetching trip sheets, using baseline:", e);
         return OPERATIONAL_BASELINE_TRIPS;

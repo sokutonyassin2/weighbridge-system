@@ -925,6 +925,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                         return_payment_status: doc.return_payment_status || "Pending"
                     });
 
+                    let totalContractRevenue = doc.revenue_amount || 0;
                     let linkedGoUsd = '';
                     let linkedReturnUsd = '';
                     if (doc.reference_number) {
@@ -941,6 +942,13 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 linkedReturnUsd = matchedOrder.return_amount_usd !== null && matchedOrder.return_amount_usd !== undefined
                                     ? String(matchedOrder.return_amount_usd)
                                     : '';
+                                const orderTotalUSD = parseFloat(matchedOrder.agreed_amount_usd) || 0;
+                                const goUSD = parseFloat(linkedGoUsd) || 0;
+                                const retUSD = parseFloat(linkedReturnUsd) || 0;
+                                const calculatedTotal = orderTotalUSD > 0 ? orderTotalUSD : (goUSD + retUSD);
+                                if (calculatedTotal > 0 && (totalContractRevenue === 0 || totalContractRevenue < calculatedTotal)) {
+                                    totalContractRevenue = calculatedTotal;
+                                }
                             }
                         } catch (e) {
                             console.warn("Could not query matched order for go/return amounts:", e);
@@ -950,7 +958,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                     setRevenueData(prev => ({
                         ...prev,
                         revenue_type: doc.revenue_type || 'With Fuel',
-                        revenue_amount: (doc.revenue_amount || 0).toString(),
+                        revenue_amount: (totalContractRevenue || 0).toString(),
                         revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
                         go_amount_usd: linkedGoUsd,
                         return_amount_usd: linkedReturnUsd,
@@ -1725,14 +1733,21 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
         const tzR = countryRates["TZ"] || 2700;
         const zmwR = countryRates["Zambia"] || 25.5;
         const rawRev = parseFloat(revenueData.revenue_amount || '0');
-        const revUsd = revenueData.revenue_currency === 'TZS' ? rawRev / tzR : rawRev;
-        const revTzs = revenueData.revenue_currency === 'TZS' ? rawRev : rawRev * tzR;
+        let revUsd = revenueData.revenue_currency === 'TZS' ? rawRev / tzR : rawRev;
+        const retUsdExcel = parseFloat(revenueData.return_amount_usd || '0');
+        const goUsdExcel = parseFloat(revenueData.go_amount_usd || '0');
+
+        // If both legs are defined and revUsd was mistakenly only the going leg, total revenue is Go + Return
+        if (goUsdExcel > 0 && retUsdExcel > 0 && Math.abs(revUsd - goUsdExcel) < 1) {
+            revUsd = goUsdExcel + retUsdExcel;
+        }
+
+        const revTzs = revUsd * tzR;
 
         addSummaryLine('GROSS TRIP REVENUE', revUsd, revTzs);
-        const retUsdExcel = parseFloat(revenueData.return_amount_usd || '0');
-        const goUsdExcel = parseFloat(revenueData.go_amount_usd || '0') || (revUsd - retUsdExcel);
         if (retUsdExcel > 0) {
-            addSummaryLine('  ↳ Outbound (Going Leg)', goUsdExcel, goUsdExcel * tzR, '4F46E5');
+            const actualGoUsd = goUsdExcel > 0 ? goUsdExcel : (revUsd - retUsdExcel);
+            addSummaryLine('  ↳ Outbound (Going Leg)', actualGoUsd, actualGoUsd * tzR, '4F46E5');
             addSummaryLine('  ↳ Inbound (Return Leg)', retUsdExcel, retUsdExcel * tzR, 'D97706');
         }
         addSummaryLine('ROAD EXPENSES', totals.roadExpensesUSD, totals.roadExpensesTZS, 'C0504D');

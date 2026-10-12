@@ -245,6 +245,49 @@ export default function GeneralLedger() {
 
   // Group Invoices by Client with Opening and Closing Balances
   const clientAccounts = useMemo(() => {
+    // 1. Group by unique invoice_no first (supporting Outbound and Return legs)
+    const allInvoices: Record<string, any> = {};
+
+    tripSheets.forEach((sheet: any) => {
+      const rate = parseFloat(sheet.exchange_rate) || 2700;
+
+      // Outbound Leg
+      if (sheet.invoice_no) {
+        const invNo = sheet.invoice_no;
+        if (!allInvoices[invNo]) {
+          allInvoices[invNo] = {
+            invoice_no: invNo,
+            invoice_date: sheet.invoice_date,
+            currency: sheet.revenue_currency || "TZS",
+            client_name: sheet.client_name || "Seekers & Korridor",
+            exchange_rate: rate,
+            total_amount: 0,
+            trips: []
+          };
+        }
+        allInvoices[invNo].trips.push({ ...sheet, _leg: "OUTBOUND" });
+        allInvoices[invNo].total_amount += parseFloat(sheet.revenue_amount || 0);
+      }
+
+      // Return Leg
+      if (sheet.return_invoice_no) {
+        const retInvNo = sheet.return_invoice_no;
+        if (!allInvoices[retInvNo]) {
+          allInvoices[retInvNo] = {
+            invoice_no: retInvNo,
+            invoice_date: sheet.return_invoice_date,
+            currency: sheet.return_revenue_currency || "TZS",
+            client_name: sheet.return_client_name || sheet.client_name || "Seekers & Korridor",
+            exchange_rate: rate,
+            total_amount: 0,
+            trips: []
+          };
+        }
+        allInvoices[retInvNo].trips.push({ ...sheet, _leg: "RETURN" });
+        allInvoices[retInvNo].total_amount += parseFloat(sheet.return_revenue_amount || 0);
+      }
+    });
+
     const acc: Record<string, {
       client_name: string;
       opening_balance_usd: number;
@@ -254,12 +297,28 @@ export default function GeneralLedger() {
       invoices: any[];
     }> = {};
 
-    tripSheets.forEach((sheet: any) => {
-      const rate = parseFloat(sheet.exchange_rate) || 2700;
-      const client = sheet.client_name || "Seekers & Korridor";
-      const isUSD = (sheet.revenue_currency || "USD") === "USD";
+    Object.values(allInvoices).forEach((inv: any) => {
+      const rate = inv.exchange_rate || 2700;
+      const isUSD = (inv.currency || "USD") === "USD";
 
-      // If client not initialized
+      // Amount Received calculation
+      const payments = paymentHistoryMap[inv.invoice_no] || [];
+      const recordedPayments = payments.length > 0 ? payments.reduce((sum: number, p: any) => sum + (parseFloat(p.amount_paid) || 0), 0) : undefined;
+      const hasLegacyPaid = inv.trips.every((t: any) => 
+        (t._leg === "RETURN" ? t.return_payment_status : t.payment_status) === "Paid"
+      );
+      const baselineReceived = inv.trips.reduce((sum: number, t: any) => sum + (parseFloat(t.amount_received) || 0), 0);
+      const amountPaid = recordedPayments !== undefined 
+        ? recordedPayments 
+        : (hasLegacyPaid ? inv.total_amount : baselineReceived);
+
+      const invUSD = isUSD ? inv.total_amount : inv.total_amount / rate;
+      const recUSD = isUSD ? amountPaid : amountPaid / rate;
+
+      inv.amount_paid = amountPaid;
+      inv.payments = payments;
+
+      const client = inv.client_name;
       if (!acc[client]) {
         const ob = clientOpeningBalances[client] || 0;
         acc[client] = {
@@ -272,29 +331,9 @@ export default function GeneralLedger() {
         };
       }
 
-      if (sheet.invoice_no) {
-        const rawAmt = parseFloat(sheet.revenue_amount) || 0;
-        const amtUSD = isUSD ? rawAmt : rawAmt / rate;
-        
-        // Calculate payment received
-        const payments = paymentHistoryMap[sheet.invoice_no] || [];
-        const recRaw = payments.reduce((sum: number, p: any) => sum + (parseFloat(p.amount_paid) || 0), 0);
-        const baselineRec = sheet.amount_received !== undefined ? sheet.amount_received : (sheet.payment_status === "Paid" ? rawAmt : 0);
-        const paidUSD = isUSD 
-          ? (payments.length > 0 ? recRaw : baselineRec) 
-          : (payments.length > 0 ? recRaw / rate : baselineRec / rate);
-
-        acc[client].total_invoiced_usd += amtUSD;
-        acc[client].total_received_usd += paidUSD;
-        acc[client].invoices.push({
-          ...sheet,
-          amount_paid: paidUSD,
-          total_amount: amtUSD,
-          currency: "USD",
-          exchange_rate: rate,
-          payments
-        });
-      }
+      acc[client].invoices.push(inv);
+      acc[client].total_invoiced_usd += invUSD;
+      acc[client].total_received_usd += recUSD;
     });
 
     // Compute closing balance: Opening + Invoiced - Received
@@ -888,7 +927,13 @@ export default function GeneralLedger() {
                         <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
                           {client.client_name}
                           <Badge variant="outline" className="text-[10px] font-bold bg-white text-slate-600">
-                            {client.invoices.length} Invoices
+                            {(() => {
+                              const invCount = client.invoices.length;
+                              const tripCount = client.invoices.reduce((sum: number, inv: any) => sum + (inv.trips ? inv.trips.length : 1), 0);
+                              if (invCount === 0) return "0 Invoices";
+                              const invText = invCount === 1 ? "1 Invoice" : `${invCount} Invoices`;
+                              return tripCount > invCount ? `${invText} (${tripCount} Trips)` : invText;
+                            })()}
                           </Badge>
                         </h3>
                         <p className="text-xs text-slate-500 font-medium mt-0.5">

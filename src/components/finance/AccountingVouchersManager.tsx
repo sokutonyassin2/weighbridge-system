@@ -14,6 +14,7 @@ import {
   VoucherParentType
 } from "@/lib/accountingVoucherService";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import { fetchCleanLogisticsTripSheets } from "@/lib/logisticsDataService";
 import { 
   Card, 
@@ -58,7 +59,8 @@ import {
   Receipt, 
   BookOpen, 
   Search, 
-  Building2, 
+  Building2,
+  Briefcase, 
   FolderPlus,
   Scale
 } from "lucide-react";
@@ -90,6 +92,26 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const [voucherReference, setVoucherReference] = useState<string>("");
   const [selectedClientName, setSelectedClientName] = useState<string>("");
   const [logisticsClients, setLogisticsClients] = useState<string[]>([]);
+  const [selectedSupplierName, setSelectedSupplierName] = useState<string>("");
+  const [newSupplierInput, setNewSupplierInput] = useState<string>("");
+  const [showAddSupplierBox, setShowAddSupplierBox] = useState<boolean>(false);
+  const [companySuppliers, setCompanySuppliers] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("tally_company_suppliers_v1");
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [
+      "Puma Energy (Fuel)",
+      "TotalEnergies",
+      "Oryx Energies",
+      "Dar Port Wharfage / TPA",
+      "Kasumbalesa Border Clearance",
+      "Tunduma Border Clearance",
+      "Garage Spare Parts Ltd",
+      "Tyres & Retreading Centre",
+      "Driver Trip Advances"
+    ];
+  });
 
   // New Custom Voucher Type Form
   const [newTypeName, setNewTypeName] = useState("");
@@ -112,6 +134,22 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       });
       setLogisticsClients(Array.from(set).sort());
     }).catch(() => {});
+
+    // Fetch suppliers from Supabase accounting_suppliers table
+    supabase
+      .from("accounting_suppliers" as any)
+      .select("name")
+      .order("name", { ascending: true })
+      .then(({ data, error }) => {
+        if (!error && data && data.length > 0) {
+          const names = data.map((d: any) => d.name).filter(Boolean);
+          setCompanySuppliers(names);
+          try {
+            localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(names));
+          } catch {}
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const ledgers = useMemo(() => getStoredLedgers(), [refreshKey]);
@@ -170,6 +208,57 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   }, [ledgers]);
 
   // Handle Save New Voucher
+  
+  
+  const handleDeleteSupplier = (e: React.MouseEvent, supplierToDelete: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const updated = companySuppliers.filter(s => s !== supplierToDelete);
+    setCompanySuppliers(updated);
+    try {
+      localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
+    } catch {}
+    // Delete from Supabase
+    supabase
+      .from("accounting_suppliers" as any)
+      .delete()
+      .eq("name", supplierToDelete)
+      .then(() => {})
+      .catch(() => {});
+    if (selectedSupplierName === supplierToDelete) {
+      setSelectedSupplierName("");
+    }
+    toast({
+      title: "Supplier Removed",
+      description: `"${supplierToDelete}" was removed from the supplier list.`
+    });
+  };
+
+  const handleAddNewSupplier = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const trimmed = newSupplierInput.trim();
+    if (!trimmed) return;
+    if (!companySuppliers.includes(trimmed)) {
+      const updated = [...companySuppliers, trimmed].sort();
+      setCompanySuppliers(updated);
+      try {
+        localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
+      } catch {}
+      // Sync with Supabase
+      supabase
+        .from("accounting_suppliers" as any)
+        .insert([{ name: trimmed }])
+        .then(() => {})
+        .catch(() => {});
+    }
+    setSelectedSupplierName(trimmed);
+    if (!voucherNarration) {
+      setVoucherNarration("Payment made to " + trimmed);
+    }
+    setNewSupplierInput("");
+    setShowAddSupplierBox(false);
+  };
+
   const handleCreateVoucher = (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(voucherAmount);
@@ -196,7 +285,13 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       amount: amountNum,
       currency: "USD",
       exchange_rate: 2700,
-      narration: voucherNarration || (selectedClientName ? `Payment received from ${selectedClientName}` : `${typeConfig?.name || voucherParentType} voucher`),
+      narration: voucherNarration || (
+        selectedClientName 
+          ? `Payment received from ${selectedClientName}` 
+          : selectedSupplierName 
+            ? `Payment made to ${selectedSupplierName}` 
+            : `${typeConfig?.name || voucherParentType} voucher`
+      ),
       reference_no: voucherReference || undefined
     });
 
@@ -209,6 +304,9 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     setVoucherNarration("");
     setVoucherReference("");
     setSelectedClientName("");
+    setSelectedSupplierName("");
+    setShowAddSupplierBox(false);
+    setNewSupplierInput("");
     setNewVoucherModalOpen(false);
     setRefreshKey(k => k + 1);
     if (onVoucherCreated) onVoucherCreated();
@@ -693,6 +791,82 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        )}
+
+        
+        {/* Supplier / Vendor Selector when recording Payments (F5) or Supplier Payables [2010] */}
+        {(voucherParentType === "PAYMENT" || drLedgerCode === "2010" || crLedgerCode === "2010") && (
+          <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50/70 space-y-2 transition-all">
+            <div className="flex justify-between items-center">
+              <Label className="text-[11px] font-bold text-rose-900 flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5 text-rose-600" />
+                Company Supplier / Vendor Paid *
+              </Label>
+              <button
+                type="button"
+                onClick={() => setShowAddSupplierBox(!showAddSupplierBox)}
+                className="text-[10px] text-rose-700 hover:text-rose-900 font-bold underline cursor-pointer"
+              >
+                {showAddSupplierBox ? "Cancel" : "+ Add New Supplier"}
+              </button>
+            </div>
+
+            {showAddSupplierBox ? (
+              <div className="flex gap-2 items-center pt-1">
+                <Input
+                  value={newSupplierInput}
+                  onChange={(e) => setNewSupplierInput(e.target.value)}
+                  placeholder="e.g. Scania Spares, TotalEnergies, Clearing Agent..."
+                  className="h-8 text-xs bg-white border-rose-300"
+                />
+                <Button 
+                  type="button" 
+                  size="sm" 
+                  onClick={handleAddNewSupplier}
+                  className="h-8 text-xs bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 shrink-0"
+                >
+                  Save & Select
+                </Button>
+              </div>
+            ) : (
+              <Select value={selectedSupplierName} onValueChange={(val) => {
+                setSelectedSupplierName(val);
+                if (val && !voucherNarration) {
+                  setVoucherNarration("Payment made to " + val);
+                }
+              }}>
+                <SelectTrigger className="h-9 text-xs font-bold bg-white border-rose-300">
+                  <SelectValue placeholder="-- Pick Supplier / Payee --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companySuppliers.map((s) => (
+                    <div key={s} className="flex items-center justify-between px-1.5 py-1 hover:bg-slate-100 rounded text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSupplierName(s);
+                          if (!voucherNarration) {
+                            setVoucherNarration("Payment made to " + s);
+                          }
+                        }}
+                        className="flex-1 text-left font-medium text-slate-800 hover:text-indigo-600 truncate py-1"
+                      >
+                        {s}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteSupplier(e, s)}
+                        title="Delete this supplier"
+                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-2"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         )}
 

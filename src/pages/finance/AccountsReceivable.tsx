@@ -596,6 +596,10 @@ export default function AccountsReceivable() {
                                             {clientGroup.client_name}
                                             <Badge variant="outline" className="text-[10px] font-bold bg-white text-slate-600 border-slate-200">
                                                 {clientGroup.invoices.length} {clientGroup.invoices.length === 1 ? "Invoice" : "Invoices"}
+                                                {(() => {
+                                                    const totalTrips = clientGroup.invoices.reduce((sum: number, inv: any) => sum + (inv.trips ? inv.trips.length : 1), 0);
+                                                    return totalTrips > clientGroup.invoices.length ? ` (${totalTrips} Trips)` : null;
+                                                })()}
                                             </Badge>
                                         </h2>
                                         <p className="text-xs font-semibold text-slate-500 mt-0.5">

@@ -197,52 +197,122 @@ export function buildClientStatement(
   let totalDebits = openingBalanceUSD > 0 ? openingBalanceUSD : 0;
   let totalCredits = openingBalanceUSD < 0 ? Math.abs(openingBalanceUSD) : 0;
 
-  // 2. Sort invoices by date
-  const sortedInvoices = [...invoices].sort((a, b) => {
+  // 2. Group by invoice_no so a multi-vehicle batch invoice shows as ONE consolidated line
+  const invoiceGroupMap: Record<string, {
+    invoice_no: string;
+    invoice_date: string;
+    currency: string;
+    exchange_rate: number;
+    total_amount_usd: number;
+    amount_paid_usd: number;
+    trips: any[];
+    payments: any[];
+    shortage_agreed_usd: number;
+    shortage_deducted_usd: number;
+    has_shortage: boolean;
+    shortage_liters_text?: string;
+  }> = {};
+
+  invoices.forEach((inv) => {
+    const invNo = inv.invoice_no || "UNINVOICED";
+    const rate = parseFloat(inv.exchange_rate) || 2700;
+    const isUSD = (inv.currency || "USD") === "USD";
+    const totalAmtUSD = isUSD ? (parseFloat(inv.total_amount) || 0) : ((parseFloat(inv.total_amount) || 0) / rate);
+    const paidAmtUSD = isUSD ? (parseFloat(inv.amount_paid) || 0) : ((parseFloat(inv.amount_paid) || 0) / rate);
+
+    const tripList = inv.trips && Array.isArray(inv.trips) && inv.trips.length > 0 
+      ? inv.trips 
+      : [inv];
+
+    const shortageData = tripList[0] ? getTripShortageRecovery(tripList[0].id, tripList[0]) : null;
+
+    if (!invoiceGroupMap[invNo]) {
+      invoiceGroupMap[invNo] = {
+        invoice_no: invNo,
+        invoice_date: inv.invoice_date || "",
+        currency: inv.currency || "USD",
+        exchange_rate: rate,
+        total_amount_usd: 0,
+        amount_paid_usd: 0,
+        trips: [],
+        payments: inv.payments || [],
+        shortage_agreed_usd: 0,
+        shortage_deducted_usd: 0,
+        has_shortage: false,
+        shortage_liters_text: ""
+      };
+    }
+
+    const group = invoiceGroupMap[invNo];
+    if (!group.invoice_date && inv.invoice_date) {
+      group.invoice_date = inv.invoice_date;
+    }
+    group.total_amount_usd += totalAmtUSD;
+    group.amount_paid_usd += paidAmtUSD;
+    group.trips.push(...tripList);
+
+    if (shortageData && shortageData.applicable && shortageData.shortage_amount > 0) {
+      group.has_shortage = true;
+      group.shortage_agreed_usd += shortageData.agreed_amount;
+      group.shortage_deducted_usd += shortageData.shortage_amount;
+      if (shortageData.shortage_liters) {
+        group.shortage_liters_text = `${shortageData.shortage_liters}L`;
+      }
+    }
+  });
+
+  // Sort unique consolidated invoices by date
+  const sortedConsolidatedInvoices = Object.values(invoiceGroupMap).sort((a, b) => {
     const da = a.invoice_date || "";
     const db = b.invoice_date || "";
     return da.localeCompare(db);
   });
 
-  sortedInvoices.forEach((inv) => {
-    const rate = parseFloat(inv.exchange_rate) || 2700;
-    const isUSD = (inv.currency || "USD") === "USD";
-    const totalAmtUSD = isUSD ? inv.total_amount : inv.total_amount / rate;
-    const paidAmtUSD = isUSD ? inv.amount_paid : inv.amount_paid / rate;
+  sortedConsolidatedInvoices.forEach((inv) => {
+    const totalAmtUSD = inv.total_amount_usd;
+    const paidAmtUSD = inv.amount_paid_usd;
 
-    // Check if this invoice has a shortage adjustment
-    const shortageData = inv.trips && inv.trips[0] ? getTripShortageRecovery(inv.trips[0].id, inv.trips[0]) : null;
+    // Unique vehicle plates string
+    const vehiclesSet = new Set<string>();
+    inv.trips.forEach((t: any) => {
+      const vNo = t.vehicle?.vehicle_no || t.vehicle_no;
+      if (vNo) vehiclesSet.add(vNo);
+    });
+    const vehicleCount = vehiclesSet.size;
+    const vehiclesLabel = vehicleCount > 0 
+      ? (vehicleCount === 1 ? Array.from(vehiclesSet)[0] : `${vehicleCount} Vehicles / Trips`)
+      : "Fleet Convoys";
 
-    if (shortageData && shortageData.applicable && shortageData.shortage_amount > 0) {
+    if (inv.has_shortage && inv.shortage_deducted_usd > 0) {
       // Show Agreed Gross Freight
-      running += shortageData.agreed_amount;
-      totalDebits += shortageData.agreed_amount;
+      running += inv.shortage_agreed_usd;
+      totalDebits += inv.shortage_agreed_usd;
       entries.push({
         id: `inv-gross-${inv.invoice_no}`,
         date: inv.invoice_date || new Date().toISOString().split("T")[0],
         type: "INVOICE",
         reference_no: inv.invoice_no,
-        description: `Agreed Freight Charge (${inv.trips?.map((t: any) => t.vehicle?.vehicle_no).filter(Boolean).join(", ") || "Trip"})`,
-        debit: shortageData.agreed_amount,
+        description: `Agreed Freight Charge (${vehiclesLabel})`,
+        debit: inv.shortage_agreed_usd,
         credit: 0,
         running_balance: running
       });
 
       // Show Cargo Shortage Loss Deduction by Client
-      running -= shortageData.shortage_amount;
-      totalCredits += shortageData.shortage_amount;
+      running -= inv.shortage_deducted_usd;
+      totalCredits += inv.shortage_deducted_usd;
       entries.push({
         id: `shortage-adj-${inv.invoice_no}`,
         date: inv.invoice_date || new Date().toISOString().split("T")[0],
         type: "SHORTAGE_ADJUSTMENT",
         reference_no: `DED-${inv.invoice_no}`,
-        description: `Offloading Shortage / Evaporation Loss Deducted by Client (${shortageData.shortage_liters ? `${shortageData.shortage_liters}L` : 'Shortage'} - Driver Liable)`,
+        description: `Offloading Shortage / Evaporation Loss Deducted by Client (${inv.shortage_liters_text || 'Shortage'} - Driver Liable)`,
         debit: 0,
-        credit: shortageData.shortage_amount,
+        credit: inv.shortage_deducted_usd,
         running_balance: running
       });
     } else {
-      // Standard Invoice Debit
+      // Standard Consolidated Invoice Debit (ONE single line for the whole invoice!)
       running += totalAmtUSD;
       totalDebits += totalAmtUSD;
       entries.push({
@@ -250,17 +320,17 @@ export function buildClientStatement(
         date: inv.invoice_date || new Date().toISOString().split("T")[0],
         type: "INVOICE",
         reference_no: inv.invoice_no,
-        description: `Freight Invoiced (${inv.trips?.map((t: any) => t.vehicle?.vehicle_no).filter(Boolean).join(", ") || "Trip"})`,
+        description: `Freight Invoiced (${vehiclesLabel})`,
         debit: totalAmtUSD,
         credit: 0,
         running_balance: running
       });
     }
 
-    // Client Payments / Receipts
+    // Client Payments / Receipts for this invoice
     if (inv.payments && inv.payments.length > 0) {
       inv.payments.forEach((p: any, idx: number) => {
-        const payUSD = isUSD ? parseFloat(p.amount_paid) || 0 : (parseFloat(p.amount_paid) || 0) / rate;
+        const payUSD = parseFloat(p.amount_paid) || 0;
         running -= payUSD;
         totalCredits += payUSD;
         entries.push({

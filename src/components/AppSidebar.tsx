@@ -3,7 +3,7 @@ import {
   FileText, TrendingUp, AlertTriangle, Printer, UserCheck, Shield,
   CreditCard, TimerOff, DollarSign, List, LayoutGrid, Wrench, Package,
   History, Calendar, Send, CheckCircle, FileBarChart, Trash2, Banknote, BookOpen, TrendingDown,
-  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye, ClipboardList, Layers, ShieldCheck
+  FileCheck, LogOut, User, Sun, Moon, Menu, Map, ChevronRight, Eye, ClipboardList, Layers, ShieldCheck, Wallet
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -95,10 +95,7 @@ const financeItems = [
   { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["finance", "admin", "super_admin", "audit_clerk"] },
   { title: "Logistics P&L", url: "/finance-dashboard", icon: BarChart3, roles: ["finance", "admin", "super_admin"] },
   { title: "Accounts Receivable", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
-  { title: "Payroll Management", url: "/finance/payroll", icon: Users, roles: ["finance", "admin", "super_admin"] },
-  { title: "Company Expenses", url: "/finance/expenses", icon: Banknote, roles: ["finance", "admin", "super_admin"] },
-  { title: "Asset Depreciation", url: "/finance/assets", icon: TrendingDown, roles: ["finance", "admin", "super_admin"] },
-  { title: "General Ledger", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
+  { title: "Accounting Vouchers", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
   { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
 ];
 

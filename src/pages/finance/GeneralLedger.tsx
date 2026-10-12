@@ -68,16 +68,18 @@ import {
   Droplet, 
   Calculator,
   UserCheck,
-  Scale
+  Scale,
+  FileSpreadsheet
 } from "lucide-react";
 import { format } from "date-fns";
+import { AccountingVouchersManager } from "@/components/finance/AccountingVouchersManager";
 
 export default function GeneralLedger() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [activeMainTab, setActiveMainTab] = useState<"vehicles" | "clients" | "journal">("vehicles");
+  const [activeMainTab, setActiveMainTab] = useState<"vouchers" | "vehicles" | "clients" | "journal">("vouchers");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCargo, setFilterCargo] = useState<"all" | "tanker" | "dry">("all");
   const [filterShortage, setFilterShortage] = useState<"all" | "with_shortage" | "pending_driver" | "recovered">("all");
@@ -563,6 +565,9 @@ export default function GeneralLedger() {
       <Tabs value={activeMainTab} onValueChange={(v: any) => setActiveMainTab(v)} className="space-y-6">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-200 pb-3">
           <TabsList className="bg-white border border-slate-200 p-1 shadow-xs h-auto">
+            <TabsTrigger value="vouchers" className="py-2 px-4 text-xs font-bold data-[state=active]:bg-indigo-600 data-[state=active]:text-white">
+              <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Accounting Vouchers (Tally)
+            </TabsTrigger>
             <TabsTrigger value="vehicles" className="py-2 px-4 text-xs font-bold data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700">
               <Truck className="w-4 h-4 mr-1.5" /> Vehicle Trip Statements & Tankers ({vehicleLedgers.length})
             </TabsTrigger>
@@ -585,6 +590,13 @@ export default function GeneralLedger() {
             />
           </div>
         </div>
+
+        {/* ============================================================== */}
+        {/* TAB 0: TALLY ACCOUNTING VOUCHERS (CONTRA, PAYMENT, RECEIPT)    */}
+        {/* ============================================================== */}
+        <TabsContent value="vouchers" className="space-y-6 mt-0">
+          <AccountingVouchersManager onVoucherCreated={() => setTriggerUpdate((p) => p + 1)} />
+        </TabsContent>
 
         {/* ============================================================== */}
         {/* TAB 1: VEHICLE TRIP STATEMENTS & TANKER LEDGERS               */}

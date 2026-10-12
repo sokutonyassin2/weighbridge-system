@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, CreditCard, Truck, RefreshCw, Pencil, Navigation, Plus, Calculator, CheckSquare, Square, Printer, DollarSign, Calendar, History, Receipt } from "lucide-react";
+import { Search, CreditCard, Truck, RefreshCw, Pencil, Navigation, Plus, Calculator, CheckSquare, Square, Printer, DollarSign, Calendar, History, Receipt, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -110,6 +110,29 @@ export default function TripInvoices() {
             toast({ variant: "destructive", title: "Error Saving", description: error.message });
         }
     });
+
+    const removeFromInvoiceMutation = useMutation({
+        mutationFn: async ({ sheetId, isReturn }: { sheetId: string; isReturn?: boolean }) => {
+            const updatePayload = isReturn 
+                ? { return_invoice_no: null, return_invoice_date: null, return_payment_status: "Pending" }
+                : { invoice_no: null, invoice_date: null, payment_status: "Pending" };
+            const { error } = await supabase
+                .from("logistics_trip_sheets" as any)
+                .update(updatePayload)
+                .eq("id", sheetId);
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics-invoices-sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["finance_overview_sheets"] });
+            toast({ title: "Removed from Invoice", description: "Trip has been moved back to Uninvoiced Vehicles." });
+            setEditingTrip(null);
+        },
+        onError: (error: any) => {
+            toast({ variant: "destructive", title: "Error Removing", description: error.message });
+        }
+    });
+
 
     const createGroupInvoiceMutation = useMutation({
         mutationFn: async () => {
@@ -590,12 +613,19 @@ export default function TripInvoices() {
                                                             <div className="text-[10px] text-slate-500 font-medium mt-0.5">
                                                                 {sheet.sheet_number} • {sheet.origin} → {sheet.destination}
                                                             </div>
-                                                            <div className="text-[10px] mt-1 flex gap-3 text-slate-500">
+                                                            <div className="text-[10px] mt-1 flex flex-wrap items-center gap-2 text-slate-500">
                                                                 <span>Exp: {exp > 0 ? `TShs ${exp.toLocaleString()}` : '-'}</span>
                                                                 {sheet._leg === 'RETURN' ? (
                                                                     <span className="font-bold text-slate-700">Rev: {sheet.return_revenue_currency || 'TZS'} {Number(sheet.return_revenue_amount || 0).toLocaleString()}</span>
                                                                 ) : (
-                                                                    <span className="font-bold text-slate-700">Rev: {sheet.revenue_currency} {Number(sheet.revenue_amount || 0).toLocaleString()}</span>
+                                                                    <span className="font-bold text-slate-700">Total Rev: {sheet.revenue_currency} {Number(sheet.revenue_amount || 0).toLocaleString()}</span>
+                                                                )}
+                                                                {parseFloat(sheet.return_amount_usd || '0') > 0 && sheet._leg !== 'RETURN' && (
+                                                                    <span className="inline-flex items-center gap-1.5 px-1.5 py-0.5 bg-slate-100 rounded text-[9px] font-semibold text-slate-600 border border-slate-200">
+                                                                        <span>Go: ${parseFloat(sheet.go_amount_usd || '0').toLocaleString(undefined, { minimumFractionDigits: 0 })}</span>
+                                                                        <span className="text-slate-300">|</span>
+                                                                        <span className="text-amber-700">Ret: ${parseFloat(sheet.return_amount_usd || '0').toLocaleString(undefined, { minimumFractionDigits: 0 })}</span>
+                                                                    </span>
                                                                 )}
                                                             </div>
                                                         </div>
@@ -611,15 +641,37 @@ export default function TripInvoices() {
                                                                 <Navigation className="w-3 h-3 mr-1" />
                                                                 OUTBOUND LEG
                                                             </Badge>
-                                                        ) : sheet.journey_type?.includes('Go & Return') && sheet.return_invoice_no && (
+                                                        ) : sheet.journey_type?.includes('Go & Return') && sheet.return_invoice_no ? (
                                                             <Badge variant="outline" className="border-indigo-200 text-indigo-700 bg-indigo-50 text-[10px] whitespace-nowrap">
                                                                 <RefreshCw className="w-3 h-3 mr-1" />
                                                                 Return: {sheet.return_invoice_no}
+                                                            </Badge>
+                                                        ) : (parseFloat(sheet.return_amount_usd || '0') > 0) && (
+                                                            <Badge variant="outline" className="border-amber-200 text-amber-700 bg-amber-50/70 text-[10px] whitespace-nowrap">
+                                                                Return Uninvoiced ($3,300)
                                                             </Badge>
                                                         )}
                                                         <Button size="sm" variant="outline" className="h-8 text-xs font-bold" onClick={() => setEditingTrip({...sheet})}>
                                                             <Pencil className="w-3 h-3 mr-1" /> Edit
                                                         </Button>
+                                                        {!group.invoice_no.startsWith("UNASSIGNED") && (
+                                                            <Button 
+                                                                size="sm" 
+                                                                variant="ghost" 
+                                                                className="h-8 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                                title="Remove from invoice back to Uninvoiced Vehicles"
+                                                                onClick={() => {
+                                                                    if (confirm(`Remove ${sheet.vehicle?.vehicle_no || sheet.reference_number} from invoice ${group.invoice_no}? It will be returned to Uninvoiced Vehicles.`)) {
+                                                                        removeFromInvoiceMutation.mutate({ 
+                                                                            sheetId: sheet.id, 
+                                                                            isReturn: sheet._leg === 'RETURN' 
+                                                                        });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
+                                                            </Button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -937,8 +989,57 @@ export default function TripInvoices() {
                                             className="h-10 text-sm"
                                         />
                                     </div>
+                                    {/* Order Leg Breakdown Banner */}
+                                    {parseFloat(editingTrip.return_amount_usd || '0') > 0 && (
+                                        <div className="col-span-2 p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-xl space-y-1.5">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="font-bold text-indigo-950 flex items-center gap-1.5">
+                                                    <span>📦 Trip Order Contract:</span>
+                                                    <span className="font-black">${(parseFloat(editingTrip.revenue_amount) || 0).toLocaleString()} USD Total</span>
+                                                </span>
+                                                <Badge variant="outline" className="text-[10px] bg-white border-indigo-300 text-indigo-700 font-bold">
+                                                    Outbound Invoicing Active
+                                                </Badge>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                                                <div className="p-2 bg-white rounded-lg border border-indigo-100 flex items-center justify-between">
+                                                    <div>
+                                                        <p className="text-[9px] font-bold uppercase text-slate-400">Going Fee (This Invoice)</p>
+                                                        <p className="font-black text-slate-900">${parseFloat(editingTrip.go_amount_usd || '0').toLocaleString()}</p>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="h-6 px-2 text-[10px] font-black text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                                                        onClick={() => {
+                                                            const goVal = (parseFloat(editingTrip.go_amount_usd) || 0).toString();
+                                                            setEditingTrip({
+                                                                ...editingTrip,
+                                                                amount_received: goVal,
+                                                                _new_payment_amt: goVal,
+                                                                payment_status: 'Paid'
+                                                            });
+                                                        }}
+                                                    >
+                                                        Pay Full Go Fee
+                                                    </Button>
+                                                </div>
+                                                <div className="p-2 bg-white rounded-lg border border-indigo-100 flex items-center justify-between">
+                                                    <div>
+                                                        <p className="text-[9px] font-bold uppercase text-slate-400">Return Fee (Future Leg)</p>
+                                                        <p className="font-black text-amber-700">${parseFloat(editingTrip.return_amount_usd || '0').toLocaleString()}</p>
+                                                    </div>
+                                                    <span className="text-[9px] font-semibold text-slate-400 italic">Billed on Offload</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div className="space-y-1.5">
-                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">Revenue</Label>
+                                        <Label className="text-[10px] font-bold text-slate-500 uppercase">
+                                            {parseFloat(editingTrip.return_amount_usd || '0') > 0 ? "Total Contract Revenue" : "Revenue"}
+                                        </Label>
                                         <div className="flex relative">
                                             <select
                                                 className="absolute left-0 top-0 h-full w-16 bg-transparent border-none text-xs font-bold text-slate-600 focus:ring-0 cursor-pointer px-2"
@@ -958,16 +1059,35 @@ export default function TripInvoices() {
                                         </div>
                                     </div>
                                     <div className="space-y-1.5">
-                                        <Label className="text-[10px] font-bold text-emerald-700 uppercase">Amount Received</Label>
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-[10px] font-bold text-emerald-700 uppercase">Amount Received</Label>
+                                            {parseFloat(editingTrip.go_amount_usd || '0') > 0 && (
+                                                <button
+                                                    type="button"
+                                                    className="text-[9px] font-bold text-indigo-600 hover:underline"
+                                                    onClick={() => {
+                                                        const goVal = (parseFloat(editingTrip.go_amount_usd) || 0).toString();
+                                                        setEditingTrip({
+                                                            ...editingTrip,
+                                                            amount_received: goVal,
+                                                            _new_payment_amt: goVal,
+                                                            payment_status: 'Paid'
+                                                        });
+                                                    }}
+                                                >
+                                                    Fill Go: ${parseFloat(editingTrip.go_amount_usd || '0').toLocaleString()}
+                                                </button>
+                                            )}
+                                        </div>
                                         <Input 
                                             type="number"
                                             step="any"
                                             placeholder="0.00" 
-                                            value={editingTrip.amount_received ?? (editingTrip.payment_status === 'Paid' ? (editingTrip.revenue_amount || '') : '')} 
+                                            value={editingTrip.amount_received ?? (editingTrip.payment_status === 'Paid' ? (editingTrip.go_amount_usd || editingTrip.revenue_amount || '') : '')} 
                                             onChange={e => {
                                                 const recVal = parseFloat(e.target.value) || 0;
-                                                const revVal = parseFloat(editingTrip.revenue_amount) || 0;
-                                                const newStatus = recVal >= revVal && revVal > 0 ? 'Paid' : recVal > 0 ? 'Partial' : 'Pending';
+                                                const targetVal = parseFloat(editingTrip.go_amount_usd || editingTrip.revenue_amount) || 0;
+                                                const newStatus = recVal >= targetVal && targetVal > 0 ? 'Paid' : recVal > 0 ? 'Partial' : 'Pending';
                                                 setEditingTrip({
                                                     ...editingTrip,
                                                     amount_received: e.target.value,
@@ -983,13 +1103,13 @@ export default function TripInvoices() {
                                         <Select 
                                             value={editingTrip.payment_status || "Pending"} 
                                             onValueChange={(val) => {
-                                                const revVal = parseFloat(editingTrip.revenue_amount) || 0;
-                                                const autoRec = val === 'Paid' ? revVal.toString() : val === 'Pending' ? '0' : editingTrip.amount_received;
+                                                const targetRev = parseFloat(editingTrip.go_amount_usd || editingTrip.revenue_amount) || 0;
+                                                const autoRec = val === 'Paid' ? targetRev.toString() : val === 'Pending' ? '0' : editingTrip.amount_received;
                                                 setEditingTrip({
                                                     ...editingTrip, 
                                                     payment_status: val, 
                                                     amount_received: autoRec, 
-                                                    _new_payment_amt: val === 'Paid' ? revVal.toString() : editingTrip._new_payment_amt
+                                                    _new_payment_amt: val === 'Paid' ? targetRev.toString() : editingTrip._new_payment_amt
                                                 });
                                             }}
                                         >
@@ -999,30 +1119,42 @@ export default function TripInvoices() {
                                             <SelectContent>
                                                 <SelectItem value="Pending">Pending / Unpaid</SelectItem>
                                                 <SelectItem value="Partial">Partial Payment</SelectItem>
-                                                <SelectItem value="Paid">Fully Paid</SelectItem>
+                                                <SelectItem value="Paid">Fully Paid (Going Fee Settled)</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
 
                                     {/* Outbound Still Demanded Live Callout */}
                                     {(() => {
-                                        const rev = parseFloat(editingTrip.revenue_amount) || 0;
-                                        const rec = parseFloat(editingTrip.amount_received ?? (editingTrip.payment_status === 'Paid' ? rev : 0)) || 0;
-                                        const demanded = Math.max(0, rev - rec);
+                                        // If this trip has an outbound Go Fee, calculate demanded against the Go Fee for this invoice
+                                        const targetRev = parseFloat(editingTrip.go_amount_usd || editingTrip.revenue_amount) || 0;
+                                        const rec = parseFloat(editingTrip.amount_received ?? (editingTrip.payment_status === 'Paid' ? targetRev : 0)) || 0;
+                                        const demanded = Math.max(0, targetRev - rec);
+                                        const hasRetLeg = parseFloat(editingTrip.return_amount_usd || '0') > 0;
+
                                         return (
-                                            <div className="col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-slate-500 font-bold uppercase text-[10px]">Still Demanded:</span>
-                                                    <span className={`text-sm font-black ${demanded > 0.01 ? 'text-amber-900' : 'text-emerald-700'}`}>
-                                                        {editingTrip.revenue_currency || 'TZS'} {demanded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                    </span>
+                                            <div className="col-span-2 p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-slate-500 font-bold uppercase text-[10px]">
+                                                            {hasRetLeg ? "Outbound Still Demanded:" : "Still Demanded:"}
+                                                        </span>
+                                                        <span className={`text-sm font-black ${demanded > 0.01 ? 'text-amber-900' : 'text-emerald-700'}`}>
+                                                            {editingTrip.revenue_currency || 'TZS'} {demanded.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    </div>
+                                                    {hasRetLeg && (
+                                                        <span className="text-[10px] text-slate-400 font-medium">
+                                                            (Calculated on Going Fee: ${targetRev.toLocaleString()} USD • Return Leg billed separately)
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <Badge className={cn("text-[10px] font-bold",
                                                     editingTrip.payment_status === 'Paid' ? 'bg-emerald-600 text-white' :
                                                     editingTrip.payment_status === 'Partial' ? 'bg-orange-600 text-white' :
                                                     'bg-slate-400 text-white'
                                                 )}>
-                                                    {editingTrip.payment_status === 'Paid' ? 'Fully Settled' : editingTrip.payment_status === 'Partial' ? 'Partial Balance' : 'Unpaid'}
+                                                    {editingTrip.payment_status === 'Paid' ? 'Going Settled' : editingTrip.payment_status === 'Partial' ? 'Partial Balance' : 'Unpaid'}
                                                 </Badge>
                                             </div>
                                         );
@@ -1152,15 +1284,38 @@ export default function TripInvoices() {
                             )}
                         </div>
                     )}
-                    <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 sm:justify-between">
-                        <Button variant="ghost" onClick={() => setEditingTrip(null)}>Cancel</Button>
-                        <Button 
-                            onClick={handleSaveEdit} 
-                            disabled={updateInvoiceMutation.isPending}
-                            className="bg-indigo-600 hover:bg-indigo-700 shadow-md"
-                        >
-                            {updateInvoiceMutation.isPending ? "Saving..." : "Save Edits"}
-                        </Button>
+                    <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex flex-row items-center justify-between">
+                        <div>
+                            {editingTrip?.invoice_no && !editingTrip.invoice_no.startsWith("UNASSIGNED") && (
+                                <Button 
+                                    type="button"
+                                    variant="outline" 
+                                    className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 text-xs font-bold"
+                                    onClick={() => {
+                                        if (confirm(`Remove this trip from invoice ${editingTrip.invoice_no}? It will be returned to Uninvoiced Vehicles.`)) {
+                                            removeFromInvoiceMutation.mutate({ 
+                                                sheetId: editingTrip.id,
+                                                isReturn: editingTrip._leg === 'RETURN'
+                                            });
+                                        }
+                                    }}
+                                    disabled={removeFromInvoiceMutation.isPending}
+                                >
+                                    <Trash2 className="w-3.5 h-3.5 mr-1 text-red-500" />
+                                    {removeFromInvoiceMutation.isPending ? "Removing..." : "Remove from Invoice"}
+                                </Button>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" onClick={() => setEditingTrip(null)}>Cancel</Button>
+                            <Button 
+                                onClick={handleSaveEdit} 
+                                disabled={updateInvoiceMutation.isPending}
+                                className="bg-indigo-600 hover:bg-indigo-700 shadow-md font-bold text-xs"
+                            >
+                                {updateInvoiceMutation.isPending ? "Saving..." : "Save Edits"}
+                            </Button>
+                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

@@ -249,18 +249,24 @@ export async function fetchCleanLogisticsTripSheets(): Promise<any[]> {
             return OPERATIONAL_BASELINE_TRIPS;
         }
 
+        // Normalize helper function to handle spaces like "T 981/2025/G008" vs "T981/2025/G008"
+        const cleanRef = (val: string) => (val || '').replace(/\s+/g, '').toUpperCase().trim();
+
         // Fetch ALL trip orders to enrich sheets with the correct full contract revenue
         let orderMap: Record<string, any> = {};
         try {
-            const { data: orders } = await supabase
+            const { data: orders, error: orderErr } = await supabase
                 .from("logistics_trip_orders" as any)
                 .select("trip_number, agreed_amount_usd, go_amount_usd, return_amount_usd");
             if (orders && orders.length > 0) {
                 orders.forEach((order: any) => {
                     if (order.trip_number) {
                         orderMap[order.trip_number] = order;
+                        orderMap[cleanRef(order.trip_number)] = order;
                     }
                 });
+            } else if (orderErr) {
+                console.warn("Error fetching trip orders for revenue enrichment:", orderErr.message);
             }
         } catch (e) {
             console.warn("Could not fetch trip orders for revenue enrichment:", e);
@@ -268,7 +274,8 @@ export async function fetchCleanLogisticsTripSheets(): Promise<any[]> {
 
         // Enrich each sheet's revenue_amount with the full contract total from the matched order
         const enrichedData = data.map((sheet: any) => {
-            const matchedOrder = orderMap[sheet.reference_number];
+            const ref = sheet.reference_number || '';
+            const matchedOrder = orderMap[ref] || orderMap[cleanRef(ref)];
             if (matchedOrder) {
                 const agreedUSD = parseFloat(matchedOrder.agreed_amount_usd) || 0;
                 const goUSD = parseFloat(matchedOrder.go_amount_usd) || 0;
@@ -277,10 +284,13 @@ export async function fetchCleanLogisticsTripSheets(): Promise<any[]> {
                 const orderTotal = agreedUSD > 0 ? agreedUSD : (goUSD + returnUSD);
                 const currentRevenue = parseFloat(sheet.revenue_amount) || 0;
 
-                // Use the order total if it's greater than what's currently stored on the sheet
-                if (orderTotal > 0 && orderTotal > currentRevenue) {
-                    return { ...sheet, revenue_amount: orderTotal };
-                }
+                return {
+                    ...sheet,
+                    revenue_amount: (orderTotal > 0 && orderTotal > currentRevenue) ? orderTotal : (sheet.revenue_amount || orderTotal),
+                    go_amount_usd: matchedOrder.go_amount_usd ? String(matchedOrder.go_amount_usd) : (goUSD > 0 ? String(goUSD) : ''),
+                    return_amount_usd: matchedOrder.return_amount_usd ? String(matchedOrder.return_amount_usd) : (returnUSD > 0 ? String(returnUSD) : ''),
+                    order_total_usd: orderTotal > 0 ? orderTotal : null
+                };
             }
             return sheet;
         });

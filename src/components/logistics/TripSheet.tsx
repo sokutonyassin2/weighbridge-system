@@ -946,7 +946,7 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                 const goUSD = parseFloat(linkedGoUsd) || 0;
                                 const retUSD = parseFloat(linkedReturnUsd) || 0;
                                 const calculatedTotal = orderTotalUSD > 0 ? orderTotalUSD : (goUSD + retUSD);
-                                if (calculatedTotal > 0 && (totalContractRevenue === 0 || totalContractRevenue < calculatedTotal)) {
+                                if (calculatedTotal > 0) {
                                     totalContractRevenue = calculatedTotal;
                                 }
                             }
@@ -1027,7 +1027,14 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                         hasDraftExpenses = true;
                                         setExpenses(draft.expenses);
                                         if (draft.countryRates) setCountryRates(draft.countryRates);
-                                        if (draft.revenueData) setRevenueData(draft.revenueData);
+                                        if (draft.revenueData) {
+                                            setRevenueData(prev => ({
+                                                ...draft.revenueData,
+                                                revenue_amount: prev.revenue_amount || draft.revenueData.revenue_amount,
+                                                go_amount_usd: prev.go_amount_usd || draft.revenueData.go_amount_usd,
+                                                return_amount_usd: prev.return_amount_usd || draft.revenueData.return_amount_usd,
+                                            }));
+                                        }
                                     }
                                 } else {
                                     // Draft is older than or equal to database commit: clear the stale draft
@@ -1217,10 +1224,16 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
             return_invoice_date: doc.return_invoice_date || "",
             return_payment_status: doc.return_payment_status || "Pending"
         });
+        const dupAgreed = parseFloat(doc.agreed_amount_usd) || 0;
+        const dupGo = parseFloat(doc.go_amount_usd) || 0;
+        const dupRet = parseFloat(doc.return_amount_usd) || 0;
+        const dupCalculated = dupAgreed > 0 ? dupAgreed : (dupGo + dupRet);
+        const effectiveRevAmount = dupCalculated > 0 ? dupCalculated : (doc.revenue_amount || 0);
+
         setRevenueData(prev => ({
             ...prev,
             revenue_type: doc.revenue_type || 'With Fuel',
-            revenue_amount: (doc.revenue_amount || 0).toString(),
+            revenue_amount: (effectiveRevAmount || 0).toString(),
             revenue_currency: (doc.revenue_currency || 'USD') as 'USD' | 'TZS',
             go_amount_usd: doc.go_amount_usd ? String(doc.go_amount_usd) : '',
             return_amount_usd: doc.return_amount_usd ? String(doc.return_amount_usd) : '',
@@ -2730,13 +2743,18 @@ export const TripSheet = ({ tripId, duplicateData, onSaveSuccess }: TripSheetPro
                                                         daily_fine_amount: order.daily_penalty_fine ? String(order.daily_penalty_fine) : prev.daily_fine_amount
                                                     }));
 
-                                                    if (order.agreed_amount_usd) {
-                                                        const goUsd = order.go_amount_usd !== null && order.go_amount_usd !== undefined && order.go_amount_usd !== '' ? String(order.go_amount_usd) : String(order.agreed_amount_usd);
-                                                        const retUsd = order.return_amount_usd !== null && order.return_amount_usd !== undefined ? String(order.return_amount_usd) : '';
+                                                    const orderAgreed = parseFloat(order.agreed_amount_usd) || 0;
+                                                    const goUsd = order.go_amount_usd !== null && order.go_amount_usd !== undefined && order.go_amount_usd !== '' ? String(order.go_amount_usd) : String(order.agreed_amount_usd || '');
+                                                    const retUsd = order.return_amount_usd !== null && order.return_amount_usd !== undefined ? String(order.return_amount_usd) : '';
+                                                    const goNum = parseFloat(goUsd) || 0;
+                                                    const retNum = parseFloat(retUsd) || 0;
+                                                    const fullTotal = orderAgreed > 0 ? orderAgreed : (goNum + retNum);
+
+                                                    if (fullTotal > 0) {
                                                         setRevenueData(prev => ({
                                                             ...prev,
                                                             revenue_type: 'With Fuel',
-                                                            revenue_amount: String(order.agreed_amount_usd),
+                                                            revenue_amount: String(fullTotal),
                                                             revenue_currency: 'USD',
                                                             go_amount_usd: goUsd,
                                                             return_amount_usd: retUsd

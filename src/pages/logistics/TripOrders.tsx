@@ -1136,24 +1136,29 @@ export default function TripOrders() {
                 .eq("id", orderId);
             if (error) throw error;
 
-            // Also check if any associated trip sheet exists for this order's trip_number, and cascade the updated total
+            // Also check if any associated trip sheet exists for this order's trip_number, and cascade the updated total & reference_number
             try {
                 const targetOrder = orders.find((o: any) => o.id === orderId);
-                const tripNum = targetOrder?.trip_number;
-                if (tripNum && updates.agreed_amount_usd !== undefined) {
-                    const totalUSD = parseFloat(updates.agreed_amount_usd) || 0;
-                    const exRate = parseFloat(updates.agreed_client_rate) || 2700;
+                const oldTripNum = targetOrder?.trip_number;
+                const newTripNum = updates.trip_number || oldTripNum;
+                if (oldTripNum) {
+                    const sheetUpdates: any = {
+                        client_name: updates.client_name || targetOrder.client_name,
+                        destination: updates.destination || targetOrder.destination,
+                        cargo_outbound: updates.cargo_description !== undefined ? updates.cargo_description : targetOrder.cargo_description,
+                        updated_at: new Date().toISOString()
+                    };
+                    if (updates.agreed_amount_usd !== undefined) {
+                        sheetUpdates.revenue_amount = parseFloat(updates.agreed_amount_usd) || 0;
+                        sheetUpdates.exchange_rate = parseFloat(updates.agreed_client_rate) || 2700;
+                    }
+                    if (updates.trip_number && updates.trip_number !== oldTripNum) {
+                        sheetUpdates.reference_number = updates.trip_number;
+                    }
                     await supabase
                         .from("logistics_trip_sheets" as any)
-                        .update({
-                            revenue_amount: totalUSD,
-                            exchange_rate: exRate,
-                            client_name: updates.client_name || targetOrder.client_name,
-                            destination: updates.destination || targetOrder.destination,
-                            cargo_outbound: updates.cargo_description !== undefined ? updates.cargo_description : targetOrder.cargo_description,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq("reference_number", tripNum);
+                        .update(sheetUpdates)
+                        .eq("reference_number", oldTripNum);
                 }
             } catch (sheetSyncErr) {
                 console.warn("Could not sync order updates to trip sheet:", sheetSyncErr);
@@ -1162,6 +1167,7 @@ export default function TripOrders() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
             queryClient.invalidateQueries({ queryKey: ["approved_trip_orders"] });
+            queryClient.invalidateQueries({ queryKey: ["approved_orders_for_trip_sheets"] });
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_for_orders"] });
             queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_list"] });
             toast({
@@ -1968,6 +1974,7 @@ export default function TripOrders() {
                                                                             : '';
                                                                         setEditingOrder(order);
                                                                         setEditFormData({
+                                                                            trip_number: order.trip_number || '',
                                                                             client_name: order.client_name || '',
                                                                             truck_reg: order.truck_reg || '',
                                                                             trailer_reg: order.trailer_reg || '',
@@ -3684,10 +3691,13 @@ export default function TripOrders() {
                                     />
                                 </div>
                                 <div>
-                                    <Label className="text-[11px] font-bold text-slate-600">Trip Reference Number</Label>
-                                    <div className="h-9 px-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center">
-                                        <span className="text-xs font-bold text-indigo-800">{editingOrder?.trip_number || editingOrder?.order_number || '—'}</span>
-                                    </div>
+                                    <Label className="text-[11px] font-bold text-slate-600">Trip Reference Number *</Label>
+                                    <Input
+                                        value={editFormData.trip_number || ''}
+                                        onChange={(e) => setEditFormData((prev: any) => ({ ...prev, trip_number: e.target.value.toUpperCase() }))}
+                                        className="h-9 text-xs rounded-lg font-bold text-indigo-700 bg-indigo-50/50 border-indigo-200"
+                                        placeholder="e.g. TR-2026-001"
+                                    />
                                 </div>
                                 <div>
                                     <Label className="text-[11px] font-bold text-slate-600">Linked Trailer</Label>
@@ -4346,6 +4356,7 @@ export default function TripOrders() {
                                     const rate = parseFloat(editFormData.agreed_client_rate) || 2700;
 
                                     const updates: any = {};
+                                    if (editFormData.trip_number) updates.trip_number = editFormData.trip_number.trim();
                                     if (editFormData.client_name) updates.client_name = editFormData.client_name;
                                     if (editFormData.truck_reg) updates.truck_reg = editFormData.truck_reg;
                                     if (editFormData.trailer_reg) updates.trailer_reg = editFormData.trailer_reg;

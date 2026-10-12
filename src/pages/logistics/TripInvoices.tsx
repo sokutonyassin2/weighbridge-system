@@ -133,6 +133,33 @@ export default function TripInvoices() {
         }
     });
 
+    const deleteTripSheetMutation = useMutation({
+        mutationFn: async ({ sheetId, referenceNumber }: { sheetId: string; referenceNumber?: string }) => {
+            const { error: sheetErr } = await supabase
+                .from("logistics_trip_sheets" as any)
+                .delete()
+                .eq("id", sheetId);
+            if (sheetErr) throw sheetErr;
+
+            if (referenceNumber) {
+                await supabase
+                    .from("logistics_trip_orders" as any)
+                    .delete()
+                    .eq("trip_number", referenceNumber);
+            }
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["logistics-invoices-sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["finance_overview_sheets"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_sheets_list"] });
+            queryClient.invalidateQueries({ queryKey: ["logistics_trip_orders"] });
+            toast({ title: "Deleted", description: "Trip record has been permanently deleted from the database." });
+        },
+        onError: (error: any) => {
+            toast({ variant: "destructive", title: "Delete Failed", description: error.message });
+        }
+    });
+
 
     const createGroupInvoiceMutation = useMutation({
         mutationFn: async () => {
@@ -654,7 +681,24 @@ export default function TripInvoices() {
                                                         <Button size="sm" variant="outline" className="h-8 text-xs font-bold" onClick={() => setEditingTrip({...sheet})}>
                                                             <Pencil className="w-3 h-3 mr-1" /> Edit
                                                         </Button>
-                                                        {!group.invoice_no.startsWith("UNASSIGNED") && (
+                                                        {group.invoice_no.startsWith("UNASSIGNED") ? (
+                                                            <Button 
+                                                                size="sm" 
+                                                                variant="ghost" 
+                                                                className="h-8 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                                title="Delete this record permanently from the database"
+                                                                onClick={() => {
+                                                                    if (confirm(`Delete ${sheet.reference_number || sheet.vehicle?.vehicle_no} permanently from the database?`)) {
+                                                                        deleteTripSheetMutation.mutate({ 
+                                                                            sheetId: sheet.id, 
+                                                                            referenceNumber: sheet.reference_number 
+                                                                        });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                                                            </Button>
+                                                        ) : (
                                                             <Button 
                                                                 size="sm" 
                                                                 variant="ghost" 

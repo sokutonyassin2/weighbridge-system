@@ -89,8 +89,17 @@ import {
   Check,
   Edit,
   Database,
-  RefreshCw
+  RefreshCw,
+  UploadCloud,
+  FileText,
+  Loader2
 } from "lucide-react";
+import { 
+  extractLinesFromPdf, 
+  parseStatementLines, 
+  importStatementEntriesToSupabase,
+  StatementParseResult 
+} from "@/lib/pdfStatementParser";
 
 interface AccountingVouchersManagerProps {
   onVoucherCreated?: () => void;
@@ -143,6 +152,15 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     description: "",
     onConfirm: () => {}
   });
+
+  // Statement PDF Upload Modal & Processing States
+  const [statementUploadModalOpen, setStatementUploadModalOpen] = useState(false);
+  const [statementFile, setStatementFile] = useState<File | null>(null);
+  const [isStatementParsing, setIsStatementParsing] = useState(false);
+  const [statementParseResult, setStatementParseResult] = useState<StatementParseResult | null>(null);
+  const [isStatementImporting, setIsStatementImporting] = useState(false);
+  const [statementImportProgress, setStatementImportProgress] = useState({ processed: 0, total: 0 });
+  const [statementSelectedBank, setStatementSelectedBank] = useState<string>("");
 
   // Live Supabase Queries
   const { 
@@ -648,6 +666,105 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     }
   };
 
+  // PDF Statement Processing Handlers
+  const handleProcessStatementFile = async (file: File) => {
+    setStatementFile(file);
+    setIsStatementParsing(true);
+    setStatementParseResult(null);
+
+    try {
+      const lines = await extractLinesFromPdf(file);
+      if (!lines || lines.length === 0) {
+        throw new Error("No readable text found in PDF. Make sure it is an account book statement.");
+      }
+
+      const parsed = parseStatementLines(lines, file.name);
+
+      // Auto-adapt target to currently active view if in Cash or Bank
+      if (dedicatedCategoryInfo.key === "cash") {
+        parsed.detectedTarget = "CASH";
+        parsed.detectedAccountName = "Cash in Hand";
+      } else if (dedicatedCategoryInfo.key === "bank") {
+        parsed.detectedTarget = "BANK";
+        // Default to active selected bank if chosen, or whatever was detected, or first bank
+        const chosenBank = statementSelectedBank || activeSelectedBank || parsed.detectedAccountName || companyBanks[0];
+        parsed.detectedAccountName = chosenBank;
+        setStatementSelectedBank(chosenBank);
+      }
+
+      setStatementParseResult(parsed);
+      toast({
+        title: "Statement Analyzed",
+        description: `Found ${parsed.entries.length} transactions for ${parsed.detectedAccountName} (${parsed.currency}).`
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "PDF Parsing Error",
+        description: err.message || "Failed to parse PDF statement."
+      });
+    } finally {
+      setIsStatementParsing(false);
+    }
+  };
+
+  const handleExecuteStatementImport = async () => {
+    if (!statementParseResult || statementParseResult.entries.length === 0) return;
+
+    // Use current dynamic bank selection if target is BANK
+    const effectiveResult = { ...statementParseResult };
+    if (effectiveResult.detectedTarget === "BANK" && statementSelectedBank) {
+      effectiveResult.detectedAccountName = statementSelectedBank;
+      const bankObj = companyBankObjects.find(b => b.name === statementSelectedBank);
+      if (bankObj?.currency) {
+        effectiveResult.currency = bankObj.currency as any;
+      }
+    }
+
+    setIsStatementImporting(true);
+    setStatementImportProgress({ processed: 0, total: effectiveResult.entries.length });
+
+    try {
+      const res = await importStatementEntriesToSupabase(
+        effectiveResult,
+        (processed, total) => {
+          setStatementImportProgress({ processed, total });
+        }
+      );
+
+      // If opening balance was found in statement and we're importing a Bank, update the bank's opening balance
+      if (effectiveResult.detectedTarget === "BANK" && effectiveResult.openingBalance > 0) {
+        const matchingBank = companyBankObjects.find(b => b.name === effectiveResult.detectedAccountName);
+        if (matchingBank) {
+          try {
+            await updateBankOpeningBalance(matchingBank.id, effectiveResult.openingBalance);
+          } catch {}
+        }
+      }
+
+      await refetchVouchers();
+      await refetchBanks();
+
+      toast({
+        title: "Import Complete!",
+        description: `Successfully uploaded ${res.insertedCount} vouchers to ${effectiveResult.detectedAccountName}.`
+      });
+
+      setStatementUploadModalOpen(false);
+      setStatementFile(null);
+      setStatementParseResult(null);
+      setStatementSelectedBank("");
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Import Error",
+        description: err.message || "Failed to insert vouchers into Supabase."
+      });
+    } finally {
+      setIsStatementImporting(false);
+    }
+  };
+
   const handleDeleteVoucherWithConfirm = (voucher: AccountingVoucher) => {
     setDeleteConfirmDialog({
       open: true,
@@ -871,6 +988,21 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                   className="text-xs font-bold border-amber-200 text-amber-700 hover:bg-amber-50"
                 >
                   <Briefcase className="w-3.5 h-3.5 mr-1.5" /> Manage Suppliers ({companySuppliers.length})
+                </Button>
+              )}
+
+              {(dedicatedCategoryInfo.key === "cash" || dedicatedCategoryInfo.key === "bank") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setStatementUploadModalOpen(true);
+                    setStatementFile(null);
+                    setStatementParseResult(null);
+                  }}
+                  className="text-xs font-bold border-indigo-200 text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 mr-1.5 text-indigo-600" /> Upload Statement PDF
                 </Button>
               )}
 
@@ -2650,6 +2782,182 @@ CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting
                 {copiedSql ? "Copied!" : "Copy SQL Script"}
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
+      {/* MODAL 8: SMART PDF STATEMENT UPLOADER                          */}
+      {/* ============================================================== */}
+      <Dialog open={statementUploadModalOpen} onOpenChange={setStatementUploadModalOpen}>
+        <DialogContent className="max-w-[550px] p-6 max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mb-1">
+              <UploadCloud className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-base font-black text-slate-900">
+              Upload Account Statement PDF
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 leading-relaxed">
+              Upload any bank or cash account book PDF (e.g. <i>CASH ACCOUNT.pdf</i>, <i>NMB USD</i>, <i>NMB TZS</i>, <i>Amana</i>). 
+              The system will automatically extract every transaction, match the dates, amounts, and voucher numbers, and import them directly into Supabase.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 my-2 flex-1 overflow-y-auto">
+            {/* File Drop / Select Area */}
+            <div 
+              className="border-2 border-dashed border-indigo-200 rounded-xl p-6 text-center bg-indigo-50/30 hover:bg-indigo-50/50 transition-colors cursor-pointer relative"
+              onClick={() => document.getElementById("statement-pdf-input")?.click()}
+            >
+              <input 
+                id="statement-pdf-input"
+                type="file" 
+                accept="application/pdf"
+                className="hidden" 
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleProcessStatementFile(f);
+                }}
+              />
+              <FileText className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+              <p className="text-xs font-bold text-slate-800">
+                {statementFile ? statementFile.name : "Click to select statement PDF"}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Supports Cash Account Book, NMB Statements, Amana USD, etc.
+              </p>
+            </div>
+
+            {/* Parsing Spinner */}
+            {isStatementParsing && (
+              <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/50 flex items-center justify-center gap-3 text-xs text-indigo-800 font-bold">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                Reading and analyzing statement pages...
+              </div>
+            )}
+
+            {/* Parsed Summary Preview */}
+            {statementParseResult && !isStatementParsing && (
+              <div className="space-y-3 p-4 rounded-xl border border-emerald-200 bg-emerald-50/40">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Check className="w-4 h-4 text-emerald-600" /> Statement Analyzed
+                  </span>
+                  <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
+                    {statementParseResult.entries.length} Transactions
+                  </Badge>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-slate-700">Target Bank Account:</Label>
+                    <span className="text-[11px] text-indigo-600 font-semibold">Choose which bank this statement belongs to</span>
+                  </div>
+                  <Select 
+                    value={statementSelectedBank || statementParseResult.detectedAccountName} 
+                    onValueChange={(val) => {
+                      setStatementSelectedBank(val);
+                      if (statementParseResult) {
+                        statementParseResult.detectedAccountName = val;
+                        const bObj = companyBankObjects.find(b => b.name === val);
+                        if (bObj?.currency) {
+                          statementParseResult.currency = bObj.currency as any;
+                        }
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-xs font-bold bg-white border-indigo-200">
+                      <SelectValue placeholder="Select target bank..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {companyBanks.map((bName) => (
+                        <SelectItem key={bName} value={bName} className="text-xs font-medium">
+                          {bName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-2.5 rounded-lg bg-white border border-emerald-100">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Target Account</p>
+                    <p className="font-bold text-slate-900 mt-0.5 truncate">{statementSelectedBank || statementParseResult.detectedAccountName}</p>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white border border-emerald-100">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">Currency</p>
+                    <p className="font-bold text-slate-900 mt-0.5">{statementParseResult.currency}</p>
+                  </div>
+                </div>
+
+                {statementParseResult.openingBalance > 0 && (
+                  <p className="text-[11px] text-emerald-800 font-medium">
+                    Opening Balance Detected: <b>{statementParseResult.currency} {statementParseResult.openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+                  </p>
+                )}
+
+                {/* First 3 preview items */}
+                <div className="border border-slate-200 rounded-lg p-2.5 bg-white divide-y divide-slate-100 text-[11px] max-h-36 overflow-y-auto">
+                  {statementParseResult.entries.slice(0, 5).map((e, idx) => (
+                    <div key={idx} className="py-1.5 flex items-center justify-between gap-2">
+                      <div className="truncate">
+                        <span className="font-mono text-[10px] text-slate-400 mr-2">{e.date}</span>
+                        <span className="font-bold text-slate-800">{e.particulars}</span>
+                      </div>
+                      <span className={`font-mono font-bold shrink-0 ${e.type === 'Cr' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                        {e.currency === 'USD' ? '$' : 'TZS '}{e.amount.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                  {statementParseResult.entries.length > 5 && (
+                    <p className="text-[10px] text-slate-400 pt-1 text-center font-medium">
+                      + {statementParseResult.entries.length - 5} more transactions will be imported
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Importing Progress */}
+            {isStatementImporting && (
+              <div className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/70 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-indigo-900">
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                    Uploading vouchers to Supabase...
+                  </span>
+                  <span>{statementImportProgress.processed} / {statementImportProgress.total}</span>
+                </div>
+                <div className="w-full bg-indigo-200 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-indigo-600 h-2 transition-all duration-300"
+                    style={{ width: `${(statementImportProgress.processed / statementImportProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="mt-3 gap-2">
+            <Button 
+              type="button"
+              variant="outline" 
+              size="sm"
+              disabled={isStatementImporting}
+              onClick={() => setStatementUploadModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              type="button"
+              size="sm"
+              disabled={!statementParseResult || isStatementParsing || isStatementImporting}
+              onClick={handleExecuteStatementImport}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
+            >
+              {isStatementImporting ? "Importing..." : `Import ${statementParseResult?.entries.length || 0} Transactions`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

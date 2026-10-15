@@ -87,16 +87,81 @@ const systemItems = [
   { title: "Activity Logs", url: "/activity-logs", icon: Activity, roles: ["super_admin"] },
 ];
 
-const financeItems = [
-  { title: "Overview", url: "/finance", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
-  { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Trip Invoices", url: "/logistics/invoices", icon: CreditCard, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
-  { title: "Payment Portal (Cashier)", url: "/procurement/cashier-portal", icon: DollarSign, roles: ["finance", "cashier", "procurement_cashier", "admin", "super_admin"] },
-  { title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["finance", "admin", "super_admin", "audit_clerk"] },
-  { title: "Logistics P&L", url: "/finance-dashboard", icon: BarChart3, roles: ["finance", "admin", "super_admin"] },
-  { title: "Accounts Receivable", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
-  { title: "Accounting Vouchers", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
-  { title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
+// Sub-categories for Finance & Accounts
+type FinanceSubItem = {
+  title: string;
+  url: string;
+  icon: any;
+  roles: string[];
+};
+
+type FinanceGroupItem = {
+  type: "group";
+  title: string;
+  icon: any;
+  roles: string[];
+  children: FinanceSubItem[];
+};
+
+type FinanceSingleItem = {
+  type: "item";
+  title: string;
+  url: string;
+  icon: any;
+  roles: string[];
+};
+
+type FinanceNavigationItem = FinanceGroupItem | FinanceSingleItem;
+
+const financeNavigation: FinanceNavigationItem[] = [
+  { type: "item", title: "Overview", url: "/finance", icon: LayoutGrid, roles: ["finance", "admin", "super_admin"] },
+  {
+    type: "group",
+    title: "Assets",
+    icon: Wallet,
+    roles: ["finance", "admin", "super_admin"],
+    children: [
+      { title: "Cash", url: "/finance/ledger?tab=vouchers&category=ASSETS&sub=Cash", icon: DollarSign, roles: ["finance", "admin", "super_admin"] },
+      { title: "Bank", url: "/finance/ledger?tab=vouchers&category=ASSETS&sub=Bank", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
+      { title: "Customer Receivables", url: "/finance/receivables", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
+    ],
+  },
+  {
+    type: "group",
+    title: "Liabilities",
+    icon: TrendingDown,
+    roles: ["finance", "admin", "super_admin"],
+    children: [
+      { title: "Supplier Payables", url: "/finance/ledger?tab=vouchers&category=LIABILITIES&sub=Payables", icon: FileText, roles: ["finance", "admin", "super_admin"] },
+    ],
+  },
+  {
+    type: "group",
+    title: "Income / Revenues",
+    icon: TrendingUp,
+    roles: ["finance", "admin", "super_admin"],
+    children: [
+      { title: "Transit Freight Income Account", url: "/logistics/invoices", icon: CreditCard, roles: ["finance", "admin", "super_admin"] },
+      { title: "Local Freight Account", url: "/finance/ledger?tab=vouchers&category=INCOME&sub=LocalFreight", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
+    ],
+  },
+  {
+    type: "group",
+    title: "Expenses / Costs",
+    icon: DollarSign,
+    roles: ["finance", "admin", "super_admin", "logistics_admin", "logistics_manager"],
+    children: [
+      { title: "Direct Cost", url: "/finance/ledger?tab=vouchers&category=EXPENSES&sub=DirectCosts", icon: DollarSign, roles: ["finance", "admin", "super_admin"] },
+      { title: "Operating Cost", url: "/finance/expenses", icon: FileText, roles: ["finance", "admin", "super_admin"] },
+      { title: "Finance / Other Costs", url: "/finance/ledger?tab=vouchers&category=EXPENSES&sub=FinanceCosts", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
+      { title: "Trip Sheets", url: "/logistics/tripsheets", icon: DollarSign, roles: ["finance", "logistics_admin", "logistics_manager", "admin", "super_admin"] },
+    ],
+  },
+  { type: "item", title: "Payment Portal (Cashier)", url: "/procurement/cashier-portal", icon: DollarSign, roles: ["finance", "cashier", "procurement_cashier", "admin", "super_admin"] },
+  { type: "item", title: "Trip Reconciliation", url: "/logistics/reconciliation", icon: FileCheck, roles: ["finance", "admin", "super_admin", "audit_clerk"] },
+  { type: "item", title: "Logistics P&L", url: "/finance-dashboard", icon: BarChart3, roles: ["finance", "admin", "super_admin"] },
+  { type: "item", title: "Accounting Vouchers", url: "/finance/ledger", icon: BookOpen, roles: ["finance", "admin", "super_admin"] },
+  { type: "item", title: "Reconciliations Review", url: "/finance/reconciliations", icon: FileCheck, roles: ["finance", "admin", "super_admin"] },
 ];
 
 const getCurrentShift = () => {
@@ -112,6 +177,19 @@ export function AppSidebar() {
   const isCollapsed = state === "collapsed";
   const [currentShift, setCurrentShift] = useState(getCurrentShift());
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [openFinanceSubGroups, setOpenFinanceSubGroups] = useState<Record<string, boolean>>({
+    "Assets": false,
+    "Liabilities": false,
+    "Income / Revenues": false,
+    "Expenses / Costs": false,
+  });
+
+  const toggleFinanceSubGroup = (groupTitle: string) => {
+    setOpenFinanceSubGroups(prev => ({
+      ...prev,
+      [groupTitle]: !prev[groupTitle]
+    }));
+  };
 
   // Automatically close mobile sidebar on navigation
   useEffect(() => {
@@ -148,7 +226,22 @@ export function AppSidebar() {
   const filteredGarage = garageItems.filter(item => hasAccess(item.roles));
   const filteredProcurement = procurementItems.filter(item => hasAccess(item.roles));
   const filteredSystem = systemItems.filter(item => hasAccess(item.roles));
-  const filteredFinance = financeItems.filter(item => hasAccess(item.roles));
+  const filteredFinance = financeNavigation.reduce<FinanceNavigationItem[]>((acc, item) => {
+    if (item.type === "item") {
+      if (hasAccess(item.roles)) {
+        acc.push(item);
+      }
+    } else if (item.type === "group") {
+      const allowedChildren = item.children.filter(child => hasAccess(child.roles));
+      if (allowedChildren.length > 0 && hasAccess(item.roles)) {
+        acc.push({
+          ...item,
+          children: allowedChildren,
+        });
+      }
+    }
+    return acc;
+  }, []);
 
   const shiftIcon = currentShift === "Day" ? Sun : Moon;
   const ShiftIcon = shiftIcon;
@@ -536,24 +629,80 @@ export function AppSidebar() {
               </SidebarGroupLabel>
               <CollapsibleContent>
                 <SidebarMenu>
-                  {filteredFinance.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild tooltip={item.title}>
-                        <NavLink
-                          to={item.url}
-                          className={({ isActive }) =>
-                            `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
-                              ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg scale-[1.02]"
-                              : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
-                            }`
-                          }
-                        >
-                          <item.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                          <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{item.title}</span>
-                        </NavLink>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  {filteredFinance.map((navItem) => {
+                    if (navItem.type === "item") {
+                      return (
+                        <SidebarMenuItem key={navItem.title}>
+                          <SidebarMenuButton asChild tooltip={navItem.title}>
+                            <NavLink
+                              to={navItem.url}
+                              className={({ isActive }) =>
+                                `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
+                                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg scale-[1.02]"
+                                  : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
+                                }`
+                              }
+                            >
+                              <navItem.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
+                              <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{navItem.title}</span>
+                            </NavLink>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    }
+
+                    // Nested Dropdown / Group (Assets, Liabilities, Income/Revenues, Expenses/Costs)
+                    const isGroupOpen = !!openFinanceSubGroups[navItem.title];
+                    const isChildActive = navItem.children.some(child => location.pathname === child.url.split('?')[0]);
+
+                    return (
+                      <Collapsible
+                        key={navItem.title}
+                        open={isGroupOpen || isChildActive}
+                        onOpenChange={() => toggleFinanceSubGroup(navItem.title)}
+                        className="group/subcollapsible mb-1"
+                      >
+                        <SidebarMenuItem>
+                          <CollapsibleTrigger asChild>
+                            <SidebarMenuButton
+                              tooltip={navItem.title}
+                              className={`flex items-center justify-between w-full px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                                isChildActive
+                                  ? "bg-sidebar-accent/70 text-sidebar-foreground font-semibold"
+                                  : "hover:bg-sidebar-accent/40 text-sidebar-foreground/90 font-medium"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <navItem.icon className="h-[17px] w-[17px] stroke-[2] text-amber-400 group-hover/subcollapsible:scale-110 transition-transform" />
+                                <span className="text-sm tracking-tight font-semibold">{navItem.title}</span>
+                              </div>
+                              <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]/subcollapsible:rotate-90 text-sidebar-foreground/60" />
+                            </SidebarMenuButton>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="ml-4 pl-3 my-1 border-l-2 border-emerald-500/40 space-y-1">
+                              {navItem.children.map((sub) => (
+                                <NavLink
+                                  key={sub.title}
+                                  to={sub.url}
+                                  className={({ isActive }) =>
+                                    `flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 group ${
+                                      isActive
+                                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold shadow-sm"
+                                        : "hover:bg-sidebar-accent/50 text-sidebar-foreground/75 hover:text-sidebar-foreground"
+                                    }`
+                                  }
+                                >
+                                  <sub.icon className="h-3.5 w-3.5 opacity-80 group-hover:scale-110 transition-transform" />
+                                  <span className="truncate">{sub.title}</span>
+                                </NavLink>
+                              ))}
+                            </div>
+                          </CollapsibleContent>
+                        </SidebarMenuItem>
+                      </Collapsible>
+                    );
+                  })}
                 </SidebarMenu>
               </CollapsibleContent>
             </SidebarGroup>

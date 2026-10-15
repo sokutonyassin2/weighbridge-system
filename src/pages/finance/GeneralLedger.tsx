@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { 
   fetchCleanLogisticsTripSheets, 
@@ -79,7 +80,22 @@ export default function GeneralLedger() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [activeMainTab, setActiveMainTab] = useState<"vouchers" | "vehicles" | "clients" | "journal">("vouchers");
+  const [searchParams] = useSearchParams();
+  const urlTab = searchParams.get("tab");
+
+  const [activeMainTab, setActiveMainTab] = useState<"vouchers" | "vehicles" | "clients" | "journal">(() => {
+    if (urlTab === "vouchers" || urlTab === "vehicles" || urlTab === "clients" || urlTab === "journal") {
+      return urlTab;
+    }
+    return "vouchers";
+  });
+
+  useEffect(() => {
+    if (urlTab === "vouchers" || urlTab === "vehicles" || urlTab === "clients" || urlTab === "journal") {
+      setActiveMainTab(urlTab);
+    }
+  }, [urlTab]);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCargo, setFilterCargo] = useState<"all" | "tanker" | "dry">("all");
   const [filterShortage, setFilterShortage] = useState<"all" | "with_shortage" | "pending_driver" | "recovered">("all");

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { 
   getStoredLedgers, 
   saveLedgers, 
@@ -62,7 +63,15 @@ import {
   Building2,
   Briefcase, 
   FolderPlus,
-  Scale
+  Scale,
+  Wallet,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Filter,
+  DollarSign,
+  TrendingDown,
+  TrendingUp,
+  X
 } from "lucide-react";
 
 interface AccountingVouchersManagerProps {
@@ -71,6 +80,11 @@ interface AccountingVouchersManagerProps {
 
 export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps> = ({ onVoucherCreated }) => {
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read URL query parameters for dedicated view routing
+  const paramCategory = searchParams.get("category");
+  const paramSub = searchParams.get("sub");
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
@@ -80,6 +94,29 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const [newVoucherModalOpen, setNewVoucherModalOpen] = useState(false);
   const [manageTypesModalOpen, setManageTypesModalOpen] = useState(false);
   const [manageLedgersModalOpen, setManageLedgersModalOpen] = useState(false);
+  const [manageBanksModalOpen, setManageBanksModalOpen] = useState(false);
+  const [manageSuppliersModalOpen, setManageSuppliersModalOpen] = useState(false);
+
+  // Active filter for specific bank or specific supplier inside dedicated views
+  const [activeSelectedBank, setActiveSelectedBank] = useState<string | null>(null);
+  const [activeSelectedSupplier, setActiveSelectedSupplier] = useState<string | null>(null);
+
+  // Dedicated section top inline inputs (separate from modal inputs)
+  const [dedicatedInlineBankInput, setDedicatedInlineBankInput] = useState<string>("");
+  const [dedicatedInlineSupplierInput, setDedicatedInlineSupplierInput] = useState<string>("");
+
+  // Confirmation dialog state for safe deletions
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: () => {}
+  });
 
   // New Voucher Form
   const [voucherParentType, setVoucherParentType] = useState<VoucherParentType>("CONTRA");
@@ -110,6 +147,25 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       "Garage Spare Parts Ltd",
       "Tyres & Retreading Centre",
       "Driver Trip Advances"
+    ];
+  });
+
+  // Company Bank Accounts Management
+  const [selectedBankName, setSelectedBankName] = useState<string>("");
+  const [newBankInput, setNewBankInput] = useState<string>("");
+  const [showAddBankBox, setShowAddBankBox] = useState<boolean>(false);
+  const [companyBanks, setCompanyBanks] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("tally_company_banks_v1");
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [
+      "CRDB Bank (USD Collection)",
+      "CRDB Bank (TZS Operational)",
+      "NMB Bank (Main Commercial)",
+      "Absa Bank Tanzania",
+      "Stanbic Bank (Trade Financing)",
+      "KCB Bank Tanzania"
     ];
   });
 
@@ -150,6 +206,22 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
         }
       })
       .catch(() => {});
+
+    // Fetch bank accounts from Supabase accounting_banks table
+    supabase
+      .from("accounting_banks" as any)
+      .select("name")
+      .order("name", { ascending: true })
+      .then(({ data, error }) => {
+        if (!error && data && data.length > 0) {
+          const names = data.map((d: any) => d.name).filter(Boolean);
+          setCompanyBanks(names);
+          try {
+            localStorage.setItem("tally_company_banks_v1", JSON.stringify(names));
+          } catch {}
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const ledgers = useMemo(() => getStoredLedgers(), [refreshKey]);
@@ -185,7 +257,186 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     }
   };
 
-  // Filtered Vouchers List
+  // Helper mapping to determine if an account section is active
+  const dedicatedCategoryInfo = useMemo(() => {
+    if (!paramSub && !paramCategory) return null;
+    const sub = paramSub || "";
+    const cat = paramCategory || "";
+
+    if (sub.toLowerCase() === "cash" || (cat === "ASSETS" && sub === "Cash")) {
+      return {
+        key: "cash",
+        title: "Cash in Hand Ledger",
+        categoryTitle: "Assets",
+        ledgerCode: "1010",
+        description: "Official Cash Book & Physical Cash Disbursement / Deposit transactions",
+        icon: Wallet,
+        colorTheme: "emerald",
+        defaultVoucherType: "REC_CASH" as const,
+        defaultParentType: "RECEIPT" as const
+      };
+    }
+    if (sub.toLowerCase() === "bank" || (cat === "ASSETS" && sub === "Bank")) {
+      return {
+        key: "bank",
+        title: "Bank Accounts Ledger",
+        categoryTitle: "Assets",
+        ledgerCode: "1020",
+        description: "CRDB, NMB, Wire Transfers, TTs, and Bank settlements",
+        icon: CreditCard,
+        colorTheme: "blue",
+        defaultVoucherType: "REC_BANK" as const,
+        defaultParentType: "RECEIPT" as const
+      };
+    }
+    if (sub.toLowerCase() === "payables" || (cat === "LIABILITIES" && sub === "Payables")) {
+      return {
+        key: "payables",
+        title: "Supplier & Vendor Payables",
+        categoryTitle: "Liabilities",
+        ledgerCode: "2010",
+        description: "Fuel suppliers, port authorities, clearance agents, spares, and vendor bills",
+        icon: Briefcase,
+        colorTheme: "amber",
+        defaultVoucherType: "PAY_GENERAL" as const,
+        defaultParentType: "PAYMENT" as const
+      };
+    }
+    if (sub.toLowerCase() === "localfreight" || (cat === "INCOME" && sub === "LocalFreight")) {
+      return {
+        key: "localfreight",
+        title: "Local Freight Account",
+        categoryTitle: "Income / Revenues",
+        ledgerCode: "3020",
+        description: "Local haulage, inland cargo runs, and local invoicing income",
+        icon: BookOpen,
+        colorTheme: "emerald",
+        defaultVoucherType: "JOURNAL_GEN" as const,
+        defaultParentType: "JOURNAL" as const
+      };
+    }
+    if (sub.toLowerCase() === "directcosts" || (cat === "EXPENSES" && sub === "DirectCosts")) {
+      return {
+        key: "directcosts",
+        title: "Direct Costs Ledger",
+        categoryTitle: "Expenses / Costs",
+        ledgerCode: "4010",
+        description: "Fuel, road tolls, driver trip allowances, and border clearance expenses",
+        icon: DollarSign,
+        colorTheme: "rose",
+        defaultVoucherType: "PAY_KORRIDOR" as const,
+        defaultParentType: "PAYMENT" as const
+      };
+    }
+    if (sub.toLowerCase() === "financecosts" || (cat === "EXPENSES" && sub === "FinanceCosts")) {
+      return {
+        key: "financecosts",
+        title: "Finance & Other Costs",
+        categoryTitle: "Expenses / Costs",
+        ledgerCode: "4030",
+        description: "Bank fees, forex losses, interest, and non-operational costs",
+        icon: Scale,
+        colorTheme: "purple",
+        defaultVoucherType: "PAY_GENERAL" as const,
+        defaultParentType: "PAYMENT" as const
+      };
+    }
+    return null;
+  }, [paramCategory, paramSub]);
+
+  // Ledger Lookup Map
+  const ledgerMap = useMemo(() => {
+    const map: Record<string, AccountLedger> = {};
+    ledgers.forEach(l => { map[l.code] = l; });
+    return map;
+  }, [ledgers]);
+
+  // Dedicated Ledger Transactions & Balance
+  const dedicatedLedgerData = useMemo(() => {
+    if (!dedicatedCategoryInfo) return null;
+    const targetCode = dedicatedCategoryInfo.ledgerCode;
+    const targetLedger = ledgerMap[targetCode];
+
+    // Filter all vouchers touching this ledger
+    const relevantVouchers = vouchers.filter(v => {
+      const isTargetDr = v.dr_ledger_code === targetCode;
+      const isTargetCr = v.cr_ledger_code === targetCode;
+      return isTargetDr || isTargetCr;
+    });
+
+    let totalDr = 0;
+    let totalCr = 0;
+
+    const rows = relevantVouchers.map(v => {
+      const isDr = v.dr_ledger_code === targetCode;
+      const isCr = v.cr_ledger_code === targetCode;
+      const debitAmt = isDr ? v.amount : 0;
+      const creditAmt = isCr ? v.amount : 0;
+      totalDr += debitAmt;
+      totalCr += creditAmt;
+
+      const opposingCode = isDr ? v.cr_ledger_code : v.dr_ledger_code;
+      const opposingName = ledgerMap[opposingCode]?.name || opposingCode;
+
+      return {
+        ...v,
+        isDr,
+        isCr,
+        debitAmt,
+        creditAmt,
+        opposingCode,
+        opposingName
+      };
+    });
+
+    // If a specific bank or supplier is clicked in the cards, filter to that entity!
+    const effectiveRows = rows.filter(r => {
+      if (dedicatedCategoryInfo.key === "bank" && activeSelectedBank) {
+        const b = activeSelectedBank.toLowerCase();
+        return (
+          r.narration.toLowerCase().includes(b) ||
+          (r.reference_no && r.reference_no.toLowerCase().includes(b))
+        );
+      }
+      if (dedicatedCategoryInfo.key === "payables" && activeSelectedSupplier) {
+        const s = activeSelectedSupplier.toLowerCase();
+        return (
+          r.narration.toLowerCase().includes(s) ||
+          (r.reference_no && r.reference_no.toLowerCase().includes(s))
+        );
+      }
+      return true;
+    });
+
+    let displayDr = 0;
+    let displayCr = 0;
+    effectiveRows.forEach(r => {
+      displayDr += r.debitAmt;
+      displayCr += r.creditAmt;
+    });
+
+    // Opening Balance
+    const opening = targetLedger?.opening_balance || 0;
+    // Current balance: for ASSETS/EXPENSES Normal Balance is Debit (Debit - Credit).
+    // For LIABILITIES/INCOME Normal Balance is Credit (Credit - Debit).
+    const isAssetOrExpense = targetLedger?.category === "ASSETS" || targetLedger?.category === "EXPENSES";
+    const netBalance = isAssetOrExpense 
+      ? (activeSelectedBank || activeSelectedSupplier ? displayDr - displayCr : opening + totalDr - totalCr)
+      : (activeSelectedBank || activeSelectedSupplier ? displayCr - displayDr : opening + totalCr - totalDr);
+
+    return {
+      targetLedger,
+      rows: effectiveRows,
+      allRows: rows,
+      totalDr: activeSelectedBank || activeSelectedSupplier ? displayDr : totalDr,
+      totalCr: activeSelectedBank || activeSelectedSupplier ? displayCr : totalCr,
+      opening: activeSelectedBank || activeSelectedSupplier ? 0 : opening,
+      netBalance,
+      isAssetOrExpense
+    };
+  }, [dedicatedCategoryInfo, vouchers, ledgerMap, activeSelectedBank, activeSelectedSupplier]);
+
+  // Filtered Vouchers List for general vouchers view
   const filteredVouchers = useMemo(() => {
     return vouchers.filter(v => {
       const matchesParent = selectedParentFilter === "ALL" || v.parent_type === selectedParentFilter;
@@ -200,37 +451,40 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     });
   }, [vouchers, selectedParentFilter, searchTerm]);
 
-  // Ledger Lookup Map
-  const ledgerMap = useMemo(() => {
-    const map: Record<string, AccountLedger> = {};
-    ledgers.forEach(l => { map[l.code] = l; });
-    return map;
-  }, [ledgers]);
-
-  // Handle Save New Voucher
-  
-  
+  // Handle Safe Deletes with Confirmation Dialog
   const handleDeleteSupplier = (e: React.MouseEvent, supplierToDelete: string) => {
     e.stopPropagation();
     e.preventDefault();
-    const updated = companySuppliers.filter(s => s !== supplierToDelete);
-    setCompanySuppliers(updated);
-    try {
-      localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
-    } catch {}
-    // Delete from Supabase
-    supabase
-      .from("accounting_suppliers" as any)
-      .delete()
-      .eq("name", supplierToDelete)
-      .then(() => {})
-      .catch(() => {});
-    if (selectedSupplierName === supplierToDelete) {
-      setSelectedSupplierName("");
-    }
-    toast({
-      title: "Supplier Removed",
-      description: `"${supplierToDelete}" was removed from the supplier list.`
+    handleDeleteSupplierWithConfirm(supplierToDelete);
+  };
+
+  const handleDeleteBank = (e: React.MouseEvent, bankToDelete: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    handleDeleteBankWithConfirm(bankToDelete);
+  };
+  
+  const handleDeleteSupplierWithConfirm = (supplierToDelete: string) => {
+    setDeleteConfirmDialog({
+      open: true,
+      title: "Remove Supplier?",
+      description: `Are you sure you want to remove "${supplierToDelete}" from your registered suppliers? Existing voucher records will remain safe.`,
+      onConfirm: () => {
+        const updated = companySuppliers.filter(s => s !== supplierToDelete);
+        setCompanySuppliers(updated);
+        try {
+          localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
+        } catch {}
+        supabase
+          .from("accounting_suppliers" as any)
+          .delete()
+          .eq("name", supplierToDelete)
+          .then(() => {})
+          .catch(() => {});
+        if (selectedSupplierName === supplierToDelete) setSelectedSupplierName("");
+        if (activeSelectedSupplier === supplierToDelete) setActiveSelectedSupplier(null);
+        toast({ title: "Supplier Removed", description: `"${supplierToDelete}" was removed.` });
+      }
     });
   };
 
@@ -244,7 +498,6 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       try {
         localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
       } catch {}
-      // Sync with Supabase
       supabase
         .from("accounting_suppliers" as any)
         .insert([{ name: trimmed }])
@@ -257,6 +510,119 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     }
     setNewSupplierInput("");
     setShowAddSupplierBox(false);
+  };
+
+  const handleAddInlineSupplier = () => {
+    const trimmed = dedicatedInlineSupplierInput.trim();
+    if (!trimmed) {
+      toast({ variant: "destructive", title: "Empty Name", description: "Please enter a supplier name." });
+      return;
+    }
+    if (!companySuppliers.includes(trimmed)) {
+      const updated = [...companySuppliers, trimmed].sort();
+      setCompanySuppliers(updated);
+      try {
+        localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
+      } catch {}
+      supabase
+        .from("accounting_suppliers" as any)
+        .insert([{ name: trimmed }])
+        .then(() => {})
+        .catch(() => {});
+      toast({ title: "Supplier Added", description: `"${trimmed}" is now configured.` });
+    } else {
+      toast({ title: "Supplier Exists", description: `"${trimmed}" is already in your supplier list.` });
+    }
+    setDedicatedInlineSupplierInput("");
+  };
+
+  const handleDeleteBankWithConfirm = (bankToDelete: string) => {
+    setDeleteConfirmDialog({
+      open: true,
+      title: "Remove Bank Account?",
+      description: `Are you sure you want to remove "${bankToDelete}" from your bank list? Existing voucher records will remain safe.`,
+      onConfirm: () => {
+        const updated = companyBanks.filter(b => b !== bankToDelete);
+        setCompanyBanks(updated);
+        try {
+          localStorage.setItem("tally_company_banks_v1", JSON.stringify(updated));
+        } catch {}
+        supabase
+          .from("accounting_banks" as any)
+          .delete()
+          .eq("name", bankToDelete)
+          .then(() => {})
+          .catch(() => {});
+        if (selectedBankName === bankToDelete) setSelectedBankName("");
+        if (activeSelectedBank === bankToDelete) setActiveSelectedBank(null);
+        toast({ title: "Bank Removed", description: `"${bankToDelete}" was removed.` });
+      }
+    });
+  };
+
+  const handleAddNewBank = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const trimmed = newBankInput.trim();
+    if (!trimmed) return;
+    if (!companyBanks.includes(trimmed)) {
+      const updated = [...companyBanks, trimmed].sort();
+      setCompanyBanks(updated);
+      try {
+        localStorage.setItem("tally_company_banks_v1", JSON.stringify(updated));
+      } catch {}
+      supabase
+        .from("accounting_banks" as any)
+        .insert([{ name: trimmed }])
+        .then(() => {})
+        .catch(() => {});
+    }
+    setSelectedBankName(trimmed);
+    if (!voucherNarration) {
+      setVoucherNarration(trimmed + " transaction");
+    }
+    setNewBankInput("");
+    setShowAddBankBox(false);
+    toast({
+      title: "Bank Account Saved",
+      description: `"${trimmed}" is now configured for your transactions.`
+    });
+  };
+
+  const handleAddInlineBank = () => {
+    const trimmed = dedicatedInlineBankInput.trim();
+    if (!trimmed) {
+      toast({ variant: "destructive", title: "Empty Name", description: "Please enter a bank account name." });
+      return;
+    }
+    if (!companyBanks.includes(trimmed)) {
+      const updated = [...companyBanks, trimmed].sort();
+      setCompanyBanks(updated);
+      try {
+        localStorage.setItem("tally_company_banks_v1", JSON.stringify(updated));
+      } catch {}
+      supabase
+        .from("accounting_banks" as any)
+        .insert([{ name: trimmed }])
+        .then(() => {})
+        .catch(() => {});
+      toast({ title: "Bank Added", description: `"${trimmed}" is now configured.` });
+    } else {
+      toast({ title: "Bank Exists", description: `"${trimmed}" is already in your bank list.` });
+    }
+    setDedicatedInlineBankInput("");
+  };
+
+  const handleDeleteVoucherWithConfirm = (voucher: AccountingVoucher) => {
+    setDeleteConfirmDialog({
+      open: true,
+      title: `Delete Voucher ${voucher.voucher_no}?`,
+      description: `Are you sure you want to delete voucher ${voucher.voucher_no} ($${voucher.amount.toLocaleString()})? This action cannot be undone.`,
+      onConfirm: () => {
+        deleteVoucher(voucher.id);
+        setRefreshKey(k => k + 1);
+        toast({ title: "Voucher Deleted", description: `Removed ${voucher.voucher_no}` });
+      }
+    });
   };
 
   const handleCreateVoucher = (e: React.FormEvent) => {
@@ -290,7 +656,9 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
           ? `Payment received from ${selectedClientName}` 
           : selectedSupplierName 
             ? `Payment made to ${selectedSupplierName}` 
-            : `${typeConfig?.name || voucherParentType} voucher`
+            : selectedBankName
+              ? `Bank transaction via ${selectedBankName}`
+              : `${typeConfig?.name || voucherParentType} voucher`
       ),
       reference_no: voucherReference || undefined
     });
@@ -305,7 +673,9 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     setVoucherReference("");
     setSelectedClientName("");
     setSelectedSupplierName("");
+    setSelectedBankName("");
     setShowAddSupplierBox(false);
+    setShowAddBankBox(false);
     setNewSupplierInput("");
     setNewVoucherModalOpen(false);
     setRefreshKey(k => k + 1);
@@ -392,136 +762,650 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
 
   return (
     <div className="space-y-6">
-      {/* Top Banner & Quick Actions */}
-      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-        <div>
-          <h2 className="text-xl font-black text-slate-900 flex items-center gap-2.5">
-            <FileSpreadsheet className="w-6 h-6 text-indigo-600" />
-            Accounting Vouchers (Tally Standard)
-          </h2>
-          <p className="text-xs text-slate-500 font-medium mt-1">
-            Contra, Payments, Receipts, and General Journal entries linked directly with Logistics fleet operations.
-          </p>
+      {/* DEDICATED SECTION VIEW (when clicked from sidebar e.g. Cash, Bank, Supplier Payables, etc.) */}
+      {dedicatedCategoryInfo && dedicatedLedgerData ? (
+        <div className="space-y-5">
+          {/* Dedicated Header Banner */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between md:items-center gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className={`p-3 rounded-xl ${
+                dedicatedCategoryInfo.colorTheme === "emerald" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
+                dedicatedCategoryInfo.colorTheme === "blue" ? "bg-blue-50 text-blue-600 border border-blue-100" :
+                dedicatedCategoryInfo.colorTheme === "amber" ? "bg-amber-50 text-amber-600 border border-amber-100" :
+                dedicatedCategoryInfo.colorTheme === "purple" ? "bg-purple-50 text-purple-600 border border-purple-100" :
+                "bg-rose-50 text-rose-600 border border-rose-100"
+              }`}>
+                <dedicatedCategoryInfo.icon className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    {dedicatedCategoryInfo.categoryTitle}
+                  </Badge>
+                  <span className="text-xs font-mono font-bold text-indigo-700">
+                    Code [{dedicatedCategoryInfo.ledgerCode}]
+                  </span>
+                </div>
+                <h2 className="text-xl font-black text-slate-900 tracking-tight mt-0.5">
+                  {dedicatedCategoryInfo.title}
+                </h2>
+                <p className="text-xs text-slate-500 font-medium">
+                  {dedicatedCategoryInfo.description}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {dedicatedCategoryInfo.key === "bank" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setManageBanksModalOpen(true)}
+                  className="text-xs font-bold border-blue-200 text-blue-700 hover:bg-blue-50"
+                >
+                  <CreditCard className="w-3.5 h-3.5 mr-1.5" /> Manage Bank Accounts ({companyBanks.length})
+                </Button>
+              )}
+
+              {dedicatedCategoryInfo.key === "payables" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setManageSuppliersModalOpen(true)}
+                  className="text-xs font-bold border-amber-200 text-amber-700 hover:bg-amber-50"
+                >
+                  <Briefcase className="w-3.5 h-3.5 mr-1.5" /> Manage Suppliers ({companySuppliers.length})
+                </Button>
+              )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Clear query params to view general vouchers list
+                  const newParams = new URLSearchParams(searchParams);
+                  newParams.delete("category");
+                  newParams.delete("sub");
+                  setSearchParams(newParams);
+                }}
+                className="text-xs font-bold border-slate-200"
+              >
+                <X className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> View All Vouchers
+              </Button>
+
+              <Button
+                size="sm"
+                onClick={() => {
+                  handleParentTypeChange(dedicatedCategoryInfo.defaultParentType);
+                  if (dedicatedCategoryInfo.defaultParentType === "RECEIPT") {
+                    setDrLedgerCode(dedicatedCategoryInfo.ledgerCode);
+                    setCrLedgerCode("1030");
+                  } else if (dedicatedCategoryInfo.defaultParentType === "PAYMENT") {
+                    setDrLedgerCode(dedicatedCategoryInfo.ledgerCode === "2010" ? "2010" : "4010");
+                    setCrLedgerCode(dedicatedCategoryInfo.ledgerCode === "2010" ? "1020" : dedicatedCategoryInfo.ledgerCode);
+                  }
+                  setNewVoucherModalOpen(true);
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+              >
+                <Plus className="w-4 h-4 mr-1.5" /> Record {dedicatedCategoryInfo.title.split(" ")[0]} Entry
+              </Button>
+            </div>
+          </div>
+
+          {/* 3 Dedicated Metric Cards: Total In / Total Out / Net Balance */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Card 1: Total Debits (Money In / Additions) */}
+            <Card className="border-slate-200 bg-white shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Total Debits (Dr)
+                  </span>
+                  <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
+                    <ArrowDownLeft className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2 text-xl font-black text-emerald-700">
+                  ${dedicatedLedgerData.totalDr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                  Debited across {dedicatedLedgerData.rows.filter(r => r.isDr).length} voucher transactions
+                </p>
+              </CardHeader>
+            </Card>
+
+            {/* Card 2: Total Credits (Money Out / Reductions) */}
+            <Card className="border-slate-200 bg-white shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Total Credits (Cr)
+                  </span>
+                  <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600">
+                    <ArrowUpRight className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="mt-2 text-xl font-black text-rose-700">
+                  ${dedicatedLedgerData.totalCr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                  Credited across {dedicatedLedgerData.rows.filter(r => r.isCr).length} voucher transactions
+                </p>
+              </CardHeader>
+            </Card>
+
+            {/* Card 3: Closing Balance */}
+            <Card className="border-slate-200 bg-white shadow-xs">
+              <CardHeader className="p-4 pb-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Current Closing Balance
+                  </span>
+                  <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+                    <Scale className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className={`mt-2 text-xl font-black ${dedicatedLedgerData.netBalance >= 0 ? "text-slate-900" : "text-rose-600"}`}>
+                  ${dedicatedLedgerData.netBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                  Opening Balance: ${dedicatedLedgerData.opening.toLocaleString()} • Status: Active
+                </p>
+              </CardHeader>
+            </Card>
+          </div>
+
+          {/* BANK ACCOUNTS DIRECT OVERVIEW & CONFIGURATION (when in Bank dedicated view) */}
+          {dedicatedCategoryInfo.key === "bank" && (
+            <Card className="border-blue-200/80 bg-blue-50/30 overflow-hidden shadow-2xs">
+              <CardHeader className="p-4 bg-white border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm font-black text-slate-900 flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-blue-600" />
+                      Configured Corporate Bank Accounts ({companyBanks.length})
+                    </CardTitle>
+                    {activeSelectedBank && (
+                      <Badge className="bg-blue-600 text-white text-[10px] font-bold">
+                        Filtering: {activeSelectedBank}
+                      </Badge>
+                    )}
+                  </div>
+                  <CardDescription className="text-[11px] text-slate-500">
+                    Click any bank card below to view its specific transactions and running balance.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    value={dedicatedInlineBankInput}
+                    onChange={(e) => setDedicatedInlineBankInput(e.target.value)}
+                    placeholder="Enter new bank name..."
+                    className="h-8 text-xs bg-white border-blue-200 w-52 sm:w-64 font-medium"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddInlineBank();
+                      }
+                    }}
+                  />
+                  <Button 
+                    type="button"
+                    size="sm"
+                    onClick={handleAddInlineBank}
+                    className="h-8 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shrink-0 px-3.5 shadow-xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" /> Add Bank
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {companyBanks.map((bankName) => {
+                    const bankVouchersCount = (dedicatedLedgerData.allRows || dedicatedLedgerData.rows).filter(r => 
+                      r.narration.toLowerCase().includes(bankName.toLowerCase()) || 
+                      (r.reference_no && r.reference_no.toLowerCase().includes(bankName.toLowerCase()))
+                    ).length;
+
+                    const isSelected = activeSelectedBank === bankName;
+
+                    return (
+                      <div 
+                        key={bankName}
+                        onClick={() => {
+                          setActiveSelectedBank(isSelected ? null : bankName);
+                        }}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                          isSelected 
+                            ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500/30 shadow-xs" 
+                            : "bg-white border-slate-200/90 hover:border-blue-300 hover:shadow-2xs"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-600"}`}>
+                            <CreditCard className="w-4 h-4" />
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="text-xs font-bold text-slate-900 truncate" title={bankName}>{bankName}</p>
+                            <span className="text-[10px] text-slate-500 font-semibold">
+                              {bankVouchersCount > 0 ? `${bankVouchersCount} voucher entries` : "No entries yet"}
+                            </span>
+                          </div>
+                        </div>
+                        <Button 
+                          type="button"
+                          variant="ghost" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteBankWithConfirm(bankName);
+                          }}
+                          className="h-7 w-7 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-60 group-hover:opacity-100 transition-opacity shrink-0 ml-1"
+                          title="Remove bank"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+                {activeSelectedBank && (
+                  <div className="mt-3 pt-2 border-t border-blue-100 flex items-center justify-between text-xs">
+                    <span className="text-blue-700 font-bold">
+                      Showing statement for <span className="underline">{activeSelectedBank}</span> only
+                    </span>
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setActiveSelectedBank(null)}
+                      className="text-xs text-blue-600 h-7 px-2 font-bold hover:bg-blue-100/50"
+                    >
+                      Clear Bank Filter (Show All Banks)
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* SUPPLIERS DIRECT OVERVIEW & CONFIGURATION (when in Supplier Payables dedicated view) */}
+          {dedicatedCategoryInfo.key === "payables" && (
+            <Card className="border-amber-200/80 bg-amber-50/30 overflow-hidden shadow-2xs">
+              <CardHeader className="p-4 bg-white border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm font-black text-slate-900 flex items-center gap-2">
+                      <Briefcase className="w-4 h-4 text-amber-600" />
+                      Configured Company Suppliers & Vendors ({companySuppliers.length})
+                    </CardTitle>
+                    {activeSelectedSupplier && (
+                      <Badge className="bg-amber-600 text-white text-[10px] font-bold">
+                        Filtering: {activeSelectedSupplier}
+                      </Badge>
+                    )}
+                  </div>
+                  <CardDescription className="text-[11px] text-slate-500">
+                    Click any supplier card below to view all payments and invoices for that vendor.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    value={dedicatedInlineSupplierInput}
+                    onChange={(e) => setDedicatedInlineSupplierInput(e.target.value)}
+                    placeholder="Enter new supplier name..."
+                    className="h-8 text-xs bg-white border-amber-200 w-52 sm:w-64 font-medium"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddInlineSupplier();
+                      }
+                    }}
+                  />
+                  <Button 
+                    type="button"
+                    size="sm"
+                    onClick={handleAddInlineSupplier}
+                    className="h-8 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shrink-0 px-3.5 shadow-xs cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" /> Add Supplier
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {companySuppliers.map((supplierName) => {
+                    const supVouchersCount = (dedicatedLedgerData.allRows || dedicatedLedgerData.rows).filter(r => 
+                      r.narration.toLowerCase().includes(supplierName.toLowerCase()) || 
+                      (r.reference_no && r.reference_no.toLowerCase().includes(supplierName.toLowerCase()))
+                    ).length;
+
+                    const isSelected = activeSelectedSupplier === supplierName;
+
+                    return (
+                      <div 
+                        key={supplierName}
+                        onClick={() => {
+                          setActiveSelectedSupplier(isSelected ? null : supplierName);
+                        }}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                          isSelected 
+                            ? "bg-amber-50 border-amber-500 ring-2 ring-amber-500/30 shadow-xs" 
+                            : "bg-white border-slate-200/90 hover:border-amber-300 hover:shadow-2xs"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-600"}`}>
+                            <Briefcase className="w-4 h-4" />
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="text-xs font-bold text-slate-900 truncate" title={supplierName}>{supplierName}</p>
+                            <span className="text-[10px] text-slate-500 font-semibold">
+                              {supVouchersCount > 0 ? `${supVouchersCount} voucher entries` : "No entries yet"}
+                            </span>
+                          </div>
+                        </div>
+                        <Button 
+                          type="button"
+                          variant="ghost" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteSupplierWithConfirm(supplierName);
+                          }}
+                          className="h-7 w-7 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-60 group-hover:opacity-100 transition-opacity shrink-0 ml-1"
+                          title="Remove supplier"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+                {activeSelectedSupplier && (
+                  <div className="mt-3 pt-2 border-t border-amber-100 flex items-center justify-between text-xs">
+                    <span className="text-amber-700 font-bold">
+                      Showing statement for <span className="underline">{activeSelectedSupplier}</span> only
+                    </span>
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setActiveSelectedSupplier(null)}
+                      className="text-xs text-amber-600 h-7 px-2 font-bold hover:bg-amber-100/50"
+                    >
+                      Clear Supplier Filter (Show All Suppliers)
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Dedicated Account Statement Table */}
+          <Card className="border-slate-200 bg-white overflow-hidden shadow-xs">
+            <CardHeader className="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-black text-slate-900">
+                  {dedicatedCategoryInfo.title} — Statement of Transactions
+                </CardTitle>
+                <Badge variant="outline" className="text-[10px] font-bold">
+                  {dedicatedLedgerData.rows.length} Entries
+                </Badge>
+              </div>
+
+              <div className="relative w-48 sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                <Input 
+                  placeholder="Filter transactions, ref..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8 h-8 text-xs font-semibold bg-white border-slate-200"
+                />
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader className="bg-slate-100/70 text-[11px] font-black uppercase text-slate-600">
+                  <TableRow>
+                    <TableHead className="py-2.5 px-4">Date</TableHead>
+                    <TableHead className="py-2.5 px-4">Voucher No</TableHead>
+                    <TableHead className="py-2.5 px-4">Type</TableHead>
+                    <TableHead className="py-2.5 px-4">Opposing (Contra) Account</TableHead>
+                    <TableHead className="py-2.5 px-4">Narration / Particulars</TableHead>
+                    <TableHead className="py-2.5 px-4 text-right text-emerald-700">Debit (Dr)</TableHead>
+                    <TableHead className="py-2.5 px-4 text-right text-rose-700">Credit (Cr)</TableHead>
+                    <TableHead className="py-2.5 px-4 text-center">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="divide-y divide-slate-100 text-xs">
+                  {dedicatedLedgerData.rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-12 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <div className="p-3 bg-slate-50 text-slate-400 rounded-full">
+                            <dedicatedCategoryInfo.icon className="w-6 h-6" />
+                          </div>
+                          <p className="text-sm font-bold text-slate-700">
+                            No transactions posted to {dedicatedCategoryInfo.title} yet
+                          </p>
+                          <p className="text-xs text-slate-400 max-w-sm">
+                            Any vouchers created under Accounting Vouchers targeting this account will automatically appear here.
+                          </p>
+                          <Button 
+                            size="sm" 
+                            onClick={() => {
+                              handleParentTypeChange(dedicatedCategoryInfo.defaultParentType);
+                              if (dedicatedCategoryInfo.defaultParentType === "RECEIPT") {
+                                setDrLedgerCode(dedicatedCategoryInfo.ledgerCode);
+                                setCrLedgerCode("1030");
+                              } else if (dedicatedCategoryInfo.defaultParentType === "PAYMENT") {
+                                setDrLedgerCode(dedicatedCategoryInfo.ledgerCode === "2010" ? "2010" : "4010");
+                                setCrLedgerCode(dedicatedCategoryInfo.ledgerCode === "2010" ? "1020" : dedicatedCategoryInfo.ledgerCode);
+                              }
+                              setNewVoucherModalOpen(true);
+                            }}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold mt-2"
+                          >
+                            <Plus className="w-3.5 h-3.5 mr-1.5" /> Create First Entry
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    dedicatedLedgerData.rows
+                      .filter(r => {
+                        if (!searchTerm) return true;
+                        const q = searchTerm.toLowerCase();
+                        return (
+                          r.voucher_no.toLowerCase().includes(q) ||
+                          r.narration.toLowerCase().includes(q) ||
+                          r.opposingName.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((v) => {
+                        const typeName = voucherTypes.find(t => t.code === v.voucher_type_code)?.name || v.parent_type;
+                        return (
+                          <TableRow key={v.id} className="hover:bg-slate-50/60">
+                            <TableCell className="py-2.5 px-4 font-mono text-slate-500">{v.date}</TableCell>
+                            <TableCell className="py-2.5 px-4 font-mono font-bold text-indigo-700">{v.voucher_no}</TableCell>
+                            <TableCell className="py-2.5 px-4">
+                              <Badge variant="outline" className={`text-[10px] font-bold ${
+                                v.parent_type === "CONTRA" ? "text-blue-700 border-blue-200 bg-blue-50/50" :
+                                v.parent_type === "PAYMENT" ? "text-rose-700 border-rose-200 bg-rose-50/50" :
+                                v.parent_type === "RECEIPT" ? "text-emerald-700 border-emerald-200 bg-emerald-50/50" :
+                                "text-purple-700 border-purple-200 bg-purple-50/50"
+                              }`}>
+                                {typeName}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="py-2.5 px-4 font-bold text-slate-800">
+                              <span className="text-[10px] text-slate-400 mr-1 font-mono">[{v.opposingCode}]</span> {v.opposingName}
+                            </TableCell>
+                            <TableCell className="py-2.5 px-4 text-slate-600 max-w-[240px] truncate" title={v.narration}>
+                              {v.narration}
+                            </TableCell>
+                            <TableCell className="py-2.5 px-4 text-right font-black text-emerald-700">
+                              {v.isDr ? `$${v.debitAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
+                            </TableCell>
+                            <TableCell className="py-2.5 px-4 text-right font-black text-rose-700">
+                              {v.isCr ? `$${v.creditAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
+                            </TableCell>
+                            <TableCell className="py-2.5 px-4 text-center">
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => handleDeleteVoucherWithConfirm(v)}
+                                className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600"
+                                title="Delete voucher"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
+      ) : (
+        <>
+          {/* Top Banner & Quick Actions */}
+          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 flex items-center gap-2.5">
+                <FileSpreadsheet className="w-6 h-6 text-indigo-600" />
+                Accounting Vouchers (Tally Standard)
+              </h2>
+              <p className="text-xs text-slate-500 font-medium mt-1">
+                Contra, Payments, Receipts, and General Journal entries linked directly with Logistics fleet operations.
+              </p>
+            </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => setManageLedgersModalOpen(true)}
-            className="text-xs font-bold border-slate-200"
-          >
-            <FolderPlus className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Chart of Accounts
-          </Button>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setManageLedgersModalOpen(true)}
+                className="text-xs font-bold border-slate-200"
+              >
+                <FolderPlus className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Chart of Accounts
+              </Button>
 
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => setManageTypesModalOpen(true)}
-            className="text-xs font-bold border-slate-200"
-          >
-            <ArrowRightLeft className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Voucher Types
-          </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setManageTypesModalOpen(true)}
+                className="text-xs font-bold border-slate-200"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> Voucher Types
+              </Button>
 
-          <Button 
-            size="sm"
-            onClick={() => {
-              handleParentTypeChange("CONTRA");
-              setNewVoucherModalOpen(true);
-            }}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
-          >
-            <Plus className="w-4 h-4 mr-1.5" /> Record Voucher (F4-F7)
-          </Button>
-        </div>
-      </div>
+              <Button 
+                size="sm"
+                onClick={() => {
+                  handleParentTypeChange("CONTRA");
+                  setNewVoucherModalOpen(true);
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+              >
+                <Plus className="w-4 h-4 mr-1.5" /> Record Voucher (F4-F7)
+              </Button>
+            </div>
+          </div>
 
-      {/* 4 Summary Cards for the Voucher Categories */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Contra */}
-        <Card 
-          onClick={() => { setSelectedParentFilter("CONTRA"); }}
-          className={`cursor-pointer transition-all border-slate-200 hover:border-blue-400 ${selectedParentFilter === "CONTRA" ? "ring-2 ring-blue-500 bg-blue-50/20" : "bg-white"}`}
-        >
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Contra (F4)</span>
-            <div className="p-1.5 rounded-md bg-blue-50 text-blue-600">
-              <ArrowRightLeft className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-lg font-black text-slate-900">
-              {voucherTypes.filter(v => v.parent_type === "CONTRA").length} Types Configured
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-              Cash ↔ Bank & Korridor Transfers
-            </p>
-          </CardContent>
-        </Card>
+          {/* 4 Summary Cards for the Voucher Categories */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Contra */}
+            <Card 
+              onClick={() => { setSelectedParentFilter("CONTRA"); }}
+              className={`cursor-pointer transition-all border-slate-200 hover:border-blue-400 ${selectedParentFilter === "CONTRA" ? "ring-2 ring-blue-500 bg-blue-50/20" : "bg-white"}`}
+            >
+              <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Contra (F4)</span>
+                <div className="p-1.5 rounded-md bg-blue-50 text-blue-600">
+                  <ArrowRightLeft className="w-4 h-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <div className="text-lg font-black text-slate-900">
+                  {voucherTypes.filter(v => v.parent_type === "CONTRA").length} Types Configured
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  Cash ↔ Bank & Korridor Transfers
+                </p>
+              </CardContent>
+            </Card>
 
-        {/* Payments */}
-        <Card 
-          onClick={() => { setSelectedParentFilter("PAYMENT"); }}
-          className={`cursor-pointer transition-all border-slate-200 hover:border-rose-400 ${selectedParentFilter === "PAYMENT" ? "ring-2 ring-rose-500 bg-rose-50/20" : "bg-white"}`}
-        >
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Payments (F5)</span>
-            <div className="p-1.5 rounded-md bg-rose-50 text-rose-600">
-              <CreditCard className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-lg font-black text-slate-900">
-              {voucherTypes.filter(v => v.parent_type === "PAYMENT").length} Types Configured
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-              General & Korridor Disbursements
-            </p>
-          </CardContent>
-        </Card>
+            {/* Payments */}
+            <Card 
+              onClick={() => { setSelectedParentFilter("PAYMENT"); }}
+              className={`cursor-pointer transition-all border-slate-200 hover:border-rose-400 ${selectedParentFilter === "PAYMENT" ? "ring-2 ring-rose-500 bg-rose-50/20" : "bg-white"}`}
+            >
+              <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Payments (F5)</span>
+                <div className="p-1.5 rounded-md bg-rose-50 text-rose-600">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <div className="text-lg font-black text-slate-900">
+                  {voucherTypes.filter(v => v.parent_type === "PAYMENT").length} Types Configured
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  General & Korridor Disbursements
+                </p>
+              </CardContent>
+            </Card>
 
-        {/* Receipts */}
-        <Card 
-          onClick={() => { setSelectedParentFilter("RECEIPT"); }}
-          className={`cursor-pointer transition-all border-slate-200 hover:border-emerald-400 ${selectedParentFilter === "RECEIPT" ? "ring-2 ring-emerald-500 bg-emerald-50/20" : "bg-white"}`}
-        >
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Receipts (F6)</span>
-            <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-600">
-              <Receipt className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-lg font-black text-slate-900">
-              {voucherTypes.filter(v => v.parent_type === "RECEIPT").length} Types Configured
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-              Bank Wire & Cash Receipts
-            </p>
-          </CardContent>
-        </Card>
+            {/* Receipts */}
+            <Card 
+              onClick={() => { setSelectedParentFilter("RECEIPT"); }}
+              className={`cursor-pointer transition-all border-slate-200 hover:border-emerald-400 ${selectedParentFilter === "RECEIPT" ? "ring-2 ring-emerald-500 bg-emerald-50/20" : "bg-white"}`}
+            >
+              <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Receipts (F6)</span>
+                <div className="p-1.5 rounded-md bg-emerald-50 text-emerald-600">
+                  <Receipt className="w-4 h-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <div className="text-lg font-black text-slate-900">
+                  {voucherTypes.filter(v => v.parent_type === "RECEIPT").length} Types Configured
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  Bank Wire & Cash Receipts
+                </p>
+              </CardContent>
+            </Card>
 
-        {/* General Journal */}
-        <Card 
-          onClick={() => { setSelectedParentFilter("JOURNAL"); }}
-          className={`cursor-pointer transition-all border-slate-200 hover:border-purple-400 ${selectedParentFilter === "JOURNAL" ? "ring-2 ring-purple-500 bg-purple-50/20" : "bg-white"}`}
-        >
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Journal (F7)</span>
-            <div className="p-1.5 rounded-md bg-purple-50 text-purple-600">
-              <BookOpen className="w-4 h-4" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-1">
-            <div className="text-lg font-black text-slate-900">
-              {voucherTypes.filter(v => v.parent_type === "JOURNAL").length} Types Configured
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-              Adjustments & Freight Invoices
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+            {/* General Journal */}
+            <Card 
+              onClick={() => { setSelectedParentFilter("JOURNAL"); }}
+              className={`cursor-pointer transition-all border-slate-200 hover:border-purple-400 ${selectedParentFilter === "JOURNAL" ? "ring-2 ring-purple-500 bg-purple-50/20" : "bg-white"}`}
+            >
+              <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Journal (F7)</span>
+                <div className="p-1.5 rounded-md bg-purple-50 text-purple-600">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-1">
+                <div className="text-lg font-black text-slate-900">
+                  {voucherTypes.filter(v => v.parent_type === "JOURNAL").length} Types Configured
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  Adjustments & Freight Invoices
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
 
       {/* Filter and Vouchers Table */}
       <Card className="border-slate-200 bg-white overflow-hidden shadow-xs">
@@ -616,14 +1500,9 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                         <Button 
                           variant="ghost" 
                           size="sm"
-                          onClick={() => {
-                            if (confirm(`Delete voucher ${v.voucher_no}?`)) {
-                              deleteVoucher(v.id);
-                              setRefreshKey(k => k + 1);
-                              toast({ title: "Voucher Deleted", description: `Removed ${v.voucher_no}` });
-                            }
-                          }}
+                          onClick={() => handleDeleteVoucherWithConfirm(v)}
                           className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600"
+                          title="Delete voucher"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -858,6 +1737,81 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                         type="button"
                         onClick={(e) => handleDeleteSupplier(e, s)}
                         title="Delete this supplier"
+                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-2"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        )}
+
+        {/* Bank Account Selector when Bank Account [1020] or CONTRA is selected */}
+        {(drLedgerCode === "1020" || crLedgerCode === "1020" || voucherParentType === "CONTRA") && (
+          <div className="p-2.5 rounded-lg border border-blue-200 bg-blue-50/70 space-y-2 transition-all">
+            <div className="flex justify-between items-center">
+              <Label className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5 text-blue-600" />
+                Company Bank Account Involved *
+              </Label>
+              <button
+                type="button"
+                onClick={() => setShowAddBankBox(!showAddBankBox)}
+                className="text-[10px] text-blue-700 hover:text-blue-900 font-bold underline cursor-pointer"
+              >
+                {showAddBankBox ? "Cancel" : "+ Add New Bank"}
+              </button>
+            </div>
+
+            {showAddBankBox ? (
+              <div className="flex gap-2 items-center pt-1">
+                <Input
+                  value={newBankInput}
+                  onChange={(e) => setNewBankInput(e.target.value)}
+                  placeholder="e.g. CRDB (USD Collection), NMB, Standard Chartered..."
+                  className="h-8 text-xs bg-white border-blue-300"
+                />
+                <Button 
+                  type="button" 
+                  size="sm" 
+                  onClick={handleAddNewBank}
+                  className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 shrink-0"
+                >
+                  Save & Select
+                </Button>
+              </div>
+            ) : (
+              <Select value={selectedBankName} onValueChange={(val) => {
+                setSelectedBankName(val);
+                if (val && !voucherNarration) {
+                  setVoucherNarration("Bank transaction via " + val);
+                }
+              }}>
+                <SelectTrigger className="h-9 text-xs font-bold bg-white border-blue-300">
+                  <SelectValue placeholder="-- Pick Company Bank Account --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companyBanks.map((b) => (
+                    <div key={b} className="flex items-center justify-between px-1.5 py-1 hover:bg-slate-100 rounded text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBankName(b);
+                          if (!voucherNarration) {
+                            setVoucherNarration("Bank transaction via " + b);
+                          }
+                        }}
+                        className="flex-1 text-left font-medium text-slate-800 hover:text-indigo-600 truncate py-1"
+                      >
+                        {b}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteBank(e, b)}
+                        title="Delete this bank"
                         className="p-1 text-slate-400 hover:text-rose-600 transition-colors ml-2"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1138,6 +2092,203 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setManageLedgersModalOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
+      {/* MODAL 4: MANAGE COMPANY BANK ACCOUNTS                         */}
+      {/* ============================================================== */}
+      <Dialog open={manageBanksModalOpen} onOpenChange={setManageBanksModalOpen}>
+        <DialogContent className="max-w-[550px] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-base font-black text-slate-900 flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-blue-600" />
+              Company Bank Accounts
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Add and manage your corporate bank accounts (CRDB, NMB, Stanbic, etc.) for vouchers and bank reconciliations.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Quick Add Bank Input */}
+          <div className="flex gap-2 items-center bg-blue-50/70 p-3 rounded-xl border border-blue-200">
+            <Input 
+              value={newBankInput}
+              onChange={(e) => setNewBankInput(e.target.value)}
+              placeholder="e.g. CRDB (USD Collection), NMB, KCB..."
+              className="h-9 text-xs bg-white border-blue-300"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddNewBank(e as any);
+                }
+              }}
+            />
+            <Button 
+              type="button"
+              size="sm"
+              onClick={handleAddNewBank}
+              className="h-9 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shrink-0 px-4"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" /> Add Bank
+            </Button>
+          </div>
+
+          {/* Banks List */}
+          <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-[350px]">
+            {companyBanks.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400 font-medium">
+                No bank accounts added yet. Enter a bank name above.
+              </div>
+            ) : (
+              companyBanks.map((b) => (
+                <div key={b} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">{b}</p>
+                      <p className="text-[10px] text-slate-400">Code [1020] • Bank Asset Account</p>
+                    </div>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={(e) => handleDeleteBank(e, b)}
+                    className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManageBanksModalOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
+      {/* MODAL 5: MANAGE COMPANY SUPPLIERS & VENDORS                   */}
+      {/* ============================================================== */}
+      <Dialog open={manageSuppliersModalOpen} onOpenChange={setManageSuppliersModalOpen}>
+        <DialogContent className="max-w-[550px] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Briefcase className="w-5 h-5 text-amber-600" />
+              Company Suppliers & Vendors
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Add and manage fuel suppliers, spare parts providers, port authorities, and agents for payment vouchers.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Quick Add Supplier Input */}
+          <div className="flex gap-2 items-center bg-amber-50/70 p-3 rounded-xl border border-amber-200">
+            <Input 
+              value={newSupplierInput}
+              onChange={(e) => setNewSupplierInput(e.target.value)}
+              placeholder="e.g. Scania Spares, Oryx Energies, TPA..."
+              className="h-9 text-xs bg-white border-amber-300"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddNewSupplier(e as any);
+                }
+              }}
+            />
+            <Button 
+              type="button"
+              size="sm"
+              onClick={handleAddNewSupplier}
+              className="h-9 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shrink-0 px-4"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" /> Add Supplier
+            </Button>
+          </div>
+
+          {/* Suppliers List */}
+          <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-[350px]">
+            {companySuppliers.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400 font-medium">
+                No suppliers configured yet.
+              </div>
+            ) : (
+              companySuppliers.map((s) => (
+                <div key={s} className="flex items-center justify-between p-3 hover:bg-slate-50 transition-colors text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
+                      <Briefcase className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">{s}</p>
+                      <p className="text-[10px] text-slate-400">Code [2010] • Supplier Payable Account</p>
+                    </div>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={(e) => handleDeleteSupplier(e, s)}
+                    className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManageSuppliersModalOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
+      {/* MODAL 6: ARE YOU SURE? CONFIRMATION MODAL POPUP                */}
+      {/* ============================================================== */}
+      <Dialog 
+        open={deleteConfirmDialog.open} 
+        onOpenChange={(open) => setDeleteConfirmDialog(prev => ({ ...prev, open }))}
+      >
+        <DialogContent className="max-w-[420px] p-6">
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mb-2">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-base font-black text-slate-900">
+              {deleteConfirmDialog.title || "Confirm Deletion"}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 pt-1 leading-relaxed">
+              {deleteConfirmDialog.description || "Are you sure? This action cannot be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex sm:flex-row gap-2 sm:justify-end">
+            <Button 
+              type="button"
+              variant="outline" 
+              size="sm"
+              onClick={() => setDeleteConfirmDialog(prev => ({ ...prev, open: false }))}
+              className="text-xs font-semibold"
+            >
+              Cancel
+            </Button>
+            <Button 
+              type="button"
+              variant="destructive" 
+              size="sm"
+              onClick={() => {
+                deleteConfirmDialog.onConfirm();
+                setDeleteConfirmDialog(prev => ({ ...prev, open: false }));
+              }}
+              className="text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              Yes, Delete
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

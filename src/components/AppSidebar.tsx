@@ -637,14 +637,14 @@ export function AppSidebar() {
                             <NavLink
                               to={navItem.url}
                               className={({ isActive }) =>
-                                `flex items-center gap-4 px-3 py-3 rounded-lg transition-all duration-200 group ${isActive
-                                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg scale-[1.02]"
+                                `flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-150 group ${isActive
+                                  ? "bg-primary text-primary-foreground font-semibold shadow-xs"
                                   : "hover:bg-sidebar-accent/50 text-sidebar-foreground/80 hover:text-sidebar-foreground"
                                 }`
                               }
                             >
-                              <navItem.icon className={`h-[18px] w-[18px] stroke-[2] transition-transform duration-200 group-hover:scale-110`} />
-                              <span className="font-medium text-sm tracking-tight transition-transform duration-200 group-hover:translate-x-1">{navItem.title}</span>
+                              <navItem.icon className="h-4 w-4 stroke-[2] transition-transform duration-150 group-hover:scale-105" />
+                              <span className="font-medium text-xs tracking-tight">{navItem.title}</span>
                             </NavLink>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
@@ -653,50 +653,51 @@ export function AppSidebar() {
 
                     // Nested Dropdown / Group (Assets, Liabilities, Income/Revenues, Expenses/Costs)
                     const isGroupOpen = !!openFinanceSubGroups[navItem.title];
-                    const isChildActive = navItem.children.some(child => location.pathname === child.url.split('?')[0]);
+                    const isChildActive = navItem.children.some(child => (location.pathname + location.search) === child.url);
 
                     return (
                       <Collapsible
                         key={navItem.title}
                         open={isGroupOpen || isChildActive}
                         onOpenChange={() => toggleFinanceSubGroup(navItem.title)}
-                        className="group/subcollapsible mb-1"
+                        className="group/subcollapsible mb-0.5"
                       >
                         <SidebarMenuItem>
                           <CollapsibleTrigger asChild>
                             <SidebarMenuButton
                               tooltip={navItem.title}
-                              className={`flex items-center justify-between w-full px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer ${
+                              className={`flex items-center justify-between w-full px-2.5 py-2 rounded-md transition-all duration-150 cursor-pointer ${
                                 isChildActive
-                                  ? "bg-sidebar-accent/70 text-sidebar-foreground font-semibold"
-                                  : "hover:bg-sidebar-accent/40 text-sidebar-foreground/90 font-medium"
+                                  ? "bg-sidebar-accent/50 text-sidebar-foreground font-semibold"
+                                  : "hover:bg-sidebar-accent/30 text-sidebar-foreground/80 font-medium"
                               }`}
                             >
-                              <div className="flex items-center gap-3">
-                                <navItem.icon className="h-[17px] w-[17px] stroke-[2] text-amber-400 group-hover/subcollapsible:scale-110 transition-transform" />
-                                <span className="text-sm tracking-tight font-semibold">{navItem.title}</span>
+                              <div className="flex items-center gap-2.5">
+                                <navItem.icon className="h-4 w-4 stroke-[1.8] text-sidebar-foreground/70 group-hover/subcollapsible:text-sidebar-foreground transition-colors" />
+                                <span className="text-xs tracking-tight font-semibold">{navItem.title}</span>
                               </div>
-                              <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]/subcollapsible:rotate-90 text-sidebar-foreground/60" />
+                              <ChevronRight className="h-3.5 w-3.5 transition-transform duration-150 group-data-[state=open]/subcollapsible:rotate-90 text-sidebar-foreground/50" />
                             </SidebarMenuButton>
                           </CollapsibleTrigger>
                           <CollapsibleContent>
-                            <div className="ml-4 pl-3 my-1 border-l-2 border-emerald-500/40 space-y-1">
-                              {navItem.children.map((sub) => (
-                                <NavLink
-                                  key={sub.title}
-                                  to={sub.url}
-                                  className={({ isActive }) =>
-                                    `flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 group ${
-                                      isActive
-                                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold shadow-sm"
-                                        : "hover:bg-sidebar-accent/50 text-sidebar-foreground/75 hover:text-sidebar-foreground"
-                                    }`
-                                  }
-                                >
-                                  <sub.icon className="h-3.5 w-3.5 opacity-80 group-hover:scale-110 transition-transform" />
-                                  <span className="truncate">{sub.title}</span>
-                                </NavLink>
-                              ))}
+                            <div className="ml-3 pl-2.5 my-1 border-l border-sidebar-border/50 space-y-0.5">
+                              {navItem.children.map((sub) => {
+                                const isSubActive = (location.pathname + location.search) === sub.url;
+                                return (
+                                  <NavLink
+                                    key={sub.title}
+                                    to={sub.url}
+                                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors group ${
+                                      isSubActive
+                                        ? "bg-sidebar-accent text-sidebar-foreground font-semibold"
+                                        : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/30"
+                                    }`}
+                                  >
+                                    <sub.icon className="h-3.5 w-3.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+                                    <span className="truncate">{sub.title}</span>
+                                  </NavLink>
+                                );
+                              })}
                             </div>
                           </CollapsibleContent>
                         </SidebarMenuItem>

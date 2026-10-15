@@ -1,18 +1,30 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { 
   getStoredLedgers, 
   saveLedgers, 
   getStoredVoucherTypes, 
   saveVoucherTypes, 
-  getStoredVouchers, 
   saveNewVoucher, 
   deleteVoucher,
+  fetchAccountingVouchers,
+  fetchAccountingBanks,
+  saveNewBank,
+  updateBankOpeningBalance,
+  deleteBank,
+  fetchAccountingSuppliers,
+  saveNewSupplier,
+  deleteSupplier,
   AccountLedger, 
   VoucherTypeConfig, 
   AccountingVoucher,
+  AccountingBank,
+  AccountingSupplier,
   AccountCategory,
-  VoucherParentType
+  VoucherParentType,
+  DEFAULT_LEDGERS,
+  DEFAULT_VOUCHER_TYPES
 } from "@/lib/accountingVoucherService";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -71,7 +83,13 @@ import {
   DollarSign,
   TrendingDown,
   TrendingUp,
-  X
+  X,
+  Sparkles,
+  Copy,
+  Check,
+  Edit,
+  Database,
+  RefreshCw
 } from "lucide-react";
 
 interface AccountingVouchersManagerProps {
@@ -80,6 +98,7 @@ interface AccountingVouchersManagerProps {
 
 export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps> = ({ onVoucherCreated }) => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Read URL query parameters for dedicated view routing
@@ -96,6 +115,13 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const [manageLedgersModalOpen, setManageLedgersModalOpen] = useState(false);
   const [manageBanksModalOpen, setManageBanksModalOpen] = useState(false);
   const [manageSuppliersModalOpen, setManageSuppliersModalOpen] = useState(false);
+  const [sqlMigrationModalOpen, setSqlMigrationModalOpen] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  // Bank Opening Balance Modal
+  const [editingBankOpening, setEditingBankOpening] = useState<AccountingBank | null>(null);
+  const [editBankOpeningModalOpen, setEditBankOpeningModalOpen] = useState(false);
+  const [bankOpeningInput, setBankOpeningInput] = useState("");
 
   // Active filter for specific bank or specific supplier inside dedicated views
   const [activeSelectedBank, setActiveSelectedBank] = useState<string | null>(null);
@@ -118,7 +144,43 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     onConfirm: () => {}
   });
 
-  // New Voucher Form
+  // Live Supabase Queries
+  const { 
+    data: dbVouchers, 
+    refetch: refetchVouchers, 
+    isLoading: isVouchersLoading,
+    isFetching: isVouchersFetching 
+  } = useQuery<AccountingVoucher[]>({
+    queryKey: ["accounting-vouchers"],
+    queryFn: fetchAccountingVouchers,
+    staleTime: 5000,
+  });
+
+  const { 
+    data: dbBanks, 
+    refetch: refetchBanks 
+  } = useQuery<AccountingBank[]>({
+    queryKey: ["accounting-banks"],
+    queryFn: fetchAccountingBanks,
+    staleTime: 10000,
+  });
+
+  const { 
+    data: dbSuppliers, 
+    refetch: refetchSuppliers 
+  } = useQuery<AccountingSupplier[]>({
+    queryKey: ["accounting-suppliers"],
+    queryFn: fetchAccountingSuppliers,
+    staleTime: 10000,
+  });
+
+  const vouchers = useMemo(() => dbVouchers || [], [dbVouchers]);
+  const companyBankObjects = useMemo(() => dbBanks || [], [dbBanks]);
+  const companyBanks = useMemo(() => companyBankObjects.map(b => b.name), [companyBankObjects]);
+  const companySupplierObjects = useMemo(() => dbSuppliers || [], [dbSuppliers]);
+  const companySuppliers = useMemo(() => companySupplierObjects.map(s => s.name), [companySupplierObjects]);
+
+  // New Voucher Form State
   const [voucherParentType, setVoucherParentType] = useState<VoucherParentType>("CONTRA");
   const [selectedTypeCode, setSelectedTypeCode] = useState<string>("CONTRA_MAIN");
   const [voucherDate, setVoucherDate] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -132,42 +194,11 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const [selectedSupplierName, setSelectedSupplierName] = useState<string>("");
   const [newSupplierInput, setNewSupplierInput] = useState<string>("");
   const [showAddSupplierBox, setShowAddSupplierBox] = useState<boolean>(false);
-  const [companySuppliers, setCompanySuppliers] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem("tally_company_suppliers_v1");
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    return [
-      "Puma Energy (Fuel)",
-      "TotalEnergies",
-      "Oryx Energies",
-      "Dar Port Wharfage / TPA",
-      "Kasumbalesa Border Clearance",
-      "Tunduma Border Clearance",
-      "Garage Spare Parts Ltd",
-      "Tyres & Retreading Centre",
-      "Driver Trip Advances"
-    ];
-  });
 
-  // Company Bank Accounts Management
+  // Selected Bank in Voucher Form
   const [selectedBankName, setSelectedBankName] = useState<string>("");
   const [newBankInput, setNewBankInput] = useState<string>("");
   const [showAddBankBox, setShowAddBankBox] = useState<boolean>(false);
-  const [companyBanks, setCompanyBanks] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem("tally_company_banks_v1");
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    return [
-      "CRDB Bank (USD Collection)",
-      "CRDB Bank (TZS Operational)",
-      "NMB Bank (Main Commercial)",
-      "Absa Bank Tanzania",
-      "Stanbic Bank (Trade Financing)",
-      "KCB Bank Tanzania"
-    ];
-  });
 
   // New Custom Voucher Type Form
   const [newTypeName, setNewTypeName] = useState("");
@@ -180,53 +211,20 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const [newLedgerCategory, setNewLedgerCategory] = useState<AccountCategory>("EXPENSES");
   const [newLedgerSubCat, setNewLedgerSubCat] = useState("Operating Cost");
 
-  // Data Loading
-  React.useEffect(() => {
+  // Load clients from logistics trip sheets
+  useEffect(() => {
     fetchCleanLogisticsTripSheets().then((sheets) => {
-      const set = new Set();
+      const set = new Set<string>();
       (sheets || []).forEach((s) => {
         if (s.client_name && s.client_name.trim()) set.add(s.client_name.trim());
         if (s.return_client_name && s.return_client_name.trim()) set.add(s.return_client_name.trim());
       });
       setLogisticsClients(Array.from(set).sort());
     }).catch(() => {});
-
-    // Fetch suppliers from Supabase accounting_suppliers table
-    supabase
-      .from("accounting_suppliers" as any)
-      .select("name")
-      .order("name", { ascending: true })
-      .then(({ data, error }) => {
-        if (!error && data && data.length > 0) {
-          const names = data.map((d: any) => d.name).filter(Boolean);
-          setCompanySuppliers(names);
-          try {
-            localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(names));
-          } catch {}
-        }
-      })
-      .catch(() => {});
-
-    // Fetch bank accounts from Supabase accounting_banks table
-    supabase
-      .from("accounting_banks" as any)
-      .select("name")
-      .order("name", { ascending: true })
-      .then(({ data, error }) => {
-        if (!error && data && data.length > 0) {
-          const names = data.map((d: any) => d.name).filter(Boolean);
-          setCompanyBanks(names);
-          try {
-            localStorage.setItem("tally_company_banks_v1", JSON.stringify(names));
-          } catch {}
-        }
-      })
-      .catch(() => {});
   }, []);
 
   const ledgers = useMemo(() => getStoredLedgers(), [refreshKey]);
   const voucherTypes = useMemo(() => getStoredVoucherTypes(), [refreshKey]);
-  const vouchers = useMemo(() => getStoredVouchers(), [refreshKey]);
 
   // Filtered Voucher Types for Current Parent Selection
   const availableVoucherTypes = useMemo(() => {
@@ -394,6 +392,7 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       if (dedicatedCategoryInfo.key === "bank" && activeSelectedBank) {
         const b = activeSelectedBank.toLowerCase();
         return (
+          (r.bank_name && r.bank_name.toLowerCase() === b) ||
           r.narration.toLowerCase().includes(b) ||
           (r.reference_no && r.reference_no.toLowerCase().includes(b))
         );
@@ -401,6 +400,7 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       if (dedicatedCategoryInfo.key === "payables" && activeSelectedSupplier) {
         const s = activeSelectedSupplier.toLowerCase();
         return (
+          (r.supplier_name && r.supplier_name.toLowerCase() === s) ||
           r.narration.toLowerCase().includes(s) ||
           (r.reference_no && r.reference_no.toLowerCase().includes(s))
         );
@@ -416,12 +416,15 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     });
 
     // Opening Balance
-    const opening = targetLedger?.opening_balance || 0;
+    const selectedBankObj = companyBankObjects.find(b => b.name === activeSelectedBank);
+    const bankOpening = selectedBankObj ? (selectedBankObj.opening_balance || 0) : 0;
+    const opening = activeSelectedBank ? bankOpening : (targetLedger?.opening_balance || 0);
+
     // Current balance: for ASSETS/EXPENSES Normal Balance is Debit (Debit - Credit).
     // For LIABILITIES/INCOME Normal Balance is Credit (Credit - Debit).
     const isAssetOrExpense = targetLedger?.category === "ASSETS" || targetLedger?.category === "EXPENSES";
     const netBalance = isAssetOrExpense 
-      ? (activeSelectedBank || activeSelectedSupplier ? displayDr - displayCr : opening + totalDr - totalCr)
+      ? (activeSelectedBank ? bankOpening + displayDr - displayCr : (activeSelectedSupplier ? displayDr - displayCr : opening + totalDr - totalCr))
       : (activeSelectedBank || activeSelectedSupplier ? displayCr - displayDr : opening + totalCr - totalDr);
 
     return {
@@ -430,11 +433,60 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       allRows: rows,
       totalDr: activeSelectedBank || activeSelectedSupplier ? displayDr : totalDr,
       totalCr: activeSelectedBank || activeSelectedSupplier ? displayCr : totalCr,
-      opening: activeSelectedBank || activeSelectedSupplier ? 0 : opening,
+      opening,
       netBalance,
       isAssetOrExpense
     };
-  }, [dedicatedCategoryInfo, vouchers, ledgerMap, activeSelectedBank, activeSelectedSupplier]);
+  }, [dedicatedCategoryInfo, vouchers, ledgerMap, activeSelectedBank, activeSelectedSupplier, companyBankObjects]);
+
+  // Live calculated balance map for all corporate banks in Supabase
+  const bankBalancesMap = useMemo(() => {
+    const map: Record<string, {
+      id: string;
+      name: string;
+      account_number?: string;
+      currency: string;
+      opening_balance: number;
+      drTotal: number;
+      crTotal: number;
+      netBalance: number;
+      vouchersCount: number;
+    }> = {};
+
+    companyBankObjects.forEach(bank => {
+      const bLower = bank.name.toLowerCase();
+      const relevant = vouchers.filter(v => {
+        const explicit = (v.bank_name || "").toLowerCase();
+        const nar = (v.narration || "").toLowerCase();
+        const ref = (v.reference_no || "").toLowerCase();
+        return explicit === bLower || nar.includes(bLower) || ref.includes(bLower);
+      });
+
+      let dr = 0;
+      let cr = 0;
+      relevant.forEach(v => {
+        if (v.dr_ledger_code === "1020") dr += (v.amount || 0);
+        if (v.cr_ledger_code === "1020") cr += (v.amount || 0);
+      });
+
+      const opening = bank.opening_balance || 0;
+      const net = opening + dr - cr;
+
+      map[bank.name] = {
+        id: bank.id,
+        name: bank.name,
+        account_number: bank.account_number,
+        currency: bank.currency || "USD",
+        opening_balance: opening,
+        drTotal: dr,
+        crTotal: cr,
+        netBalance: net,
+        vouchersCount: relevant.length,
+      };
+    });
+
+    return map;
+  }, [companyBankObjects, vouchers]);
 
   // Filtered Vouchers List for general vouchers view
   const filteredVouchers = useMemo(() => {
@@ -444,6 +496,9 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       const matchesSearch = 
         v.voucher_no.toLowerCase().includes(q) ||
         v.narration.toLowerCase().includes(q) ||
+        (v.bank_name && v.bank_name.toLowerCase().includes(q)) ||
+        (v.supplier_name && v.supplier_name.toLowerCase().includes(q)) ||
+        (v.client_name && v.client_name.toLowerCase().includes(q)) ||
         (v.reference_no && v.reference_no.toLowerCase().includes(q)) ||
         v.dr_ledger_code.toLowerCase().includes(q) ||
         v.cr_ledger_code.toLowerCase().includes(q);
@@ -464,74 +519,56 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     handleDeleteBankWithConfirm(bankToDelete);
   };
   
-  const handleDeleteSupplierWithConfirm = (supplierToDelete: string) => {
+  const handleDeleteSupplierWithConfirm = async (supplierToDelete: string) => {
     setDeleteConfirmDialog({
       open: true,
       title: "Remove Supplier?",
-      description: `Are you sure you want to remove "${supplierToDelete}" from your registered suppliers? Existing voucher records will remain safe.`,
-      onConfirm: () => {
-        const updated = companySuppliers.filter(s => s !== supplierToDelete);
-        setCompanySuppliers(updated);
+      description: `Are you sure you want to remove "${supplierToDelete}" from your registered suppliers? Existing voucher records will remain safe in Supabase.`,
+      onConfirm: async () => {
         try {
-          localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
-        } catch {}
-        supabase
-          .from("accounting_suppliers" as any)
-          .delete()
-          .eq("name", supplierToDelete)
-          .then(() => {})
-          .catch(() => {});
-        if (selectedSupplierName === supplierToDelete) setSelectedSupplierName("");
-        if (activeSelectedSupplier === supplierToDelete) setActiveSelectedSupplier(null);
-        toast({ title: "Supplier Removed", description: `"${supplierToDelete}" was removed.` });
+          await deleteSupplier("", supplierToDelete);
+          refetchSuppliers();
+          if (selectedSupplierName === supplierToDelete) setSelectedSupplierName("");
+          if (activeSelectedSupplier === supplierToDelete) setActiveSelectedSupplier(null);
+          toast({ title: "Supplier Removed", description: `"${supplierToDelete}" was removed.` });
+        } catch (err: any) {
+          toast({ variant: "destructive", title: "Error", description: err.message });
+        }
       }
     });
   };
 
-  const handleAddNewSupplier = (e: React.MouseEvent) => {
+  const handleAddNewSupplier = async (e: React.MouseEvent) => {
     e.preventDefault();
     const trimmed = newSupplierInput.trim();
     if (!trimmed) return;
-    if (!companySuppliers.includes(trimmed)) {
-      const updated = [...companySuppliers, trimmed].sort();
-      setCompanySuppliers(updated);
-      try {
-        localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
-      } catch {}
-      supabase
-        .from("accounting_suppliers" as any)
-        .insert([{ name: trimmed }])
-        .then(() => {})
-        .catch(() => {});
+    try {
+      await saveNewSupplier(trimmed);
+      refetchSuppliers();
+      setSelectedSupplierName(trimmed);
+      if (!voucherNarration) {
+        setVoucherNarration("Payment made to " + trimmed);
+      }
+      setNewSupplierInput("");
+      setShowAddSupplierBox(false);
+      toast({ title: "Supplier Added", description: `"${trimmed}" is saved in Supabase.` });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error", description: err.message });
     }
-    setSelectedSupplierName(trimmed);
-    if (!voucherNarration) {
-      setVoucherNarration("Payment made to " + trimmed);
-    }
-    setNewSupplierInput("");
-    setShowAddSupplierBox(false);
   };
 
-  const handleAddInlineSupplier = () => {
+  const handleAddInlineSupplier = async () => {
     const trimmed = dedicatedInlineSupplierInput.trim();
     if (!trimmed) {
       toast({ variant: "destructive", title: "Empty Name", description: "Please enter a supplier name." });
       return;
     }
-    if (!companySuppliers.includes(trimmed)) {
-      const updated = [...companySuppliers, trimmed].sort();
-      setCompanySuppliers(updated);
-      try {
-        localStorage.setItem("tally_company_suppliers_v1", JSON.stringify(updated));
-      } catch {}
-      supabase
-        .from("accounting_suppliers" as any)
-        .insert([{ name: trimmed }])
-        .then(() => {})
-        .catch(() => {});
-      toast({ title: "Supplier Added", description: `"${trimmed}" is now configured.` });
-    } else {
-      toast({ title: "Supplier Exists", description: `"${trimmed}" is already in your supplier list.` });
+    try {
+      await saveNewSupplier(trimmed);
+      refetchSuppliers();
+      toast({ title: "Supplier Added", description: `"${trimmed}" is saved in Supabase.` });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error", description: err.message });
     }
     setDedicatedInlineSupplierInput("");
   };
@@ -540,76 +577,75 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     setDeleteConfirmDialog({
       open: true,
       title: "Remove Bank Account?",
-      description: `Are you sure you want to remove "${bankToDelete}" from your bank list? Existing voucher records will remain safe.`,
-      onConfirm: () => {
-        const updated = companyBanks.filter(b => b !== bankToDelete);
-        setCompanyBanks(updated);
+      description: `Are you sure you want to remove "${bankToDelete}" from your bank list? Existing voucher records will remain safe in Supabase.`,
+      onConfirm: async () => {
         try {
-          localStorage.setItem("tally_company_banks_v1", JSON.stringify(updated));
-        } catch {}
-        supabase
-          .from("accounting_banks" as any)
-          .delete()
-          .eq("name", bankToDelete)
-          .then(() => {})
-          .catch(() => {});
-        if (selectedBankName === bankToDelete) setSelectedBankName("");
-        if (activeSelectedBank === bankToDelete) setActiveSelectedBank(null);
-        toast({ title: "Bank Removed", description: `"${bankToDelete}" was removed.` });
+          await deleteBank("", bankToDelete);
+          refetchBanks();
+          if (selectedBankName === bankToDelete) setSelectedBankName("");
+          if (activeSelectedBank === bankToDelete) setActiveSelectedBank(null);
+          toast({ title: "Bank Removed", description: `"${bankToDelete}" was removed.` });
+        } catch (err: any) {
+          toast({ variant: "destructive", title: "Error", description: err.message });
+        }
       }
     });
   };
 
-  const handleAddNewBank = (e: React.MouseEvent) => {
+  const handleAddNewBank = async (e: React.MouseEvent) => {
     e.preventDefault();
     const trimmed = newBankInput.trim();
     if (!trimmed) return;
-    if (!companyBanks.includes(trimmed)) {
-      const updated = [...companyBanks, trimmed].sort();
-      setCompanyBanks(updated);
-      try {
-        localStorage.setItem("tally_company_banks_v1", JSON.stringify(updated));
-      } catch {}
-      supabase
-        .from("accounting_banks" as any)
-        .insert([{ name: trimmed }])
-        .then(() => {})
-        .catch(() => {});
+    try {
+      await saveNewBank({ name: trimmed, currency: "USD" });
+      refetchBanks();
+      setSelectedBankName(trimmed);
+      if (!voucherNarration) {
+        setVoucherNarration(trimmed + " transaction");
+      }
+      setNewBankInput("");
+      setShowAddBankBox(false);
+      toast({
+        title: "Bank Account Saved",
+        description: `"${trimmed}" is now configured in Supabase.`
+      });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error Saving Bank", description: err.message });
     }
-    setSelectedBankName(trimmed);
-    if (!voucherNarration) {
-      setVoucherNarration(trimmed + " transaction");
-    }
-    setNewBankInput("");
-    setShowAddBankBox(false);
-    toast({
-      title: "Bank Account Saved",
-      description: `"${trimmed}" is now configured for your transactions.`
-    });
   };
 
-  const handleAddInlineBank = () => {
+  const handleAddInlineBank = async () => {
     const trimmed = dedicatedInlineBankInput.trim();
     if (!trimmed) {
       toast({ variant: "destructive", title: "Empty Name", description: "Please enter a bank account name." });
       return;
     }
-    if (!companyBanks.includes(trimmed)) {
-      const updated = [...companyBanks, trimmed].sort();
-      setCompanyBanks(updated);
-      try {
-        localStorage.setItem("tally_company_banks_v1", JSON.stringify(updated));
-      } catch {}
-      supabase
-        .from("accounting_banks" as any)
-        .insert([{ name: trimmed }])
-        .then(() => {})
-        .catch(() => {});
-      toast({ title: "Bank Added", description: `"${trimmed}" is now configured.` });
-    } else {
-      toast({ title: "Bank Exists", description: `"${trimmed}" is already in your bank list.` });
+    try {
+      await saveNewBank({ name: trimmed, currency: "USD" });
+      refetchBanks();
+      toast({ title: "Bank Added", description: `"${trimmed}" is saved in Supabase.` });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error", description: err.message });
     }
     setDedicatedInlineBankInput("");
+  };
+
+  const handleSaveBankOpeningBalance = async () => {
+    if (!editingBankOpening) return;
+    const ob = parseFloat(bankOpeningInput) || 0;
+    try {
+      await updateBankOpeningBalance(editingBankOpening.id, ob);
+      refetchBanks();
+      refetchVouchers();
+      toast({
+        title: "Bank Opening Balance Updated",
+        description: `Set opening balance for ${editingBankOpening.name} to ${editingBankOpening.currency || 'USD'} ${ob.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`
+      });
+      setEditBankOpeningModalOpen(false);
+      setEditingBankOpening(null);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error Updating Balance", description: err.message });
+    }
   };
 
   const handleDeleteVoucherWithConfirm = (voucher: AccountingVoucher) => {
@@ -617,15 +653,20 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       open: true,
       title: `Delete Voucher ${voucher.voucher_no}?`,
       description: `Are you sure you want to delete voucher ${voucher.voucher_no} ($${voucher.amount.toLocaleString()})? This action cannot be undone.`,
-      onConfirm: () => {
-        deleteVoucher(voucher.id);
-        setRefreshKey(k => k + 1);
-        toast({ title: "Voucher Deleted", description: `Removed ${voucher.voucher_no}` });
+      onConfirm: async () => {
+        try {
+          await deleteVoucher(voucher.id);
+          refetchVouchers();
+          refetchBanks();
+          toast({ title: "Voucher Deleted", description: `Removed ${voucher.voucher_no}` });
+        } catch (err: any) {
+          toast({ variant: "destructive", title: "Delete Failed", description: err.message });
+        }
       }
     });
   };
 
-  const handleCreateVoucher = (e: React.FormEvent) => {
+  const handleCreateVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(voucherAmount);
     if (!amountNum || amountNum <= 0) {
@@ -641,45 +682,60 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     const voucherPrefix = voucherParentType === "CONTRA" ? "CNTR" : voucherParentType === "PAYMENT" ? "PMT" : voucherParentType === "RECEIPT" ? "RCP" : "JRN";
     const voucherNo = `${voucherPrefix}-${Date.now().toString().slice(-6)}`;
 
-    saveNewVoucher({
-      voucher_no: voucherNo,
-      voucher_type_code: selectedTypeCode,
-      parent_type: voucherParentType,
-      date: voucherDate,
-      dr_ledger_code: drLedgerCode,
-      cr_ledger_code: crLedgerCode,
-      amount: amountNum,
-      currency: "USD",
-      exchange_rate: 2700,
-      narration: voucherNarration || (
-        selectedClientName 
-          ? `Payment received from ${selectedClientName}` 
-          : selectedSupplierName 
-            ? `Payment made to ${selectedSupplierName}` 
-            : selectedBankName
-              ? `Bank transaction via ${selectedBankName}`
-              : `${typeConfig?.name || voucherParentType} voucher`
-      ),
-      reference_no: voucherReference || undefined
-    });
+    try {
+      await saveNewVoucher({
+        voucher_no: voucherNo,
+        voucher_type_code: selectedTypeCode,
+        parent_type: voucherParentType,
+        date: voucherDate,
+        dr_ledger_code: drLedgerCode,
+        cr_ledger_code: crLedgerCode,
+        amount: amountNum,
+        currency: "USD",
+        exchange_rate: 2700,
+        narration: voucherNarration || (
+          selectedClientName 
+            ? `Payment received from ${selectedClientName}` 
+            : selectedSupplierName 
+              ? `Payment made to ${selectedSupplierName}` 
+              : selectedBankName
+                ? `Bank transaction via ${selectedBankName}`
+                : `${typeConfig?.name || voucherParentType} voucher`
+        ),
+        reference_no: voucherReference || undefined,
+        bank_name: selectedBankName || undefined,
+        supplier_name: selectedSupplierName || undefined,
+        client_name: selectedClientName || undefined,
+      });
 
-    toast({
-      title: "Voucher Saved Successfully",
-      description: `Created ${voucherNo} ($${amountNum.toLocaleString()}) Dr: ${ledgerMap[drLedgerCode]?.name || drLedgerCode} | Cr: ${ledgerMap[crLedgerCode]?.name || crLedgerCode}`
-    });
+      queryClient.invalidateQueries({ queryKey: ["accounting-vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-banks"] });
+      refetchVouchers();
+      refetchBanks();
 
-    setVoucherAmount("");
-    setVoucherNarration("");
-    setVoucherReference("");
-    setSelectedClientName("");
-    setSelectedSupplierName("");
-    setSelectedBankName("");
-    setShowAddSupplierBox(false);
-    setShowAddBankBox(false);
-    setNewSupplierInput("");
-    setNewVoucherModalOpen(false);
-    setRefreshKey(k => k + 1);
-    if (onVoucherCreated) onVoucherCreated();
+      toast({
+        title: "Voucher Saved Successfully",
+        description: `Created ${voucherNo} ($${amountNum.toLocaleString()}) Dr: ${ledgerMap[drLedgerCode]?.name || drLedgerCode} | Cr: ${ledgerMap[crLedgerCode]?.name || crLedgerCode}`
+      });
+
+      setVoucherAmount("");
+      setVoucherNarration("");
+      setVoucherReference("");
+      setSelectedClientName("");
+      setSelectedSupplierName("");
+      setSelectedBankName("");
+      setShowAddSupplierBox(false);
+      setShowAddBankBox(false);
+      setNewSupplierInput("");
+      setNewVoucherModalOpen(false);
+      if (onVoucherCreated) onVoucherCreated();
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Error Saving Voucher",
+        description: err.message || "Failed to persist voucher to Supabase."
+      });
+    }
   };
 
   // Handle Add Custom Voucher Type
@@ -960,51 +1016,100 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                 </div>
               </CardHeader>
               <CardContent className="p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {companyBanks.map((bankName) => {
-                    const bankVouchersCount = (dedicatedLedgerData.allRows || dedicatedLedgerData.rows).filter(r => 
-                      r.narration.toLowerCase().includes(bankName.toLowerCase()) || 
-                      (r.reference_no && r.reference_no.toLowerCase().includes(bankName.toLowerCase()))
-                    ).length;
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+                  {companyBankObjects.map((bankObj) => {
+                    const bankName = bankObj.name;
+                    const stats = bankBalancesMap[bankName] || {
+                      id: bankObj.id,
+                      name: bankName,
+                      currency: bankObj.currency || "USD",
+                      opening_balance: bankObj.opening_balance || 0,
+                      drTotal: 0,
+                      crTotal: 0,
+                      netBalance: bankObj.opening_balance || 0,
+                      vouchersCount: 0,
+                    };
 
                     const isSelected = activeSelectedBank === bankName;
+                    const isTZS = (stats.currency || "USD") === "TZS";
+                    const formattedNet = isTZS
+                      ? `TZS ${stats.netBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                      : `$${stats.netBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
                     return (
                       <div 
-                        key={bankName}
+                        key={bankObj.id || bankName}
                         onClick={() => {
                           setActiveSelectedBank(isSelected ? null : bankName);
                         }}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                        className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between group ${
                           isSelected 
-                            ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500/30 shadow-xs" 
-                            : "bg-white border-slate-200/90 hover:border-blue-300 hover:shadow-2xs"
+                            ? "bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/30 shadow-xs" 
+                            : "bg-white border-slate-200/90 hover:border-blue-300 hover:shadow-xs"
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 overflow-hidden">
-                          <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-600"}`}>
-                            <CreditCard className="w-4 h-4" />
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 overflow-hidden">
+                            <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-600"}`}>
+                              <CreditCard className="w-4 h-4" />
+                            </div>
+                            <div className="overflow-hidden">
+                              <p className="text-xs font-black text-slate-900 truncate" title={bankName}>{bankName}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <Badge variant="outline" className="text-[9px] font-black uppercase tracking-wider py-0 px-1 border-blue-200 bg-blue-50/50 text-blue-700">
+                                  {stats.currency}
+                                </Badge>
+                                <span className="text-[10px] text-slate-500 font-semibold">
+                                  {stats.vouchersCount > 0 ? `${stats.vouchersCount} vouchers` : "No vouchers"}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="overflow-hidden">
-                            <p className="text-xs font-bold text-slate-900 truncate" title={bankName}>{bankName}</p>
-                            <span className="text-[10px] text-slate-500 font-semibold">
-                              {bankVouchersCount > 0 ? `${bankVouchersCount} voucher entries` : "No entries yet"}
-                            </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button 
+                              type="button"
+                              variant="ghost" 
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingBankOpening(bankObj);
+                                setBankOpeningInput(String(bankObj.opening_balance || 0));
+                                setEditBankOpeningModalOpen(true);
+                              }}
+                              className="h-6 px-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 rounded"
+                              title="Set or update opening balance in Supabase"
+                            >
+                              Opening
+                            </Button>
+                            <Button 
+                              type="button"
+                              variant="ghost" 
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteBankWithConfirm(bankName);
+                              }}
+                              className="h-6 w-6 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-60 group-hover:opacity-100 transition-opacity"
+                              title="Remove bank"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
                           </div>
                         </div>
-                        <Button 
-                          type="button"
-                          variant="ghost" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteBankWithConfirm(bankName);
-                          }}
-                          className="h-7 w-7 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-60 group-hover:opacity-100 transition-opacity shrink-0 ml-1"
-                          title="Remove bank"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+
+                        {/* Live Net Balance Display */}
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Live Bank Balance</span>
+                            <div className={`text-sm font-black tracking-tight ${stats.netBalance >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
+                              {formattedNet}
+                            </div>
+                          </div>
+                          <div className="text-right text-[10px] text-slate-500 font-medium">
+                            <div>Opening: <span className="font-bold text-slate-700">{isTZS ? `TZS ${stats.opening_balance.toLocaleString()}` : `$${stats.opening_balance.toLocaleString()}`}</span></div>
+                            <div className="text-emerald-600 font-bold">+{isTZS ? `${stats.drTotal.toLocaleString()}` : `$${stats.drTotal.toLocaleString()}`} in</div>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
@@ -1286,7 +1391,32 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
               </p>
             </div>
 
-            <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  refetchVouchers();
+                  refetchBanks();
+                  refetchSuppliers();
+                  toast({ title: "Synced with Supabase", description: "Vouchers, banks, and suppliers refreshed live." });
+                }}
+                className="text-xs font-bold border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                title="Refresh latest data across all branches and countries"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isVouchersFetching ? 'animate-spin' : ''}`} /> Sync Live
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSqlMigrationModalOpen(true)}
+                className="text-xs font-bold border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100"
+                title="View or copy Supabase SQL migration script"
+              >
+                <Database className="w-3.5 h-3.5 mr-1.5 text-amber-700" /> Supabase SQL
+              </Button>
+
               <Button 
                 variant="outline" 
                 size="sm"
@@ -2289,6 +2419,237 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
             >
               Yes, Delete
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
+      {/* MODAL 7: EDIT BANK OPENING BALANCE                             */}
+      {/* ============================================================== */}
+      <Dialog open={editBankOpeningModalOpen} onOpenChange={setEditBankOpeningModalOpen}>
+        <DialogContent className="max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-black text-slate-900 flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-blue-600" />
+              Set Opening Balance
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Set the starting ledger balance for <span className="font-bold text-slate-800">{editingBankOpening?.name}</span> in Supabase.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-3">
+            <div>
+              <Label className="text-xs font-bold text-slate-700">Bank Account</Label>
+              <Input 
+                value={editingBankOpening?.name || ""} 
+                disabled 
+                className="h-9 text-xs bg-slate-50 font-bold text-slate-700 mt-1" 
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-bold text-slate-700">
+                Opening Balance Amount ({editingBankOpening?.currency || "USD"})
+              </Label>
+              <Input 
+                type="number"
+                step="any"
+                value={bankOpeningInput}
+                onChange={(e) => setBankOpeningInput(e.target.value)}
+                placeholder="e.g. 50000"
+                className="h-9 text-xs font-mono font-bold mt-1"
+                autoFocus
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                This starting amount will be saved to Supabase and added to all live debits/credits to determine this bank's exact live balance.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setEditBankOpeningModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              size="sm" 
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
+              onClick={handleSaveBankOpeningBalance}
+            >
+              Save to Supabase
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
+      {/* MODAL 8: SUPABASE SQL MIGRATION VIEW & 1-CLICK COPY            */}
+      {/* ============================================================== */}
+      <Dialog open={sqlMigrationModalOpen} onOpenChange={setSqlMigrationModalOpen}>
+        <DialogContent className="max-w-[650px] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Database className="w-5 h-5 text-indigo-600" />
+              Supabase SQL Migration Script
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Run this SQL script in your Supabase SQL Editor so all your tables have opening balances, relational bank/client fields, and performance indexes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono border border-slate-800 space-y-1 select-all">
+            <pre className="whitespace-pre-wrap">{`-- 1. Ensure accounting_banks table exists with opening balance & account info
+CREATE TABLE IF NOT EXISTS public.accounting_banks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    account_number TEXT,
+    currency TEXT DEFAULT 'USD',
+    opening_balance NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.accounting_banks ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE public.accounting_banks ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USD';
+ALTER TABLE public.accounting_banks ADD COLUMN IF NOT EXISTS opening_balance NUMERIC DEFAULT 0;
+
+-- 2. Ensure accounting_suppliers table exists
+CREATE TABLE IF NOT EXISTS public.accounting_suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    category TEXT DEFAULT 'Vendor',
+    opening_balance NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.accounting_suppliers ADD COLUMN IF NOT EXISTS opening_balance NUMERIC DEFAULT 0;
+
+-- 3. Ensure accounting_vouchers has relational linking
+CREATE TABLE IF NOT EXISTS public.accounting_vouchers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    voucher_no TEXT NOT NULL UNIQUE,
+    voucher_type_code TEXT NOT NULL,
+    parent_type TEXT NOT NULL CHECK (parent_type IN ('CONTRA', 'PAYMENT', 'RECEIPT', 'JOURNAL')),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    dr_ledger_code TEXT NOT NULL,
+    cr_ledger_code TEXT NOT NULL,
+    amount NUMERIC NOT NULL CHECK (amount > 0),
+    currency TEXT DEFAULT 'USD',
+    exchange_rate NUMERIC DEFAULT 2700,
+    narration TEXT,
+    reference_no TEXT,
+    bank_name TEXT,
+    bank_id UUID,
+    supplier_name TEXT,
+    supplier_id UUID,
+    client_name TEXT,
+    trip_id UUID,
+    invoice_no TEXT,
+    status TEXT DEFAULT 'posted',
+    reconciliation_status TEXT DEFAULT 'pending',
+    reconciled_date DATE,
+    created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS bank_name TEXT;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS bank_id UUID;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS supplier_name TEXT;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS supplier_id UUID;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS client_name TEXT;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'posted';
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS reconciliation_status TEXT DEFAULT 'pending';
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS reconciled_date DATE;
+
+-- Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_date ON public.accounting_vouchers(date);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_parent ON public.accounting_vouchers(parent_type);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_dr ON public.accounting_vouchers(dr_ledger_code);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_cr ON public.accounting_vouchers(cr_ledger_code);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_bank ON public.accounting_vouchers(bank_name);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_client ON public.accounting_vouchers(client_name);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting_vouchers(supplier_name);`}</pre>
+          </div>
+
+          <DialogFooter className="flex sm:flex-row justify-between items-center gap-2">
+            <span className="text-[11px] text-slate-500">
+              Also saved in file: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">SUPABASE_ACCOUNTING_SYNC_MIGRATION.sql</code>
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSqlMigrationModalOpen(false)}>
+                Close
+              </Button>
+              <Button 
+                size="sm"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                onClick={() => {
+                  navigator.clipboard.writeText(`CREATE TABLE IF NOT EXISTS public.accounting_banks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    account_number TEXT,
+    currency TEXT DEFAULT 'USD',
+    opening_balance NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.accounting_banks ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE public.accounting_banks ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USD';
+ALTER TABLE public.accounting_banks ADD COLUMN IF NOT EXISTS opening_balance NUMERIC DEFAULT 0;
+CREATE TABLE IF NOT EXISTS public.accounting_suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    category TEXT DEFAULT 'Vendor',
+    opening_balance NUMERIC DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.accounting_suppliers ADD COLUMN IF NOT EXISTS opening_balance NUMERIC DEFAULT 0;
+CREATE TABLE IF NOT EXISTS public.accounting_vouchers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    voucher_no TEXT NOT NULL UNIQUE,
+    voucher_type_code TEXT NOT NULL,
+    parent_type TEXT NOT NULL CHECK (parent_type IN ('CONTRA', 'PAYMENT', 'RECEIPT', 'JOURNAL')),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    dr_ledger_code TEXT NOT NULL,
+    cr_ledger_code TEXT NOT NULL,
+    amount NUMERIC NOT NULL CHECK (amount > 0),
+    currency TEXT DEFAULT 'USD',
+    exchange_rate NUMERIC DEFAULT 2700,
+    narration TEXT,
+    reference_no TEXT,
+    bank_name TEXT,
+    bank_id UUID,
+    supplier_name TEXT,
+    supplier_id UUID,
+    client_name TEXT,
+    trip_id UUID,
+    invoice_no TEXT,
+    status TEXT DEFAULT 'posted',
+    reconciliation_status TEXT DEFAULT 'pending',
+    reconciled_date DATE,
+    created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS bank_name TEXT;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS bank_id UUID;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS supplier_name TEXT;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS supplier_id UUID;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS client_name TEXT;
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'posted';
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS reconciliation_status TEXT DEFAULT 'pending';
+ALTER TABLE public.accounting_vouchers ADD COLUMN IF NOT EXISTS reconciled_date DATE;
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_date ON public.accounting_vouchers(date);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_parent ON public.accounting_vouchers(parent_type);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_dr ON public.accounting_vouchers(dr_ledger_code);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_cr ON public.accounting_vouchers(cr_ledger_code);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_bank ON public.accounting_vouchers(bank_name);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_client ON public.accounting_vouchers(client_name);
+CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting_vouchers(supplier_name);`);
+                  setCopiedSql(true);
+                  setTimeout(() => setCopiedSql(false), 3000);
+                  toast({ title: "Copied to Clipboard!", description: "Paste and run in your Supabase SQL Editor." });
+                }}
+              >
+                {copiedSql ? <Check className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                {copiedSql ? "Copied!" : "Copy SQL Script"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

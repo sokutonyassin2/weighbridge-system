@@ -416,7 +416,7 @@ export default function GeneralLedger() {
   };
 
   // Action: Save Driver Shortage Payment
-  const handleSaveDriverPayment = () => {
+  const handleSaveDriverPayment = async () => {
     if (!editingTripForDriver) return;
     const paidAmt = parseFloat(driverPaidInput) || 0;
     const currentShortage = editingTripForDriver.shortageRecovery || getTripShortageRecovery(editingTripForDriver.id, editingTripForDriver);
@@ -443,6 +443,35 @@ export default function GeneralLedger() {
     };
 
     saveTripShortageRecovery(editingTripForDriver.id, updated, editingTripForDriver.reference_number);
+
+    // Auto-post a Tally Receipt voucher for driver shortage recovery in Supabase
+    if (paidAmt > 0) {
+      try {
+        const isCash = driverMethodInput === "Cash Deposit";
+        await supabase
+          .from("accounting_vouchers" as any)
+          .insert([{
+            voucher_no: `RCP-${Date.now().toString().slice(-6)}`,
+            voucher_type_code: isCash ? "REC_CASH" : "REC_BANK",
+            parent_type: "RECEIPT",
+            date: driverDateInput || new Date().toISOString().split("T")[0],
+            dr_ledger_code: isCash ? "1010" : "1020",
+            cr_ledger_code: "3030", // Driver Shortage Recoveries
+            amount: paidAmt,
+            currency: "USD",
+            exchange_rate: 2700,
+            narration: `Driver Shortage Recovery for Trip ${editingTripForDriver.reference_number || editingTripForDriver.sheet_number || ''} (${editingTripForDriver.vehicle_no || ''}) - ${driverMethodInput}`,
+            reference_no: driverReceiptInput || undefined,
+            trip_id: editingTripForDriver.id,
+            bank_name: isCash ? "Cash in Hand" : "Bank Account (CRDB / NMB)"
+          }]);
+        queryClient.invalidateQueries({ queryKey: ["accounting-vouchers"] });
+        queryClient.invalidateQueries({ queryKey: ["accounting-banks"] });
+      } catch (err) {
+        console.warn("Notice: Shortage voucher auto-posting skipped:", err);
+      }
+    }
+
     setTriggerUpdate((prev) => prev + 1);
     queryClient.invalidateQueries({ queryKey: ["general-ledger-trip-sheets"] });
 

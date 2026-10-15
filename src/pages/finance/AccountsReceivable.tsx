@@ -136,6 +136,31 @@ export default function AccountsReceivable() {
 
             if (pError) throw pError;
 
+            // 1b. Post an Accounting Receipt Voucher (Dr Bank / Cr Customer Receivables) in Supabase
+            try {
+                const voucherNo = `RCP-${Date.now().toString().slice(-6)}`;
+                await supabase
+                    .from("accounting_vouchers" as any)
+                    .insert([{
+                        voucher_no: voucherNo,
+                        voucher_type_code: "REC_BANK",
+                        parent_type: "RECEIPT",
+                        date: date || new Date().toISOString().split("T")[0],
+                        dr_ledger_code: "1020", // Bank Account
+                        cr_ledger_code: "1030", // Customer Receivables
+                        amount: amount,
+                        currency: invoice.currency || "USD",
+                        exchange_rate: parseFloat(invoice.exchange_rate) || 2700,
+                        narration: `Receipt on Invoice ${invoice.invoice_no} from ${invoice.client_name || "Client"}`,
+                        reference_no: invoice.invoice_no,
+                        invoice_no: invoice.invoice_no,
+                        client_name: invoice.client_name,
+                        bank_name: "Bank Account (CRDB / NMB)",
+                    }]);
+            } catch (vErr) {
+                console.warn("Notice: Voucher auto-posting skipped:", vErr);
+            }
+
             // 2. Compute new status
             const newTotalPaid = (invoice.amount_paid || 0) + amount;
             const newRemaining = Math.max(0, invoice.total_amount - newTotalPaid);
@@ -167,6 +192,8 @@ export default function AccountsReceivable() {
             queryClient.invalidateQueries({ queryKey: ["logistics_invoice_payments_list"] });
             queryClient.invalidateQueries({ queryKey: ["finance_overview_sheets"] });
             queryClient.invalidateQueries({ queryKey: ["finance_overview_payments"] });
+            queryClient.invalidateQueries({ queryKey: ["accounting-vouchers"] });
+            queryClient.invalidateQueries({ queryKey: ["accounting-banks"] });
 
             toast({
                 title: "Payment Recorded",

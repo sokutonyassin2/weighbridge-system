@@ -1,6 +1,6 @@
 // Tally-Style Double-Entry Accounting Service for Logistics
-// Manages: Chart of Accounts, Ledgers, Voucher Types, and Vouchers (Contra, Payment, Receipt, Journal)
-// Synchronized with Supabase with immediate local-storage fallback so nothing ever breaks!
+// Connected directly to Supabase so all offices, branches, and countries
+// see live accounting vouchers, bank balances, and ledgers in real-time.
 
 import { supabase } from "@/integrations/supabase/client";
 
@@ -28,6 +28,23 @@ export interface VoucherTypeConfig {
   is_system?: boolean;
 }
 
+export interface AccountingBank {
+  id: string;
+  name: string;
+  account_number?: string;
+  currency: "USD" | "TZS" | string;
+  opening_balance: number;
+  created_at?: string;
+}
+
+export interface AccountingSupplier {
+  id: string;
+  name: string;
+  category?: string;
+  opening_balance?: number;
+  created_at?: string;
+}
+
 export interface AccountingVoucher {
   id: string;
   voucher_no: string;
@@ -41,14 +58,19 @@ export interface AccountingVoucher {
   exchange_rate: number;
   narration: string;
   reference_no?: string;
+  bank_name?: string;
+  bank_id?: string;
+  supplier_name?: string;
+  supplier_id?: string;
+  client_name?: string;
   trip_id?: string;
   invoice_no?: string;
+  status?: string;
+  reconciliation_status?: "pending" | "cleared";
+  reconciled_date?: string;
+  created_by?: string;
   created_at: string;
 }
-
-const STORAGE_KEY_LEDGERS = "tally_accounting_ledgers_v1";
-const STORAGE_KEY_VOUCHER_TYPES = "tally_accounting_voucher_types_v1";
-const STORAGE_KEY_VOUCHERS = "tally_accounting_vouchers_v1";
 
 export const DEFAULT_LEDGERS: AccountLedger[] = [
   // 1. ASSETS
@@ -64,6 +86,7 @@ export const DEFAULT_LEDGERS: AccountLedger[] = [
   // 3. INCOME / REVENUE
   { id: "led-3010", code: "3010", name: "Transit Freight Invoice Account", category: "INCOME", sub_category: "Transit Freight", currency: "USD", opening_balance: 0, current_balance: 0, is_system: true },
   { id: "led-3020", code: "3020", name: "Local Income Account", category: "INCOME", sub_category: "Local Freight", currency: "USD", opening_balance: 0, current_balance: 0, is_system: true },
+  { id: "led-3030", code: "3030", name: "Driver Shortage Recoveries", category: "INCOME", sub_category: "Recoveries", currency: "USD", opening_balance: 0, current_balance: 0, is_system: true },
   
   // 4. EXPENSES / COSTS
   { id: "led-4010", code: "4010", name: "Direct Costs (Fuel, Driver & Clearance)", category: "EXPENSES", sub_category: "Direct Costs", currency: "USD", opening_balance: 0, current_balance: 0, is_system: true },
@@ -88,45 +111,42 @@ export const DEFAULT_VOUCHER_TYPES: VoucherTypeConfig[] = [
   { id: "vt-jou-1", code: "JOURNAL_GEN", name: "General Journal", parent_type: "JOURNAL", description: "Double-entry debit/credit adjustments and provisions", is_system: true },
 ];
 
-// 1. Get Ledgers
+const STORAGE_KEY_LEDGERS = "tally_accounting_ledgers_v1";
+const STORAGE_KEY_VOUCHER_TYPES = "tally_accounting_voucher_types_v1";
+const STORAGE_KEY_VOUCHERS = "tally_accounting_vouchers_v1";
+
 export function getStoredLedgers(): AccountLedger[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LEDGERS);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY_LEDGERS, JSON.stringify(DEFAULT_LEDGERS));
-      return DEFAULT_LEDGERS;
-    }
+    if (!raw) return DEFAULT_LEDGERS;
     return JSON.parse(raw);
   } catch {
     return DEFAULT_LEDGERS;
   }
 }
 
-// Save Ledgers
 export function saveLedgers(ledgers: AccountLedger[]) {
-  localStorage.setItem(STORAGE_KEY_LEDGERS, JSON.stringify(ledgers));
+  try {
+    localStorage.setItem(STORAGE_KEY_LEDGERS, JSON.stringify(ledgers));
+  } catch {}
 }
 
-// 2. Get Voucher Types
 export function getStoredVoucherTypes(): VoucherTypeConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_VOUCHER_TYPES);
-    if (!raw) {
-      localStorage.setItem(STORAGE_KEY_VOUCHER_TYPES, JSON.stringify(DEFAULT_VOUCHER_TYPES));
-      return DEFAULT_VOUCHER_TYPES;
-    }
+    if (!raw) return DEFAULT_VOUCHER_TYPES;
     return JSON.parse(raw);
   } catch {
     return DEFAULT_VOUCHER_TYPES;
   }
 }
 
-// Save Voucher Types
 export function saveVoucherTypes(types: VoucherTypeConfig[]) {
-  localStorage.setItem(STORAGE_KEY_VOUCHER_TYPES, JSON.stringify(types));
+  try {
+    localStorage.setItem(STORAGE_KEY_VOUCHER_TYPES, JSON.stringify(types));
+  } catch {}
 }
 
-// 3. Get Vouchers
 export function getStoredVouchers(): AccountingVoucher[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_VOUCHERS);
@@ -137,36 +157,256 @@ export function getStoredVouchers(): AccountingVoucher[] {
   }
 }
 
-// Save Voucher
-export function saveNewVoucher(voucher: Omit<AccountingVoucher, "id" | "created_at">): AccountingVoucher {
-  const vouchers = getStoredVouchers();
-  const newVoucher: AccountingVoucher = {
-    ...voucher,
-    id: `vch-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    created_at: new Date().toISOString()
-  };
-  vouchers.unshift(newVoucher);
-  localStorage.setItem(STORAGE_KEY_VOUCHERS, JSON.stringify(vouchers));
+// ==========================================
+// 1. SUPABASE VOUCHERS API
+// ==========================================
 
-  // Sync with Supabase asynchronously if table exists
-  supabase
-    .from("accounting_vouchers" as any)
-    .insert([newVoucher])
-    .then(() => {})
-    .catch(() => {});
+export async function fetchAccountingVouchers(): Promise<AccountingVoucher[]> {
+  try {
+    const { data, error } = await supabase
+      .from("accounting_vouchers" as any)
+      .select("*")
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false });
 
-  return newVoucher;
+    if (error) {
+      console.warn("Could not query Supabase accounting_vouchers:", error.message);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      ...row,
+      amount: parseFloat(row.amount) || 0,
+      exchange_rate: parseFloat(row.exchange_rate) || 2700,
+    }));
+  } catch (err) {
+    console.warn("Exception fetching accounting vouchers:", err);
+    return [];
+  }
 }
 
-// Delete Voucher
-export function deleteVoucher(voucherId: string) {
-  const vouchers = getStoredVouchers().filter(v => v.id !== voucherId);
-  localStorage.setItem(STORAGE_KEY_VOUCHERS, JSON.stringify(vouchers));
+export async function saveNewVoucher(voucher: Omit<AccountingVoucher, "id" | "created_at">): Promise<AccountingVoucher> {
+  const fullPayload = {
+    voucher_no: voucher.voucher_no,
+    voucher_type_code: voucher.voucher_type_code,
+    parent_type: voucher.parent_type,
+    date: voucher.date,
+    dr_ledger_code: voucher.dr_ledger_code,
+    cr_ledger_code: voucher.cr_ledger_code,
+    amount: voucher.amount,
+    currency: voucher.currency || "USD",
+    exchange_rate: voucher.exchange_rate || 2700,
+    narration: voucher.narration,
+    reference_no: voucher.reference_no || null,
+    bank_name: voucher.bank_name || null,
+    bank_id: voucher.bank_id || null,
+    supplier_name: voucher.supplier_name || null,
+    supplier_id: voucher.supplier_id || null,
+    client_name: voucher.client_name || null,
+    trip_id: voucher.trip_id || null,
+    invoice_no: voucher.invoice_no || null,
+    status: voucher.status || "posted",
+    reconciliation_status: voucher.reconciliation_status || "pending",
+  };
 
-  supabase
+  // 1. Attempt insert with full relational fields
+  const { data, error } = await supabase
+    .from("accounting_vouchers" as any)
+    .insert([fullPayload])
+    .select();
+
+  if (!error && data && data.length > 0) {
+    return {
+      ...data[0],
+      amount: parseFloat(data[0].amount) || voucher.amount,
+      exchange_rate: parseFloat(data[0].exchange_rate) || voucher.exchange_rate,
+    };
+  }
+
+  // 2. Fallback: If columns (e.g. bank_name) not yet added to table, retry with standard base schema
+  if (error && (error.message?.includes("column") || error.code === "PGRST204")) {
+    const basePayload = {
+      voucher_no: voucher.voucher_no,
+      voucher_type_code: voucher.voucher_type_code,
+      parent_type: voucher.parent_type,
+      date: voucher.date,
+      dr_ledger_code: voucher.dr_ledger_code,
+      cr_ledger_code: voucher.cr_ledger_code,
+      amount: voucher.amount,
+      currency: voucher.currency || "USD",
+      exchange_rate: voucher.exchange_rate || 2700,
+      narration: voucher.narration,
+      reference_no: voucher.reference_no || null,
+      trip_id: voucher.trip_id || null,
+      invoice_no: voucher.invoice_no || null,
+    };
+
+    const { data: fallbackData, error: fallbackErr } = await supabase
+      .from("accounting_vouchers" as any)
+      .insert([basePayload])
+      .select();
+
+    if (fallbackErr) throw fallbackErr;
+    if (fallbackData && fallbackData.length > 0) {
+      return {
+        ...fallbackData[0],
+        bank_name: voucher.bank_name,
+        supplier_name: voucher.supplier_name,
+        client_name: voucher.client_name,
+        amount: parseFloat(fallbackData[0].amount) || voucher.amount,
+        exchange_rate: parseFloat(fallbackData[0].exchange_rate) || voucher.exchange_rate,
+      };
+    }
+  }
+
+  if (error) throw error;
+
+  return {
+    ...voucher,
+    id: `vch-${Date.now()}`,
+    created_at: new Date().toISOString()
+  };
+}
+
+export async function deleteVoucher(voucherId: string): Promise<void> {
+  const { error } = await supabase
     .from("accounting_vouchers" as any)
     .delete()
-    .eq("id", voucherId)
-    .then(() => {})
-    .catch(() => {});
+    .eq("id", voucherId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+// ==========================================
+// 2. SUPABASE CORPORATE BANKS API
+// ==========================================
+
+export async function fetchAccountingBanks(): Promise<AccountingBank[]> {
+  try {
+    const { data, error } = await supabase
+      .from("accounting_banks" as any)
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.warn("Could not query accounting_banks:", error.message);
+      return [];
+    }
+
+    return (data || []).map((b: any) => ({
+      id: b.id,
+      name: b.name,
+      account_number: b.account_number || "",
+      currency: b.currency || "USD",
+      opening_balance: parseFloat(b.opening_balance) || 0,
+      created_at: b.created_at
+    }));
+  } catch (err) {
+    console.warn("Error in fetchAccountingBanks:", err);
+    return [];
+  }
+}
+
+export async function saveNewBank(bank: {
+  name: string;
+  account_number?: string;
+  currency?: string;
+  opening_balance?: number;
+}): Promise<AccountingBank> {
+  const payload: any = {
+    name: bank.name.trim(),
+    currency: bank.currency || "USD",
+    account_number: bank.account_number || null,
+  };
+  if (bank.opening_balance !== undefined) {
+    payload.opening_balance = bank.opening_balance;
+  }
+
+  const { data, error } = await supabase
+    .from("accounting_banks" as any)
+    .insert([payload])
+    .select();
+
+  if (error) {
+    // If opening_balance column is not yet present, retry without opening_balance
+    if (error.message?.includes("opening_balance")) {
+      delete payload.opening_balance;
+      const { data: d2, error: err2 } = await supabase
+        .from("accounting_banks" as any)
+        .insert([payload])
+        .select();
+      if (err2) throw err2;
+      return d2[0];
+    }
+    throw error;
+  }
+
+  return data[0];
+}
+
+export async function updateBankOpeningBalance(bankId: string, openingBalance: number): Promise<void> {
+  const { error } = await supabase
+    .from("accounting_banks" as any)
+    .update({ opening_balance: openingBalance })
+    .eq("id", bankId);
+
+  if (error) throw error;
+}
+
+export async function deleteBank(bankId: string, bankName?: string): Promise<void> {
+  let query = supabase.from("accounting_banks" as any).delete();
+  if (bankId) {
+    query = query.eq("id", bankId);
+  } else if (bankName) {
+    query = query.eq("name", bankName);
+  }
+  const { error } = await query;
+  if (error) throw error;
+}
+
+// ==========================================
+// 3. SUPABASE CORPORATE SUPPLIERS API
+// ==========================================
+
+export async function fetchAccountingSuppliers(): Promise<AccountingSupplier[]> {
+  try {
+    const { data, error } = await supabase
+      .from("accounting_suppliers" as any)
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) return [];
+    return (data || []).map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      category: s.category || "Vendor",
+      opening_balance: parseFloat(s.opening_balance) || 0,
+      created_at: s.created_at
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveNewSupplier(name: string, category = "Vendor"): Promise<AccountingSupplier> {
+  const { data, error } = await supabase
+    .from("accounting_suppliers" as any)
+    .insert([{ name: name.trim(), category }])
+    .select();
+
+  if (error) throw error;
+  return data[0];
+}
+
+export async function deleteSupplier(supplierId: string, supplierName?: string): Promise<void> {
+  let query = supabase.from("accounting_suppliers" as any).delete();
+  if (supplierId) {
+    query = query.eq("id", supplierId);
+  } else if (supplierName) {
+    query = query.eq("name", supplierName);
+  }
+  const { error } = await query;
+  if (error) throw error;
 }

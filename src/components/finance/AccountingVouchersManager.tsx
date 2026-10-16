@@ -8,6 +8,7 @@ import {
   saveVoucherTypes, 
   saveNewVoucher, 
   deleteVoucher,
+  deleteVouchersByAccount,
   fetchAccountingVouchers,
   fetchAccountingBanks,
   saveNewBank,
@@ -765,6 +766,44 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     }
   };
 
+  const handleWipeStatementTransactions = (accountType: "cash" | "bank", bankName?: string) => {
+    const targetName = accountType === "cash" 
+      ? "Cash Account" 
+      : (bankName ? bankName : "All Banks");
+
+    // Gather exact voucher IDs currently in this ledger view so we guarantee every single one is deleted
+    const targetVoucherIds = (dedicatedLedgerData?.rows || []).map(r => r.id).filter(Boolean);
+
+    setDeleteConfirmDialog({
+      open: true,
+      title: `Wipe ${targetName} Statement Transactions?`,
+      description: `Are you sure you want to delete all transactions for ${targetName}? This will wipe the statement transactions without touching suppliers, banks configuration, or other accounts. This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          const res = await deleteVouchersByAccount(accountType, bankName, targetVoucherIds);
+          // Also clear any browser cache item if present
+          try {
+            localStorage.removeItem("accounting_vouchers_cache");
+          } catch {}
+
+          await queryClient.invalidateQueries({ queryKey: ["accounting-vouchers"] });
+          await refetchVouchers();
+          await refetchBanks();
+          toast({ 
+            title: "Transactions Wiped", 
+            description: `Successfully wiped ${res.deletedCount} transaction(s) for ${targetName}.` 
+          });
+        } catch (err: any) {
+          toast({ 
+            variant: "destructive", 
+            title: "Wipe Failed", 
+            description: err.message || "Failed to wipe transactions." 
+          });
+        }
+      }
+    });
+  };
+
   const handleDeleteVoucherWithConfirm = (voucher: AccountingVoucher) => {
     setDeleteConfirmDialog({
       open: true,
@@ -992,18 +1031,34 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
               )}
 
               {(dedicatedCategoryInfo.key === "cash" || dedicatedCategoryInfo.key === "bank") && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setStatementUploadModalOpen(true);
-                    setStatementFile(null);
-                    setStatementParseResult(null);
-                  }}
-                  className="text-xs font-bold border-indigo-200 text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100"
-                >
-                  <UploadCloud className="w-3.5 h-3.5 mr-1.5 text-indigo-600" /> Upload Statement PDF
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStatementUploadModalOpen(true);
+                      setStatementFile(null);
+                      setStatementParseResult(null);
+                    }}
+                    className="text-xs font-bold border-indigo-200 text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5 mr-1.5 text-indigo-600" /> Upload Statement PDF
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      handleWipeStatementTransactions(
+                        dedicatedCategoryInfo.key as "cash" | "bank",
+                        dedicatedCategoryInfo.key === "bank" ? activeSelectedBank : undefined
+                      );
+                    }}
+                    className="text-xs font-bold border-rose-200 text-rose-700 bg-rose-50/60 hover:bg-rose-100"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-600" /> Wipe {dedicatedCategoryInfo.key === "bank" && activeSelectedBank ? `${activeSelectedBank} ` : ""}Transactions
+                  </Button>
+                </>
               )}
 
               <Button

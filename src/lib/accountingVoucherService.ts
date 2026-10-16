@@ -279,6 +279,49 @@ export async function deleteVoucher(voucherId: string): Promise<void> {
   }
 }
 
+export async function deleteVouchersByAccount(
+  accountType: "cash" | "bank", 
+  bankName?: string,
+  voucherIds?: string[]
+): Promise<{ deletedCount: number }> {
+  // If specific voucher IDs were passed (e.g. from current view), delete those exact IDs
+  if (voucherIds && voucherIds.length > 0) {
+    let totalDeleted = 0;
+    const CHUNK_SIZE = 200;
+    for (let i = 0; i < voucherIds.length; i += CHUNK_SIZE) {
+      const chunk = voucherIds.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabase
+        .from("accounting_vouchers" as any)
+        .delete()
+        .in("id", chunk);
+      if (error) throw error;
+      totalDeleted += chunk.length;
+    }
+    return { deletedCount: totalDeleted };
+  }
+
+  // Otherwise delete via query filters
+  let query = supabase.from("accounting_vouchers" as any).delete({ count: "exact" });
+
+  if (accountType === "cash") {
+    // In our system Cash is ledger 1010
+    query = query.or("dr_ledger_code.eq.1010,cr_ledger_code.eq.1010");
+  } else if (accountType === "bank") {
+    if (bankName) {
+      query = query.or(`bank_name.eq."${bankName}",narration.ilike."%${bankName}%",reference_no.ilike."%${bankName}%"`);
+    } else {
+      // Bank ledger is 1020
+      query = query.or("dr_ledger_code.eq.1020,cr_ledger_code.eq.1020");
+    }
+  }
+
+  const { data, count, error } = await query;
+  if (error) {
+    throw error;
+  }
+  return { deletedCount: count || 0 };
+}
+
 // ==========================================
 // 2. SUPABASE CORPORATE BANKS API
 // ==========================================

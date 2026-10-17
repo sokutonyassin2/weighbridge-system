@@ -689,24 +689,24 @@ const ProcurementReports = () => {
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center justify-between lg:justify-end gap-6 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 w-full lg:w-auto">
-                                                <div className="space-y-0.5 min-w-[80px]">
+                                            <div className="grid grid-cols-3 sm:flex items-center justify-between lg:justify-end gap-2 sm:gap-6 border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-6 w-full lg:w-auto">
+                                                <div className="space-y-0.5 min-w-0">
                                                     <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Quantity</span>
-                                                    <div className="text-xs font-black text-slate-800">
+                                                    <div className="text-xs font-black text-slate-800 truncate">
                                                         {qty} Units
                                                     </div>
                                                 </div>
 
-                                                <div className="space-y-0.5 pl-4 border-l border-slate-100 min-w-[95px]">
+                                                <div className="space-y-0.5 pl-2 sm:pl-4 border-l border-slate-100 min-w-0">
                                                     <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Unit Price</span>
-                                                    <div className="text-xs font-black text-slate-800">
+                                                    <div className="text-xs font-black text-slate-800 truncate">
                                                         {unitPrice.toLocaleString()} TZS
                                                     </div>
                                                 </div>
 
-                                                <div className="space-y-0.5 pl-4 border-l border-slate-100 text-right min-w-[110px]">
+                                                <div className="space-y-0.5 pl-2 sm:pl-4 border-l border-slate-100 text-right min-w-0">
                                                     <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Total Amount</span>
-                                                    <div className="text-xs font-black text-slate-900 leading-none">
+                                                    <div className="text-xs font-black text-slate-900 leading-none truncate">
                                                         {total.toLocaleString()} TZS
                                                     </div>
                                                 </div>

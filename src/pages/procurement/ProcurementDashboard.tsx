@@ -1868,33 +1868,33 @@ const ProcurementDashboard = () => {
                                                                         </div>
 
                                                                         {/* 2. Quantities & Financial Breakdown */}
-                                                                        <div className="flex items-center justify-between xl:justify-end gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-3 xl:pt-0 xl:pl-6 w-full xl:w-auto">
-                                                                            <div className="space-y-0.5 min-w-[100px]">
+                                                                        <div className="grid grid-cols-3 sm:flex items-center justify-between xl:justify-end gap-2 sm:gap-6 border-t xl:border-t-0 xl:border-l border-slate-100 pt-3 xl:pt-0 xl:pl-6 w-full xl:w-auto">
+                                                                            <div className="space-y-0.5 min-w-0">
                                                                                 <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Quantity</span>
-                                                                                <div className="text-xs font-black text-slate-800">
+                                                                                <div className="text-xs font-black text-slate-800 truncate">
                                                                                     {req.quantity_approved || req.quantity_requested} Units
                                                                                 </div>
-                                                                                <div className="text-[10px] text-slate-400 font-medium">
+                                                                                <div className="text-[10px] text-slate-400 font-medium truncate">
                                                                                     Req: {req.original_quantity || req.quantity_requested}
                                                                                 </div>
                                                                             </div>
 
-                                                                            <div className="space-y-0.5 pl-4 border-l border-slate-100 min-w-[100px]">
+                                                                            <div className="space-y-0.5 pl-2 sm:pl-4 border-l border-slate-100 min-w-0">
                                                                                 <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Unit Price</span>
-                                                                                <div className="text-xs font-black text-slate-800">
+                                                                                <div className="text-xs font-black text-slate-800 truncate">
                                                                                     {formatTSh(unitPrice)}
                                                                                 </div>
-                                                                                <span className="text-[10px] text-slate-400 font-medium block">
+                                                                                <span className="text-[10px] text-slate-400 font-medium block truncate">
                                                                                     {req.includes_vat ? "Inc. VAT" : "Ex. VAT"}
                                                                                 </span>
                                                                             </div>
 
-                                                                            <div className="space-y-0.5 pl-4 border-l border-slate-100 text-right min-w-[110px]">
+                                                                            <div className="space-y-0.5 pl-2 sm:pl-4 border-l border-slate-100 text-right min-w-0">
                                                                                 <span className="text-[9px] uppercase font-black text-slate-400 tracking-wider block">Total Value</span>
-                                                                                <div className="text-xs font-black text-blue-900 leading-none">
+                                                                                <div className="text-xs font-black text-blue-900 leading-none truncate">
                                                                                     {formatTSh(lineTotal)}
                                                                                 </div>
-                                                                                <span className="text-[10px] text-emerald-600 font-bold block">
+                                                                                <span className="text-[10px] text-emerald-600 font-bold block truncate">
                                                                                     Line Total
                                                                                 </span>
                                                                             </div>

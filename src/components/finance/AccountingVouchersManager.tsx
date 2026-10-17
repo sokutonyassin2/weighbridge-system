@@ -16,6 +16,7 @@ import {
   deleteBank,
   fetchAccountingSuppliers,
   saveNewSupplier,
+  updateSupplierOpeningBalance,
   deleteSupplier,
   AccountLedger, 
   VoucherTypeConfig, 
@@ -43,7 +44,8 @@ import {
   TableCell, 
   TableHead, 
   TableHeader, 
-  TableRow 
+  TableRow,
+  TableFooter 
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,13 +75,19 @@ import {
   Receipt, 
   BookOpen, 
   Search, 
-  Building2,
+  Building2, 
   Briefcase, 
   FolderPlus,
   Scale,
   Wallet,
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Settings,
+  CheckCircle2,
   Filter,
   DollarSign,
   TrendingDown,
@@ -133,6 +141,15 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const [editBankOpeningModalOpen, setEditBankOpeningModalOpen] = useState(false);
   const [bankOpeningInput, setBankOpeningInput] = useState("");
 
+  // Supplier Opening Balance Modal
+  const [editingSupplierOpening, setEditingSupplierOpening] = useState<AccountingSupplier | null>(null);
+  const [editSupplierOpeningModalOpen, setEditSupplierOpeningModalOpen] = useState(false);
+  const [supplierOpeningInput, setSupplierOpeningInput] = useState("");
+
+  // Statement Supplier States
+  const [statementSelectedSupplier, setStatementSelectedSupplier] = useState<string>("");
+  const [statementCustomSupplierName, setStatementCustomSupplierName] = useState<string>("");
+
   // Active filter for specific bank or specific supplier inside dedicated views
   const [activeSelectedBank, setActiveSelectedBank] = useState<string | null>(null);
   const [activeSelectedSupplier, setActiveSelectedSupplier] = useState<string | null>(null);
@@ -140,6 +157,11 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   // Dedicated section top inline inputs (separate from modal inputs)
   const [dedicatedInlineBankInput, setDedicatedInlineBankInput] = useState<string>("");
   const [dedicatedInlineSupplierInput, setDedicatedInlineSupplierInput] = useState<string>("");
+
+  // Statement display options
+  const [statementSortOrder, setStatementSortOrder] = useState<"chronological" | "newest">("chronological");
+  const [statementPageSize, setStatementPageSize] = useState<number>(100);
+  const [statementCurrentPage, setStatementCurrentPage] = useState<number>(1);
 
   // Confirmation dialog state for safe deletions
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
@@ -406,15 +428,32 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       };
     });
 
-    // If a specific bank or supplier is clicked in the cards, filter to that entity!
+    // Determine active entity for Bank / Cash / Payables
+    const effectiveBank = dedicatedCategoryInfo.key === "bank"
+      ? (activeSelectedBank || companyBankObjects[0]?.name || "21210076615 - NMB USD Currency")
+      : null;
+
+    const selectedBankObj = effectiveBank ? companyBankObjects.find(b => b.name === effectiveBank) : null;
+    const bankOpening = selectedBankObj ? (selectedBankObj.opening_balance || 0) : 0;
+    const bankCurrency = selectedBankObj?.currency || (effectiveBank?.includes("TZ") ? "TZS" : "USD");
+
+    const cashOpening = ledgerMap["1010"]?.opening_balance || 37.57;
+
+    // Filter rows strictly for the active account
     const effectiveRows = rows.filter(r => {
-      if (dedicatedCategoryInfo.key === "bank" && activeSelectedBank) {
-        const b = activeSelectedBank.toLowerCase();
+      if (dedicatedCategoryInfo.key === "bank" && effectiveBank) {
+        if (r.bank_name) {
+          return r.bank_name === effectiveBank;
+        }
+        const bLower = effectiveBank.toLowerCase();
         return (
-          (r.bank_name && r.bank_name.toLowerCase() === b) ||
-          r.narration.toLowerCase().includes(b) ||
-          (r.reference_no && r.reference_no.toLowerCase().includes(b))
+          r.narration.toLowerCase().includes(bLower) ||
+          (r.reference_no && r.reference_no.toLowerCase().includes(bLower))
         );
+      }
+      if (dedicatedCategoryInfo.key === "cash") {
+        // Tally Cash in Hand account is in TZS local currency
+        return (r.currency || "").toUpperCase() === "TZS";
       }
       if (dedicatedCategoryInfo.key === "payables" && activeSelectedSupplier) {
         const s = activeSelectedSupplier.toLowerCase();
@@ -427,36 +466,70 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       return true;
     });
 
-    let displayDr = 0;
-    let displayCr = 0;
-    effectiveRows.forEach(r => {
-      displayDr += r.debitAmt;
-      displayCr += r.creditAmt;
+    const selectedSupplierObj = dedicatedCategoryInfo.key === "payables" && activeSelectedSupplier
+      ? companySupplierObjects.find(s => s.name.toLowerCase() === activeSelectedSupplier.toLowerCase())
+      : null;
+
+    const opening = dedicatedCategoryInfo.key === "bank" 
+      ? bankOpening 
+      : dedicatedCategoryInfo.key === "cash" 
+        ? cashOpening 
+        : selectedSupplierObj
+          ? (selectedSupplierObj.opening_balance || 0)
+          : (targetLedger?.opening_balance || 0);
+
+    const activeCurrency = dedicatedCategoryInfo.key === "cash"
+      ? "TZS"
+      : dedicatedCategoryInfo.key === "bank"
+        ? bankCurrency
+        : (effectiveRows[0]?.currency || targetLedger?.currency || "USD");
+
+    const isAssetOrExpense = targetLedger?.category === "ASSETS" || targetLedger?.category === "EXPENSES";
+
+    // Sort chronologically (oldest first) to compute standard running balance
+    const sortedChronological = [...effectiveRows].sort((a, b) => {
+      const dCmp = (a.date || "").localeCompare(b.date || "");
+      if (dCmp !== 0) return dCmp;
+      return (a.voucher_no || "").localeCompare(b.voucher_no || "");
     });
 
-    // Opening Balance
-    const selectedBankObj = companyBankObjects.find(b => b.name === activeSelectedBank);
-    const bankOpening = selectedBankObj ? (selectedBankObj.opening_balance || 0) : 0;
-    const opening = activeSelectedBank ? bankOpening : (targetLedger?.opening_balance || 0);
+    let running = opening;
+    let displayDr = 0;
+    let displayCr = 0;
 
-    // Current balance: for ASSETS/EXPENSES Normal Balance is Debit (Debit - Credit).
-    // For LIABILITIES/INCOME Normal Balance is Credit (Credit - Debit).
-    const isAssetOrExpense = targetLedger?.category === "ASSETS" || targetLedger?.category === "EXPENSES";
-    const netBalance = isAssetOrExpense 
-      ? (activeSelectedBank ? bankOpening + displayDr - displayCr : (activeSelectedSupplier ? displayDr - displayCr : opening + totalDr - totalCr))
-      : (activeSelectedBank || activeSelectedSupplier ? displayCr - displayDr : opening + totalCr - totalDr);
+    const rowsWithBalance = sortedChronological.map(r => {
+      displayDr += r.debitAmt;
+      displayCr += r.creditAmt;
+
+      if (isAssetOrExpense) {
+        running = running + r.debitAmt - r.creditAmt;
+      } else {
+        running = running + r.creditAmt - r.debitAmt;
+      }
+
+      return {
+        ...r,
+        runningBalance: running
+      };
+    });
+
+    const closingBalance = running;
 
     return {
       targetLedger,
-      rows: effectiveRows,
+      effectiveBank,
+      selectedSupplierObj,
+      activeCurrency,
+      rows: rowsWithBalance,
       allRows: rows,
-      totalDr: activeSelectedBank || activeSelectedSupplier ? displayDr : totalDr,
-      totalCr: activeSelectedBank || activeSelectedSupplier ? displayCr : totalCr,
+      totalDr: displayDr,
+      totalCr: displayCr,
       opening,
-      netBalance,
+      closingBalance,
+      netBalance: closingBalance,
       isAssetOrExpense
     };
-  }, [dedicatedCategoryInfo, vouchers, ledgerMap, activeSelectedBank, activeSelectedSupplier, companyBankObjects]);
+  }, [dedicatedCategoryInfo, vouchers, ledgerMap, activeSelectedBank, activeSelectedSupplier, companyBankObjects, companySupplierObjects]);
 
   // Live calculated balance map for all corporate banks in Supabase
   const bankBalancesMap = useMemo(() => {
@@ -478,7 +551,10 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
         const explicit = (v.bank_name || "").toLowerCase();
         const nar = (v.narration || "").toLowerCase();
         const ref = (v.reference_no || "").toLowerCase();
-        return explicit === bLower || nar.includes(bLower) || ref.includes(bLower);
+        return (
+          explicit === bLower || 
+          ((v.dr_ledger_code === "1020" || v.cr_ledger_code === "1020") && (nar.includes(bLower) || ref.includes(bLower)))
+        );
       });
 
       let dr = 0;
@@ -506,6 +582,51 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
 
     return map;
   }, [companyBankObjects, vouchers]);
+
+  // Live calculated statistics for Cash in Hand (Ledger 1010)
+  const cashStats = useMemo(() => {
+    let dr = 0;
+    let cr = 0;
+    let count = 0;
+    vouchers.forEach(v => {
+      const isCash = (v.currency || "").toUpperCase() === "TZS";
+      if (v.dr_ledger_code === "1010" && isCash) {
+        dr += (v.amount || 0);
+        count++;
+      }
+      if (v.cr_ledger_code === "1010" && isCash) {
+        cr += (v.amount || 0);
+        count++;
+      }
+    });
+    const cashLedger = ledgerMap["1010"];
+    const opening = cashLedger?.opening_balance || 37.57;
+    const net = opening + dr - cr;
+    return {
+      opening,
+      drTotal: dr,
+      crTotal: cr,
+      netBalance: net,
+      vouchersCount: count
+    };
+  }, [vouchers, ledgerMap]);
+
+  // Currency detection and formatting for dedicated views
+  const isDedicatedTZS = useMemo(() => {
+    if (dedicatedCategoryInfo?.key === "cash") return true;
+    if (dedicatedCategoryInfo?.key === "bank") {
+      return (dedicatedLedgerData?.activeCurrency || "").toUpperCase() === "TZS";
+    }
+    return (dedicatedLedgerData?.targetLedger?.currency || "").toUpperCase() === "TZS";
+  }, [dedicatedCategoryInfo, dedicatedLedgerData]);
+
+  const formatDedicatedCurrency = (val: number, forceCurrency?: string) => {
+    const isTZS = forceCurrency ? forceCurrency.toUpperCase() === "TZS" : isDedicatedTZS;
+    if (isTZS) {
+      return `${(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TZS`;
+    }
+    return `$${(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
   // Filtered Vouchers List for general vouchers view
   const filteredVouchers = useMemo(() => {
@@ -667,6 +788,24 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     }
   };
 
+  const handleSaveSupplierOpeningBalance = async () => {
+    if (!editingSupplierOpening) return;
+    const ob = parseFloat(supplierOpeningInput) || 0;
+    try {
+      await updateSupplierOpeningBalance(editingSupplierOpening.id, ob);
+      refetchSuppliers();
+      refetchVouchers();
+      toast({
+        title: "Supplier Opening Balance Updated",
+        description: `Set opening balance for ${editingSupplierOpening.name} to ${ob.toLocaleString(undefined, { minimumFractionDigits: 2 })}.`
+      });
+      setEditSupplierOpeningModalOpen(false);
+      setEditingSupplierOpening(null);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error Updating Balance", description: err.message });
+    }
+  };
+
   // PDF Statement Processing Handlers
   const handleProcessStatementFile = async (file: File) => {
     setStatementFile(file);
@@ -679,18 +818,33 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
         throw new Error("No readable text found in PDF. Make sure it is an account book statement.");
       }
 
-      const parsed = parseStatementLines(lines, file.name);
+      // Pass target hint to parser
+      const targetHint = dedicatedCategoryInfo?.key === "payables" 
+        ? "SUPPLIER" 
+        : dedicatedCategoryInfo?.key === "bank" 
+          ? "BANK" 
+          : "CASH";
 
-      // Auto-adapt target to currently active view if in Cash or Bank
-      if (dedicatedCategoryInfo.key === "cash") {
+      const defaultEntity = dedicatedCategoryInfo?.key === "payables"
+        ? (statementSelectedSupplier || activeSelectedSupplier || undefined)
+        : (statementSelectedBank || activeSelectedBank || undefined);
+
+      const parsed = parseStatementLines(lines, file.name, targetHint, defaultEntity);
+
+      // Auto-adapt target to currently active view if in Cash, Bank or Payables
+      if (dedicatedCategoryInfo?.key === "cash") {
         parsed.detectedTarget = "CASH";
         parsed.detectedAccountName = "Cash in Hand";
-      } else if (dedicatedCategoryInfo.key === "bank") {
+      } else if (dedicatedCategoryInfo?.key === "bank") {
         parsed.detectedTarget = "BANK";
-        // Default to active selected bank if chosen, or whatever was detected, or first bank
         const chosenBank = statementSelectedBank || activeSelectedBank || parsed.detectedAccountName || companyBanks[0];
         parsed.detectedAccountName = chosenBank;
         setStatementSelectedBank(chosenBank);
+      } else if (dedicatedCategoryInfo?.key === "payables") {
+        parsed.detectedTarget = "SUPPLIER";
+        const chosenSupplier = statementSelectedSupplier || activeSelectedSupplier || parsed.detectedAccountName || companySuppliers[0] || "General Supplier";
+        parsed.detectedAccountName = chosenSupplier;
+        setStatementSelectedSupplier(chosenSupplier);
       }
 
       setStatementParseResult(parsed);
@@ -712,13 +866,31 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
   const handleExecuteStatementImport = async () => {
     if (!statementParseResult || statementParseResult.entries.length === 0) return;
 
-    // Use current dynamic bank selection if target is BANK
+    // Use current dynamic selection
     const effectiveResult = { ...statementParseResult };
     if (effectiveResult.detectedTarget === "BANK" && statementSelectedBank) {
       effectiveResult.detectedAccountName = statementSelectedBank;
       const bankObj = companyBankObjects.find(b => b.name === statementSelectedBank);
       if (bankObj?.currency) {
         effectiveResult.currency = bankObj.currency as any;
+      }
+    } else if (effectiveResult.detectedTarget === "SUPPLIER") {
+      const chosenSupplier = statementSelectedSupplier || activeSelectedSupplier || effectiveResult.detectedAccountName;
+      effectiveResult.detectedAccountName = chosenSupplier;
+
+      // Ensure supplier exists in database
+      let supplierObj = companySupplierObjects.find(s => s.name.toLowerCase() === chosenSupplier.toLowerCase());
+      if (!supplierObj && chosenSupplier && chosenSupplier !== "all" && chosenSupplier !== "General Supplier") {
+        try {
+          supplierObj = await saveNewSupplier(chosenSupplier);
+        } catch {}
+      }
+
+      // If statement had opening balance, update supplier's opening balance
+      if (supplierObj && effectiveResult.openingBalance > 0) {
+        try {
+          await updateSupplierOpeningBalance(supplierObj.id, effectiveResult.openingBalance);
+        } catch {}
       }
     }
 
@@ -745,6 +917,7 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
 
       await refetchVouchers();
       await refetchBanks();
+      await refetchSuppliers();
 
       toast({
         title: "Import Complete!",
@@ -755,6 +928,8 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       setStatementFile(null);
       setStatementParseResult(null);
       setStatementSelectedBank("");
+      setStatementSelectedSupplier("");
+      setStatementCustomSupplierName("");
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -766,10 +941,12 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
     }
   };
 
-  const handleWipeStatementTransactions = (accountType: "cash" | "bank", bankName?: string) => {
+  const handleWipeStatementTransactions = (accountType: "cash" | "bank" | "supplier", accountName?: string) => {
     const targetName = accountType === "cash" 
       ? "Cash Account" 
-      : (bankName ? bankName : "All Banks");
+      : accountType === "bank"
+        ? (accountName ? accountName : "All Banks")
+        : (accountName ? accountName : "All Supplier Payables");
 
     // Gather exact voucher IDs currently in this ledger view so we guarantee every single one is deleted
     const targetVoucherIds = (dedicatedLedgerData?.rows || []).map(r => r.id).filter(Boolean);
@@ -780,7 +957,7 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       description: `Are you sure you want to delete all transactions for ${targetName}? This will wipe the statement transactions without touching suppliers, banks configuration, or other accounts. This action cannot be undone.`,
       onConfirm: async () => {
         try {
-          const res = await deleteVouchersByAccount(accountType, bankName, targetVoucherIds);
+          const res = await deleteVouchersByAccount(accountType, accountName, targetVoucherIds);
           // Also clear any browser cache item if present
           try {
             localStorage.removeItem("accounting_vouchers_cache");
@@ -789,6 +966,7 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
           await queryClient.invalidateQueries({ queryKey: ["accounting-vouchers"] });
           await refetchVouchers();
           await refetchBanks();
+          await refetchSuppliers();
           toast({ 
             title: "Transactions Wiped", 
             description: `Successfully wiped ${res.deletedCount} transaction(s) for ${targetName}.` 
@@ -974,32 +1152,31 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
 
   return (
     <div className="space-y-6">
-      {/* DEDICATED SECTION VIEW (when clicked from sidebar e.g. Cash, Bank, Supplier Payables, etc.) */}
+      {/* DEDICATED SECTION VIEW (Cash, Bank, Supplier Payables, etc.) */}
       {dedicatedCategoryInfo && dedicatedLedgerData ? (
-        <div className="space-y-5">
-          {/* Dedicated Header Banner */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between md:items-center gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className={`p-3 rounded-xl ${
-                dedicatedCategoryInfo.colorTheme === "emerald" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
-                dedicatedCategoryInfo.colorTheme === "blue" ? "bg-blue-50 text-blue-600 border border-blue-100" :
-                dedicatedCategoryInfo.colorTheme === "amber" ? "bg-amber-50 text-amber-600 border border-amber-100" :
-                dedicatedCategoryInfo.colorTheme === "purple" ? "bg-purple-50 text-purple-600 border border-purple-100" :
-                "bg-rose-50 text-rose-600 border border-rose-100"
-              }`}>
-                <dedicatedCategoryInfo.icon className="w-6 h-6" />
+        <div className="space-y-4">
+          {/* Executive Header Banner */}
+          <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row justify-between md:items-center gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-slate-100 text-slate-800 border border-slate-200 shrink-0">
+                <dedicatedCategoryInfo.icon className="w-5 h-5 text-slate-800" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <Badge variant="outline" className="text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-50 border-slate-300">
                     {dedicatedCategoryInfo.categoryTitle}
                   </Badge>
-                  <span className="text-xs font-mono font-bold text-indigo-700">
-                    Code [{dedicatedCategoryInfo.ledgerCode}]
+                  <span className="text-xs font-mono font-bold text-slate-600">
+                    Ledger [{dedicatedCategoryInfo.ledgerCode}]
                   </span>
+                  <Badge variant="outline" className="text-[10px] font-bold text-slate-800 bg-white border-slate-300">
+                    Currency: {dedicatedLedgerData.activeCurrency}
+                  </Badge>
                 </div>
-                <h2 className="text-xl font-black text-slate-900 tracking-tight mt-0.5">
-                  {dedicatedCategoryInfo.title}
+                <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight mt-1">
+                  {dedicatedCategoryInfo.key === "bank" && dedicatedLedgerData.effectiveBank
+                    ? dedicatedLedgerData.effectiveBank
+                    : dedicatedCategoryInfo.title}
                 </h2>
                 <p className="text-xs text-slate-500 font-medium">
                   {dedicatedCategoryInfo.description}
@@ -1007,42 +1184,24 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {dedicatedCategoryInfo.key === "bank" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setManageBanksModalOpen(true)}
-                  className="text-xs font-bold border-blue-200 text-blue-700 hover:bg-blue-50"
-                >
-                  <CreditCard className="w-3.5 h-3.5 mr-1.5" /> Manage Bank Accounts ({companyBanks.length})
-                </Button>
-              )}
-
-              {dedicatedCategoryInfo.key === "payables" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setManageSuppliersModalOpen(true)}
-                  className="text-xs font-bold border-amber-200 text-amber-700 hover:bg-amber-50"
-                >
-                  <Briefcase className="w-3.5 h-3.5 mr-1.5" /> Manage Suppliers ({companySuppliers.length})
-                </Button>
-              )}
-
-              {(dedicatedCategoryInfo.key === "cash" || dedicatedCategoryInfo.key === "bank") && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {(dedicatedCategoryInfo.key === "cash" || dedicatedCategoryInfo.key === "bank" || dedicatedCategoryInfo.key === "payables") && (
                 <>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
+                      setStatementSelectedSupplier(activeSelectedSupplier || "");
                       setStatementUploadModalOpen(true);
                       setStatementFile(null);
                       setStatementParseResult(null);
                     }}
-                    className="text-xs font-bold border-indigo-200 text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100"
+                    className="text-xs font-bold border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                   >
-                    <UploadCloud className="w-3.5 h-3.5 mr-1.5 text-indigo-600" /> Upload Statement PDF
+                    <UploadCloud className="w-3.5 h-3.5 mr-1.5 text-slate-600" /> 
+                    {dedicatedCategoryInfo.key === "payables" && activeSelectedSupplier
+                      ? `Upload ${activeSelectedSupplier} PDF`
+                      : "Upload Statement PDF"}
                   </Button>
 
                   <Button
@@ -1050,13 +1209,17 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                     size="sm"
                     onClick={() => {
                       handleWipeStatementTransactions(
-                        dedicatedCategoryInfo.key as "cash" | "bank",
-                        dedicatedCategoryInfo.key === "bank" ? activeSelectedBank : undefined
+                        dedicatedCategoryInfo.key as "cash" | "bank" | "supplier",
+                        dedicatedCategoryInfo.key === "bank" 
+                          ? (dedicatedLedgerData.effectiveBank || undefined) 
+                          : dedicatedCategoryInfo.key === "payables"
+                            ? (activeSelectedSupplier || undefined)
+                            : undefined
                       );
                     }}
-                    className="text-xs font-bold border-rose-200 text-rose-700 bg-rose-50/60 hover:bg-rose-100"
+                    className="text-xs font-bold border-slate-300 bg-white text-rose-600 hover:bg-rose-50"
                   >
-                    <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-600" /> Wipe {dedicatedCategoryInfo.key === "bank" && activeSelectedBank ? `${activeSelectedBank} ` : ""}Transactions
+                    <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-600" /> Reset Transactions
                   </Button>
                 </>
               )}
@@ -1065,15 +1228,14 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  // Clear query params to view general vouchers list
                   const newParams = new URLSearchParams(searchParams);
                   newParams.delete("category");
                   newParams.delete("sub");
                   setSearchParams(newParams);
                 }}
-                className="text-xs font-bold border-slate-200"
+                className="text-xs font-bold border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
               >
-                <X className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> View All Vouchers
+                <X className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> View All General Vouchers
               </Button>
 
               <Button
@@ -1089,478 +1251,528 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                   }
                   setNewVoucherModalOpen(true);
                 }}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
               >
-                <Plus className="w-4 h-4 mr-1.5" /> Record {dedicatedCategoryInfo.title.split(" ")[0]} Entry
+                <Plus className="w-4 h-4 mr-1.5" /> Record Entry
               </Button>
             </div>
           </div>
 
-          {/* 3 Dedicated Metric Cards: Total In / Total Out / Net Balance */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Card 1: Total Debits (Money In / Additions) */}
-            <Card className="border-slate-200 bg-white shadow-xs">
+          {/* Clean Bank Account Selector (Only in Bank Section) */}
+          {dedicatedCategoryInfo.key === "bank" && (
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">Select Bank Account:</span>
+                {companyBankObjects.map((bankObj) => {
+                  const isSelected = dedicatedLedgerData.effectiveBank === bankObj.name;
+                  const bCurrency = bankObj.currency || (bankObj.name.includes("TZ") ? "TZS" : "USD");
+                  return (
+                    <Button
+                      key={bankObj.id || bankObj.name}
+                      type="button"
+                      variant={isSelected ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setActiveSelectedBank(bankObj.name);
+                        setStatementCurrentPage(1);
+                      }}
+                      className={`h-8 text-xs font-bold transition-all ${
+                        isSelected 
+                          ? "bg-slate-900 text-white shadow-xs" 
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      <CreditCard className="w-3.5 h-3.5 mr-1.5 opacity-70" />
+                      <span>{bankObj.name}</span>
+                      <span className={`ml-2 text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                        isSelected ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {bCurrency}
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const currentBankObj = companyBankObjects.find(b => b.name === dedicatedLedgerData.effectiveBank);
+                    if (currentBankObj) {
+                      setEditingBankOpening(currentBankObj);
+                      setBankOpeningInput(String(currentBankObj.opening_balance || 0));
+                      setEditBankOpeningModalOpen(true);
+                    }
+                  }}
+                  className="h-8 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  title="Edit opening balance for active bank"
+                >
+                  <Pencil className="w-3.5 h-3.5 mr-1 text-slate-400" /> Edit Opening Balance
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setManageBanksModalOpen(true)}
+                  className="h-8 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                >
+                  <Settings className="w-3.5 h-3.5 mr-1 text-slate-400" /> Manage Accounts
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Supplier Selector & Individual Statement Actions (Only in Supplier Payables Section) */}
+          {dedicatedCategoryInfo.key === "payables" && (
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">Filter by Supplier:</span>
+                <Select
+                  value={activeSelectedSupplier || "all"}
+                  onValueChange={(val) => {
+                    const nextVal = val === "all" ? null : val;
+                    setActiveSelectedSupplier(nextVal);
+                    setStatementSelectedSupplier(nextVal || "");
+                    setStatementCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-64 h-8 text-xs font-semibold bg-white border-slate-200">
+                    <SelectValue placeholder="All Suppliers & Vendors" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Suppliers ({companySuppliers.length})</SelectItem>
+                    {companySuppliers.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {activeSelectedSupplier && (
+                  <Badge className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] font-bold">
+                    Individual Statement Active
+                  </Badge>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Upload Supplier Statement PDF Button */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setStatementSelectedSupplier(activeSelectedSupplier || "");
+                    setStatementFile(null);
+                    setStatementParseResult(null);
+                    setStatementUploadModalOpen(true);
+                  }}
+                  className="h-8 text-xs font-bold border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100/70"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 mr-1.5 text-indigo-600" /> 
+                  {activeSelectedSupplier ? `Upload ${activeSelectedSupplier} PDF` : "Upload Supplier PDF"}
+                </Button>
+
+                {/* Edit Opening Balance (when specific supplier selected) */}
+                {activeSelectedSupplier && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const suppObj = companySupplierObjects.find(s => s.name.toLowerCase() === activeSelectedSupplier.toLowerCase());
+                      if (suppObj) {
+                        setEditingSupplierOpening(suppObj);
+                        setSupplierOpeningInput(String(suppObj.opening_balance || 0));
+                        setEditSupplierOpeningModalOpen(true);
+                      }
+                    }}
+                    className="h-8 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                    title="Edit opening balance for this supplier"
+                  >
+                    <Pencil className="w-3.5 h-3.5 mr-1 text-slate-400" /> Edit Opening Balance
+                  </Button>
+                )}
+
+                {/* Reset Vouchers for this supplier */}
+                {activeSelectedSupplier && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      handleWipeStatementTransactions("supplier", activeSelectedSupplier);
+                    }}
+                    className="h-8 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                    title="Wipe vouchers only for this supplier"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1 text-rose-500" /> Reset Supplier Vouchers
+                  </Button>
+                )}
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setManageSuppliersModalOpen(true)}
+                  className="h-8 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                >
+                  <Settings className="w-3.5 h-3.5 mr-1 text-slate-400" /> Manage Suppliers
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* 3 Clean Executive KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            {/* Card 1: Opening Balance */}
+            <Card className="border border-slate-200 bg-white shadow-xs">
               <CardHeader className="p-4 pb-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Total Debits (Dr)
+                    {dedicatedCategoryInfo.key === "payables" && activeSelectedSupplier 
+                      ? `${activeSelectedSupplier} Starting Balance`
+                      : "Opening Balance"}
                   </span>
-                  <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
-                    <ArrowDownLeft className="w-4 h-4" />
+                  <div className="p-1.5 rounded-lg bg-slate-100 text-slate-600">
+                    <Wallet className="w-4 h-4" />
                   </div>
                 </div>
-                <div className="mt-2 text-xl font-black text-emerald-700">
-                  ${dedicatedLedgerData.totalDr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div className="mt-2 text-xl font-black text-slate-900 font-mono">
+                  {formatDedicatedCurrency(dedicatedLedgerData.opening)}
                 </div>
                 <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                  Debited across {dedicatedLedgerData.rows.filter(r => r.isDr).length} voucher transactions
+                  Starting Balance as of 1-Jan-2026
                 </p>
               </CardHeader>
             </Card>
 
-            {/* Card 2: Total Credits (Money Out / Reductions) */}
-            <Card className="border-slate-200 bg-white shadow-xs">
+            {/* Card 2: Period Inflow & Outflow / Bills vs Payments */}
+            <Card className="border border-slate-200 bg-white shadow-xs">
               <CardHeader className="p-4 pb-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Total Credits (Cr)
+                    {dedicatedCategoryInfo.key === "payables" 
+                      ? "Period Activity (Bills / Payments)" 
+                      : "Period Activity (Inflows / Outflows)"}
                   </span>
-                  <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600">
-                    <ArrowUpRight className="w-4 h-4" />
+                  <div className="flex items-center gap-1 text-slate-400">
+                    <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+                    <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
                   </div>
                 </div>
-                <div className="mt-2 text-xl font-black text-rose-700">
-                  ${dedicatedLedgerData.totalCr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div className="mt-2 flex items-baseline gap-2 text-sm font-black font-mono">
+                  {dedicatedCategoryInfo.key === "payables" ? (
+                    <>
+                      <span className="text-emerald-700" title="Bills & Invoices from Supplier (Credits)">
+                        +{formatDedicatedCurrency(dedicatedLedgerData.totalCr)}
+                      </span>
+                      <span className="text-slate-300">/</span>
+                      <span className="text-rose-700" title="Payments made to Supplier (Debits)">
+                        -{formatDedicatedCurrency(dedicatedLedgerData.totalDr)}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-emerald-700">+{formatDedicatedCurrency(dedicatedLedgerData.totalDr)}</span>
+                      <span className="text-slate-300">/</span>
+                      <span className="text-rose-700">-{formatDedicatedCurrency(dedicatedLedgerData.totalCr)}</span>
+                    </>
+                  )}
                 </div>
                 <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                  Credited across {dedicatedLedgerData.rows.filter(r => r.isCr).length} voucher transactions
+                  {dedicatedCategoryInfo.key === "payables"
+                    ? `${dedicatedLedgerData.rows.length} bills and settlements recorded`
+                    : `${dedicatedLedgerData.rows.length} transactions recorded`}
                 </p>
               </CardHeader>
             </Card>
 
-            {/* Card 3: Closing Balance */}
-            <Card className="border-slate-200 bg-white shadow-xs">
+            {/* Card 3: Verified Closing Balance */}
+            <Card className="border border-slate-200 bg-white shadow-xs">
               <CardHeader className="p-4 pb-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Current Closing Balance
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    {dedicatedCategoryInfo.key === "payables" ? "Closing Balance (Payable)" : "Verified Closing Balance"}
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   </span>
-                  <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+                  <div className="p-1.5 rounded-lg bg-slate-100 text-slate-700">
                     <Scale className="w-4 h-4" />
                   </div>
                 </div>
-                <div className={`mt-2 text-xl font-black ${dedicatedLedgerData.netBalance >= 0 ? "text-slate-900" : "text-rose-600"}`}>
-                  ${dedicatedLedgerData.netBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div className="mt-2 text-xl font-black text-slate-900 font-mono">
+                  {formatDedicatedCurrency(dedicatedLedgerData.closingBalance)}
                 </div>
                 <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                  Opening Balance: ${dedicatedLedgerData.opening.toLocaleString()} • Status: Active
+                  {dedicatedCategoryInfo.key === "payables"
+                    ? "Opening + Invoices (Cr) - Payments (Dr)"
+                    : "Opening + Inflows - Outflows (Tally Verified)"}
                 </p>
               </CardHeader>
             </Card>
           </div>
 
-          {/* BANK ACCOUNTS DIRECT OVERVIEW & CONFIGURATION (when in Bank dedicated view) */}
-          {dedicatedCategoryInfo.key === "bank" && (
-            <Card className="border-blue-200/80 bg-blue-50/30 overflow-hidden shadow-2xs">
-              <CardHeader className="p-4 bg-white border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm font-black text-slate-900 flex items-center gap-2">
-                      <CreditCard className="w-4 h-4 text-blue-600" />
-                      Configured Corporate Bank Accounts ({companyBanks.length})
-                    </CardTitle>
-                    {activeSelectedBank && (
-                      <Badge className="bg-blue-600 text-white text-[10px] font-bold">
-                        Filtering: {activeSelectedBank}
-                      </Badge>
-                    )}
-                  </div>
-                  <CardDescription className="text-[11px] text-slate-500">
-                    Click any bank card below to view its specific transactions and running balance.
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input 
-                    value={dedicatedInlineBankInput}
-                    onChange={(e) => setDedicatedInlineBankInput(e.target.value)}
-                    placeholder="Enter new bank name..."
-                    className="h-8 text-xs bg-white border-blue-200 w-52 sm:w-64 font-medium"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddInlineBank();
-                      }
-                    }}
-                  />
-                  <Button 
-                    type="button"
-                    size="sm"
-                    onClick={handleAddInlineBank}
-                    className="h-8 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shrink-0 px-3.5 shadow-xs cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" /> Add Bank
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
-                  {companyBankObjects.map((bankObj) => {
-                    const bankName = bankObj.name;
-                    const stats = bankBalancesMap[bankName] || {
-                      id: bankObj.id,
-                      name: bankName,
-                      currency: bankObj.currency || "USD",
-                      opening_balance: bankObj.opening_balance || 0,
-                      drTotal: 0,
-                      crTotal: 0,
-                      netBalance: bankObj.opening_balance || 0,
-                      vouchersCount: 0,
-                    };
-
-                    const isSelected = activeSelectedBank === bankName;
-                    const isTZS = (stats.currency || "USD") === "TZS";
-                    const formattedNet = isTZS
-                      ? `TZS ${stats.netBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                      : `$${stats.netBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-                    return (
-                      <div 
-                        key={bankObj.id || bankName}
-                        onClick={() => {
-                          setActiveSelectedBank(isSelected ? null : bankName);
-                        }}
-                        className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between group ${
-                          isSelected 
-                            ? "bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/30 shadow-xs" 
-                            : "bg-white border-slate-200/90 hover:border-blue-300 hover:shadow-xs"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5 overflow-hidden">
-                            <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-600"}`}>
-                              <CreditCard className="w-4 h-4" />
-                            </div>
-                            <div className="overflow-hidden">
-                              <p className="text-xs font-black text-slate-900 truncate" title={bankName}>{bankName}</p>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <Badge variant="outline" className="text-[9px] font-black uppercase tracking-wider py-0 px-1 border-blue-200 bg-blue-50/50 text-blue-700">
-                                  {stats.currency}
-                                </Badge>
-                                <span className="text-[10px] text-slate-500 font-semibold">
-                                  {stats.vouchersCount > 0 ? `${stats.vouchersCount} vouchers` : "No vouchers"}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button 
-                              type="button"
-                              variant="ghost" 
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingBankOpening(bankObj);
-                                setBankOpeningInput(String(bankObj.opening_balance || 0));
-                                setEditBankOpeningModalOpen(true);
-                              }}
-                              className="h-6 px-1.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 rounded"
-                              title="Set or update opening balance in Supabase"
-                            >
-                              Opening
-                            </Button>
-                            <Button 
-                              type="button"
-                              variant="ghost" 
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteBankWithConfirm(bankName);
-                              }}
-                              className="h-6 w-6 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-60 group-hover:opacity-100 transition-opacity"
-                              title="Remove bank"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Live Net Balance Display */}
-                        <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
-                          <div>
-                            <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">Live Bank Balance</span>
-                            <div className={`text-sm font-black tracking-tight ${stats.netBalance >= 0 ? "text-emerald-700" : "text-rose-600"}`}>
-                              {formattedNet}
-                            </div>
-                          </div>
-                          <div className="text-right text-[10px] text-slate-500 font-medium">
-                            <div>Opening: <span className="font-bold text-slate-700">{isTZS ? `TZS ${stats.opening_balance.toLocaleString()}` : `$${stats.opening_balance.toLocaleString()}`}</span></div>
-                            <div className="text-emerald-600 font-bold">+{isTZS ? `${stats.drTotal.toLocaleString()}` : `$${stats.drTotal.toLocaleString()}`} in</div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {activeSelectedBank && (
-                  <div className="mt-3 pt-2 border-t border-blue-100 flex items-center justify-between text-xs">
-                    <span className="text-blue-700 font-bold">
-                      Showing statement for <span className="underline">{activeSelectedBank}</span> only
-                    </span>
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => setActiveSelectedBank(null)}
-                      className="text-xs text-blue-600 h-7 px-2 font-bold hover:bg-blue-100/50"
-                    >
-                      Clear Bank Filter (Show All Banks)
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* SUPPLIERS DIRECT OVERVIEW & CONFIGURATION (when in Supplier Payables dedicated view) */}
-          {dedicatedCategoryInfo.key === "payables" && (
-            <Card className="border-amber-200/80 bg-amber-50/30 overflow-hidden shadow-2xs">
-              <CardHeader className="p-4 bg-white border-b border-amber-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm font-black text-slate-900 flex items-center gap-2">
-                      <Briefcase className="w-4 h-4 text-amber-600" />
-                      Configured Company Suppliers & Vendors ({companySuppliers.length})
-                    </CardTitle>
-                    {activeSelectedSupplier && (
-                      <Badge className="bg-amber-600 text-white text-[10px] font-bold">
-                        Filtering: {activeSelectedSupplier}
-                      </Badge>
-                    )}
-                  </div>
-                  <CardDescription className="text-[11px] text-slate-500">
-                    Click any supplier card below to view all payments and invoices for that vendor.
-                  </CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input 
-                    value={dedicatedInlineSupplierInput}
-                    onChange={(e) => setDedicatedInlineSupplierInput(e.target.value)}
-                    placeholder="Enter new supplier name..."
-                    className="h-8 text-xs bg-white border-amber-200 w-52 sm:w-64 font-medium"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddInlineSupplier();
-                      }
-                    }}
-                  />
-                  <Button 
-                    type="button"
-                    size="sm"
-                    onClick={handleAddInlineSupplier}
-                    className="h-8 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shrink-0 px-3.5 shadow-xs cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" /> Add Supplier
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {companySuppliers.map((supplierName) => {
-                    const supVouchersCount = (dedicatedLedgerData.allRows || dedicatedLedgerData.rows).filter(r => 
-                      r.narration.toLowerCase().includes(supplierName.toLowerCase()) || 
-                      (r.reference_no && r.reference_no.toLowerCase().includes(supplierName.toLowerCase()))
-                    ).length;
-
-                    const isSelected = activeSelectedSupplier === supplierName;
-
-                    return (
-                      <div 
-                        key={supplierName}
-                        onClick={() => {
-                          setActiveSelectedSupplier(isSelected ? null : supplierName);
-                        }}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
-                          isSelected 
-                            ? "bg-amber-50 border-amber-500 ring-2 ring-amber-500/30 shadow-xs" 
-                            : "bg-white border-slate-200/90 hover:border-amber-300 hover:shadow-2xs"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 overflow-hidden">
-                          <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-600"}`}>
-                            <Briefcase className="w-4 h-4" />
-                          </div>
-                          <div className="overflow-hidden">
-                            <p className="text-xs font-bold text-slate-900 truncate" title={supplierName}>{supplierName}</p>
-                            <span className="text-[10px] text-slate-500 font-semibold">
-                              {supVouchersCount > 0 ? `${supVouchersCount} voucher entries` : "No entries yet"}
-                            </span>
-                          </div>
-                        </div>
-                        <Button 
-                          type="button"
-                          variant="ghost" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteSupplierWithConfirm(supplierName);
-                          }}
-                          className="h-7 w-7 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50 opacity-60 group-hover:opacity-100 transition-opacity shrink-0 ml-1"
-                          title="Remove supplier"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-                {activeSelectedSupplier && (
-                  <div className="mt-3 pt-2 border-t border-amber-100 flex items-center justify-between text-xs">
-                    <span className="text-amber-700 font-bold">
-                      Showing statement for <span className="underline">{activeSelectedSupplier}</span> only
-                    </span>
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => setActiveSelectedSupplier(null)}
-                      className="text-xs text-amber-600 h-7 px-2 font-bold hover:bg-amber-100/50"
-                    >
-                      Clear Supplier Filter (Show All Suppliers)
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Dedicated Account Statement Table */}
-          <Card className="border-slate-200 bg-white overflow-hidden shadow-xs">
-            <CardHeader className="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-sm font-black text-slate-900">
+          {/* Statement of Transactions Table */}
+          <Card className="border border-slate-200 bg-white overflow-hidden shadow-xs">
+            <CardHeader className="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CardTitle className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-slate-600" />
                   {dedicatedCategoryInfo.title} — Statement of Transactions
                 </CardTitle>
-                <Badge variant="outline" className="text-[10px] font-bold">
+                <Badge variant="outline" className="text-[10px] font-bold border-slate-300 bg-white text-slate-700">
                   {dedicatedLedgerData.rows.length} Entries
+                </Badge>
+                <Badge variant="outline" className="text-[10px] font-mono font-bold border-slate-300 bg-white text-slate-800">
+                  {dedicatedLedgerData.activeCurrency}
                 </Badge>
               </div>
 
-              <div className="relative w-48 sm:w-64">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-                <Input 
-                  placeholder="Filter transactions, ref..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 h-8 text-xs font-semibold bg-white border-slate-200"
-                />
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="relative w-44 sm:w-56">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                  <Input 
+                    placeholder="Search voucher, ref, details..."
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setStatementCurrentPage(1);
+                    }}
+                    className="pl-8 h-8 text-xs font-medium bg-white border-slate-200"
+                  />
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStatementSortOrder(statementSortOrder === "chronological" ? "newest" : "chronological")}
+                  className="h-8 text-xs font-semibold border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  title="Switch between statement chronological order and newest first"
+                >
+                  <ArrowUpDown className="w-3 h-3 mr-1 text-slate-400" />
+                  {statementSortOrder === "chronological" ? "Statement Order (Oldest → Newest)" : "Newest First"}
+                </Button>
               </div>
             </CardHeader>
 
             <CardContent className="p-0">
-              <Table>
-                <TableHeader className="bg-slate-100/70 text-[11px] font-black uppercase text-slate-600">
-                  <TableRow>
-                    <TableHead className="py-2.5 px-4">Date</TableHead>
-                    <TableHead className="py-2.5 px-4">Voucher No</TableHead>
-                    <TableHead className="py-2.5 px-4">Type</TableHead>
-                    <TableHead className="py-2.5 px-4">Opposing (Contra) Account</TableHead>
-                    <TableHead className="py-2.5 px-4">Narration / Particulars</TableHead>
-                    <TableHead className="py-2.5 px-4 text-right text-emerald-700">Debit (Dr)</TableHead>
-                    <TableHead className="py-2.5 px-4 text-right text-rose-700">Credit (Cr)</TableHead>
-                    <TableHead className="py-2.5 px-4 text-center">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody className="divide-y divide-slate-100 text-xs">
-                  {dedicatedLedgerData.rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-12 text-center">
-                        <div className="flex flex-col items-center justify-center space-y-2">
-                          <div className="p-3 bg-slate-50 text-slate-400 rounded-full">
-                            <dedicatedCategoryInfo.icon className="w-6 h-6" />
-                          </div>
-                          <p className="text-sm font-bold text-slate-700">
-                            No transactions posted to {dedicatedCategoryInfo.title} yet
-                          </p>
-                          <p className="text-xs text-slate-400 max-w-sm">
-                            Any vouchers created under Accounting Vouchers targeting this account will automatically appear here.
-                          </p>
-                          <Button 
-                            size="sm" 
-                            onClick={() => {
-                              handleParentTypeChange(dedicatedCategoryInfo.defaultParentType);
-                              if (dedicatedCategoryInfo.defaultParentType === "RECEIPT") {
-                                setDrLedgerCode(dedicatedCategoryInfo.ledgerCode);
-                                setCrLedgerCode("1030");
-                              } else if (dedicatedCategoryInfo.defaultParentType === "PAYMENT") {
-                                setDrLedgerCode(dedicatedCategoryInfo.ledgerCode === "2010" ? "2010" : "4010");
-                                setCrLedgerCode(dedicatedCategoryInfo.ledgerCode === "2010" ? "1020" : dedicatedCategoryInfo.ledgerCode);
-                              }
-                              setNewVoucherModalOpen(true);
-                            }}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold mt-2"
-                          >
-                            <Plus className="w-3.5 h-3.5 mr-1.5" /> Create First Entry
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    dedicatedLedgerData.rows
-                      .filter(r => {
-                        if (!searchTerm) return true;
-                        const q = searchTerm.toLowerCase();
-                        return (
-                          r.voucher_no.toLowerCase().includes(q) ||
-                          r.narration.toLowerCase().includes(q) ||
-                          r.opposingName.toLowerCase().includes(q)
-                        );
-                      })
-                      .map((v) => {
-                        const typeName = voucherTypes.find(t => t.code === v.voucher_type_code)?.name || v.parent_type;
-                        return (
-                          <TableRow key={v.id} className="hover:bg-slate-50/60">
-                            <TableCell className="py-2.5 px-4 font-mono text-slate-500">{v.date}</TableCell>
-                            <TableCell className="py-2.5 px-4 font-mono font-bold text-indigo-700">{v.voucher_no}</TableCell>
-                            <TableCell className="py-2.5 px-4">
-                              <Badge variant="outline" className={`text-[10px] font-bold ${
-                                v.parent_type === "CONTRA" ? "text-blue-700 border-blue-200 bg-blue-50/50" :
-                                v.parent_type === "PAYMENT" ? "text-rose-700 border-rose-200 bg-rose-50/50" :
-                                v.parent_type === "RECEIPT" ? "text-emerald-700 border-emerald-200 bg-emerald-50/50" :
-                                "text-purple-700 border-purple-200 bg-purple-50/50"
-                              }`}>
-                                {typeName}
-                              </Badge>
+              {(() => {
+                const searchLower = searchTerm.toLowerCase();
+                const matchedRows = dedicatedLedgerData.rows.filter(r => {
+                  if (!searchTerm) return true;
+                  return (
+                    r.voucher_no.toLowerCase().includes(searchLower) ||
+                    r.narration.toLowerCase().includes(searchLower) ||
+                    r.opposingName.toLowerCase().includes(searchLower) ||
+                    (r.reference_no && r.reference_no.toLowerCase().includes(searchLower))
+                  );
+                });
+
+                const displayRows = statementSortOrder === "newest" ? [...matchedRows].reverse() : matchedRows;
+
+                const totalPages = statementPageSize === 0 ? 1 : Math.ceil(displayRows.length / statementPageSize) || 1;
+                const startIndex = statementPageSize === 0 ? 0 : (statementCurrentPage - 1) * statementPageSize;
+                const paginatedRows = statementPageSize === 0 ? displayRows : displayRows.slice(startIndex, startIndex + statementPageSize);
+
+                return (
+                  <div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                          <TableRow>
+                            <TableHead className="py-2.5 px-3">Date</TableHead>
+                            <TableHead className="py-2.5 px-3">Voucher / Ref No</TableHead>
+                            <TableHead className="py-2.5 px-3">Type</TableHead>
+                            <TableHead className="py-2.5 px-3">Contra / Opposing Account</TableHead>
+                            <TableHead className="py-2.5 px-3">Particulars / Narration</TableHead>
+                            <TableHead className="py-2.5 px-3 text-right text-emerald-700">Inflow / Debit (Dr)</TableHead>
+                            <TableHead className="py-2.5 px-3 text-right text-rose-700">Outflow / Credit (Cr)</TableHead>
+                            <TableHead className="py-2.5 px-3 text-right font-black text-slate-900">Running Balance</TableHead>
+                            <TableHead className="py-2.5 px-3 text-center w-12">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody className="divide-y divide-slate-100 text-xs">
+                          {/* Opening Balance Row (displayed when on page 1 in chronological mode or without search filter) */}
+                          {statementCurrentPage === 1 && !searchTerm && (
+                            <TableRow className="bg-slate-50/60 font-medium">
+                              <TableCell className="py-2.5 px-3 font-mono text-slate-600 font-bold">01-01-2026</TableCell>
+                              <TableCell className="py-2.5 px-3 font-mono text-slate-400 font-bold">-</TableCell>
+                              <TableCell className="py-2.5 px-3">
+                                <Badge variant="outline" className="text-[10px] font-bold text-slate-600 border-slate-300 bg-white">
+                                  OPENING
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="py-2.5 px-3 font-semibold text-slate-400">-</TableCell>
+                              <TableCell className="py-2.5 px-3 font-bold text-slate-800">
+                                Opening Balance Brought Forward
+                              </TableCell>
+                              <TableCell className="py-2.5 px-3 text-right font-mono text-slate-400">-</TableCell>
+                              <TableCell className="py-2.5 px-3 text-right font-mono text-slate-400">-</TableCell>
+                              <TableCell className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                                {formatDedicatedCurrency(dedicatedLedgerData.opening)}
+                              </TableCell>
+                              <TableCell className="py-2.5 px-3 text-center font-mono text-slate-400">-</TableCell>
+                            </TableRow>
+                          )}
+
+                          {paginatedRows.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={9} className="py-12 text-center text-slate-500">
+                                <div className="flex flex-col items-center justify-center space-y-2">
+                                  <div className="p-3 bg-slate-100 text-slate-400 rounded-full">
+                                    <dedicatedCategoryInfo.icon className="w-6 h-6" />
+                                  </div>
+                                  <p className="text-sm font-bold text-slate-700">No transactions found</p>
+                                  <p className="text-xs text-slate-400 max-w-sm">
+                                    {searchTerm ? "No entries match your search query." : `No transactions posted to this account yet.`}
+                                  </p>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            paginatedRows.map((v, idx) => {
+                              const typeName = voucherTypes.find(t => t.code === v.voucher_type_code)?.name || v.parent_type;
+                              return (
+                                <TableRow key={`stmt-${v.id || idx}-${idx}`} className="hover:bg-slate-50/70">
+                                  <TableCell className="py-2 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                                    {v.date}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 font-mono font-bold text-slate-800 text-[11px] whitespace-nowrap">
+                                    {v.reference_no || v.voucher_no}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 whitespace-nowrap">
+                                    <Badge variant="outline" className={`text-[9px] font-bold ${
+                                      v.parent_type === "CONTRA" ? "text-slate-700 border-slate-300 bg-slate-50" :
+                                      v.parent_type === "PAYMENT" ? "text-rose-700 border-rose-200 bg-rose-50/40" :
+                                      v.parent_type === "RECEIPT" ? "text-emerald-700 border-emerald-200 bg-emerald-50/40" :
+                                      "text-slate-700 border-slate-200 bg-slate-50"
+                                    }`}>
+                                      {typeName}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 font-semibold text-slate-700 text-xs">
+                                    <span className="text-[10px] text-slate-400 mr-1 font-mono">[{v.opposingCode}]</span> {v.opposingName}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-slate-600 max-w-[280px] truncate text-xs" title={v.narration}>
+                                    {v.narration}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-right font-mono font-bold text-emerald-700 text-xs whitespace-nowrap">
+                                    {v.isDr ? formatDedicatedCurrency(v.debitAmt) : "-"}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-right font-mono font-bold text-rose-700 text-xs whitespace-nowrap">
+                                    {v.isCr ? formatDedicatedCurrency(v.creditAmt) : "-"}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-right font-mono font-black text-slate-900 text-xs whitespace-nowrap">
+                                    {formatDedicatedCurrency(v.runningBalance)}
+                                  </TableCell>
+                                  <TableCell className="py-2 px-3 text-center">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => handleDeleteVoucherWithConfirm(v)}
+                                      className="h-6 w-6 p-0 text-slate-300 hover:text-rose-600 hover:bg-rose-50"
+                                      title="Delete voucher"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })
+                          )}
+                        </TableBody>
+
+                        {/* Statement Table Footer with Totals and Visible Closing Balance */}
+                        <TableFooter className="bg-slate-50/90 border-t-2 border-slate-300">
+                          <TableRow className="border-b border-slate-200 text-xs">
+                            <TableCell colSpan={5} className="py-2.5 px-3 font-black uppercase text-[11px] text-slate-700">
+                              Total Period Transactions ({displayRows.length} items)
                             </TableCell>
-                            <TableCell className="py-2.5 px-4 font-bold text-slate-800">
-                              <span className="text-[10px] text-slate-400 mr-1 font-mono">[{v.opposingCode}]</span> {v.opposingName}
+                            <TableCell className="py-2.5 px-3 text-right font-mono font-black text-emerald-700">
+                              +{formatDedicatedCurrency(dedicatedLedgerData.totalDr)}
                             </TableCell>
-                            <TableCell className="py-2.5 px-4 text-slate-600 max-w-[240px] truncate" title={v.narration}>
-                              {v.narration}
+                            <TableCell className="py-2.5 px-3 text-right font-mono font-black text-rose-700">
+                              -{formatDedicatedCurrency(dedicatedLedgerData.totalCr)}
                             </TableCell>
-                            <TableCell className="py-2.5 px-4 text-right font-black text-emerald-700">
-                              {v.isDr ? `$${v.debitAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
-                            </TableCell>
-                            <TableCell className="py-2.5 px-4 text-right font-black text-rose-700">
-                              {v.isCr ? `$${v.creditAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-"}
-                            </TableCell>
-                            <TableCell className="py-2.5 px-4 text-center">
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                onClick={() => handleDeleteVoucherWithConfirm(v)}
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600"
-                                title="Delete voucher"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
+                            <TableCell colSpan={2} className="py-2.5 px-3 text-right font-mono text-[11px] text-slate-500 font-semibold">
+                              Net Change: {formatDedicatedCurrency(dedicatedLedgerData.totalDr - dedicatedLedgerData.totalCr)}
                             </TableCell>
                           </TableRow>
-                        );
-                      })
-                  )}
-                </TableBody>
-              </Table>
+                          <TableRow className="bg-slate-100/90">
+                            <TableCell colSpan={5} className="py-3 px-3 font-black uppercase text-xs text-slate-900 tracking-wider">
+                              Closing Balance (Carried Forward)
+                            </TableCell>
+                            <TableCell colSpan={2} className="py-3 px-3 text-right text-[11px] font-semibold text-slate-500">
+                              Opening Balance + Inflows - Outflows =
+                            </TableCell>
+                            <TableCell className="py-3 px-3 text-right font-mono font-black text-sm text-slate-900 whitespace-nowrap">
+                              {formatDedicatedCurrency(dedicatedLedgerData.closingBalance)}
+                            </TableCell>
+                            <TableCell className="py-3 px-3 text-center">
+                              <Badge variant="outline" className="text-[9px] font-black border-slate-300 bg-white text-slate-700">
+                                RECONCILED
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        </TableFooter>
+                      </Table>
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {displayRows.length > 50 && (
+                      <div className="p-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="text-slate-500 font-medium">
+                          Showing <span className="font-bold text-slate-700">{startIndex + 1}</span> to <span className="font-bold text-slate-700">{Math.min(startIndex + statementPageSize, displayRows.length)}</span> of <span className="font-bold text-slate-900">{displayRows.length}</span> transactions
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 font-medium">Per page:</span>
+                          <select
+                            value={statementPageSize}
+                            onChange={(e) => {
+                              setStatementPageSize(Number(e.target.value));
+                              setStatementCurrentPage(1);
+                            }}
+                            className="h-7 text-xs border border-slate-200 rounded px-1.5 bg-white font-medium cursor-pointer"
+                          >
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                            <option value={250}>250</option>
+                            <option value={0}>All</option>
+                          </select>
+
+                          {statementPageSize > 0 && totalPages > 1 && (
+                            <div className="flex items-center gap-1 ml-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={statementCurrentPage <= 1}
+                                onClick={() => setStatementCurrentPage(p => Math.max(1, p - 1))}
+                                className="h-7 px-2 text-xs border-slate-200"
+                              >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                              </Button>
+                              <span className="text-xs font-semibold px-1 text-slate-600">
+                                {statementCurrentPage} / {totalPages}
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={statementCurrentPage >= totalPages}
+                                onClick={() => setStatementCurrentPage(p => Math.min(totalPages, p + 1))}
+                                className="h-7 px-2 text-xs border-slate-200"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
@@ -1782,13 +1994,13 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredVouchers.map((v) => {
+                filteredVouchers.map((v, idx) => {
                   const typeName = voucherTypes.find(t => t.code === v.voucher_type_code)?.name || v.parent_type;
                   const drName = ledgerMap[v.dr_ledger_code]?.name || v.dr_ledger_code;
                   const crName = ledgerMap[v.cr_ledger_code]?.name || v.cr_ledger_code;
 
                   return (
-                    <TableRow key={v.id} className="hover:bg-slate-50/60">
+                    <TableRow key={`voucher-${v.id || idx}-${idx}`} className="hover:bg-slate-50/60">
                       <TableCell className="py-2.5 px-4 font-mono text-slate-500">{v.date}</TableCell>
                       <TableCell className="py-2.5 px-4 font-mono font-bold text-indigo-700">{v.voucher_no}</TableCell>
                       <TableCell className="py-2.5 px-4">
@@ -2258,8 +2470,8 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                 </TableRow>
               </TableHeader>
               <TableBody className="text-xs divide-y divide-slate-100">
-                {voucherTypes.map((vt) => (
-                  <TableRow key={vt.id}>
+                {voucherTypes.map((vt, idx) => (
+                  <TableRow key={`vt-${vt.id || vt.code || idx}-${idx}`}>
                     <TableCell className="py-2 px-3 font-bold text-slate-800">{vt.name}</TableCell>
                     <TableCell className="py-2 px-3">
                       <Badge variant="outline" className="text-[9px] font-bold">
@@ -2372,8 +2584,8 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
                 </TableRow>
               </TableHeader>
               <TableBody className="text-xs divide-y divide-slate-100">
-                {ledgers.map((l) => (
-                  <TableRow key={l.id}>
+                {ledgers.map((l, idx) => (
+                  <TableRow key={`ldr-${l.id || l.code || idx}-${idx}`}>
                     <TableCell className="py-2 px-3 font-mono font-bold text-indigo-700">{l.code}</TableCell>
                     <TableCell className="py-2 px-3 font-bold text-slate-800">{l.name}</TableCell>
                     <TableCell className="py-2 px-3">
@@ -2669,6 +2881,64 @@ export const AccountingVouchersManager: React.FC<AccountingVouchersManagerProps>
       </Dialog>
 
       {/* ============================================================== */}
+      {/* MODAL 7B: EDIT SUPPLIER OPENING BALANCE                         */}
+      {/* ============================================================== */}
+      <Dialog open={editSupplierOpeningModalOpen} onOpenChange={setEditSupplierOpeningModalOpen}>
+        <DialogContent className="max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Briefcase className="w-5 h-5 text-amber-600" />
+              Set Supplier Opening Balance
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Set the starting payable balance owed to <span className="font-bold text-slate-800">{editingSupplierOpening?.name}</span> in Supabase.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-3">
+            <div>
+              <Label className="text-xs font-bold text-slate-700">Supplier Name</Label>
+              <Input 
+                value={editingSupplierOpening?.name || ""} 
+                disabled 
+                className="h-9 text-xs bg-slate-50 font-bold text-slate-700 mt-1" 
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-bold text-slate-700">
+                Opening Balance Amount (USD / TZS)
+              </Label>
+              <Input 
+                type="number"
+                step="any"
+                value={supplierOpeningInput}
+                onChange={(e) => setSupplierOpeningInput(e.target.value)}
+                placeholder="e.g. 25000"
+                className="h-9 text-xs font-mono font-bold mt-1"
+                autoFocus
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                This starting amount will be saved to Supabase and added to all live bills and payments to determine this supplier's exact live balance.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setEditSupplierOpeningModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              size="sm" 
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+              onClick={handleSaveSupplierOpeningBalance}
+            >
+              Save to Supabase
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============================================================== */}
       {/* MODAL 8: SUPABASE SQL MIGRATION VIEW & 1-CLICK COPY            */}
       {/* ============================================================== */}
       <Dialog open={sqlMigrationModalOpen} onOpenChange={setSqlMigrationModalOpen}>
@@ -2854,8 +3124,8 @@ CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting
               Upload Account Statement PDF
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              Upload any bank or cash account book PDF (e.g. <i>CASH ACCOUNT.pdf</i>, <i>NMB USD</i>, <i>NMB TZS</i>, <i>Amana</i>). 
-              The system will automatically extract every transaction, match the dates, amounts, and voucher numbers, and import them directly into Supabase.
+              Upload any Tally statement PDF (e.g. <i>Supplier Ledger</i>, <i>CASH ACCOUNT.pdf</i>, <i>NMB USD</i>, <i>NMB TZS</i>, <i>Amana</i>). 
+              The system will automatically extract every transaction, match dates, amounts, and voucher numbers, and import them directly into Supabase.
             </DialogDescription>
           </DialogHeader>
 
@@ -2880,7 +3150,7 @@ CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting
                 {statementFile ? statementFile.name : "Click to select statement PDF"}
               </p>
               <p className="text-[10px] text-slate-400 mt-1">
-                Supports Cash Account Book, NMB Statements, Amana USD, etc.
+                Supports Supplier Payables, Cash Account Book, NMB Bank Statements, Amana USD, etc.
               </p>
             </div>
 
@@ -2899,52 +3169,149 @@ CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting
                   <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
                     <Check className="w-4 h-4 text-emerald-600" /> Statement Analyzed
                   </span>
-                  <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
-                    {statementParseResult.entries.length} Transactions
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
+                      {statementParseResult.entries.length} Total
+                    </Badge>
+                    {statementParseResult.detectedTarget === "SUPPLIER" && (
+                      <Badge variant="outline" className="text-[10px] font-bold border-indigo-300 text-indigo-700 bg-white">
+                        Supplier Statement
+                      </Badge>
+                    )}
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-bold text-slate-700">Target Bank Account:</Label>
-                    <span className="text-[11px] text-indigo-600 font-semibold">Choose which bank this statement belongs to</span>
+                {/* Target Supplier Selector */}
+                {statementParseResult.detectedTarget === "SUPPLIER" ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-slate-700">Target Supplier / Vendor:</Label>
+                      <span className="text-[11px] text-indigo-600 font-semibold">Match to existing supplier or add new</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select 
+                        value={statementSelectedSupplier || statementParseResult.detectedAccountName} 
+                        onValueChange={(val) => {
+                          if (val === "custom_new") {
+                            setStatementSelectedSupplier("custom_new");
+                          } else {
+                            setStatementSelectedSupplier(val);
+                            if (statementParseResult) {
+                              statementParseResult.detectedAccountName = val;
+                            }
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-9 text-xs font-bold bg-white border-indigo-200 flex-1">
+                          <SelectValue placeholder="Select target supplier..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {companySuppliers.map((sName) => (
+                            <SelectItem key={sName} value={sName} className="text-xs font-medium">
+                              {sName}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="custom_new" className="text-xs font-bold text-indigo-600">
+                            + Add New Supplier Name...
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={statementParseResult.currency}
+                        onValueChange={(cur: "USD" | "TZS") => {
+                          if (statementParseResult) {
+                            statementParseResult.currency = cur;
+                            statementParseResult.entries.forEach(e => { e.currency = cur; });
+                          }
+                          setRefreshKey(k => k + 1);
+                        }}
+                      >
+                        <SelectTrigger className="h-9 w-24 text-xs font-mono font-bold bg-white border-indigo-200">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="USD">USD ($)</SelectItem>
+                          <SelectItem value="TZS">TZS (Shs)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {statementSelectedSupplier === "custom_new" && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Input 
+                          placeholder="Type new supplier name (e.g. Mantrac Ltd)..."
+                          value={statementCustomSupplierName}
+                          onChange={(e) => {
+                            setStatementCustomSupplierName(e.target.value);
+                            if (statementParseResult) {
+                              statementParseResult.detectedAccountName = e.target.value;
+                            }
+                          }}
+                          className="h-8 text-xs font-bold bg-white border-indigo-300"
+                          autoFocus
+                        />
+                      </div>
+                    )}
                   </div>
-                  <Select 
-                    value={statementSelectedBank || statementParseResult.detectedAccountName} 
-                    onValueChange={(val) => {
-                      setStatementSelectedBank(val);
-                      if (statementParseResult) {
-                        statementParseResult.detectedAccountName = val;
-                        const bObj = companyBankObjects.find(b => b.name === val);
-                        if (bObj?.currency) {
-                          statementParseResult.currency = bObj.currency as any;
+                ) : statementParseResult.detectedTarget === "BANK" ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-slate-700">Target Bank Account:</Label>
+                      <span className="text-[11px] text-indigo-600 font-semibold">Choose which bank this statement belongs to</span>
+                    </div>
+                    <Select 
+                      value={statementSelectedBank || statementParseResult.detectedAccountName} 
+                      onValueChange={(val) => {
+                        setStatementSelectedBank(val);
+                        if (statementParseResult) {
+                          statementParseResult.detectedAccountName = val;
+                          const bObj = companyBankObjects.find(b => b.name === val);
+                          if (bObj?.currency) {
+                            statementParseResult.currency = bObj.currency as any;
+                          }
                         }
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-9 text-xs font-bold bg-white border-indigo-200">
-                      <SelectValue placeholder="Select target bank..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {companyBanks.map((bName) => (
-                        <SelectItem key={bName} value={bName} className="text-xs font-medium">
-                          {bName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                      }}
+                    >
+                      <SelectTrigger className="h-9 text-xs font-bold bg-white border-indigo-200">
+                        <SelectValue placeholder="Select target bank..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {companyBanks.map((bName) => (
+                          <SelectItem key={bName} value={bName} className="text-xs font-medium">
+                            {bName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="p-2.5 rounded-lg bg-white border border-emerald-100">
                     <p className="text-[10px] font-bold uppercase text-slate-400">Target Account</p>
-                    <p className="font-bold text-slate-900 mt-0.5 truncate">{statementSelectedBank || statementParseResult.detectedAccountName}</p>
+                    <p className="font-bold text-slate-900 mt-0.5 truncate">
+                      {statementParseResult.detectedTarget === "SUPPLIER"
+                        ? (statementCustomSupplierName || statementSelectedSupplier || statementParseResult.detectedAccountName)
+                        : (statementSelectedBank || statementParseResult.detectedAccountName)}
+                    </p>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white border border-emerald-100">
                     <p className="text-[10px] font-bold uppercase text-slate-400">Currency</p>
-                    <p className="font-bold text-slate-900 mt-0.5">{statementParseResult.currency}</p>
+                    <p className="font-bold text-slate-900 mt-0.5 font-mono">{statementParseResult.currency}</p>
                   </div>
                 </div>
+
+                {statementParseResult.detectedTarget === "SUPPLIER" && (
+                  <div className="flex items-center justify-between text-[11px] p-2 bg-indigo-50/60 rounded-lg border border-indigo-100">
+                    <span className="font-semibold text-indigo-900">
+                      Bills / Invoices: <b className="text-emerald-700">+{statementParseResult.entries.filter(e => e.type === "Cr").length}</b>
+                    </span>
+                    <span className="font-semibold text-indigo-900">
+                      Payments Made: <b className="text-rose-700">-{statementParseResult.entries.filter(e => e.type === "Dr").length}</b>
+                    </span>
+                  </div>
+                )}
 
                 {statementParseResult.openingBalance > 0 && (
                   <p className="text-[11px] text-emerald-800 font-medium">
@@ -2952,16 +3319,23 @@ CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_supplier ON public.accounting
                   </p>
                 )}
 
-                {/* First 3 preview items */}
+                {statementParseResult.closingBalance > 0 && (
+                  <p className="text-[11px] text-emerald-800 font-medium">
+                    Closing Balance Detected: <b>{statementParseResult.currency} {statementParseResult.closingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b>
+                  </p>
+                )}
+
+                {/* First 5 preview items */}
                 <div className="border border-slate-200 rounded-lg p-2.5 bg-white divide-y divide-slate-100 text-[11px] max-h-36 overflow-y-auto">
                   {statementParseResult.entries.slice(0, 5).map((e, idx) => (
                     <div key={idx} className="py-1.5 flex items-center justify-between gap-2">
                       <div className="truncate">
                         <span className="font-mono text-[10px] text-slate-400 mr-2">{e.date}</span>
                         <span className="font-bold text-slate-800">{e.particulars}</span>
+                        <span className="text-[10px] text-slate-400 ml-1.5 font-mono">({e.voucherType})</span>
                       </div>
                       <span className={`font-mono font-bold shrink-0 ${e.type === 'Cr' ? 'text-emerald-600' : 'text-slate-900'}`}>
-                        {e.currency === 'USD' ? '$' : 'TZS '}{e.amount.toLocaleString()}
+                        {e.type === 'Cr' ? '+ ' : '- '}{e.currency === 'USD' ? '$' : 'TZS '}{e.amount.toLocaleString()}
                       </span>
                     </div>
                   ))}

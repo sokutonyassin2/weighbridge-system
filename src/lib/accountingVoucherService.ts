@@ -163,18 +163,48 @@ export function getStoredVouchers(): AccountingVoucher[] {
 
 export async function fetchAccountingVouchers(): Promise<AccountingVoucher[]> {
   try {
-    const { data, error } = await supabase
-      .from("accounting_vouchers" as any)
-      .select("*")
-      .order("date", { ascending: false })
-      .order("created_at", { ascending: false });
+    const allRows: any[] = [];
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    let hasMore = true;
 
-    if (error) {
-      console.warn("Could not query Supabase accounting_vouchers:", error.message);
-      return [];
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("accounting_vouchers" as any)
+        .select("*")
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) {
+        console.warn("Could not query Supabase accounting_vouchers:", error.message);
+        break;
+      }
+
+      if (data && data.length > 0) {
+        allRows.push(...data);
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    return (data || []).map((row: any) => ({
+    // Deduplicate any overlapping vouchers across pagination boundaries
+    const seenIds = new Set<string>();
+    const uniqueRows: any[] = [];
+    for (const row of allRows) {
+      const key = String(row.id || row.voucher_no || "");
+      if (key && seenIds.has(key)) continue;
+      if (key) seenIds.add(key);
+      uniqueRows.push(row);
+    }
+
+    return uniqueRows.map((row: any) => ({
       ...row,
       amount: parseFloat(row.amount) || 0,
       exchange_rate: parseFloat(row.exchange_rate) || 2700,
@@ -280,8 +310,8 @@ export async function deleteVoucher(voucherId: string): Promise<void> {
 }
 
 export async function deleteVouchersByAccount(
-  accountType: "cash" | "bank", 
-  bankName?: string,
+  accountType: "cash" | "bank" | "supplier", 
+  accountName?: string,
   voucherIds?: string[]
 ): Promise<{ deletedCount: number }> {
   // If specific voucher IDs were passed (e.g. from current view), delete those exact IDs
@@ -307,11 +337,18 @@ export async function deleteVouchersByAccount(
     // In our system Cash is ledger 1010
     query = query.or("dr_ledger_code.eq.1010,cr_ledger_code.eq.1010");
   } else if (accountType === "bank") {
-    if (bankName) {
-      query = query.or(`bank_name.eq."${bankName}",narration.ilike."%${bankName}%",reference_no.ilike."%${bankName}%"`);
+    if (accountName) {
+      query = query.or(`bank_name.eq."${accountName}",narration.ilike."%${accountName}%",reference_no.ilike."%${accountName}%"`);
     } else {
       // Bank ledger is 1020
       query = query.or("dr_ledger_code.eq.1020,cr_ledger_code.eq.1020");
+    }
+  } else if (accountType === "supplier") {
+    if (accountName) {
+      query = query.or(`supplier_name.eq."${accountName}",narration.ilike."%${accountName}%",reference_no.ilike."%${accountName}%"`);
+    } else {
+      // Supplier payables ledger is 2010
+      query = query.or("dr_ledger_code.eq.2010,cr_ledger_code.eq.2010");
     }
   }
 
@@ -453,3 +490,13 @@ export async function deleteSupplier(supplierId: string, supplierName?: string):
   const { error } = await query;
   if (error) throw error;
 }
+
+export async function updateSupplierOpeningBalance(supplierId: string, openingBalance: number): Promise<void> {
+  const { error } = await supabase
+    .from("accounting_suppliers" as any)
+    .update({ opening_balance: openingBalance })
+    .eq("id", supplierId);
+
+  if (error) throw error;
+}
+
